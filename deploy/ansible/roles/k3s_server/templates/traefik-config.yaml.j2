@@ -1,0 +1,23 @@
+# Managed by Ansible. Values for the Traefik chart bundled with k3s.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        # LoadBalancer = servicelb binds 80/443 on the node.
+        # NodePort = the host nginx stays on 80/443 and forwards Winkey hosts here (kube-proxy
+        # only opens NodePorts on the Tailscale IP, see config.yaml).
+        # The chart reads service.spec.type; a top-level service.type is silently ignored.
+        type: {{ traefik_service_type }}
+    ports:
+      web:
+        nodePort: {{ traefik_nodeport_web }}
+        forwardedHeaders:
+          # The host nginx sets X-Forwarded-For / -Proto; only trust it (host traffic arrives SNATed).
+          trustedIPs: {{ traefik_trusted_ips | to_json }}
+      websecure:
+        nodePort: {{ traefik_nodeport_websecure }}
