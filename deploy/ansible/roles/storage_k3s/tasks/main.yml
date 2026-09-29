@@ -41,14 +41,20 @@
     mode: "0644"
   register: storage_manifests_sync
 
+- name: Check if garage StatefulSet exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get statefulset garage -n default
+  register: garage_sts_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
 - name: Recreate garage-bootstrap Job when manifests changed
   ansible.builtin.command: /usr/local/bin/k3s kubectl delete job garage-bootstrap -n default --ignore-not-found
   when: storage_manifests_sync.changed
 
 - name: Apply Garage storage kustomization
   ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/storage-manifests/
-  register: kustomize_apply
-  changed_when: "'configured' in kustomize_apply.stdout or 'created' in kustomize_apply.stdout"
+  when: storage_manifests_sync.changed or garage_sts_check.rc != 0
 
 - name: Wait for Garage StatefulSet rollout
   ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/garage -n default --timeout=120s
