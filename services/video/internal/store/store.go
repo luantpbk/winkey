@@ -216,3 +216,14 @@ func (p *Postgres) DeleteVideo(ctx context.Context, id uuid.UUID, mediaBucket st
 	}
 	return true, nil
 }
+
+// SetLikeCount sets the absolute like count copied from social-svc. Rows whose
+// count already equals the value are not written (no WAL churn, no updated_at
+// bump), so a redelivered event is a no-op.
+func (p *Postgres) SetLikeCount(ctx context.Context, id uuid.UUID, count int64) (bool, error) {
+	tag, err := p.Pool.Exec(ctx, `UPDATE media.videos SET like_count = $2 WHERE id = $1 AND like_count <> $2`, id, count)
+	if err != nil {
+		return false, fmt.Errorf("set like count: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}

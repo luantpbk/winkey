@@ -24,6 +24,7 @@ import (
 	"github.com/luantpbk/winkey/services/video/internal/cache"
 	"github.com/luantpbk/winkey/services/video/internal/config"
 	"github.com/luantpbk/winkey/services/video/internal/domain"
+	"github.com/luantpbk/winkey/services/video/internal/likes"
 	"github.com/luantpbk/winkey/services/video/internal/store"
 )
 
@@ -89,13 +90,16 @@ func run(cfg config.Config, log *slog.Logger) error {
 		log.Info("video cache enabled", "ttl", cfg.CacheTTL.String())
 	}
 
+	st := &store.Postgres{Pool: pool}
+	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
+
 	outbox.SetProducer(service)
 	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true}
 
 	router := httpx.NewRouter(service, log)
 	health.Mount(router)
 	(&api.Handler{
-		Store: &store.Postgres{Pool: pool}, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
+		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
 	}).Routes(router)
 
@@ -106,8 +110,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() { defer wg.Done(); _ = relay.Run(ctx) }()
+	go func() { defer wg.Done(); _ = likeConsumer.Run(ctx) }()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()

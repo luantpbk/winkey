@@ -366,3 +366,57 @@ func TestDeleteVideoIsAtomic(t *testing.T) {
 		t.Fatalf("the video was deleted although its event could not be written: %v", err)
 	}
 }
+
+func TestSetLikeCount(t *testing.T) {
+	st, pg := setup(t)
+	ctx := context.Background()
+	alice := testutil.SeedUser(t, pg.Pool, "alice", nil, "")
+	v := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID})
+	other := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID})
+	likeCount := func(id uuid.UUID) (n int64, updated time.Time) {
+		if err := pg.Pool.QueryRow(ctx, `SELECT like_count, updated_at FROM media.videos WHERE id=$1`, id).Scan(&n, &updated); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	// Absolute: sets, raises, and lowers (an un-like), never accumulates.
+	for _, want := range []int64{5, 42, 41, 0, 9007199254740993} {
+		changed, err := st.SetLikeCount(ctx, v.ID, want)
+		if err != nil || !changed {
+			t.Fatalf("set %d: changed=%v err=%v", want, changed, err)
+		}
+		if got, _ := likeCount(v.ID); got != want {
+			t.Fatalf("like_count %d, want %d", got, want)
+		}
+	}
+	// The same value again is a no-op that writes nothing (updated_at stays).
+	_, before := likeCount(v.ID)
+	time.Sleep(10 * time.Millisecond)
+	if changed, err := st.SetLikeCount(ctx, v.ID, 9007199254740993); err != nil || changed {
+		t.Fatalf("repeat: changed=%v err=%v", changed, err)
+	}
+	if _, after := likeCount(v.ID); !after.Equal(before) {
+		t.Fatal("a redelivered event rewrote the row")
+	}
+	// Other videos are untouched; an unknown video is not an error.
+	if n, _ := likeCount(other.ID); n != 0 {
+		t.Fatalf("another video changed: %d", n)
+	}
+	if changed, err := st.SetLikeCount(ctx, uuid.New(), 3); err != nil || changed {
+		t.Fatalf("unknown video: changed=%v err=%v", changed, err)
+	}
+	// The database refuses negative counts (the consumer rejects them before this point).
+	if _, err := st.SetLikeCount(ctx, v.ID, -1); err == nil {
+		t.Fatal("a negative like_count was accepted")
+	}
+	// The feed reads the stored value.
+	rows, _ := st.ListFeed(ctx, domain.FeedQuery{Limit: 10})
+	if len(rows) != 2 {
+		t.Fatalf("feed: %d", len(rows))
+	}
+	got, _ := st.GetVideo(ctx, v.ID)
+	if got.LikeCount != 9007199254740993 {
+		t.Fatalf("GetVideo like_count %d", got.LikeCount)
+	}
+}
