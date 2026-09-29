@@ -64,18 +64,23 @@ func TestEnqueueRelayEndToEnd(t *testing.T) {
 	if got == nil {
 		t.Fatal("event not delivered after commit")
 	}
+	// The payload goes through a jsonb column, which normalises whitespace, so
+	// compare the data structurally.
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatal(err)
+	}
 	if got.Type != "video.uploaded" || got.Version != 1 || got.Producer != "upload-svc" ||
-		string(got.Data) != `{"video_id":"v1"}` {
+		len(data) != 1 || data["video_id"] != "v1" {
 		t.Fatalf("bad envelope: %+v", got)
 	}
 
-	var pending int
-	if err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE published_at IS NULL`).Scan(&pending); err != nil {
-		t.Fatal(err)
-	}
-	if pending != 0 {
-		t.Fatalf("%d rows still pending", pending)
-	}
+	// published_at is committed just after the message is published.
+	waitFor(t, 5*time.Second, "row marked published", func() bool {
+		var pending int
+		_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE published_at IS NULL`).Scan(&pending)
+		return pending == 0
+	})
 
 	// Cleanup removes published rows older than the retention (fresh relay:
 	// the first one keeps running with its own settings).
