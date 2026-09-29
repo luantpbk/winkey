@@ -17,12 +17,12 @@ export class ValkeyRateLimiter implements RateLimiter {
   private readonly redis: Redis | null;
   private readonly memoryStore = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(valkeyUrl?: string, customRedis?: Redis) {
+  constructor(valkeyUrl?: string, customRedis?: Redis | null) {
     if (customRedis) {
       this.redis = customRedis;
     } else if (valkeyUrl) {
       try {
-        this.redis = new (Redis as any)(valkeyUrl, {
+        this.redis = new Redis(valkeyUrl, {
           lazyConnect: true,
           maxRetriesPerRequest: 1,
           enableOfflineQueue: false,

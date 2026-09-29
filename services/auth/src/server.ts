@@ -16,20 +16,23 @@ import { getDb } from './db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
 import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
+import type { Redis } from 'ioredis';
+import type { NatsConnection } from 'nats';
 
 export interface BuildAppOptions {
   env?: Env;
   db?: Kysely<Database>;
   rateLimiter?: RateLimiter;
-  redis?: any;
-  natsConnection?: any;
+  redis?: Redis | null;
+  natsConnection?: NatsConnection | null;
   googleTokenExchanger?: GoogleTokenExchanger;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const env = options.env || getEnv();
   const db = options.db || getDb(env.DATABASE_URL).db;
-  const rateLimiter = options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis);
+  const rateLimiter =
+    options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis ?? undefined);
   const trustProxyConfig = env.TRUST_PROXY_CIDRS
     ? env.TRUST_PROXY_CIDRS.split(',')
         .map((s) => s.trim())
