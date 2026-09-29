@@ -123,7 +123,7 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8222/varz | grep -q '\"ok\":true' || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8222/healthz || wget -q -O - http://127.0.0.1:8222/varz | grep -q 'server_id' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -187,11 +187,12 @@ services:
     depends_on:
       garage:
         condition: service_healthy
+    network_mode: "service:garage"
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - .:/env
     environment:
-      GARAGE_HOST: garage
+      GARAGE_HOST: 127.0.0.1
     restart: "no"
     deploy:
       resources:

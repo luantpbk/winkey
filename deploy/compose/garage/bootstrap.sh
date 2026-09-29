@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-GARAGE_HOST="${GARAGE_HOST:-garage}"
+GARAGE_HOST="${GARAGE_HOST:-127.0.0.1}"
 GARAGE_CONFIG="/etc/garage.toml"
 ENV_OUTPUT_DIR="/env"
 

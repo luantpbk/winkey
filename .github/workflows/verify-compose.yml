@@ -52,6 +52,11 @@ jobs:
         run: |
           DATABASE_URL="postgres://winkey_migrator:winkey_migrator@127.0.0.1:5432/winkey?sslmode=disable" make db-test
 
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/compose/dev.yml logs
+
       - name: Stop dev stack
         if: always()
         run: |
