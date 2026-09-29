@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,9 +56,14 @@ type Flusher struct {
 	// DBTimeout bounds one database write (default 30 s).
 	DBTimeout time.Duration
 	Log       *slog.Logger
+
+	once sync.Once
 }
 
-func (f *Flusher) defaults() {
+// defaults fills unset fields once, so FlushOnce is safe to call from several goroutines.
+func (f *Flusher) defaults() { f.once.Do(f.setDefaults) }
+
+func (f *Flusher) setDefaults() {
 	if f.Interval <= 0 {
 		f.Interval = 30 * time.Second
 	}

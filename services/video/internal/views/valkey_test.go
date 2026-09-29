@@ -423,3 +423,28 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// One Flusher value used from several goroutines (the race detector guards the defaults).
+func TestSharedFlusherIsSafeForConcurrentUse(t *testing.T) {
+	r := newRig(t, time.Minute)
+	db := newMemDB()
+	video := ids.New()
+	for i := 0; i < 30; i++ {
+		mustCount(t, r.v, video, ids.New(), fmt.Sprintf("u:%d", i))
+	}
+	f := &Flusher{V: r.v, DB: db, Log: slog.New(slog.NewJSONHandler(io.Discard, nil))} // defaults unset
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := f.FlushOnce(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if db.total(video) != 30 {
+		t.Fatalf("view_count +%d, want +30", db.total(video))
+	}
+}
