@@ -10,12 +10,171 @@ import type {
   UploadStatus,
   StudioVideoPage,
   VideoPage,
+  Comment,
+  CommentPage,
+  LikeState,
+  SubscriptionState,
+  CreateCommentRequest,
+  EditCommentRequest,
 } from '@winkey/api-client';
 import { mockUsers, mockPublicProfiles, mockVideos, mockStudioVideos } from './fixtures';
 
 let currentUser: User | null = mockUsers.creator;
 let dynamicVideos: Video[] = [...mockVideos];
 let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
+
+const initialMockComments: Comment[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    parent_id: null,
+    author: mockPublicProfiles.viet_coder,
+    body: 'Video giải thích kiến trúc rất trực quan và chi tiết! Mong chờ tập tiếp theo về k3s ingress.',
+    status: 'VISIBLE',
+    reply_count: 2,
+    created_at: '2026-09-16T12:00:00Z',
+    edited_at: null,
+    can_edit: false,
+    can_delete: false,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-c00000000002',
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    parent_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+    author: mockPublicProfiles.winkey_creator,
+    body: 'Cảm ơn bạn! Phần ingress Traefik sẽ lên sóng trong tuần tới nhé.',
+    status: 'VISIBLE',
+    reply_count: 0,
+    created_at: '2026-09-16T14:30:00Z',
+    edited_at: null,
+    can_edit: false,
+    can_delete: false,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-c00000000003',
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    parent_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+    author: mockPublicProfiles.viet_coder,
+    body: 'Tuyệt vời, mình sẽ đón xem!',
+    status: 'VISIBLE',
+    reply_count: 0,
+    created_at: '2026-09-16T15:00:00Z',
+    edited_at: null,
+    can_edit: false,
+    can_delete: false,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-c00000000004',
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    parent_id: null,
+    author: null,
+    body: '',
+    status: 'DELETED',
+    reply_count: 1,
+    created_at: '2026-09-17T09:00:00Z',
+    edited_at: null,
+    can_edit: false,
+    can_delete: false,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-c00000000005',
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    parent_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000004',
+    author: mockPublicProfiles.winkey_creator,
+    body: 'Phản hồi cho câu hỏi đã xóa ở trên.',
+    status: 'VISIBLE',
+    reply_count: 0,
+    created_at: '2026-09-17T10:15:00Z',
+    edited_at: null,
+    can_edit: false,
+    can_delete: false,
+  },
+];
+
+let dynamicComments: Comment[] = [...initialMockComments];
+const dynamicLikes = new Map<string, { liked: boolean; like_count: number }>();
+dynamicLikes.set('0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', { liked: false, like_count: 8940 });
+
+const dynamicSubscriptions = new Map<string, { subscribed: boolean; subscriber_count: number }>();
+dynamicSubscriptions.set(mockUsers.creator.id, { subscribed: false, subscriber_count: 128450 });
+dynamicSubscriptions.set(mockUsers.tech_guy.id, { subscribed: false, subscriber_count: 45200 });
+
+function getDynamicComments(): Comment[] {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_comments');
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+  }
+  return dynamicComments;
+}
+
+function setDynamicComments(comments: Comment[]) {
+  dynamicComments = comments;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem('wk_mock_comments', JSON.stringify(comments));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function getDynamicLikes(): Map<string, { liked: boolean; like_count: number }> {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_likes');
+      if (stored) {
+        const obj = JSON.parse(stored);
+        return new Map(Object.entries(obj));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return dynamicLikes;
+}
+
+function setDynamicLikes(likes: Map<string, { liked: boolean; like_count: number }>) {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const obj = Object.fromEntries(likes.entries());
+      window.sessionStorage.setItem('wk_mock_likes', JSON.stringify(obj));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function getDynamicSubscriptions(): Map<string, { subscribed: boolean; subscriber_count: number }> {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_subs');
+      if (stored) {
+        const obj = JSON.parse(stored);
+        return new Map(Object.entries(obj));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return dynamicSubscriptions;
+}
+
+function setDynamicSubscriptions(
+  subs: Map<string, { subscribed: boolean; subscriber_count: number }>,
+) {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const obj = Object.fromEntries(subs.entries());
+      window.sessionStorage.setItem('wk_mock_subs', JSON.stringify(obj));
+    } catch {
+      // ignore
+    }
+  }
+}
 
 function getDynamicVideos(): Video[] {
   if (typeof window !== 'undefined' && window.sessionStorage) {
@@ -532,5 +691,441 @@ export const handlers = [
       next_cursor: null,
     };
     return HttpResponse.json(page);
+  }),
+
+  // --- Social: Comments ---
+  http.get('*/v1/videos/:id/comments', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    const all = getDynamicComments().filter(
+      (c) => c.video_id === videoId && c.parent_id === null && c.status !== 'HIDDEN',
+    );
+    // Sort newest first
+    all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    // Hide deleted tombstones with 0 replies
+    const visibleTopLevel = all.filter((c) => !(c.status === 'DELETED' && c.reply_count === 0));
+
+    let startIndex = 0;
+    if (cursor) {
+      const idx = visibleTopLevel.findIndex((c) => c.id === cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+
+    const items = visibleTopLevel.slice(startIndex, startIndex + limit).map((c) => ({
+      ...c,
+      can_edit: Boolean(currentUser && c.author?.id === currentUser.id && c.status === 'VISIBLE'),
+      can_delete: Boolean(
+        currentUser && (c.author?.id === currentUser.id || currentUser.roles.includes('admin')),
+      ),
+    }));
+
+    const nextIndex = startIndex + limit;
+    const next_cursor =
+      nextIndex < visibleTopLevel.length ? visibleTopLevel[nextIndex - 1].id : null;
+
+    const page: CommentPage = {
+      items,
+      next_cursor,
+    };
+    return HttpResponse.json(page);
+  }),
+
+  http.post('*/v1/videos/:id/comments', async ({ params, request }) => {
+    const videoId = params.id as string;
+    if (!currentUser) {
+      const problem: Problem = {
+        type: '/problems/unauthorized',
+        title: 'Unauthorized',
+        status: 401,
+        code: 'UNAUTHORIZED',
+      };
+      return HttpResponse.json(problem, { status: 401 });
+    }
+
+    // Rate limit mock header / trigger
+    if (request.headers.get('x-mock-rate-limit') === '1') {
+      const problem: Problem = {
+        type: '/problems/too-many-requests',
+        title: 'Too Many Requests',
+        status: 429,
+        code: 'RATE_LIMIT_EXCEEDED',
+        detail: 'Rate limit exceeded. Please wait.',
+      };
+      return HttpResponse.json(problem, { status: 429, headers: { 'Retry-After': '30' } });
+    }
+
+    const body = (await request.json()) as CreateCommentRequest;
+    const text = (body.body || '').trim();
+
+    if (!text || text.length > 2000) {
+      const problem: Problem = {
+        type: '/problems/validation',
+        title: 'Validation Failed',
+        status: 400,
+        code: 'VALIDATION_FAILED',
+        detail: 'Comment body must be between 1 and 2000 characters',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    const currentList = [...getDynamicComments()];
+    let targetParentId: string | null = null;
+
+    if (body.parent_id) {
+      const parent = currentList.find((c) => c.id === body.parent_id);
+      if (!parent || parent.status === 'HIDDEN') {
+        const problem: Problem = {
+          type: '/problems/not-found',
+          title: 'Parent comment not found',
+          status: 404,
+          code: 'PARENT_NOT_FOUND',
+        };
+        return HttpResponse.json(problem, { status: 404 });
+      }
+      // Strict 2-level cap: If parent has a parent, attach to the root parent
+      targetParentId = parent.parent_id ? parent.parent_id : parent.id;
+      const rootParentIdx = currentList.findIndex((c) => c.id === targetParentId);
+      if (rootParentIdx !== -1) {
+        currentList[rootParentIdx] = {
+          ...currentList[rootParentIdx],
+          reply_count: (currentList[rootParentIdx].reply_count || 0) + 1,
+        };
+      }
+    }
+
+    const newComment: Comment = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-${Date.now().toString(16).slice(-12)}`,
+      video_id: videoId,
+      parent_id: targetParentId,
+      author: {
+        id: currentUser.id,
+        handle: currentUser.handle,
+        display_name: currentUser.display_name,
+        avatar_url: currentUser.avatar_url,
+      },
+      body: text,
+      status: 'VISIBLE',
+      reply_count: 0,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+
+    currentList.push(newComment);
+    setDynamicComments(currentList);
+
+    return HttpResponse.json(newComment, {
+      status: 201,
+      headers: {
+        Location: `/v1/comments/${newComment.id}`,
+      },
+    });
+  }),
+
+  http.get('*/v1/comments/:id', async ({ params }) => {
+    const commentId = params.id as string;
+    const comment = getDynamicComments().find((c) => c.id === commentId);
+    if (!comment || comment.status === 'HIDDEN') {
+      const problem: Problem = {
+        type: '/problems/not-found',
+        title: 'Comment not found',
+        status: 404,
+        code: 'NOT_FOUND',
+      };
+      return HttpResponse.json(problem, { status: 404 });
+    }
+    return HttpResponse.json({
+      ...comment,
+      can_edit: Boolean(
+        currentUser && comment.author?.id === currentUser.id && comment.status === 'VISIBLE',
+      ),
+      can_delete: Boolean(
+        currentUser &&
+        (comment.author?.id === currentUser.id || currentUser.roles.includes('admin')),
+      ),
+    });
+  }),
+
+  http.patch('*/v1/comments/:id', async ({ params, request }) => {
+    const commentId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const currentList = [...getDynamicComments()];
+    const index = currentList.findIndex((c) => c.id === commentId);
+    if (index === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Comment not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const comment = currentList[index];
+    if (comment.author?.id !== currentUser.id) {
+      return HttpResponse.json(
+        { type: '/problems/forbidden', title: 'Forbidden', status: 403, code: 'FORBIDDEN' },
+        { status: 403 },
+      );
+    }
+
+    const body = (await request.json()) as EditCommentRequest;
+    const text = (body.body || '').trim();
+    if (!text || text.length > 2000) {
+      return HttpResponse.json(
+        {
+          type: '/problems/validation',
+          title: 'Validation Failed',
+          status: 400,
+          code: 'VALIDATION_FAILED',
+        },
+        { status: 400 },
+      );
+    }
+
+    const updated: Comment = {
+      ...comment,
+      body: text,
+      edited_at: new Date().toISOString(),
+      can_edit: true,
+      can_delete: true,
+    };
+    currentList[index] = updated;
+    setDynamicComments(currentList);
+
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete('*/v1/comments/:id', async ({ params }) => {
+    const commentId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const currentList = [...getDynamicComments()];
+    const index = currentList.findIndex((c) => c.id === commentId);
+    if (index === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Comment not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const comment = currentList[index];
+    // Idempotent: set status = 'DELETED' and body = ''
+    currentList[index] = {
+      ...comment,
+      status: 'DELETED',
+      body: '',
+    };
+    setDynamicComments(currentList);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/comments/:id/replies', async ({ params, request }) => {
+    const parentId = params.id as string;
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    const replies = getDynamicComments().filter(
+      (c) => c.parent_id === parentId && c.status !== 'HIDDEN',
+    );
+    // Oldest first per contract
+    replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    let startIndex = 0;
+    if (cursor) {
+      const idx = replies.findIndex((c) => c.id === cursor);
+      if (idx !== -1) startIndex = idx + 1;
+    }
+
+    const items = replies.slice(startIndex, startIndex + limit).map((c) => ({
+      ...c,
+      can_edit: Boolean(currentUser && c.author?.id === currentUser.id && c.status === 'VISIBLE'),
+      can_delete: Boolean(
+        currentUser && (c.author?.id === currentUser.id || currentUser.roles.includes('admin')),
+      ),
+    }));
+
+    const nextIndex = startIndex + limit;
+    const next_cursor = nextIndex < replies.length ? replies[nextIndex - 1].id : null;
+
+    const page: CommentPage = {
+      items,
+      next_cursor,
+    };
+    return HttpResponse.json(page);
+  }),
+
+  // --- Social: Likes ---
+  http.get('*/v1/videos/:id/like', async ({ params }) => {
+    const videoId = params.id as string;
+    const likes = getDynamicLikes();
+    const current = likes.get(videoId) || { liked: false, like_count: 8940 };
+    const resp: LikeState = {
+      video_id: videoId,
+      liked: currentUser ? current.liked : false,
+      like_count: current.like_count,
+    };
+    return HttpResponse.json(resp);
+  }),
+
+  http.put('*/v1/videos/:id/like', async ({ params }) => {
+    const videoId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const likes = getDynamicLikes();
+    const current = likes.get(videoId) || { liked: false, like_count: 8940 };
+    if (!current.liked) {
+      current.liked = true;
+      current.like_count += 1;
+      likes.set(videoId, current);
+      setDynamicLikes(likes);
+    }
+    const resp: LikeState = {
+      video_id: videoId,
+      liked: true,
+      like_count: current.like_count,
+    };
+    return HttpResponse.json(resp);
+  }),
+
+  http.delete('*/v1/videos/:id/like', async ({ params }) => {
+    const videoId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const likes = getDynamicLikes();
+    const current = likes.get(videoId) || { liked: false, like_count: 8940 };
+    if (current.liked) {
+      current.liked = false;
+      current.like_count = Math.max(0, current.like_count - 1);
+      likes.set(videoId, current);
+      setDynamicLikes(likes);
+    }
+    const resp: LikeState = {
+      video_id: videoId,
+      liked: false,
+      like_count: current.like_count,
+    };
+    return HttpResponse.json(resp);
+  }),
+
+  // --- Social: Subscriptions ---
+  http.get('*/v1/channels/:id/subscription', async ({ params }) => {
+    const channelId = params.id as string;
+    const subs = getDynamicSubscriptions();
+    const current = subs.get(channelId) || { subscribed: false, subscriber_count: 100 };
+    const resp: SubscriptionState = {
+      channel_id: channelId,
+      subscribed: currentUser ? current.subscribed : false,
+      subscriber_count: current.subscriber_count,
+    };
+    return HttpResponse.json(resp);
+  }),
+
+  http.put('*/v1/channels/:id/subscription', async ({ params }) => {
+    const channelId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (currentUser.id === channelId) {
+      const problem: Problem = {
+        type: '/problems/bad-request',
+        title: 'Cannot subscribe to self',
+        status: 400,
+        code: 'CANNOT_SUBSCRIBE_SELF',
+        detail: 'Cannot subscribe to your own channel',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+    const subs = getDynamicSubscriptions();
+    const current = subs.get(channelId) || { subscribed: false, subscriber_count: 100 };
+    if (!current.subscribed) {
+      current.subscribed = true;
+      current.subscriber_count += 1;
+      subs.set(channelId, current);
+      setDynamicSubscriptions(subs);
+    }
+    const resp: SubscriptionState = {
+      channel_id: channelId,
+      subscribed: true,
+      subscriber_count: current.subscriber_count,
+    };
+    return HttpResponse.json(resp);
+  }),
+
+  http.delete('*/v1/channels/:id/subscription', async ({ params }) => {
+    const channelId = params.id as string;
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const subs = getDynamicSubscriptions();
+    const current = subs.get(channelId) || { subscribed: false, subscriber_count: 100 };
+    if (current.subscribed) {
+      current.subscribed = false;
+      current.subscriber_count = Math.max(0, current.subscriber_count - 1);
+      subs.set(channelId, current);
+      setDynamicSubscriptions(subs);
+    }
+    const resp: SubscriptionState = {
+      channel_id: channelId,
+      subscribed: false,
+      subscriber_count: current.subscriber_count,
+    };
+    return HttpResponse.json(resp);
   }),
 ];

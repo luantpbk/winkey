@@ -2,7 +2,7 @@ import createClient, { type ClientOptions, type Middleware } from 'openapi-fetch
 import type { paths as AuthPaths, components as AuthComponents } from './types/auth.js';
 import type { paths as UploadPaths, components as UploadComponents } from './types/upload.js';
 import type { paths as VideoPaths, components as VideoComponents } from './types/video.js';
-import type { paths as SocialPaths } from './types/social.js';
+import type { paths as SocialPaths, components as SocialComponents } from './types/social.js';
 import type { paths as RealtimePaths } from './types/realtime.js';
 
 // Export raw generated paths and components
@@ -39,6 +39,16 @@ export type Playback = VideoComponents['schemas']['Playback'];
 export type Rendition = VideoComponents['schemas']['Rendition'];
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
+
+export type Comment = SocialComponents['schemas']['Comment'];
+export type CommentPage = SocialComponents['schemas']['CommentPage'];
+export type CommentStatus = SocialComponents['schemas']['CommentStatus'];
+export type CreateCommentRequest = SocialComponents['schemas']['CreateCommentRequest'];
+export type EditCommentRequest = SocialComponents['schemas']['EditCommentRequest'];
+export type LikeState = SocialComponents['schemas']['LikeState'];
+export type SubscriptionState = SocialComponents['schemas']['SubscriptionState'];
+export type Subscription = SocialComponents['schemas']['Subscription'];
+export type SubscriptionPage = SocialComponents['schemas']['SubscriptionPage'];
 
 export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string;
