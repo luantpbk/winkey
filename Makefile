@@ -57,3 +57,4 @@ dev-psql: ## Connect to dev PostgreSQL via psql
 
 dev-nats: ## Open NATS CLI inside container
 	$(COMPOSE) run --rm nats-bootstrap nats
+
