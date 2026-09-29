@@ -99,6 +99,9 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - name: Turbo lint, typecheck, test, build
+        env:
+          # Container tests (PostgreSQL 17, NATS) must fail, not skip, on runners that have Docker.
+          WINKEY_REQUIRE_DOCKER: '1'
         run: |
           pnpm run lint
           pnpm run typecheck
