@@ -84,14 +84,20 @@ echo "  Firing 150 concurrent requests (threshold: average 100/s, burst 50)..."
 TMP_DIR=$(mktemp -d)
 RESP_LOG="${TMP_DIR}/rate_limit_codes.txt"
 
-# Concurrently fire requests in background
-for i in $(seq 1 150); do
-    curl -s -o /dev/null -w "%{http_code}\n" "${BASE_URL}/smoke/whoami" >> "$RESP_LOG" &
-    if [ $((i % 30)) -eq 0 ]; then
-        sleep 0.05
-    fi
-done
-wait
+# Concurrently fire requests (prefer curl -Z for true parallel burst)
+if curl -h all 2>&1 | grep -q -- '--parallel'; then
+    CONFIG_FILE="${TMP_DIR}/curl_config.txt"
+    for i in $(seq 1 150); do
+        echo "url = \"${BASE_URL}/smoke/whoami\"" >> "$CONFIG_FILE"
+    done
+    curl -s -Z --parallel-max 100 -w "%{http_code}\n" -o /dev/null --config "$CONFIG_FILE" > "$RESP_LOG"
+else
+    for i in $(seq 1 150); do
+        curl -s -o /dev/null -w "%{http_code}\n" "${BASE_URL}/smoke/whoami" > "${TMP_DIR}/code_${i}.txt" &
+    done
+    wait
+    cat "${TMP_DIR}"/code_*.txt > "$RESP_LOG"
+fi
 
 COUNT_429=$(grep -c "^429$" "$RESP_LOG" || true)
 COUNT_200=$(grep -c "^200$" "$RESP_LOG" || true)
