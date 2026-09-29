@@ -116,6 +116,8 @@ spec:
       middlewares:
         - name: strip-user-headers
           namespace: default
+        - name: rate-limit
+          namespace: default
       services:
         - name: whoami
           port: 80

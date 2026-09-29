@@ -136,11 +136,11 @@ fi
 echo "[6/6] Checking that internal NodePorts are strictly unreachable from public IP (${PUBLIC_IP})..."
 for port in 30422 30432 30900; do
     echo "  Testing public port $port (must timeout / fail)..."
-    if curl --connect-timeout 2 -sS -I "http://${PUBLIC_IP}:${port}" >/dev/null 2>&1; then
-        echo "FAILED: Public port ${PUBLIC_IP}:${port} is accessible from outside!" >&2
+    if timeout 3 bash -c "exec 3<>/dev/tcp/${PUBLIC_IP}/${port}" 2>/dev/null; then
+        echo "FAILED: TCP ${PUBLIC_IP}:${port} is open from outside!" >&2
         exit 1
     fi
-    echo "  Port $port correctly blocked on public IP."
+    echo "  Port $port: TCP connect refused/timed out (OK)."
 done
 echo "SUCCESS: NodePorts 30422, 30432, 30900 are unreachable from the public IP."
 

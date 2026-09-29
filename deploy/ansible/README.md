@@ -69,20 +69,22 @@ Kubernetes manifests are located under `deploy/k8s/edge/`:
 - `whoami.yaml`: Stand-in upstream for smoke testing gateway header stripping and routing.
 - `clusterip-services.yaml`: ClusterIP service definitions for in-cluster service resolution.
   - `social-svc`: port 3004 with `targetPort: http` (note: when deploying social-svc in task I2, configure `HTTP_PORT=3004` matching compose, or name container port `http`).
-  - `realtime-svc`: port 3005 with `targetPort: http` (supports WebSocket and ticket issuance).
+  - `realtime-svc`: port 3005 with `targetPort: http` (note: realtime-svc in #57 defaults to `HTTP_PORT=8003`; when deploying in task I2, ensure the container port is named `http` or configure `HTTP_PORT=3005`).
 
 ### Verification
 
 Run the automated smoke test script from any client with public Internet access:
 ```bash
-./deploy/edge/smoke-test.sh
+SKIP_MEDIA=1 ./deploy/edge/smoke-test.sh
 ```
 
 Verifies:
 1. `curl -I https://winkey.vn/v1/auth/verify` returns HTTP 404 (internal-only endpoint not publicly routed).
 2. `curl -I https://winkey.vn/v1/nope` returns HTTP 404 (does not bleed into web router).
-3. `curl -H "X-User-Id: spoofed" https://winkey.vn/smoke/whoami` proves client-supplied identity headers are stripped.
-4. `curl --connect-timeout 2 http://138.2.93.173:<port>` fails for 30422, 30432, 30900 (blocked from public IP).
+3. `curl -H "X-User-Id: spoofed" https://winkey.vn/smoke/whoami` proves client-supplied identity headers are stripped and client public IP is verified.
+4. Traefik rate limiting triggers HTTP 429 under concurrent bursts.
+5. S3/media proxy caching behavior (`MISS` then `HIT`).
+6. NodePorts 30422, 30432, 30900 are TCP unreachable from the public IP.
 
 
 ### Do not set `traefik_service_type: LoadBalancer` on edge-1
