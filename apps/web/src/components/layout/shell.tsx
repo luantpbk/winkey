@@ -1,0 +1,39 @@
+'use client';
+
+import React, { useState, type ReactNode } from 'react';
+import { TopBar } from './top-bar';
+import { Sidebar } from './sidebar';
+
+export function Shell({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    // On small screen toggle mobile drawer; on desktop toggle collapsed rail
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setMobileOpen((prev) => !prev);
+    } else {
+      setCollapsed((prev) => !prev);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white text-gray-900 dark:text-gray-100 flex flex-col transition-colors">
+      <TopBar onToggleSidebar={toggleSidebar} />
+      <div className="flex flex-1">
+        <Sidebar
+          collapsed={collapsed}
+          mobileOpen={mobileOpen}
+          onCloseMobile={() => setMobileOpen(false)}
+        />
+        <main
+          className={`flex-1 transition-all duration-200 min-h-[calc(100vh-56px)] p-4 sm:p-6 overflow-x-hidden ${
+            collapsed ? 'md:ml-[72px]' : 'md:ml-60'
+          }`}
+        >
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}

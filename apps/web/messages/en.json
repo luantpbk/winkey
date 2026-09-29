@@ -1,0 +1,95 @@
+{
+  "nav": {
+    "home": "Home",
+    "studio": "Winkey Studio",
+    "upload": "Upload Video",
+    "subscriptions": "Subscriptions",
+    "library": "Library",
+    "history": "History",
+    "settings": "Settings",
+    "signIn": "Sign In",
+    "register": "Register",
+    "signOut": "Sign Out",
+    "searchPlaceholder": "Search Winkey...",
+    "lightMode": "Light Mode",
+    "darkMode": "Dark Mode",
+    "creatorRoleRequired": "Creator role required"
+  },
+  "home": {
+    "recommended": "Recommended Videos",
+    "noVideos": "No videos found. Be the first to upload one!",
+    "loadingMore": "Loading more videos...",
+    "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}"
+  },
+  "watch": {
+    "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}",
+    "publishedOn": "Published on {date}",
+    "description": "Description",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "videoNotFound": "Video not found or is private.",
+    "backHome": "Back to Home",
+    "ready": "Ready to play",
+    "processing": "Video is processing..."
+  },
+  "channel": {
+    "videos": "Videos",
+    "noVideos": "This channel has no videos yet.",
+    "subscribers": "{count} subscribers",
+    "subscribe": "Subscribe",
+    "subscribed": "Subscribed"
+  },
+  "auth": {
+    "loginTitle": "Sign in to Winkey",
+    "registerTitle": "Create a Winkey Account",
+    "email": "Email",
+    "password": "Password",
+    "handle": "Handle",
+    "displayName": "Display Name",
+    "submitLogin": "Sign In",
+    "submitRegister": "Create Account",
+    "continueGoogle": "Continue with Google",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?",
+    "invalidCredentials": "Invalid email or password.",
+    "registerSuccess": "Account registered successfully! Redirecting..."
+  },
+  "upload": {
+    "title": "Upload Video to Winkey",
+    "dragDrop": "Drag and drop video files here",
+    "browseFiles": "Or click to browse files",
+    "videoTitle": "Video Title",
+    "videoDescription": "Description",
+    "visibility": "Visibility",
+    "public": "Public",
+    "unlisted": "Unlisted",
+    "private": "Private",
+    "startUpload": "Start Upload",
+    "uploading": "Uploading...",
+    "speed": "Speed: {speed} MB/s",
+    "eta": "ETA: {eta}",
+    "cancel": "Cancel",
+    "cancelling": "Cancelling...",
+    "resuming": "Resuming previous upload session...",
+    "complete": "Upload complete! Video is queued for processing.",
+    "goToStudio": "Go to Studio",
+    "onlyCreator": "Only accounts with the creator role can upload videos."
+  },
+  "studio": {
+    "title": "Studio - Video Manager",
+    "uploadNew": "Upload New Video",
+    "tableTitle": "Video",
+    "tableVisibility": "Visibility",
+    "tableStatus": "Status",
+    "tableProgress": "Progress",
+    "tableDate": "Created Date",
+    "noVideos": "You have no videos in Studio yet.",
+    "status": {
+      "UPLOADING": "Uploading",
+      "UPLOADED": "Uploaded",
+      "PROCESSING": "Processing",
+      "READY": "Ready",
+      "FAILED": "Failed"
+    }
+  }
+}
