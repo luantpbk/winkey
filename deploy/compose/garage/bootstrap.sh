@@ -6,9 +6,19 @@ GARAGE_CONFIG="/etc/garage.toml"
 ENV_OUTPUT_DIR="/env"
 
 echo "Waiting for Garage RPC at ${GARAGE_HOST}:3901..."
-until /usr/local/bin/garage -c "$GARAGE_CONFIG" status >/dev/null 2>&1; do
+RPC_READY=0
+for i in $(seq 1 30); do
+    if /usr/local/bin/garage -c "$GARAGE_CONFIG" status >/dev/null 2>&1; then
+        RPC_READY=1
+        break
+    fi
     sleep 1
 done
+
+if [ "$RPC_READY" -ne 1 ]; then
+    echo "ERROR: Failed to connect to Garage RPC at ${GARAGE_HOST}:3901" >&2
+    exit 1
+fi
 
 echo "Garage RPC connected. Retrieving node ID..."
 NODE_ID=""

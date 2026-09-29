@@ -3,10 +3,20 @@ set -eu
 
 NATS_SERVER="${NATS_SERVER:-nats:4222}"
 
-echo "Waiting for NATS server at ${NATS_SERVER}..."
-until nats server ping -s "$NATS_SERVER" >/dev/null 2>&1; do
+echo "Waiting for NATS JetStream at ${NATS_SERVER}..."
+READY=0
+for i in $(seq 1 30); do
+    if nats stream ls --server="$NATS_SERVER" >/dev/null 2>&1; then
+        READY=1
+        break
+    fi
     sleep 1
 done
+
+if [ "$READY" -ne 1 ]; then
+    echo "ERROR: Failed to connect to NATS JetStream at ${NATS_SERVER}" >&2
+    exit 1
+fi
 
 echo "NATS connected. Creating JetStream streams (replicas 1 in dev)..."
 
