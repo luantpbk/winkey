@@ -11,6 +11,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. |
 | `DELETE /v1/videos/{id}` | required | Owner, moderator or admin. **One transaction**: delete the row (cascades to renditions and jobs) + enqueue `video.deleted` (`raw_bucket`, `raw_key`, `media_bucket`, `media_prefix = v/{id}/`). The transcoder's media janitor purges the objects. |
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
+| `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
 
 ### Visibility (who sees what by id)
 
@@ -45,6 +46,46 @@ social-svc owns likes and publishes `social.video.like_changed` (JetStream strea
 
 Metric: `video_like_events_total{result=applied|unchanged|malformed|ignored_version|error}`. It is not a readiness dependency.
 
+### View counter
+
+`POST /v1/videos/{id}/views` with `{playback_id, watched_ms}` (the player calls it once per playback). Rules, in the order they are applied:
+
+1. **Rate limit**: 60 reports per minute per client IP (`VIEW_RATE_LIMIT`), fixed window in Valkey; over it → `429` with `Retry-After` (seconds until the window ends). Checked first, before PostgreSQL is touched.
+2. **Validation**: `playback_id` a UUID, `watched_ms` an integer in `0..86_400_000`, no other field → `400` problem+json.
+3. **Readable and READY**: same visibility as `GET /v1/videos/{id}` (owner, moderator and admin see all, everyone else only READY PUBLIC/UNLISTED) **and** status READY, otherwise `404`. The owner can count on their own PRIVATE video; nobody counts on a video that is not READY.
+4. **Threshold**: `watched_ms >= min(30 000, duration_ms / 2)`, otherwise `202 {"counted": false}`.
+5. **Dedup**, in one atomic Lua script (a playback is never marked as seen without its view being buffered): `views:pb:{playback_id}` `SET NX PX 30 min` (a retry counts at most once) and `views:seen:{video_id}:{viewer}` `SET NX PX 30 min` (one view per viewer per video per 30 minutes; `VIEW_DEDUP_TTL`). The viewer is `u:{user_id}` when authenticated, otherwise `a:` + sha256(client IP + `User-Agent`).
+6. Counted: `HINCRBY views:pending {video_id} 1` and `202 {"counted": true}`. The response never says why a report was not counted.
+
+**Client IP.** `X-Forwarded-For` is honoured only when the TCP peer is in `TRUST_PROXY_CIDRS`, with the same semantics as auth-svc (Fastify/proxy-addr): the header is read from the right, trusted hops are skipped and the first untrusted address is the client; entries to its left are client supplied and ignored. A peer that is not trusted cannot choose its address.
+
+**Flusher** (one goroutine per replica, safe with any number of replicas). Every `VIEW_FLUSH_INTERVAL` (and once at startup, and once more on shutdown):
+
+1. list leftover `views:flush:*` keys (a failed write, or a replica that died) and `RENAME views:pending views:flush:{uuid}` (atomic; "no such key" = nothing to do; reports arriving meanwhile start a new hash);
+2. for each batch take the lock `views:flushlock:{uuid}` (`SET NX PX VIEW_FLUSH_LOCK_TTL`; another replica holding it means skip, a dead holder frees it by TTL), read it with `HGETALL`;
+3. **one** statement/transaction: `UPDATE media.videos v SET view_count = v.view_count + d.n FROM unnest($1::uuid[], $2::bigint[]) d(id, n) WHERE v.id = d.id` (videos that were deleted match no row);
+4. on success `DEL` the batch (retried); on failure keep it and retry on the next tick: **a view is never lost**. Malformed entries are logged and dropped.
+
+Delivery is *at least once*: a crash after the PostgreSQL commit and before the `DEL` would apply that one batch again on restart (over-count of at most one batch per crash); the opposite order would lose views, which the contract forbids.
+
+**Caveats.** (a) `view_count` is eventually consistent: up to `VIEW_FLUSH_INTERVAL` plus `CACHE_TTL` (the `GET` cache is **not** invalidated by the flusher; it relies on `CACHE_TTL`, 30 s). (b) The flush **does bump `updated_at`**: the table's `set_updated_at` trigger sets it unconditionally and video-svc may not change the schema (tracked with the architect). (c) Valkey is assumed to be a single node (the count script touches three keys). (d) With `VALKEY_URL` empty nothing is counted (`202 {"counted": false}`).
+
+**Valkey down** never causes a `5xx`: reports get `202 {"counted": false}`, counted in `video_views_total{result="valkey_down"}`; the flusher logs the error and retries. Valkey calls use 200 ms timeouts, no client retries and a 5 s circuit breaker.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRUST_PROXY_CIDRS` | `10.42.0.0/16,127.0.0.1` | Peers allowed to set `X-Forwarded-For` (CIDRs or addresses, comma separated) |
+| `VIEW_RATE_LIMIT` | `60` | Reports per client IP per minute |
+| `VIEW_DEDUP_TTL` | `30m` | One counted view per viewer per video, and per `playback_id`, in this window |
+| `VIEW_FLUSH_INTERVAL` | `30s` | Flusher period |
+| `VIEW_FLUSH_LOCK_TTL` | `2m` | How long a replica holds a batch; must exceed one database write (30 s timeout) |
+
+| Metric | Type | |
+|---|---|---|
+| `video_views_total{result}` | counter | `counted`, `duplicate`, `below_threshold`, `rate_limited`, `valkey_down` |
+| `video_view_flush_seconds` | histogram | Flush passes that had a batch to apply |
+| `video_view_flush_errors_total` | counter | Failed flush steps (each is retried on the next tick) |
+
 ### Cache (optional)
 
 With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent record** (video + owner + renditions) for `CACHE_TTL` (30 s); visibility is applied after reading it, so one entry serves every viewer and a cached PRIVATE video is never leaked. `PATCH`/`DELETE` invalidate the entry in-process (other replicas see the change when their copy expires) and always decide authorisation from the database, never from the cache. The cache **fails open**: short timeouts, no client retries and a 5 s circuit breaker, so a Valkey outage costs nothing per request. It is not a readiness dependency.
@@ -60,6 +101,7 @@ With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent rec
 | `S3_MEDIA_BUCKET` | `winkey-media` | Bucket named in `video.deleted` |
 | `VALKEY_URL` | empty (disabled) | e.g. `redis://valkey:6379/0` |
 | `CACHE_TTL` | `30s` | |
+| `TRUST_PROXY_CIDRS`, `VIEW_RATE_LIMIT`, `VIEW_DEDUP_TTL`, `VIEW_FLUSH_INTERVAL`, `VIEW_FLUSH_LOCK_TTL` | see *View counter* | View counter (needs `VALKEY_URL`) |
 | `HTTP_ADDR` | `:8080` | |
 | `LOG_LEVEL` | `info` | |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Tracing is a no-op when unset |

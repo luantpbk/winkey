@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -31,6 +32,33 @@ type Spec struct {
 	video, common map[string]any
 	compiler      *jsonschema.Compiler
 	allowed       map[string]string // "METHOD path status" -> reason (tracking issue)
+
+	// Check is called from concurrent requests. Compile mutates the compiler, so it
+	// runs under mu.Lock, once per schema location (cache); Validate only reads
+	// compiled schemas and runs under mu.RLock, so validations do not serialize.
+	mu    sync.RWMutex
+	cache map[string]*jsonschema.Schema
+}
+
+// schemaFor returns the compiled schema at loc, compiling it on first use.
+func (s *Spec) schemaFor(loc string) (*jsonschema.Schema, error) {
+	s.mu.RLock()
+	sch, ok := s.cache[loc]
+	s.mu.RUnlock()
+	if ok {
+		return sch, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sch, ok := s.cache[loc]; ok {
+		return sch, nil
+	}
+	sch, err := s.compiler.Compile(loc)
+	if err != nil {
+		return nil, err
+	}
+	s.cache[loc] = sch
+	return sch, nil
 }
 
 // Load reads the contract files from the repository (walking up from this
@@ -50,7 +78,7 @@ func Load(t testing.TB) *Spec {
 	if root == "" {
 		t.Fatal("contract: contracts/openapi not found")
 	}
-	s := &Spec{compiler: jsonschema.NewCompiler(), allowed: map[string]string{}}
+	s := &Spec{compiler: jsonschema.NewCompiler(), allowed: map[string]string{}, cache: map[string]*jsonschema.Schema{}}
 	s.compiler.DefaultDraft(jsonschema.Draft2020)
 	s.compiler.AssertFormat()
 	for _, d := range []struct {
@@ -186,7 +214,7 @@ func (s *Spec) Check(t testing.TB, method, pathTemplate string, status int, cont
 		}
 		return
 	}
-	schema, err := s.compiler.Compile(loc)
+	schema, err := s.schemaFor(loc)
 	if err != nil {
 		t.Errorf("contract: compile %s: %v", loc, err)
 		return
@@ -196,7 +224,10 @@ func (s *Spec) Check(t testing.TB, method, pathTemplate string, status int, cont
 		t.Errorf("contract: %s %s %d: body is not JSON: %v\n%s", method, pathTemplate, status, err, body)
 		return
 	}
-	if err := schema.Validate(inst); err != nil {
+	s.mu.RLock()
+	err = schema.Validate(inst)
+	s.mu.RUnlock()
+	if err != nil {
 		t.Errorf("contract: %s %s %d violates %s:\n%v\nbody: %s", method, pathTemplate, status, loc, err, body)
 	}
 }

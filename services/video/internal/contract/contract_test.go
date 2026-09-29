@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -107,4 +108,32 @@ func replace(s, old, new string) string {
 		panic("test fixture does not contain " + old)
 	}
 	return strings.Replace(s, old, new, 1)
+}
+
+// Check is used from concurrent requests: compiling schemas for the first time
+// from many goroutines while others validate must be race free (run with -race).
+func TestCheckIsSafeForConcurrentUse(t *testing.T) {
+	s := Load(t)
+	problem := `{"type":"/problems/not-found","title":"Not Found","status":404,"code":"NOT_FOUND"}`
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				switch (i + j) % 4 {
+				case 0:
+					s.Check(t, "GET", "/v1/videos/{video_id}", 200, "application/json", []byte(goodVideo))
+				case 1:
+					s.Check(t, "GET", "/v1/videos/{video_id}", 404, "application/problem+json", []byte(problem))
+				case 2:
+					s.Check(t, "POST", "/v1/videos/{video_id}/views", 202, "application/json", []byte(`{"counted":true}`))
+				default:
+					s.Check(t, "POST", "/v1/videos/{video_id}/views", 429, "application/problem+json",
+						[]byte(`{"type":"/problems/too-many-requests","title":"Too Many Requests","status":429,"code":"RATE_LIMITED"}`))
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
