@@ -8,7 +8,7 @@ PostgreSQL ≥ 16 (production target: 17, chạy bằng CloudNativePG). Migratio
 |---|---|---|---|
 | `auth` | auth-svc | mọi service: **chỉ** view `auth.public_profiles` | Không bao giờ để service khác đọc `auth.users` |
 | `media` | upload-svc, transcoder, video-svc | video-svc | Chung một domain media |
-| `social` | social-svc (P2) | — | Comment, like, subscription |
+| `social` | social-svc | — | Comment 2 cấp, like video, subscription; projection `social.videos` từ `video.ready`/`video.deleted` (migration 000005) |
 
 - Không tạo FK chéo schema (ví dụ `media.videos.owner_id` → `auth.users.id`). Tính nhất quán được giữ bằng event (ADR-007).
 - ID là **UUIDv7 do ứng dụng sinh ra**, nên cột ID không có default.
@@ -33,3 +33,4 @@ Migration chạy bằng role **owner của database, không cần superuser**. C
 | `winkey_migrator` | owner của DB, chỉ dùng cho job migrate |
 | `auth_svc` | `USAGE` trên `auth`; CRUD trên các bảng `auth.*` |
 | `media_svc` | `USAGE` trên `media`; CRUD trên các bảng `media.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |
+| `social_svc` | `USAGE` trên `social`; CRUD trên các bảng `social.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |

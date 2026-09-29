@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/social.video.like_changed.schema.json",
+  "title": "social.video.like_changed v1",
+  "description": "A user liked or un-liked a video. `like_count` is the absolute count after the change, so consumers set it instead of incrementing (redelivery-safe). video-svc copies it into `media.videos.like_count`. Producer: social-svc.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "social.video.like_changed"
+    },
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "video_id",
+        "user_id",
+        "liked",
+        "like_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "liked": {
+          "type": "boolean"
+        },
+        "like_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

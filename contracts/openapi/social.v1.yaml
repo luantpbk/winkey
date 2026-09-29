@@ -1,0 +1,515 @@
+openapi: 3.1.0
+info:
+  title: Winkey social-svc API
+  version: 1.0.0
+  description: |
+    Comments (two levels), video likes and channel subscriptions. Owner: Antigravity 3 (task C1).
+
+    - Identity comes only from the gateway headers `X-User-Id` / `X-User-Roles` (ADR-009).
+      Endpoints marked "optional auth" also work anonymously; `liked` / `subscribed` are then `false`.
+    - A video can receive comments and likes only once social-svc has seen its `video.ready`
+      event (projection `social.videos`); otherwise the video endpoints answer `404`.
+    - Authors are resolved from `auth.public_profiles`. A comment whose author no longer has an
+      active profile is returned with `author: null`.
+    - `DELETED` comments with replies stay in the thread as a tombstone (`status: DELETED`,
+      `body: ""`) so the replies keep their context; without replies they are omitted.
+      `HIDDEN` comments are omitted for everyone except moderators and admins.
+    - Gateway routing: `/v1/videos/{video_id}/comments` and `/v1/videos/{video_id}/like` go to
+      social-svc and must win over the `/v1/videos` prefix that goes to video-svc, e.g. Traefik
+      `PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`)` with a higher priority.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.vn
+    description: Production.
+  - url: http://localhost:8080
+    description: Local dev stack (Traefik from deploy/compose).
+tags:
+  - name: comments
+    description: Two-level comment threads on videos.
+  - name: likes
+    description: Video likes.
+  - name: subscriptions
+    description: Channel subscriptions.
+paths:
+  /v1/videos/{video_id}/comments:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [comments]
+      operationId: listComments
+      summary: Top-level comments, newest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of top-level comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    post:
+      tags: [comments]
+      operationId: createComment
+      summary: Post a comment or a reply. Emits `social.comment.created`.
+      description: |
+        `parent_id` must be a top-level, non-deleted comment on the same video (only two levels).
+        Rate limit per user: 10 comments per minute (`429` with `Retry-After`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              description: '`/v1/comments/{comment_id}`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/comments/{comment_id}:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    get:
+      tags: [comments]
+      operationId: getComment
+      summary: One comment (deep link). Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [comments]
+      operationId: editComment
+      summary: Edit the body (author only). Sets `edited_at`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditCommentRequest'
+      responses:
+        '200':
+          description: Updated comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [comments]
+      operationId: deleteComment
+      summary: Delete (author, video owner, moderator or admin). Idempotent.
+      description: Sets `status = DELETED` and wipes the body. Deleting an already deleted comment returns `204`.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/comments/{comment_id}/replies:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    get:
+      tags: [comments]
+      operationId: listReplies
+      summary: Replies to a top-level comment, oldest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of replies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/comments/{comment_id}/moderation:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    put:
+      tags: [comments]
+      operationId: moderateComment
+      summary: Hide or restore a comment (moderator or admin).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerateCommentRequest'
+      responses:
+        '200':
+          description: Comment after moderation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/videos/{video_id}/like:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [likes]
+      operationId: getLike
+      summary: Like count and whether the caller liked the video. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Like state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeState'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    put:
+      tags: [likes]
+      operationId: likeVideo
+      summary: Like (idempotent). Emits `social.video.like_changed` when the state changes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Like state after the call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeState'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [likes]
+      operationId: unlikeVideo
+      summary: Remove the like (idempotent). Emits `social.video.like_changed` when the state changes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Like state after the call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeState'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/channels/{channel_id}/subscription:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [subscriptions]
+      operationId: getSubscription
+      summary: Subscriber count and whether the caller is subscribed. Optional auth.
+      description: "Unknown channels return `subscriber_count` 0; social-svc does not validate that the user exists."
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscription state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionState'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+    put:
+      tags: [subscriptions]
+      operationId: subscribe
+      summary: Subscribe (idempotent). Emits `social.subscription.changed` when the state changes.
+      description: The channel must be an active profile in `auth.public_profiles`; subscribing to yourself is `400`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscription state after the call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionState'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [subscriptions]
+      operationId: unsubscribe
+      summary: Unsubscribe (idempotent). Emits `social.subscription.changed` when the state changes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subscription state after the call.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionState'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/me/subscriptions:
+    get:
+      tags: [subscriptions]
+      operationId: listMySubscriptions
+      summary: Channels the caller subscribes to, most recent first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+
+  parameters:
+    CommentId:
+      name: comment_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+    ChannelId:
+      name: channel_id
+      in: path
+      required: true
+      description: User id of the channel owner.
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+
+  schemas:
+    CommentStatus:
+      type: string
+      enum: [VISIBLE, DELETED, HIDDEN]
+
+    Comment:
+      type: object
+      required:
+        [id, video_id, parent_id, author, body, status, reply_count, created_at, edited_at, can_edit, can_delete]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        parent_id:
+          description: '`null` for a top-level comment.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        author:
+          description: '`null` when the author no longer has an active profile.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/PublicProfile'
+            - type: 'null'
+        body:
+          type: string
+          maxLength: 2000
+          description: Empty for `DELETED` tombstones.
+        status:
+          $ref: '#/components/schemas/CommentStatus'
+        reply_count:
+          type: integer
+          minimum: 0
+          description: Visible replies; always 0 for a reply.
+        created_at:
+          type: string
+          format: date-time
+        edited_at:
+          type: [string, 'null']
+          format: date-time
+        can_edit:
+          type: boolean
+          description: The caller is the author and the comment is VISIBLE.
+        can_delete:
+          type: boolean
+          description: The caller is the author, the video owner, a moderator or an admin.
+
+    CommentPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+        next_cursor:
+          type: [string, 'null']
+
+    CreateCommentRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Plain text. Leading/trailing whitespace is trimmed; the trimmed body must not be empty.
+        parent_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+
+    EditCommentRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    ModerateCommentRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [HIDDEN, VISIBLE]
+          description: '`409` if the comment is `DELETED`.'
+
+    LikeState:
+      type: object
+      required: [video_id, liked, like_count]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        liked:
+          type: boolean
+        like_count:
+          type: integer
+          minimum: 0
+
+    SubscriptionState:
+      type: object
+      required: [channel_id, subscribed, subscriber_count]
+      properties:
+        channel_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        subscribed:
+          type: boolean
+        subscriber_count:
+          type: integer
+          minimum: 0
+
+    Subscription:
+      type: object
+      required: [channel, subscribed_at]
+      properties:
+        channel:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        subscribed_at:
+          type: string
+          format: date-time
+
+    SubscriptionPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        next_cursor:
+          type: [string, 'null']
