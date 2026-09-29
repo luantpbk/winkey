@@ -49,6 +49,8 @@ NATS_URL=nats://... replay-dlq -max 10
 ```
 Messages keep their payload (same `event_id`; the transcoder is idempotent) and get a fresh `Nats-Msg-Id`. A durable consumer remembers what was replayed. The video must be `FAILED` or `PROCESSING` (both are accepted by `BeginJob`).
 
+S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; the transcoder never presigns).
+
 ## Configuration
 
 | Variable | Default | Description |

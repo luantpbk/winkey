@@ -25,7 +25,16 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 4. Video & Studio routes
+    # 4. Social service routes (comments, likes, channels, subscriptions)
+    # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
+    social:
+      entryPoints: ['web']
+      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || Path(`/v1/me/subscriptions`)'
+      service: 'social-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 85
+
+    # 5. Video & Studio routes
     video:
       entryPoints: ['web']
       rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`)'
@@ -33,7 +42,7 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 5. Smoke test route for header stripping verification
+    # 6. Smoke test route for header stripping verification
     smoke-test:
       entryPoints: ['web']
       rule: 'PathPrefix(`/smoke/whoami`)'
@@ -41,7 +50,7 @@ http:
       middlewares: ['strip-user-headers']
       priority: 80
 
-    # 6. Web Next.js fallback
+    # 7. Web Next.js fallback
     web:
       entryPoints: ['web']
       rule: 'PathPrefix(`/`) && !PathPrefix(`/v1`)'
@@ -77,6 +86,10 @@ http:
       loadBalancer:
         servers:
           - url: 'http://video-svc:3003'
+    social-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://social-svc:3004'
     whoami-svc:
       loadBalancer:
         servers:

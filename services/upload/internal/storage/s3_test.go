@@ -2,50 +2,58 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/luantpbk/winkey/libs/go/s3x"
+	"github.com/luantpbk/winkey/services/upload/internal/domain"
 )
 
-// The signature is bound to the host, so presigned URLs must point at the
-// public endpoint, use path-style addressing and carry no SDK checksum params
-// (browsers PUT the raw part body).
-func TestPresignUsesPublicEndpoint(t *testing.T) {
-	s := New(Config{
-		Endpoint: "http://garage.internal:3900", PublicEndpoint: "https://s3.winkey.vn",
-		Region: "garage", AccessKeyID: "GKtest", SecretKey: "secret",
+func adapter(t *testing.T, public string) *S3 {
+	t.Helper()
+	c, err := s3x.New(s3x.Config{
+		Endpoint: "http://garage.internal:3900", PublicEndpoint: public,
+		Region: "garage", AccessKeyID: "GKtest", SecretAccessKey: "secret",
 	})
-	raw, err := s.PresignPart(context.Background(), "winkey-raw", "owner/vid/source", "upload-1", 3, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, err := url.Parse(raw)
+	return New(c)
+}
+
+// The adapter must presign for the PUBLIC host (the s3x unit tests cover the
+// signing details).
+func TestPresignPartUsesPublicEndpoint(t *testing.T) {
+	raw, err := adapter(t, "https://s3.winkey.vn").PresignPart(context.Background(), "winkey-raw", "owner/vid/source", "upload-1", 3, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Scheme != "https" || u.Host != "s3.winkey.vn" {
-		t.Errorf("host %s://%s, want https://s3.winkey.vn", u.Scheme, u.Host)
+	u, _ := url.Parse(raw)
+	if u.Host != "s3.winkey.vn" || u.Path != "/winkey-raw/owner/vid/source" || u.Query().Get("partNumber") != "3" {
+		t.Fatalf("%s", raw)
 	}
-	if u.Path != "/winkey-raw/owner/vid/source" {
-		t.Errorf("path %q not path-style", u.Path)
+}
+
+// Presigning without a public endpoint must fail loudly, never sign for the internal host.
+func TestPresignPartWithoutPublicEndpointFails(t *testing.T) {
+	_, err := adapter(t, "").PresignPart(context.Background(), "b", "k", "u", 1, time.Hour)
+	if !errors.Is(err, s3x.ErrNoPublicEndpoint) {
+		t.Fatalf("%v", err)
 	}
-	q := u.Query()
-	if q.Get("partNumber") != "3" || q.Get("uploadId") != "upload-1" {
-		t.Errorf("query %v", q)
-	}
-	if q.Get("X-Amz-Expires") != "3600" || q.Get("X-Amz-Algorithm") != "AWS4-HMAC-SHA256" {
-		t.Errorf("signing params %v", q)
-	}
-	if !strings.Contains(q.Get("X-Amz-Credential"), "/garage/s3/aws4_request") {
-		t.Errorf("credential scope %q", q.Get("X-Amz-Credential"))
-	}
-	for k := range q {
-		if strings.Contains(strings.ToLower(k), "checksum") {
-			t.Errorf("unexpected checksum parameter %s", k)
+}
+
+// The domain errors the handlers and the janitor branch on are the s3x sentinels,
+// so errors.Is works straight through the adapter.
+func TestDomainErrorsAreTheSharedSentinels(t *testing.T) {
+	for name, pair := range map[string][2]error{
+		"no such upload": {domain.ErrNoSuchUpload, s3x.ErrNoSuchUpload},
+		"invalid part":   {domain.ErrInvalidPart, s3x.ErrInvalidPart},
+		"no such object": {domain.ErrNoSuchObject, s3x.ErrNotFound},
+	} {
+		if !errors.Is(pair[0], pair[1]) {
+			t.Errorf("%s: domain error is not the s3x sentinel", name)
 		}
-	}
-	if sh := q.Get("X-Amz-SignedHeaders"); sh != "host" {
-		t.Errorf("signed headers %q, want only host", sh)
 	}
 }
