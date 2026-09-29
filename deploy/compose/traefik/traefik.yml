@@ -1,12 +1,12 @@
 entryPoints:
   web:
-    address: ":8080"
+    address: ':8080'
   traefik:
-    address: ":8082"
+    address: ':8082'
 
 providers:
   file:
-    filename: "/etc/traefik/dynamic.yml"
+    filename: '/etc/traefik/dynamic.yml'
     watch: true
 
 api:
@@ -14,7 +14,7 @@ api:
   insecure: true
 
 ping:
-  entryPoint: "web"
+  entryPoint: 'web'
 
 log:
   level: INFO
