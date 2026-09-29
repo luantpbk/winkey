@@ -34,11 +34,12 @@ jobs:
 
       - name: Run smoke test
         run: |
+          chmod +x deploy/compose/smoke-test.sh
           ./deploy/compose/smoke-test.sh
 
       - name: List NATS streams
         run: |
-          docker compose -f deploy/compose/dev.yml exec -T nats-bootstrap nats stream ls
+          docker compose -f deploy/compose/dev.yml run --rm nats-bootstrap nats stream ls --server=nats:4222
 
       - name: CORS preflight verification
         run: |
