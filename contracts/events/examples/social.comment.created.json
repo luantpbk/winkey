@@ -1,0 +1,17 @@
+{
+  "event_id": "0192f5f0-5555-7000-8000-000000000006",
+  "type": "social.comment.created",
+  "version": 1,
+  "occurred_at": "2026-10-02T11:00:00Z",
+  "producer": "social-svc",
+  "data": {
+    "comment_id": "0192f5f1-0000-7000-8000-000000000001",
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "video_owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "author_id": "0192f5e0-0000-7000-8000-000000000002",
+    "parent_id": null,
+    "parent_author_id": null,
+    "body": "Video hay quá!",
+    "created_at": "2026-10-02T11:00:00Z"
+  }
+}

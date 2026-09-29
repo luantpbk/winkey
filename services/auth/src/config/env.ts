@@ -26,25 +26,32 @@ export const envSchema = z
     GOOGLE_REDIRECT_URI: z.string().default('https://winkey.vn/v1/auth/oauth/google/callback'),
 
     // Internal secret for signing temporary OAuth state cookies
-    COOKIE_SECRET: z.string().default('winkey-dev-cookie-secret-min-32-chars-long!'),
+    COOKIE_SECRET: z.string().optional(),
 
     // Trusted proxy CIDRs for Fastify (e.g. Traefik/k8s pod CIDR 10.42.0.0/16, loopback 127.0.0.1)
     TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
   })
-  .refine(
-    (data) => {
-      if (data.NODE_ENV === 'production') {
-        return (
-          data.COOKIE_SECRET && data.COOKIE_SECRET !== 'winkey-dev-cookie-secret-min-32-chars-long!'
-        );
+  .superRefine((data, ctx) => {
+    if (data.NODE_ENV === 'production') {
+      if (!data.COOKIE_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'COOKIE_SECRET is required when NODE_ENV=production',
+          path: ['COOKIE_SECRET'],
+        });
+      } else if (data.COOKIE_SECRET === 'winkey-dev-cookie-secret-min-32-chars-long!') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'COOKIE_SECRET cannot use the dev default in production',
+          path: ['COOKIE_SECRET'],
+        });
       }
-      return true;
-    },
-    {
-      message: 'COOKIE_SECRET must be explicitly set and cannot use the dev default in production',
-      path: ['COOKIE_SECRET'],
-    },
-  );
+    }
+  })
+  .transform((data) => ({
+    ...data,
+    COOKIE_SECRET: data.COOKIE_SECRET ?? 'winkey-dev-cookie-secret-min-32-chars-long!',
+  }));
 
 export type Env = z.infer<typeof envSchema>;
 

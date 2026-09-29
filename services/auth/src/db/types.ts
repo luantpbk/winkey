@@ -43,7 +43,7 @@ export interface OutboxTable {
   id: Generated<string>;
   event_id: string;
   subject: string;
-  payload: any;
+  payload: unknown;
   created_at: ColumnType<Date, string | Date | undefined, never>;
   published_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
 }

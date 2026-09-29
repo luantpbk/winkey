@@ -157,13 +157,14 @@ export const registerRoute: FastifyPluginAsync<{
           created_at: new Date(userRow.created_at).toISOString(),
         };
       });
-    } catch (err: any) {
-      if (err.code === '23505') {
+    } catch (err: unknown) {
+      const pgErr = err as { code?: string; constraint?: string };
+      if (pgErr.code === '23505') {
         // Unique constraint violation in PostgreSQL
-        if (err.constraint?.includes('email')) {
+        if (pgErr.constraint?.includes('email')) {
           throw ProblemError.conflict('Email is already registered', 'EMAIL_TAKEN');
         }
-        if (err.constraint?.includes('handle')) {
+        if (pgErr.constraint?.includes('handle')) {
           throw ProblemError.conflict('Handle is already in use', 'HANDLE_TAKEN');
         }
       }

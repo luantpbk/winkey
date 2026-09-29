@@ -2,7 +2,8 @@ name: verify-compose
 
 on:
   pull_request:
-    paths: ['deploy/compose/**', 'db/migrations/**', 'Makefile', '.github/workflows/verify-compose.yml']
+    paths:
+      ['deploy/compose/**', 'db/migrations/**', 'Makefile', '.github/workflows/verify-compose.yml']
   workflow_dispatch:
 
 jobs:

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/social.comment.created.schema.json",
+  "title": "social.comment.created v1",
+  "description": "A VISIBLE comment or reply was posted. realtime-gw fans it out to the video room; notify (P3) tells the video owner / parent author. Producer: social-svc.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "social.comment.created"
+    },
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "comment_id",
+        "video_id",
+        "video_owner_id",
+        "author_id",
+        "parent_id",
+        "parent_author_id",
+        "body",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "comment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "video_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "video_owner_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "author_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "description": "null for a top-level comment."
+        },
+        "parent_author_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "description": "Author of the parent comment; null for a top-level comment."
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
