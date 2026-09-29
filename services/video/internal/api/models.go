@@ -44,6 +44,14 @@ type videoJSON struct {
 	PublishedAt *time.Time    `json:"published_at"`
 	CreatedAt   time.Time     `json:"created_at"`
 	Playback    *playbackJSON `json:"playback"`
+	// Moderation is present only for the owner, moderators and admins (A2).
+	Moderation *moderationJSON `json:"moderation,omitempty"`
+}
+
+type moderationJSON struct {
+	State       string     `json:"state"`
+	Reason      *string    `json:"reason"`
+	ModeratedAt *time.Time `json:"moderated_at"`
 }
 
 type summaryJSON struct {
@@ -66,6 +74,8 @@ type studioJSON struct {
 	DurationMs   *int      `json:"duration_ms"`
 	CreatedAt    time.Time `json:"created_at"`
 	ThumbnailURL *string   `json:"thumbnail_url"`
+	// The studio is the owner's own list, so the moderation state is always shown.
+	Moderation *moderationJSON `json:"moderation,omitempty"`
 }
 
 type pageJSON[T any] struct {
@@ -106,7 +116,16 @@ func utcPtr(t *time.Time) *time.Time {
 	return &u
 }
 
-func (h *Handler) video(v domain.Video) videoJSON {
+func moderation(state string, reason *string, at *time.Time) *moderationJSON {
+	if state == "" {
+		state = domain.ModVisible
+	}
+	return &moderationJSON{State: state, Reason: reason, ModeratedAt: utcPtr(at)}
+}
+
+// video renders the record; who decides whether `moderation` is included
+// (owner, moderator, admin only).
+func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	out := videoJSON{
 		ID: v.ID.String(), Title: v.Title, Description: v.Description, Owner: h.profile(v.Owner),
 		Visibility: v.Visibility, Status: v.Status, DurationMs: v.DurationMs, Width: v.Width, Height: v.Height,
@@ -114,6 +133,9 @@ func (h *Handler) video(v domain.Video) videoJSON {
 	}
 	if out.Owner.ID == "" {
 		out.Owner.ID = v.OwnerID.String()
+	}
+	if who.SeesModeration(v) {
+		out.Moderation = moderation(v.ModerationState, v.ModerationReason, v.ModeratedAt)
 	}
 	// playback is null unless the video is READY (and has its keys, which the
 	// database guarantees for READY rows).
@@ -145,5 +167,6 @@ func (h *Handler) studio(s domain.StudioItem) studioJSON {
 	return studioJSON{
 		ID: s.ID.String(), Title: s.Title, Visibility: s.Visibility, Status: s.Status, Progress: p,
 		Error: s.Error, DurationMs: s.DurationMs, CreatedAt: s.CreatedAt.UTC(), ThumbnailURL: h.mediaURLPtr(s.ThumbnailKey),
+		Moderation: moderation(s.ModerationState, s.ModerationReason, s.ModeratedAt),
 	}
 }

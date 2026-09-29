@@ -31,10 +31,16 @@ func SeedUser(t testing.TB, pool *pgxpool.Pool, handle string, avatar *string, s
 		status = "ACTIVE"
 	}
 	u := User{ID: ids.New(), Handle: handle, Name: "Name of " + handle, Avatar: avatar, Status: status}
+	// Migration 000006: a SUSPENDED user must carry a reason.
+	var reason *string
+	if status == "SUSPENDED" {
+		r := "seeded for tests"
+		reason = &r
+	}
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO auth.users (id, email, handle, display_name, avatar_key, status)
-		VALUES ($1, $2, $3, $4, $5, $6::auth.user_status)`,
-		u.ID, handle+"@example.test", handle, u.Name, avatar, status); err != nil {
+		INSERT INTO auth.users (id, email, handle, display_name, avatar_key, status, suspension_reason)
+		VALUES ($1, $2, $3, $4, $5, $6::auth.user_status, $7)`,
+		u.ID, handle+"@example.test", handle, u.Name, avatar, status, reason); err != nil {
 		t.Fatalf("seed user %s: %v", handle, err)
 	}
 	return u

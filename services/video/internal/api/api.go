@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -62,6 +63,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Use(httpx.Authenticate)
 		r.Patch("/v1/videos/{video_id}", h.updateVideo)
 		r.Delete("/v1/videos/{video_id}", h.deleteVideo)
+		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 	})
 }
@@ -131,12 +133,13 @@ func (h *Handler) getVideo(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, "get video", err)
 		return
 	}
-	if !domain.CanView(v, viewer(r)) {
+	who := viewer(r)
+	if !domain.CanView(v, who) {
 		notFound(w, r) // 404, never 403: hidden videos are not confirmed to exist
 		return
 	}
 	setCacheControl(w, v)
-	httpx.WriteJSON(w, http.StatusOK, h.video(v))
+	httpx.WriteJSON(w, http.StatusOK, h.video(v, who))
 }
 
 // load returns the video, from the cache when useCache is set (the cached
@@ -243,7 +246,7 @@ func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setCacheControl(w, updated)
-	httpx.WriteJSON(w, http.StatusOK, h.video(updated))
+	httpx.WriteJSON(w, http.StatusOK, h.video(updated, who))
 }
 
 // ---- DELETE /v1/videos/{video_id} ---------------------------------------------
@@ -287,6 +290,82 @@ func (h *Handler) deleteVideo(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Log.InfoContext(r.Context(), "video deleted", "video_id", id, "by", who.ID, "moderation", !who.Owns(v))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- PUT /v1/videos/{video_id}/moderation (task A2) ---------------------------
+
+type moderateRequest struct {
+	State  *string `json:"state"`
+	Reason *string `json:"reason"`
+}
+
+// Longest reason: media.videos.videos_moderation_reason_len.
+const maxReasonRunes = 500
+
+func (h *Handler) moderateVideo(w http.ResponseWriter, r *http.Request) {
+	who := viewer(r)
+	// Authorisation from X-User-Roles only, before anything is read: 403 for
+	// every authenticated caller who is not a moderator or admin.
+	if !who.Privileged() {
+		httpx.Forbidden(w, r, "only a moderator or admin can moderate videos")
+		return
+	}
+	id, ok := videoID(r)
+	if !ok {
+		notFound(w, r)
+		return
+	}
+	var req moderateRequest
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	var fe []httpx.FieldError
+	state := ""
+	switch {
+	case req.State == nil:
+		fe = append(fe, httpx.FieldError{Field: "state", Message: "is required"})
+	case *req.State != domain.ModVisible && *req.State != domain.ModHidden:
+		fe = append(fe, httpx.FieldError{Field: "state", Message: "must be VISIBLE or HIDDEN"})
+	default:
+		state = *req.State
+	}
+	var reason *string
+	if state == domain.ModHidden {
+		text := ""
+		if req.Reason != nil {
+			text = strings.TrimSpace(*req.Reason)
+		}
+		switch n := utf8.RuneCountInString(text); {
+		case n == 0:
+			fe = append(fe, httpx.FieldError{Field: "reason", Message: "is required when state is HIDDEN"})
+		case n > maxReasonRunes:
+			fe = append(fe, httpx.FieldError{Field: "reason", Message: "must be at most 500 characters"})
+		default:
+			reason = &text
+		}
+	} // VISIBLE clears the reason: whatever was sent is ignored.
+	if len(fe) > 0 {
+		httpx.BadRequest(w, r, "VALIDATION_ERROR", "request validation failed", fe...)
+		return
+	}
+
+	v, changed, err := h.Store.ModerateVideo(r.Context(), id, who.ID, state, reason)
+	if h.Cache != nil {
+		h.Cache.Invalidate(r.Context(), id)
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		notFound(w, r)
+		return
+	}
+	if err != nil {
+		h.fail(w, r, "moderate video", err)
+		return
+	}
+	if changed {
+		h.Log.InfoContext(r.Context(), "video moderated", "video_id", id, "state", state, "by", who.ID)
+	}
+	w.Header().Set("Cache-Control", cachePrivate)
+	httpx.WriteJSON(w, http.StatusOK, h.video(v, who))
 }
 
 // ---- GET /v1/studio/videos ----------------------------------------------------

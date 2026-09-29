@@ -28,7 +28,8 @@ const videoSelect = `
 	SELECT v.id, v.owner_id, v.title, v.description, v.visibility::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
 	       v.hls_master_key, v.thumbnail_key,
-	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key
+	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
+	       v.moderation_state::text, v.moderation_reason, v.moderated_by, v.moderated_at
 	FROM media.videos v
 	LEFT JOIN auth.public_profiles p ON p.id = v.owner_id`
 
@@ -38,7 +39,8 @@ func scanVideo(row pgx.Row) (domain.Video, error) {
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Visibility, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
 		&v.HLSMasterKey, &v.ThumbnailKey,
-		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey)
+		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
+		&v.ModerationState, &v.ModerationReason, &v.ModeratedBy, &v.ModeratedAt)
 	v.Owner.ID = v.OwnerID
 	v.Owner.Missing = !ownerActive
 	return v, err
@@ -111,7 +113,7 @@ func feedSQL(q domain.FeedQuery) (string, []any) {
 		       p.id, p.handle, p.display_name, p.avatar_key
 		FROM media.videos v
 		JOIN auth.public_profiles p ON p.id = v.owner_id
-		WHERE v.status = 'READY' AND v.visibility = 'PUBLIC'`)
+		WHERE v.status = 'READY' AND v.visibility = 'PUBLIC' AND v.moderation_state = 'VISIBLE'`)
 	var args []any
 	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
 	if q.OwnerID != nil {
@@ -139,7 +141,8 @@ func (p *Postgres) ListStudio(ctx context.Context, q domain.StudioQuery) ([]doma
 		var s domain.StudioItem
 		var progress float32
 		if err := rows.Scan(&s.ID, &s.Title, &s.Visibility, &s.Status, &progress, &s.Error,
-			&s.DurationMs, &s.CreatedAt, &s.ThumbnailKey); err != nil {
+			&s.DurationMs, &s.CreatedAt, &s.ThumbnailKey,
+			&s.ModerationState, &s.ModerationReason, &s.ModeratedAt); err != nil {
 			return nil, err
 		}
 		s.Progress = float64(progress)
@@ -152,7 +155,8 @@ func studioSQL(q domain.StudioQuery) (string, []any) {
 	var sb strings.Builder
 	sb.WriteString(`
 		SELECT v.id, v.title, v.visibility::text, v.status::text, coalesce(j.progress, 0), v.error,
-		       v.duration_ms, v.created_at, v.thumbnail_key
+		       v.duration_ms, v.created_at, v.thumbnail_key,
+		       v.moderation_state::text, v.moderation_reason, v.moderated_at
 		FROM media.videos v
 		LEFT JOIN LATERAL (
 		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
@@ -215,6 +219,56 @@ func (p *Postgres) DeleteVideo(ctx context.Context, id uuid.UUID, mediaBucket st
 		return false, fmt.Errorf("commit: %w", err)
 	}
 	return true, nil
+}
+
+// ModerateVideo hides or restores a video. The row is locked (FOR UPDATE), the
+// change and the video.moderated outbox row are written in ONE transaction
+// (ADR-008), and a request that does not change the state writes nothing.
+func (p *Postgres) ModerateVideo(ctx context.Context, id, moderatorID uuid.UUID, state string, reason *string) (domain.Video, bool, error) {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return domain.Video{}, false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var owner uuid.UUID
+	var current string
+	err = tx.QueryRow(ctx, `SELECT owner_id, moderation_state::text FROM media.videos WHERE id = $1 FOR UPDATE`, id).Scan(&owner, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Video{}, false, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Video{}, false, fmt.Errorf("moderate video: lock: %w", err)
+	}
+	if current == state {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Video{}, false, fmt.Errorf("commit: %w", err)
+		}
+		v, err := p.GetVideo(ctx, id)
+		return v, false, err
+	}
+
+	if state == domain.ModHidden {
+		_, err = tx.Exec(ctx, `UPDATE media.videos SET moderation_state = 'HIDDEN', moderation_reason = $2,
+			moderated_by = $3, moderated_at = now() WHERE id = $1`, id, reason, moderatorID)
+	} else {
+		// VISIBLE clears the reason (constraint videos_moderation_consistent); who and when stay as the audit trail.
+		_, err = tx.Exec(ctx, `UPDATE media.videos SET moderation_state = 'VISIBLE', moderation_reason = NULL,
+			moderated_by = $2, moderated_at = now() WHERE id = $1`, id, moderatorID)
+	}
+	if err != nil {
+		return domain.Video{}, false, fmt.Errorf("moderate video: update: %w", err)
+	}
+	if err := outbox.Enqueue(ctx, tx, "media", "video.moderated", domain.ModeratedEvent{
+		VideoID: id.String(), OwnerID: owner.String(), State: state, ModeratorID: moderatorID.String(),
+	}); err != nil {
+		return domain.Video{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Video{}, false, fmt.Errorf("commit: %w", err)
+	}
+	v, err := p.GetVideo(ctx, id)
+	return v, true, err
 }
 
 // SetLikeCount sets the absolute like count copied from social-svc. Rows whose

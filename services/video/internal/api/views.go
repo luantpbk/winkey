@@ -107,6 +107,14 @@ func (h *Handler) recordView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A hidden video is readable by its owner, moderators and admins only, and is
+	// never counted (task A2). Everyone else already got 404 above.
+	if v.Hidden() {
+		views.ViewsTotal.WithLabelValues("hidden").Inc()
+		writeCounted(w, false)
+		return
+	}
+
 	// The server re-checks the threshold: min(30 s, duration / 2).
 	need := int64(viewThresholdMs)
 	if v.DurationMs != nil && int64(*v.DurationMs)/2 < need {

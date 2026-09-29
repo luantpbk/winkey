@@ -1,6 +1,6 @@
 # video-svc
 
-Video metadata, public feed, watch-page data and the creator's studio list. Implements [`contracts/openapi/video.v1.yaml`](../../contracts/openapi/video.v1.yaml); emits `video.deleted` through the transactional outbox (ADR-008). Owner: Sonnet 5.5 (task S1).
+Video metadata, public feed, watch-page data and the creator's studio list. Implements [`contracts/openapi/video.v1.yaml`](../../contracts/openapi/video.v1.yaml); emits `video.deleted` and `video.moderated` through the transactional outbox (ADR-008). Owner: Sonnet 5.5 (task S1).
 
 ## Endpoints
 
@@ -11,6 +11,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. |
 | `DELETE /v1/videos/{id}` | required | Owner, moderator or admin. **One transaction**: delete the row (cascades to renditions and jobs) + enqueue `video.deleted` (`raw_bucket`, `raw_key`, `media_bucket`, `media_prefix = v/{id}/`). The transcoder's media janitor purges the objects. |
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
+| `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
 | `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
 
 ### Visibility (who sees what by id)
@@ -22,6 +23,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | READY + PRIVATE | **404** | 200 |
 | not READY (UPLOADING … FAILED) | **404** | 200 |
 | owner not ACTIVE (suspended/deleted) | **404** | 200 (placeholder owner `deleted_user`) |
+| **HIDDEN** by a moderator (any visibility) | **404** | 200, `Cache-Control: private, no-store` |
 
 A video the caller may not see is always **404, never 403**, so ids cannot be probed. PATCH and DELETE follow the same rule first (404), then answer **403** for a visible video the caller may not change. Identity comes only from `X-User-Id` / `X-User-Roles`; on the two optional routes a missing `X-User-Id` is an anonymous request and a malformed one is a 401.
 
@@ -82,9 +84,21 @@ Delivery is *at least once*: a crash after the PostgreSQL commit and before the 
 
 | Metric | Type | |
 |---|---|---|
-| `video_views_total{result}` | counter | `counted`, `duplicate`, `below_threshold`, `rate_limited`, `valkey_down` |
+| `video_views_total{result}` | counter | `counted`, `duplicate`, `below_threshold`, `hidden`, `rate_limited`, `valkey_down` |
 | `video_view_flush_seconds` | histogram | Flush passes that had a batch to apply |
 | `video_view_flush_errors_total` | counter | Failed flush steps (each is retried on the next tick) |
+
+### Moderation
+
+`PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).
+
+- `HIDDEN` needs a `reason` (1-500 characters after trimming, else `400`); `VISIBLE` clears it (a reason sent with it is ignored). Media objects are not deleted.
+- **Same state again is a no-op**: `200`, the row is not touched (the first reason, moderator and time stay) and **no event** is emitted.
+- The row update (`moderation_state`, `moderation_reason`, `moderated_by`, `moderated_at`) and the `video.moderated` outbox row (`video_id`, `owner_id`, `state`, `moderator_id`) are written in **one transaction**. The row is locked (`FOR UPDATE`), so concurrent identical requests produce exactly one change and one event.
+- **HIDDEN = PRIVATE for everyone but the owner, moderators and admins**: `404` on `GET /v1/videos/{id}`, absent from `GET /v1/videos` (feed and `owner_id` channel page, also for the owner; the studio is where they see it), never publicly cached, and **not counted**: `POST .../views` answers `404` to outsiders (the video is not readable for them, exactly like `GET`) and `202 {"counted": false}` to the owner, moderators and admins (`video_views_total{result="hidden"}`).
+- **`moderation` `{state, reason, moderated_at}`** is in `Video` and `StudioVideo` only for the owner, moderators and admins (always, also while `VISIBLE`: `reason` and `moderated_at` are then `null`, or the time of the last restore); nobody else ever sees the key. Moderators and admins can still `GET` a hidden video, so a moderation screen can review it.
+- **Cache**: `PUT` invalidates the entry in this replica; other replicas serve their copy for at most `CACHE_TTL` (30 s), the same bound as `PATCH visibility=PRIVATE`. The cached record is viewer independent and visibility is applied after reading it, so a cached hidden video is still `404` for outsiders.
+- Not done here (other owners): the `social.videos.hidden` projection, reports, the web UI, blocking media downloads (signed cookies, SEC1).
 
 ### Cache (optional)
 
