@@ -46,7 +46,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp · ✅ (#15) |
 | U1 | Web: layout, trang chủ, trang xem SSR, đăng nhập/đăng ký, upload (multipart, resume) | Antigravity 1 | F2 (Prism mock) | TB |
 | PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE · ✅ (#59) | Antigravity 1 | S1 | TB |
-| U3 | Web social: comment 2 cấp, like, subscribe trên trang xem/kênh. [Brief](prompts/antigravity-1_U3_social-ui.md) | Antigravity 1 | C1 ✅, PL1 ✅ | TB |
+| U3 | Web social: comment 2 cấp, like, subscribe trên trang xem/kênh. [Brief](prompts/antigravity-1_U3_social-ui.md) · ✅ (#69) | Antigravity 1 | C1 ✅, PL1 ✅ | TB |
 | I1 | Ansible: hardening, Tailscale, k3s (edge-1 ✅ qua I1-e1; edge-2/3 sau). gpu-01: worker transcoder ngoài k3s (ADR-015): driver NVIDIA, FFmpeg NVENC, service | Antigravity 2 | I0 | **Cao** |
 | STO | Garage (1 node RF 1 bây giờ, ×3 RF 2 sau), bucket + CORS (`ExposeHeaders: ETag`) + web endpoint, key theo từng service. [Brief](prompts/antigravity-2_STO_garage.md) | Antigravity 2 | I1, EDGE ✅ | **Cao** |
 | DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) | Antigravity 2 | I1 | **Cao** |
@@ -63,7 +63,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) · ✅ (#48) | Antigravity 3 | A1 ✅ |
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) · ✅ (#57) | Antigravity 3 | C1 ✅ |
 | C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) · ✅ (#52) | Sonnet 5.5 | S1 ✅ |
-| U2 | Creator Studio realtime | Antigravity 1 | C2 |
+| U2 | Creator Studio realtime + like/comment realtime trên trang xem. [Brief](prompts/antigravity-1_U2_studio-realtime.md) | Antigravity 1 | C2 ✅ |
 | SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm` | Sonnet 5.5 (+ Opus migration) | S1 |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |
 | SEC1 | Video private: signed cookie ở media-cache; WAF/rate limit; hàng đợi moderation | Opus (thiết kế) → Antigravity 2 / Sonnet | EDGE, A2 |
