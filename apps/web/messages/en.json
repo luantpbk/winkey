@@ -91,5 +91,38 @@
       "READY": "Ready",
       "FAILED": "Failed"
     }
+  },
+  "social": {
+    "comments": "Comments",
+    "commentsCount": "{count, plural, =0 {0 comments} other {# comments}}",
+    "addCommentPlaceholder": "Add a comment...",
+    "replyPlaceholder": "Add a reply...",
+    "commentSubmit": "Comment",
+    "replySubmit": "Reply",
+    "cancel": "Cancel",
+    "reply": "Reply",
+    "showReplies": "View {count} replies",
+    "hideReplies": "Hide replies",
+    "loadMoreComments": "Load more comments",
+    "loadMoreReplies": "Load more replies",
+    "loading": "Loading...",
+    "edited": "(edited)",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "deletedTombstone": "This comment has been deleted.",
+    "rateLimited": "You are posting too fast. Please retry in {seconds} seconds.",
+    "loginToComment": "Sign in to comment",
+    "loginToLike": "Sign in to like this video",
+    "loginToSubscribe": "Sign in to subscribe",
+    "like": "Like",
+    "liked": "Liked",
+    "subscribe": "Subscribe",
+    "subscribed": "Subscribed",
+    "subscribers": "{count, plural, =0 {0 subscribers} other {# subscribers}}",
+    "share": "Share",
+    "copiedLink": "Video link copied!",
+    "cannotSubscribeSelf": "Cannot subscribe to your own channel.",
+    "charCount": "{current}/{max}"
   }
 }
