@@ -38,7 +38,7 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
 |---|---|---|---|---|
-| **gpu-01** (nhà) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
+| **gpu-01** (nhà; hostname `X9DRL-3F-iF`, tailnet `gpu-01` 100.88.247.70, **Ubuntu 26.04**, driver NVIDIA 595) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
 | **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
@@ -168,9 +168,11 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
 - **Pipeline mặc định** (ADR-006): NVDEC decode (`-hwaccel cuda`, frame được copy về RAM) → scale/format trên CPU → **h264_nvenc** encode 3 rendition.
 - Nếu NVDEC không hỗ trợ codec đầu vào, FFmpeg tự fallback về software decode.
-- **Giới hạn phiên NVENC của GeForce**: driver hiện hành cho tối đa 8 phiên đồng thời **[đo]**. Mỗi job dùng 3 phiên, nên **tối đa 2 job NVENC song song** (6 phiên), chừa phần dư cho test.
-- **Ước tính [đo]**: một job 1080p30 chạy ~5–10× realtime trên NVENC, ~2× với x264 `veryfast` trên 32 thread. Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
-- **Yêu cầu phần mềm**: driver NVIDIA ≥ 570 (Blackwell), NVIDIA Container Toolkit, FFmpeg ≥ 7.1 build có `--enable-nvenc --enable-cuvid`. Kiểm tra bằng `ffmpeg -encoders | grep nvenc` và một lần encode thử.
+- **Phiên NVENC**: driver 595 chạy được **≥ 10 phiên** song song (đo 2026-09-29), nên giới hạn phiên của GeForce không còn là ràng buộc. Ràng buộc thật là **thông lượng khối NVENC**: tổng ~12.3× realtime (~370 fps 1080p30, preset p5), chia đều cho mọi phiên. Thêm phiên không làm nhanh hơn. **Concurrency 2 job** vẫn giữ, để job ngắn không phải xếp hàng sau job dài.
+- **Đo thực tế (2026-09-29, trong lúc GPU đang chạy miner)**: NVENC h264 1 phiên **12×**; x264 `veryfast` **7.6×**. Đây là số đo encode tổng hợp (testsrc2); cần đo lại bằng một job transcode 3 rendition thật (task V2b). Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
+- **Phần mềm trên gpu-01 (đã cài)**: driver 595.91.07; FFmpeg **BtbN `autobuild-2026-07-31-14-10` (n7.1.5-12)** tại `/opt/ffmpeg-7.1`. Có h264_nvenc và hevc_nvenc, **không có av1_nvenc**; AV1 (P4) cần bản 8.x. Transcoder gọi FFmpeg qua `FFMPEG_PATH=/opt/ffmpeg-7.1/bin/ffmpeg` / `FFPROBE_PATH`. **Không** symlink vào `/usr/local/bin`, vì như vậy sẽ che FFmpeg 8.0 hệ thống mà ComfyUI và F5-TTS đang dùng.
+- **Thư mục**: `SCRATCH_DIR=/mnt/nvme_models/winkey/scratch` (Kingmax PCIe 3.0, dùng chung phân vùng với model ComfyUI, còn 127 GB trống); `ARCHIVE_DIR=/mnt/hdd_storage/winkey/archive` (HDD 1 TB, còn 838 GB). User hệ thống `winkey`.
+- **Tài nguyên dùng chung**: gpu-01 đồng thời chạy SRBMiner (4.5 GB VRAM, CUDA 100%), ComfyUI và các job Python. NVENC gần như không bị ảnh hưởng; NVDEC (`-hwaccel cuda`) và VRAM thì bị chia sẻ. Ổ `/` chỉ còn khoảng 18 GB trống.
 - **CPU không có AVX2**: x264 vẫn chạy tốt; x265/SVT-AV1 sẽ rất chậm. Dùng **av1_nvenc** nếu sau này làm AV1 (P4).
 
 ## 7. Băng thông phát
@@ -193,6 +195,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 | arm64 trên edge | Image không chạy | Mọi image build `linux/amd64,linux/arm64`; riêng transcoder-nvenc chỉ cần amd64 |
 | Uplink nhà thấp/không ổn định | Chờ READY lâu | Multipart upload có retry; đo bằng `iperf3` qua Tailscale; cân nhắc giới hạn 1080p |
 | Một GPU duy nhất | Single point of failure cho tốc độ | Fallback x264 tự động |
+| **GPU dùng chung với miner/ComfyUI** | Transcode chậm hoặc lỗi hết VRAM khi tải cao | Transcoder retry được (NVENC→x264 fallback, NAK); đo job thật trong V2b; nếu decode CUDA bị nghẽn thì chuyển decode về CPU (`HWACCEL_DECODE=false`); ưu tiên dừng miner khi có hàng đợi dài |
+| Ổ `/` trên gpu-01 gần đầy (85%) | Log hoặc tmp làm đầy ổ, service chết | Scratch và archive đặt ngoài `/`; logrotate; cảnh báo khi còn < 10 GB (I3) |
 
 ## 9. Checklist I0 (Antigravity 2 chạy, dán kết quả vào issue I0)
 
