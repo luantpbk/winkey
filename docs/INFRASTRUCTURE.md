@@ -70,7 +70,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 | **media-cache** | ● | ● | ● | | edge-1: `proxy_cache` của nginx host (ADR-014); edge-2/3: DaemonSet, cache local 30 GB/node |
 | **Garage** (S3) | ● | ● | ● | | `replication_factor = 2`, ~120 GB/node dành cho dữ liệu |
 | **NATS JetStream** | ● | ● | ● | | Cluster 3 node, stream R3 |
-| **PostgreSQL** (CloudNativePG) | primary | replica | | | Backup (barman) vào bucket `winkey-backups`; hằng đêm rclone về gpu-01 |
+| **PostgreSQL** (CloudNativePG) | primary | replica | | | Backup (barman) vào bucket `winkey-pg-backup`; hằng đêm rclone về gpu-01 |
 | Valkey (Redis-compatible) | | ● | | | Cache/rate-limit; mất thì chỉ chậm hơn, không mất dữ liệu |
 | web, auth-svc, upload-svc, video-svc, social-svc, realtime-gw | ○ | ○ | ○ | | Stateless, 2 replica, anti-affinity |
 | **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency **1** khi GPU còn dùng chung với miner (xem §6) |
@@ -149,7 +149,7 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 |---|---|---|
 | `winkey-raw` | File gốc người dùng upload | Xóa sau **7 ngày** kể từ khi READY. Transcoder chép 1 bản sang archive trên gpu-01 trước khi xử lý |
 | `winkey-media` | HLS + thumbnail, key `v/{video_id}/a{attempt}/…` | Vĩnh viễn; attempt cũ bị xóa bởi janitor |
-| `winkey-backups` | Backup PostgreSQL | 14 ngày; bản sao hằng đêm ở gpu-01 |
+| `winkey-pg-backup` | Backup PostgreSQL (CNPG barman) | 14 ngày; bản sao hằng đêm ở gpu-01 |
 
 - **Dung lượng dùng được**:
   - Mục tiêu 3 node: ≈ 3 × 120 GB / RF 2 ≈ **180 GB**.
