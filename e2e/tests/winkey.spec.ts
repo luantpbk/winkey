@@ -39,6 +39,100 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(page.locator('h1')).toBeVisible();
   });
 
+  test('PL1: Play video, select quality, verify recordView is called exactly once', async ({
+    page,
+  }) => {
+    let responseViewCount = 0;
+    let responsePayload: any = null;
+
+    page.on('response', async (res) => {
+      if (
+        res.url().includes('/v1/videos/') &&
+        res.url().includes('/views') &&
+        res.request().method() === 'POST'
+      ) {
+        responseViewCount++;
+        try {
+          responsePayload = res.request().postDataJSON();
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    const getRecordedViews = async () => {
+      return await page.evaluate(() => {
+        try {
+          return JSON.parse(sessionStorage.getItem('wk_mock_views') || '[]');
+        } catch {
+          return [];
+        }
+      });
+    };
+
+    // Navigate to watch page
+    await page.goto('/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify video player is mounted
+    const video = page.locator('video');
+    await expect(video).toBeVisible();
+
+    // Verify quality menu interaction
+    const qualityButton = page.locator('button[aria-label="Chọn chất lượng video"]');
+    if (await qualityButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await qualityButton.click();
+      const qualityOption = page.locator('[role="menu"] button').first();
+      await expect(qualityOption).toBeVisible();
+      await qualityOption.click();
+    }
+
+    // Simulate playback advancing past the 30s threshold
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('play'));
+        for (let t = 0.5; t <= 30.5; t += 0.5) {
+          Object.defineProperty(v, 'currentTime', { value: t, configurable: true, writable: true });
+          v.dispatchEvent(new Event('timeupdate'));
+        }
+      }
+    });
+
+    // Verify recordView was invoked
+    await expect
+      .poll(
+        async () => {
+          const views = await getRecordedViews();
+          return Math.max(views.length, responseViewCount);
+        },
+        { timeout: 10000 },
+      )
+      .toBe(1);
+
+    const views = await getRecordedViews();
+    const payload = views[0] || responsePayload;
+    expect(payload).toHaveProperty('playback_id');
+    expect(payload).toHaveProperty('watched_ms');
+    expect(payload.watched_ms).toBeGreaterThanOrEqual(30000);
+
+    // Advance further: must remain called exactly 1 time
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        for (let t = 31; t <= 40; t += 0.5) {
+          Object.defineProperty(v, 'currentTime', { value: t, configurable: true, writable: true });
+          v.dispatchEvent(new Event('timeupdate'));
+        }
+      }
+    });
+
+    await page.waitForTimeout(500);
+    const viewsAfter = await getRecordedViews();
+    const finalCount = Math.max(viewsAfter.length, responseViewCount);
+    expect(finalCount).toBe(1);
+  });
+
   test('Flow 2: Register -> upload file -> appears in studio', async ({ page }) => {
     // 1. Go to register page
     await page.goto('/register');

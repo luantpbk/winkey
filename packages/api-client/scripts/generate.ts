@@ -12,6 +12,8 @@ const contracts = [
   { name: 'auth', file: path.join(rootDir, 'contracts/openapi/auth.v1.yaml') },
   { name: 'upload', file: path.join(rootDir, 'contracts/openapi/upload.v1.yaml') },
   { name: 'video', file: path.join(rootDir, 'contracts/openapi/video.v1.yaml') },
+  { name: 'social', file: path.join(rootDir, 'contracts/openapi/social.v1.yaml') },
+  { name: 'realtime', file: path.join(rootDir, 'contracts/openapi/realtime.v1.yaml') },
 ];
 
 export async function generateAll(): Promise<Map<string, string>> {

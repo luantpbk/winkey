@@ -97,9 +97,12 @@ export default async function WatchPage({ params }: WatchPageProps) {
       <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-4">
         {/* Player with Poster */}
         <VideoPlayer
+          videoId={video.id}
+          durationMs={video.duration_ms}
           src={video.playback?.hls_url}
           poster={video.playback?.thumbnail_url}
           title={video.title}
+          renditions={video.playback?.renditions}
         />
 
         {/* Video Title */}
