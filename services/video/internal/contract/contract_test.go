@@ -78,23 +78,23 @@ func TestCheckStatusAndMediaTypeAreEnforced(t *testing.T) {
 
 func TestAllowUndocumentedProblemIsNarrow(t *testing.T) {
 	s := Load(t)
-	problem := `{"type":"/problems/bad-request","title":"Bad Request","status":400,"code":"INVALID_CURSOR"}`
-	if errs := check(t, s, "GET", "/v1/studio/videos", 400, "application/problem+json", problem); len(errs) == 0 {
-		t.Fatal("the studio 400 must fail until it is explicitly allowed")
+	problem := `{"type":"/problems/conflict","title":"Conflict","status":409,"code":"INVALID_CURSOR"}`
+	if errs := check(t, s, "GET", "/v1/studio/videos", 409, "application/problem+json", problem); len(errs) == 0 {
+		t.Fatal("the studio 409 must fail until it is explicitly allowed")
 	}
-	s.AllowUndocumentedProblem("GET", "/v1/studio/videos", 400, "issue")
-	if errs := check(t, s, "GET", "/v1/studio/videos", 400, "application/problem+json", problem); len(errs) != 0 {
+	s.AllowUndocumentedProblem("GET", "/v1/studio/videos", 409, "issue")
+	if errs := check(t, s, "GET", "/v1/studio/videos", 409, "application/problem+json", problem); len(errs) != 0 {
 		t.Fatalf("allowed problem rejected: %v", errs)
 	}
 	// Still validated: wrong media type, or a body that is not a Problem.
-	if errs := check(t, s, "GET", "/v1/studio/videos", 400, "application/json", problem); len(errs) == 0 {
+	if errs := check(t, s, "GET", "/v1/studio/videos", 409, "application/json", problem); len(errs) == 0 {
 		t.Error("allowed status must still be problem+json")
 	}
-	if errs := check(t, s, "GET", "/v1/studio/videos", 400, "application/problem+json", `{"oops":true}`); len(errs) == 0 {
+	if errs := check(t, s, "GET", "/v1/studio/videos", 409, "application/problem+json", `{"oops":true}`); len(errs) == 0 {
 		t.Error("allowed status must still validate against the Problem schema")
 	}
 	// Other undocumented responses keep failing.
-	if errs := check(t, s, "GET", "/v1/studio/videos", 409, "application/problem+json", problem); len(errs) == 0 {
+	if errs := check(t, s, "GET", "/v1/studio/videos", 422, "application/problem+json", problem); len(errs) == 0 {
 		t.Error("another undocumented status was accepted")
 	}
 	if errs := check(t, s, "GET", "/v1/videos", 418, "application/problem+json", problem); len(errs) == 0 {
