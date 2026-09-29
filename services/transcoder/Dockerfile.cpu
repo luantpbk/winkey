@@ -24,8 +24,15 @@ ARG FFMPEG_AMD64=ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1.tar.xz
 ARG FFMPEG_AMD64_SHA256=c1e6caf48923dd8e6bc5e54d51ba70c321175b8162ae9c414c392990e72f0e79
 ARG FFMPEG_ARM64=ffmpeg-n7.1.5-12-g1fdbca85aa-linuxarm64-gpl-7.1.tar.xz
 ARG FFMPEG_ARM64_SHA256=a9a50c5782ef5e45306d58d1a9a819015b472d8da30ab6a77f15f571c861a71b
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils  && rm -rf /var/lib/apt/lists/*
-RUN case "$TARGETARCH" in       amd64) ARCHIVE="$FFMPEG_AMD64"; SHA="$FFMPEG_AMD64_SHA256";;       arm64) ARCHIVE="$FFMPEG_ARM64"; SHA="$FFMPEG_ARM64_SHA256";;       *) echo "unsupported TARGETARCH $TARGETARCH" >&2; exit 1;; esac  && curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${ARCHIVE}" -o /tmp/ffmpeg.tar.xz  && echo "${SHA}  /tmp/ffmpeg.tar.xz" | sha256sum -c -  && mkdir /ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /ffmpeg --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+RUN case "$TARGETARCH" in \
+      amd64) ARCHIVE="$FFMPEG_AMD64"; SHA="$FFMPEG_AMD64_SHA256";; \
+      arm64) ARCHIVE="$FFMPEG_ARM64"; SHA="$FFMPEG_ARM64_SHA256";; \
+      *) echo "unsupported TARGETARCH $TARGETARCH" >&2; exit 1;; esac \
+ && curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${ARCHIVE}" -o /tmp/ffmpeg.tar.xz \
+ && echo "${SHA}  /tmp/ffmpeg.tar.xz" | sha256sum -c - \
+ && mkdir /ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /ffmpeg --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
 
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
