@@ -101,7 +101,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     if (fs.existsSync(sampleFilePath)) {
       try {
         fs.unlinkSync(sampleFilePath);
-      } catch {}
+      } catch {
+        // ignore cleanup failure
+      }
     }
   });
 
