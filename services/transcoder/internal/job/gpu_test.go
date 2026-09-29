@@ -5,6 +5,7 @@
 //	FFMPEG_PATH=/opt/ffmpeg-7.1/bin/ffmpeg FFPROBE_PATH=/opt/ffmpeg-7.1/bin/ffprobe \
 //	  go test -tags gpu -run GPU -v -timeout 30m ./internal/job/...
 //
+// HWACCEL_DECODE=false makes TestGPUEndToEnd use CPU decode like the gpu-01 service does.
 // They run the same pipeline as the x264 tests with ENCODER=nvenc, fail if the
 // job silently fell back to x264, and report wall time and x-realtime speed.
 // The benchmark also reports peak CPU, GPU, NVENC, NVDEC and VRAM, the GPU load
@@ -120,6 +121,8 @@ func runFlow(t *testing.T, tools job.Tools, encoder string, c testutil.Clip) (*t
 	t.Helper()
 	clip := testutil.MakeClip(t, tools, t.TempDir(), c)
 	f := testutil.NewFlow(t, tools, encoder, clip)
+	// HWACCEL_DECODE=false mirrors gpu-01's production setting (CPU decode + NVENC encode).
+	f.Pipeline.Cfg.NoHWDecode = os.Getenv("HWACCEL_DECODE") == "false"
 	res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3})
 	if res.Action != job.ActionAck || res.Stats == nil || len(f.Store.Ready) != 1 {
 		t.Fatalf("%s/%s: %+v (fails: %+v)", encoder, c.Name, res, f.Store.Fails)
