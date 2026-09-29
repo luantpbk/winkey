@@ -227,3 +227,21 @@ func (p *Postgres) SetLikeCount(ctx context.Context, id uuid.UUID, count int64) 
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// AddViews adds counted views to media.videos.view_count in ONE transaction
+// (a single statement). Deleted videos match no row. updated_at is bumped by
+// the set_updated_at trigger of the table; that cannot be avoided without a migration.
+func (p *Postgres) AddViews(ctx context.Context, ids []uuid.UUID, counts []int64) (int, error) {
+	if len(ids) != len(counts) {
+		return 0, errors.New("add views: ids and counts differ in length")
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tag, err := p.Pool.Exec(ctx, `UPDATE media.videos v SET view_count = v.view_count + d.n
+FROM unnest($1::uuid[], $2::bigint[]) AS d(id, n) WHERE v.id = d.id`, ids, counts)
+	if err != nil {
+		return 0, fmt.Errorf("add views: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
