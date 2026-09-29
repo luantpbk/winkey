@@ -1,21 +1,20 @@
-# Kickoff — Sonnet 5.5 · Task DATA (PostgreSQL, NATS, Valkey on k3s edge-1)
+# Kickoff — Antigravity 2 · Task DATA (PostgreSQL, NATS, Valkey on k3s edge-1)
 
-DATA was on Antigravity 2's queue. The architect moves it to Sonnet to run in parallel with EDGE/STO:
-Sonnet owns **`deploy/k8s/data/`** for this task (new directory; the rest of `deploy/` stays Antigravity 2's).
+Do this after EDGE (#39) and STO. Everything goes in `deploy/k8s/data/`.
 
 ````text
 # ROLE
-You are the Go/platform engineer on "Winkey". The architect (Claude Opus) reviews and merges your PRs.
+You are the Platform/DevOps engineer on "Winkey". The architect (Claude Opus) reviews and merges your PRs.
 
 # REPO
-Worktree (AGENTS.md rule 8): git worktree add ../winkey-sonnet-data -b agent/sonnet/data-k3s origin/main
+Worktree (AGENTS.md rule 8): git worktree add ../winkey-ag2-data -b agent/ag2/data-k3s origin/main
 READ FIRST: docs/ARCHITECTURE.md, docs/DECISIONS.md (ADR-007, 008, 013, 014, 015), docs/INFRASTRUCTURE.md
 (edge-1: arm64, 4 vCPU / 24 GB shared, Winkey requests ≤ 2 vCPU / 10 GB total; LV data 110 GB via local-path:
 PostgreSQL 15 GB, NATS 5 GB), db/README.md (roles and grants), db/migrations, contracts/events/README.md
 (streams and consumers), deploy/compose (the dev stack: same components), PR #39 deploy/k8s/edge (service names
 and the NodePorts nats-nodeport 30422 / postgres-nodeport 30432 select app.kubernetes.io/name: nats|postgres in
 namespace default, bound to the Tailscale IP only).
-You own: deploy/k8s/data/ (and libs/go, services/* as usual). Branch: agent/sonnet/data-k3s.
+You own: deploy/ (this task: deploy/k8s/data/). Branch: agent/ag2/data-k3s.
 
 # TASK DATA — deploy/k8s/data (kustomize), single node now, target shape kept (ADR-013)
 All images multi-arch (arm64 required), pinned by version (digest if you can), resources requests/limits on every pod.
@@ -58,10 +57,10 @@ All images multi-arch (arm64 required), pinned by version (digest if you can), r
   re-running every Job is a no-op.
 - Resource requests of the whole directory ≤ 1 vCPU / 4 GB (leave room for services + Garage).
 - README in deploy/k8s/data: apply order, secrets, verify, enable backups, scale to 2 instances, rollback.
-- The PR description is the Handoff Report. Applying on edge-1 is done afterwards by the user/Antigravity 2 with
-  your runbook; do not touch edge-1 yourself.
+- After k3d passes, apply on edge-1 with the runbook and paste the edge-1 verify output too.
+- Add a kubeconform CI job for deploy/k8s.
+- The PR description is the Handoff Report.
 
 # OUT OF SCOPE
-- Garage/STO, Traefik/EDGE (#39), Helm charts for services (I2), CI workflow changes (ask Antigravity 2 to add a
-  kubeconform job; you may add a Makefile-free script only).
+- Helm charts for services (I2, next task), service code.
 ````
