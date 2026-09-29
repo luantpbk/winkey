@@ -53,7 +53,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 | Oracle Pay-As-You-Go | ✅ | Instance không bị thu hồi do "nhàn rỗi" |
 | Tên miền | ✅ `winkey.vn` | Xem §4.1 |
 | Kiến trúc VPS | 🟡 gần chắc chắn arm64 | Không chặn gì (image đa kiến trúc); chạy `uname -m` để chốt |
-| Uplink nhà, NVENC benchmark, số phiên NVENC | ⬜ | Đo trong I0 (§9) |
+| Uplink nhà | ⬜ | Đo trong I0 (§9). NVENC benchmark và số phiên NVENC: ✅ (§6, V2b) |
 
 ## 2. Nguyên tắc phân bổ
 
@@ -73,7 +73,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 | **PostgreSQL** (CloudNativePG) | primary | replica | | | Backup (barman) vào bucket `winkey-backups`; hằng đêm rclone về gpu-01 |
 | Valkey (Redis-compatible) | | ● | | | Cache/rate-limit; mất thì chỉ chậm hơn, không mất dữ liệu |
 | web, auth-svc, upload-svc, video-svc, social-svc, realtime-gw | ○ | ○ | ○ | | Stateless, 2 replica, anti-affinity |
-| **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency 2 (xem §6) |
+| **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency **1** khi GPU còn dùng chung với miner (xem §6) |
 | transcoder (x264, overflow) | | | | ● | Concurrency 1 |
 | Raw archive, observability (VictoriaMetrics, Loki, Grafana), CI runner amd64 | | | | ● | Nội bộ, chỉ vào qua Tailscale |
 | CI runner arm64 | | | ● | | Build image arm64 native |
@@ -168,8 +168,19 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
 - **Pipeline mặc định** (ADR-006): NVDEC decode (`-hwaccel cuda`, frame được copy về RAM) → scale/format trên CPU → **h264_nvenc** encode 3 rendition.
 - Nếu NVDEC không hỗ trợ codec đầu vào, FFmpeg tự fallback về software decode.
-- **Phiên NVENC**: driver 595 chạy được **≥ 10 phiên** song song (đo 2026-09-29), nên giới hạn phiên của GeForce không còn là ràng buộc. Ràng buộc thật là **thông lượng khối NVENC**: tổng ~12.3× realtime (~370 fps 1080p30, preset p5), chia đều cho mọi phiên. Thêm phiên không làm nhanh hơn. **Concurrency 2 job** vẫn giữ, để job ngắn không phải xếp hàng sau job dài.
-- **Đo thực tế (2026-09-29, trong lúc GPU đang chạy miner)**: NVENC h264 1 phiên **12×**; x264 `veryfast` **7.6×**. Đây là số đo encode tổng hợp (testsrc2); cần đo lại bằng một job transcode 3 rendition thật (task V2b). Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
+- **Phiên NVENC**: driver 595 chạy được **≥ 10 phiên** song song (đo 2026-09-29), nên giới hạn phiên của GeForce không còn là ràng buộc. Ràng buộc thật là **thông lượng khối NVENC**: tổng ~12.3× realtime (~370 fps 1080p30, preset p5), chia đều cho mọi phiên. Thêm phiên không làm nhanh hơn.
+- **Đo encode tổng hợp (2026-09-29, GPU đang chạy miner)**: NVENC h264 1 phiên **12×**; x264 `veryfast` **7.6×** (testsrc2, 1 rendition).
+- **V2b: job transcode thật 3 rendition (2026-09-29, clip 1080p30 dài 120 s, GPU 100% tải và 5.8 GB VRAM bị miner + ComfyUI chiếm)**:
+
+  | Chế độ | ×realtime |
+  |---|---|
+  | NVENC ×1, decode NVDEC (`-hwaccel cuda`) | 3.0 |
+  | **NVENC ×1, decode CPU** | **5.6** (NVENC 100%) |
+  | x264 `veryfast` ×1 | 5.2 (CPU đỉnh 77%) |
+  | NVENC ×2 song song, NVDEC | 4.5 tổng |
+  | NVENC ×2 song song, decode CPU | 5.9 tổng |
+
+  Kết luận: khi GPU bị chia sẻ, NVDEC chậm gấp đôi decode CPU, và một job đã làm NVENC bão hòa. Cấu hình gpu-01: **`HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1`** (V3c). Video 10 phút ≈ 1.8 phút transcode, trong ngưỡng P1 (< 5 phút). Đo lại khi dừng miner. Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
 - **Phần mềm trên gpu-01 (đã cài)**: driver 595.91.07; FFmpeg **BtbN `autobuild-2026-07-31-14-10` (n7.1.5-12)** tại `/opt/ffmpeg-7.1`. Có h264_nvenc và hevc_nvenc, **không có av1_nvenc**; AV1 (P4) cần bản 8.x. Transcoder gọi FFmpeg qua `FFMPEG_PATH=/opt/ffmpeg-7.1/bin/ffmpeg` / `FFPROBE_PATH`. **Không** symlink vào `/usr/local/bin`, vì như vậy sẽ che FFmpeg 8.0 hệ thống mà ComfyUI và F5-TTS đang dùng.
 - **Thư mục**: `SCRATCH_DIR=/mnt/nvme_models/winkey/scratch` (Kingmax PCIe 3.0, dùng chung phân vùng với model ComfyUI, còn 127 GB trống); `ARCHIVE_DIR=/mnt/hdd_storage/winkey/archive` (HDD 1 TB, còn 838 GB). User hệ thống `winkey`.
 - **Tài nguyên dùng chung**: gpu-01 đồng thời chạy SRBMiner (4.5 GB VRAM, CUDA 100%), ComfyUI và các job Python. NVENC gần như không bị ảnh hưởng; NVDEC (`-hwaccel cuda`) và VRAM thì bị chia sẻ. Ổ `/` chỉ còn khoảng 18 GB trống.

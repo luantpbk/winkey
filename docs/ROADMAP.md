@@ -37,7 +37,8 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB · ✅ (#9) |
 | V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** · ✅ (#10); benchmark NVENC thật = V2b |
 | V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB · ✅ (#10) |
-| V3b | Reconciler job kẹt: ghi `transcode_jobs.heartbeat_at` mỗi lần `InProgress`; job RUNNING có heartbeat > 10 phút → attempt FAILED, re-enqueue hoặc fail video (migration 000004). Pin FFmpeg + sha256 cho `Dockerfile.nvenc` đã xong ở #20 | Sonnet 5.5 | V2 | TB |
+| V3b | Reconciler job kẹt (heartbeat, re-enqueue/fail qua outbox), pin FFmpeg BtbN n7.1.5 + sha256 cho cả image cpu và nvenc; benchmark GPU thật (V2b) | Sonnet 5.5 | V2 | TB · ✅ (#19) |
+| V3c | `HWACCEL_DECODE` (mặc định `true`) nối vào `NoHWDecode`; gpu-01 dùng `HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1` | Sonnet 5.5 | V3b | Thấp |
 | CI-GO | Workflow `go.yml` tạm thời: vet, test `-race` với container (`WINKEY_REQUIRE_DOCKER=1`), cross-build arm64/windows | Opus | — | ✅ (F1 đã thay bằng `ci.yml`) |
 | S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
 | A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB · 🟡 (#16) |
