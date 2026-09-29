@@ -179,7 +179,7 @@ jobs:
 
       - name: Build and push
         if: steps.gate.outputs.run == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
