@@ -3,22 +3,37 @@ import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react';
 import { VideoPlayer } from '../src/components/video/video-player';
 
-let latestHlsInstance: any = null;
+type HlsHandler = (event: string, data: unknown) => void;
+
+interface MockHls {
+  handlers: Record<string, HlsHandler[]>;
+  loadSource: ReturnType<typeof vi.fn>;
+  attachMedia: ReturnType<typeof vi.fn>;
+  on: (event: string, cb: HlsHandler) => void;
+  emit: (event: string, data: unknown) => void;
+  destroy: ReturnType<typeof vi.fn>;
+  startLoad: ReturnType<typeof vi.fn>;
+  recoverMediaError: ReturnType<typeof vi.fn>;
+  currentLevel: number;
+  levels: Array<{ height: number; bitrate: number; name: string }>;
+}
+
+let latestHlsInstance: MockHls | null = null;
 
 // Mock Hls.js
 vi.mock('hls.js', () => {
   const isSupportedMock = vi.fn().mockReturnValue(true);
   const HlsMock = vi.fn().mockImplementation(() => {
-    const handlers: Record<string, Function[]> = {};
-    const instance = {
+    const handlers: Record<string, HlsHandler[]> = {};
+    const instance: MockHls = {
       handlers,
       loadSource: vi.fn(),
       attachMedia: vi.fn(),
-      on: vi.fn((event: string, cb: Function) => {
+      on: vi.fn((event: string, cb: HlsHandler) => {
         if (!handlers[event]) handlers[event] = [];
         handlers[event].push(cb);
       }),
-      emit: (event: string, data: any) => {
+      emit: (event: string, data: unknown) => {
         (handlers[event] || []).forEach((cb) => cb(event, data));
       },
       destroy: vi.fn(),
@@ -34,13 +49,13 @@ vi.mock('hls.js', () => {
     return instance;
   });
   // attach static isSupported
-  (HlsMock as any).isSupported = isSupportedMock;
-  (HlsMock as any).Events = {
+  (HlsMock as unknown as Record<string, unknown>).isSupported = isSupportedMock;
+  (HlsMock as unknown as Record<string, unknown>).Events = {
     MANIFEST_PARSED: 'hlsManifestParsed',
     LEVEL_SWITCHED: 'hlsLevelSwitched',
     ERROR: 'hlsError',
   };
-  (HlsMock as any).ErrorTypes = {
+  (HlsMock as unknown as Record<string, unknown>).ErrorTypes = {
     NETWORK_ERROR: 'networkError',
     MEDIA_ERROR: 'mediaError',
     OTHER_ERROR: 'otherError',
@@ -345,30 +360,30 @@ describe('VideoPlayer Component', () => {
 
       // Attempt 1
       act(() => {
-        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+        latestHlsInstance!.emit('hlsError', { fatal: true, type: 'networkError' });
       });
-      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(1);
+      expect(latestHlsInstance!.startLoad).toHaveBeenCalledTimes(1);
       expect(queryByText('Không thể phát video')).toBeNull();
 
       // Attempt 2
       act(() => {
-        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+        latestHlsInstance!.emit('hlsError', { fatal: true, type: 'networkError' });
       });
-      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(2);
+      expect(latestHlsInstance!.startLoad).toHaveBeenCalledTimes(2);
       expect(queryByText('Không thể phát video')).toBeNull();
 
       // Attempt 3
       act(() => {
-        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+        latestHlsInstance!.emit('hlsError', { fatal: true, type: 'networkError' });
       });
-      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(3);
+      expect(latestHlsInstance!.startLoad).toHaveBeenCalledTimes(3);
       expect(queryByText('Không thể phát video')).toBeNull();
 
       // Attempt 4 (> 3 attempts) -> destroys instance and displays error overlay
       act(() => {
-        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+        latestHlsInstance!.emit('hlsError', { fatal: true, type: 'networkError' });
       });
-      expect(latestHlsInstance.destroy).toHaveBeenCalled();
+      expect(latestHlsInstance!.destroy).toHaveBeenCalled();
       expect(getByText('Không thể phát video')).toBeDefined();
     });
 
@@ -382,10 +397,10 @@ describe('VideoPlayer Component', () => {
       );
 
       act(() => {
-        latestHlsInstance.emit('hlsError', { fatal: true, type: 'otherError' });
+        latestHlsInstance!.emit('hlsError', { fatal: true, type: 'otherError' });
       });
 
-      expect(latestHlsInstance.destroy).toHaveBeenCalled();
+      expect(latestHlsInstance!.destroy).toHaveBeenCalled();
       expect(getByText('Không thể phát video')).toBeDefined();
     });
   });
