@@ -12,7 +12,7 @@ Nền tảng video streaming kiểu YouTube: upload, transcode HLS nhiều độ
           HTML + /v1/* API │          │ HLS (.m3u8/.m4s)     │ PUT part (presigned)
                            ▼          ▼                      ▼
         ┌─────────── edge-1 / edge-2 / edge-3 (Oracle, arm64, IP public) ───────────┐
-        │  Traefik :443 ── forwardAuth ──► auth-svc                                 │
+        │  nginx host :443 → Traefik ── forwardAuth ──► auth-svc   (ADR-014)        │
         │    ├─ winkey.vn/v1/*       ► auth · upload · video · social · realtime-gw │
         │    ├─ winkey.vn/*          ► web (Next.js SSR)                            │
         │    ├─ media.winkey.vn      ► media-cache (nginx, cache local) ─► Garage web│
