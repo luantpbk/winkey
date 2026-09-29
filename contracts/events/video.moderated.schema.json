@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/video.moderated.schema.json",
+  "title": "video.moderated v1",
+  "description": "A moderator hid or restored a video (task A2). Producer: video-svc. Not emitted when the state does not change.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.moderated" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "state", "moderator_id"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "state": { "enum": ["VISIBLE", "HIDDEN"] },
+        "moderator_id": { "type": "string", "format": "uuid" }
+      }
+    }
+  }
+}

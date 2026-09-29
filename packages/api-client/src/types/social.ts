@@ -151,6 +151,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a video, a comment or a user (any signed-in user).
+         * @description The target must exist and be visible to the reporter (otherwise `404`); reporting yourself or
+         *     your own content → `400`. A second report by the same user on the same target while the first
+         *     is still `OPEN` returns the existing report with `200`. Rate limit per user: 20 reports per hour
+         *     (`429`). The reporter never learns the outcome through this API.
+         */
+        post: operations["createReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/moderation/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Moderation queue (moderator or admin).
+         * @description Reports grouped by target: one item per (target_type, target_id) with its open report count and
+         *     the most recent reports. `status=OPEN` (default) sorts by the oldest open report first, so the
+         *     longest-waiting target is on top; other statuses sort by `resolved_at` descending.
+         */
+        get: operations["listReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/moderation/cases/{target_type}/{target_id}/resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_type: components["schemas"]["ReportTargetType"];
+                target_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Close every OPEN report on one target (moderator or admin).
+         * @description Sets `status`, `resolved_by`, `resolution_note` and `resolved_at` on all OPEN reports of the
+         *     target in one statement and returns how many changed. No OPEN report → `404`.
+         */
+        put: operations["resolveModerationCase"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -215,6 +284,66 @@ export interface components {
         SubscriptionPage: {
             items: components["schemas"]["Subscription"][];
             next_cursor: string | null;
+        };
+        /** @enum {string} */
+        ReportTargetType: "VIDEO" | "COMMENT" | "USER";
+        /** @enum {string} */
+        ReportReason: "SPAM" | "HARASSMENT" | "HATE" | "SEXUAL" | "VIOLENCE" | "COPYRIGHT" | "MISINFORMATION" | "OTHER";
+        /** @enum {string} */
+        ReportStatus: "OPEN" | "ACTIONED" | "DISMISSED";
+        CreateReportRequest: {
+            target_type: components["schemas"]["ReportTargetType"];
+            target_id: components["schemas"]["Uuid"];
+            reason: components["schemas"]["ReportReason"];
+            /** @default  */
+            note: string;
+        };
+        ReportReceipt: {
+            id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        Report: {
+            id: components["schemas"]["Uuid"];
+            reporter: components["schemas"]["PublicProfile"] | null;
+            reason: components["schemas"]["ReportReason"];
+            note: string;
+            status: components["schemas"]["ReportStatus"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ModerationCase: {
+            target_type: components["schemas"]["ReportTargetType"];
+            target_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["ReportStatus"];
+            open_count: number;
+            /** Format: date-time */
+            first_reported_at: string;
+            /** @description Count of reports per reason, e.g. `{"SPAM": 3, "HATE": 1}`. */
+            reasons: {
+                [key: string]: number;
+            };
+            /** @description The five most recent reports of this case. */
+            reports: components["schemas"]["Report"][];
+            /** @description Null while OPEN. */
+            resolution: null | {
+                resolved_by: components["schemas"]["Uuid"];
+                note: string | null;
+                /** Format: date-time */
+                resolved_at: string;
+            };
+        };
+        ModerationCasePage: {
+            items: components["schemas"]["ModerationCase"][];
+            next_cursor: string | null;
+        };
+        ResolveCaseRequest: {
+            /** @enum {string} */
+            status: "ACTIONED" | "DISMISSED";
+            note?: string;
+        };
+        ResolveCaseResult: {
+            resolved_count: number;
         };
         /**
          * Format: uuid
@@ -691,6 +820,103 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    createReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReportRequest"];
+            };
+        };
+        responses: {
+            /** @description An open report by the same user on the same target already exists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportReceipt"];
+                };
+            };
+            /** @description Report created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listReports: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ReportStatus"];
+                target_type?: components["schemas"]["ReportTargetType"];
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of moderation cases. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationCasePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    resolveModerationCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_type: components["schemas"]["ReportTargetType"];
+                target_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveCaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Reports closed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveCaseResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }
