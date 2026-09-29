@@ -9,6 +9,7 @@ Shared Go library for Winkey services (`github.com/luantpbk/winkey/libs/go`). Ow
 | `obs` | JSON `slog` logger (`ts, level, msg, service, trace_id, request_id`), OTLP tracing (no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set), `Health` (`/healthz`, `/readyz`, `/metrics`). |
 | `httpx` | chi router with request-id → tracing → recover → access-log/metrics; RFC 9457 `problem+json`; `Authenticate` / `RequireRole` from `X-User-Id` / `X-User-Roles`; strict `DecodeJSON`. |
 | `outbox` | Transactional outbox (ADR-008): `Enqueue(ctx, tx, schema, subject, event)` and `Relay`. |
+| `s3x` | Shared S3 client for Garage (ADR-004): path-style, checksums only when required, **internal endpoint for server-side calls and a separate public endpoint used only to presign** (`ErrNoPublicEndpoint` instead of silently signing for the wrong host). Head/Delete/`DeletePrefix` (guarded)/`ListPrefixes`, ranged `Download`, `UploadFile` with Content-Type/Cache-Control, multipart (create, presign part, complete, abort), and sentinel errors `ErrNotFound` / `ErrNoSuchUpload` / `ErrInvalidPart`. |
 | `testkit` | Testcontainers helpers: PostgreSQL 17 (+ `db/migrations`), NATS JetStream (+ contract streams), Garage single node (+ buckets, key, CORS). |
 
 ## Using it from a service
