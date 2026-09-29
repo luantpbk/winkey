@@ -126,8 +126,9 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
     {"action": "accept", "src": ["autogroup:admin"], "dst": ["*:*"]},
     // Edge ↔ edge: etcd, k3s, flannel, Garage RPC, NATS cluster, Postgres replication.
     {"action": "accept", "src": ["tag:edge"], "dst": ["tag:edge:*"]},
-    // gpu-01 (transcoder worker, ADR-015) → edge: NATS, PostgreSQL (Winkey), Garage S3.
-    {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:4222,5432,3900"]},
+    // gpu-01 (transcoder worker, ADR-015) → edge: NodePort của NATS 30422, PostgreSQL Winkey 30432, Garage S3 30900.
+    // KHÔNG mở 5432: đó là PostgreSQL của host (dữ liệu các site cũ).
+    {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:30422,30432,30900"]},
     // edge → gpu-01: node-exporter / metrics của transcoder.
     {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:9100,9464"]},
   ],
@@ -136,7 +137,7 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
      "users": ["autogroup:nonroot", "root"]},
   ],
   "tests": [
-    {"src": "tag:gpu",  "accept": ["tag:edge:4222", "tag:edge:5432", "tag:edge:3900"], "deny": ["tag:edge:22", "tag:edge:6443", "tag:edge:30080"]},
+    {"src": "tag:gpu",  "accept": ["tag:edge:30422", "tag:edge:30432", "tag:edge:30900"], "deny": ["tag:edge:22", "tag:edge:5432", "tag:edge:6443", "tag:edge:30080", "tag:edge:9090"]},
     {"src": "tag:edge", "accept": ["tag:gpu:9100"], "deny": ["tag:gpu:22"]},
   ],
 }
