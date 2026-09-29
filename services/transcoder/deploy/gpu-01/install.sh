@@ -220,14 +220,14 @@ print_setup() {
     info "  2. the environment file (credentials; fill in the real values, keep it root:root 0600):"
     root_cmd "install -d -m 0755 /etc/winkey"
     root_cmd "install -m 0600 -o root -g root ${ENV_SRC} ${ENV_DST}"
-    root_cmd "sudoedit ${ENV_DST}"
+    info "    sudoedit ${ENV_DST}"
   fi
   if [ ! -f "$UNIT_DST" ]; then
     pending=1
     info "  3. the unit:"
     root_cmd "install -m 0644 ${UNIT_SRC} ${UNIT_DST}"
     root_cmd "systemctl daemon-reload"
-    root_cmd "systemd-analyze verify ${UNIT_DST}"
+    info "    systemd-analyze verify ${UNIT_DST}"
   fi
   if ! systemctl is-enabled --quiet "$SERVICE" 2>/dev/null; then
     pending=1
@@ -238,8 +238,9 @@ print_setup() {
     info "  (nothing left to do: user, env file, unit and service are all in place)"
   fi
   info ""
-  info "Scratch and archive must be writable by the service user (via group winkey); check with:"
-  info "    grep -E '^(SCRATCH_DIR|ARCHIVE_DIR)=' ${ENV_DST}   # as root, then:"
+  info "Scratch and archive must be writable by the service user (through group winkey). Check the paths"
+  info "in the env file, then test each one (example for the scratch directory):"
+  root_cmd "grep -E '^(SCRATCH_DIR|ARCHIVE_DIR)=' ${ENV_DST}"
   root_cmd "-u ${SVC_USER} test -w /mnt/nvme_models/winkey/scratch && echo scratch ok"
 }
 
