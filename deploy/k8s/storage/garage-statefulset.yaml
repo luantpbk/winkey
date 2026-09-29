@@ -1,3 +1,30 @@
+# Headless Service for Garage StatefulSet DNS identity
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-headless
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage
+    app.kubernetes.io/part-of: winkey
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - name: s3-api
+      port: 3900
+      targetPort: 3900
+    - name: rpc
+      port: 3901
+      targetPort: 3901
+    - name: web
+      port: 3902
+      targetPort: 3902
+    - name: admin
+      port: 3903
+      targetPort: 3903
+---
 # Garage StatefulSet on k3s edge-1 (ADR-004, ADR-013, ADR-015)
 # Selected by garage-s3 (:3900), garage-web (:3902) and garage-s3-nodeport (:30900)
 apiVersion: apps/v1
@@ -9,7 +36,7 @@ metadata:
     app.kubernetes.io/name: garage
     app.kubernetes.io/part-of: winkey
 spec:
-  serviceName: garage-s3
+  serviceName: garage-headless
   replicas: 1
   selector:
     matchLabels:

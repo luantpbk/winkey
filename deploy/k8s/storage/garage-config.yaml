@@ -22,19 +22,19 @@ data:
     # and rclone data migration (INFRASTRUCTURE §0).
     replication_factor = 1
 
-    rpc_bind_addr = "[::]:3901"
+    rpc_bind_addr = "0.0.0.0:3901"
     rpc_secret_file = "/etc/garage/secrets/rpc_secret"
 
     [s3_api]
     s3_region = "garage"
-    api_bind_addr = "[::]:3900"
+    api_bind_addr = "0.0.0.0:3900"
     root_domain = ".s3.winkey.vn"
 
     [s3_web]
-    bind_addr = "[::]:3902"
+    bind_addr = "0.0.0.0:3902"
     root_domain = ".winkey.vn"
     index = "index.html"
 
     [admin]
-    api_bind_addr = "[::]:3903"
+    api_bind_addr = "0.0.0.0:3903"
     admin_token_file = "/etc/garage/secrets/admin_token"

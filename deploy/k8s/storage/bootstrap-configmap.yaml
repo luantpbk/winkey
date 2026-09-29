@@ -80,13 +80,13 @@ data:
     ensure_consumer_key() {
         local KEY_NAME="$1"
         local INFO
-        INFO=$($GARAGE_CMD key info "$KEY_NAME" 2>/dev/null || true)
+        INFO=$($GARAGE_CMD key info --show-secret "$KEY_NAME" 2>/dev/null || true)
         if ! echo "$INFO" | grep -qi "Key ID:"; then
-            echo "  Creating access key: $KEY_NAME"
+            echo "  Creating access key: $KEY_NAME" >&2
             $GARAGE_CMD key create "$KEY_NAME" >/dev/null
-            INFO=$($GARAGE_CMD key info "$KEY_NAME")
+            INFO=$($GARAGE_CMD key info --show-secret "$KEY_NAME")
         else
-            echo "  Access key $KEY_NAME already exists."
+            echo "  Access key $KEY_NAME already exists." >&2
         fi
         local KEY_ID
         local SECRET_KEY
@@ -231,10 +231,11 @@ data:
       ]
     }
     EOF
-    if aws --endpoint-url="$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration --bucket winkey-raw --lifecycle-configuration file:///tmp/lifecycle-raw.json 2>/dev/null; then
+    echo "  Applying lifecycle configuration to winkey-raw..."
+    if aws --endpoint-url="$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration --bucket winkey-raw --lifecycle-configuration file:///tmp/lifecycle-raw.json; then
         echo "  Lifecycle configuration applied to winkey-raw."
     else
-        echo "  Notice: Garage v1.0.1 does not support S3 PutBucketLifecycleConfiguration (multipart cleanup is handled by upload-svc janitor)."
+        echo "  Notice: Garage does not support S3 PutBucketLifecycleConfiguration (see error above)."
     fi
 
     echo "==> Garage bootstrap completed successfully."

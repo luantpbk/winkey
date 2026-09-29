@@ -41,6 +41,10 @@
     mode: "0644"
   register: storage_manifests_sync
 
+- name: Recreate garage-bootstrap Job when manifests changed
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete job garage-bootstrap -n default --ignore-not-found
+  when: storage_manifests_sync.changed
+
 - name: Apply Garage storage kustomization
   ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/storage-manifests/
   register: kustomize_apply
