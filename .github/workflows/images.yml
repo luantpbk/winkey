@@ -1,0 +1,191 @@
+name: images
+
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'services/**'
+      - 'packages/**'
+      - 'libs/**'
+      - 'deploy/**'
+      - '.github/workflows/images.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'services/**'
+      - 'packages/**'
+      - 'libs/**'
+      - 'deploy/**'
+      - '.github/workflows/images.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  changes:
+    name: detect image changes
+    runs-on: ubuntu-24.04
+    outputs:
+      upload: ${{ steps.filter.outputs.upload }}
+      transcoder_cpu: ${{ steps.filter.outputs.transcoder_cpu }}
+      transcoder_nvenc: ${{ steps.filter.outputs.transcoder_nvenc }}
+      video: ${{ steps.filter.outputs.video }}
+      auth: ${{ steps.filter.outputs.auth }}
+      social: ${{ steps.filter.outputs.social }}
+      realtime: ${{ steps.filter.outputs.realtime }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            upload:
+              - 'services/upload/**'
+              - 'libs/**'
+              - '.github/workflows/images.yml'
+            transcoder_cpu:
+              - 'services/transcoder/**'
+              - 'libs/**'
+              - '.github/workflows/images.yml'
+            transcoder_nvenc:
+              - 'services/transcoder/**'
+              - 'libs/**'
+              - '.github/workflows/images.yml'
+            video:
+              - 'services/video/**'
+              - 'libs/**'
+              - '.github/workflows/images.yml'
+            auth:
+              - 'services/auth/**'
+              - 'packages/**'
+              - '.github/workflows/images.yml'
+            social:
+              - 'services/social/**'
+              - 'packages/**'
+              - '.github/workflows/images.yml'
+            realtime:
+              - 'services/realtime/**'
+              - 'packages/**'
+              - '.github/workflows/images.yml'
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - '.github/workflows/images.yml'
+
+  build:
+    name: image (${{ matrix.name }})
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: upload
+            context: .
+            file: services/upload/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: upload
+          - name: transcoder-cpu
+            context: .
+            file: services/transcoder/Dockerfile.cpu
+            platforms: linux/amd64,linux/arm64
+            filter_key: transcoder_cpu
+          - name: transcoder-nvenc
+            context: .
+            file: services/transcoder/Dockerfile.nvenc
+            platforms: linux/amd64
+            filter_key: transcoder_nvenc
+          - name: video
+            context: .
+            file: services/video/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: video
+          - name: auth
+            context: .
+            file: services/auth/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: auth
+          - name: social
+            context: .
+            file: services/social/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: social
+          - name: realtime
+            context: .
+            file: services/realtime/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: realtime
+          - name: web
+            context: .
+            file: apps/web/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Should build?
+        id: gate
+        env:
+          IS_PUSH: ${{ github.event_name == 'push' }}
+          OUTPUTS_JSON: ${{ toJSON(needs.changes.outputs) }}
+          KEY: ${{ matrix.filter_key }}
+        run: |
+          if [ ! -f "${{ matrix.file }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "skip: ${{ matrix.file }} does not exist yet"
+            exit 0
+          fi
+          if [ "$IS_PUSH" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            VAL=$(echo "$OUTPUTS_JSON" | grep -o "\"$KEY\": *\"true\"" || true)
+            if [ -n "$VAL" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "skip: no changes in ${{ matrix.name }}"
+            fi
+          fi
+
+      - name: Set up QEMU
+        if: steps.gate.outputs.run == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.gate.outputs.run == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.gate.outputs.run == 'true' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: steps.gate.outputs.run == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/luantpbk/winkey-${{ matrix.name }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - name: Build and push
+        if: steps.gate.outputs.run == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

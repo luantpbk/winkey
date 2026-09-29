@@ -1,0 +1,11 @@
+# I1 — node bootstrap + k3s server. See README.md.
+- name: Edge nodes
+  hosts: edge
+  roles:
+    - base
+    - tailscale
+    - firewall
+    - storage
+    - k3s_server
+    - role: nginx_front
+      when: nginx_front.hosts | default([]) | length > 0
