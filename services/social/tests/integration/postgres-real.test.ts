@@ -594,6 +594,56 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const ids2 = p2Body.items.map((i: any) => i.id);
     expect(ids1.some((id: string) => ids2.includes(id))).toBe(false);
 
+    // Regression check: verify all items strictly have video_id === secondVideoId and no other video comments leaked in
+    for (const item of [...p1Body.items, ...p2Body.items]) {
+      expect(item.video_id).toBe(secondVideoId);
+    }
+
+    // 13b. Subscriptions Isolation Regression Test: 2 users, limit=1
+    // Author subscribed to channelId in step 12. Stranger subscribes to videoOwnerId.
+    await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${videoOwnerId}/subscription`,
+      headers: { 'x-user-id': strangerId },
+    });
+
+    // Author queries /v1/me/subscriptions with limit=1: only sees own subscription (channelId)
+    const authorSubsP1 = await app.inject({
+      method: 'GET',
+      url: '/v1/me/subscriptions?limit=1',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(authorSubsP1.statusCode).toBe(200);
+    const authorSubsP1Body = authorSubsP1.json();
+    for (const item of authorSubsP1Body.items) {
+      expect(item.channel.id).toBe(channelId);
+    }
+
+    if (authorSubsP1Body.next_cursor) {
+      const authorSubsP2 = await app.inject({
+        method: 'GET',
+        url: `/v1/me/subscriptions?limit=1&cursor=${encodeURIComponent(authorSubsP1Body.next_cursor)}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(authorSubsP2.statusCode).toBe(200);
+      const authorSubsP2Body = authorSubsP2.json();
+      for (const item of authorSubsP2Body.items) {
+        expect(item.channel.id).toBe(channelId);
+      }
+    }
+
+    // Stranger queries /v1/me/subscriptions with limit=1: only sees own subscription (videoOwnerId)
+    const strangerSubsP1 = await app.inject({
+      method: 'GET',
+      url: '/v1/me/subscriptions?limit=1',
+      headers: { 'x-user-id': strangerId },
+    });
+    expect(strangerSubsP1.statusCode).toBe(200);
+    const strangerSubsP1Body = strangerSubsP1.json();
+    for (const item of strangerSubsP1Body.items) {
+      expect(item.channel.id).toBe(videoOwnerId);
+    }
+
     // 14. Projection Consumer: video.deleted cascades comments and likes
     const videoDeleteEvent = {
       event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9088',

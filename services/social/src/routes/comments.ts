@@ -99,13 +99,13 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
 
     // Both moderators and regular users only see DELETED if replies exist
     query = query.where(
-      sql<boolean>`c.status != 'DELETED' OR EXISTS (SELECT 1 FROM social.comments replies WHERE replies.parent_id = c.id)`,
+      sql<boolean>`((c.status != 'DELETED' OR EXISTS (SELECT 1 FROM social.comments replies WHERE replies.parent_id = c.id)))`,
     );
 
     // Keyset pagination (newest first: created_at DESC, id DESC) with microsecond precision
     if (cursorData) {
       query = query.where(
-        sql<boolean>`(c.created_at < ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id < ${cursorData.id}::uuid)`,
+        sql<boolean>`(((c.created_at < ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id < ${cursorData.id}::uuid)))`,
       );
     }
 
@@ -675,7 +675,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     // Keyset pagination (oldest first: created_at ASC, id ASC) with microsecond precision
     if (cursorData) {
       query = query.where(
-        sql<boolean>`(c.created_at > ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id > ${cursorData.id}::uuid)`,
+        sql<boolean>`(((c.created_at > ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id > ${cursorData.id}::uuid)))`,
       );
     }
 

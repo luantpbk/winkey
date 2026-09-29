@@ -249,5 +249,35 @@ describe('Social Service Flow (In-Memory)', () => {
     });
     expect(unsubRes.statusCode).toBe(200);
     expect(unsubRes.json().subscribed).toBe(false);
+
+    // Regression: Multi-user subscription isolation with limit=1
+    await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${channelId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${ownerId}/subscription`,
+      headers: { 'x-user-id': strangerId },
+    });
+
+    const authorSubsIsolated = await app.inject({
+      method: 'GET',
+      url: '/v1/me/subscriptions?limit=1',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(authorSubsIsolated.statusCode).toBe(200);
+    expect(authorSubsIsolated.json().items).toHaveLength(1);
+    expect(authorSubsIsolated.json().items[0].channel.id).toBe(channelId);
+
+    const strangerSubsIsolated = await app.inject({
+      method: 'GET',
+      url: '/v1/me/subscriptions?limit=1',
+      headers: { 'x-user-id': strangerId },
+    });
+    expect(strangerSubsIsolated.statusCode).toBe(200);
+    expect(strangerSubsIsolated.json().items).toHaveLength(1);
+    expect(strangerSubsIsolated.json().items[0].channel.id).toBe(ownerId);
   });
 });

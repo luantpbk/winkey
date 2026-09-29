@@ -265,7 +265,7 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
 
     if (cursorData) {
       query = query.where(
-        sql<boolean>`(s.created_at < ${cursorData.created_at}::timestamptz) OR (s.created_at = ${cursorData.created_at}::timestamptz AND s.channel_id < ${cursorData.channel_id}::uuid)`,
+        sql<boolean>`(((s.created_at < ${cursorData.created_at}::timestamptz) OR (s.created_at = ${cursorData.created_at}::timestamptz AND s.channel_id < ${cursorData.channel_id}::uuid)))`,
       );
     }
 
