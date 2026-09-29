@@ -30,7 +30,7 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `USER` | `user.>` | file | 3 | 7d | 2m |
 | `DLQ` | `dlq.>` | file | 3 | 30d | 2m |
 
-Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject.
+Giai đoạn 1 VPS (ADR-013) dùng `replicas: 1`, nâng lên 3 khi có cluster NATS 3 node. Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject.
 
 ## Consumer `transcoder`
 

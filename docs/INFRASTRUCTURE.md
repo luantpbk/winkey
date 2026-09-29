@@ -3,6 +3,22 @@
 > Owner: Antigravity 2 (triển khai), Opus (quyết định). Tài liệu này là nguồn sự thật về **chạy cái gì ở đâu**.
 > Các số liệu có đánh dấu **[đo]** là ước tính và phải được kiểm chứng ở task **I0**.
 
+## 0. Giai đoạn hiện tại: **1 VPS** (ADR-013)
+
+Trong giai đoạn phát triển chỉ dùng **edge-1** (`138.2.93.173`, user `opc`, nhiều khả năng Oracle Linux) cùng **gpu-01** (`192.168.1.4` trong LAN). edge-2 và edge-3 chưa tham gia. Mọi workload đánh dấu cho edge-2/edge-3 ở §3 tạm dồn về edge-1, với số bản sao như sau:
+
+| Thành phần | Giai đoạn 1 VPS | Khi thêm edge-2/3 |
+|---|---|---|
+| k3s | 1 server, khởi tạo bằng `--cluster-init` (etcd nhúng) | Join thêm 2 server → HA, không cần dựng lại |
+| Garage | 1 node, `replication_factor = 1`, **dữ liệu coi như dùng một lần** | Dựng cluster mới RF 2, `rclone sync` bucket sang, rồi đổi endpoint |
+| NATS JetStream | 1 node, stream `replicas: 1` | Chuyển sang cluster 3 node, `nats stream edit --replicas 3` |
+| PostgreSQL (CNPG) | `instances: 1`, backup hằng đêm về gpu-01 | `instances: 2` |
+| Valkey, media-cache, Traefik, app | 1 bản | Như §3 |
+
+- **Môi trường dev chung**: stack docker compose của F3 chạy trên **gpu-01** (64 GB RAM, cùng LAN với mọi agent). edge-1 là **staging public** (`winkey.vn`) khi các service đã có image.
+- **Truy cập**: SSH vào edge-1 bằng key của bạn (không lưu trong repo); vào gpu-01 qua LAN. Sau bootstrap thì dùng Tailscale SSH (`ssh opc@edge-1`).
+- Runbook bootstrap edge-1: [runbooks/edge-1-bootstrap.md](runbooks/edge-1-bootstrap.md).
+
 ## 1. Kiểm kê phần cứng
 
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
@@ -52,7 +68,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 
 ## 4. Mạng
 
-- **Public**: chỉ `80/tcp`, `443/tcp` trên 3 VPS, và `41641/udp` để Tailscale kết nối trực tiếp. Cần mở ở **cả VCN Security List lẫn iptables** (image Ubuntu của OCI mặc định có sẵn rule REJECT). SSH chỉ qua **Tailscale SSH**.
+- **Public**: chỉ `80/tcp`, `443/tcp` trên 3 VPS, và `41641/udp` để Tailscale kết nối trực tiếp. Cần mở ở **cả VCN Security List lẫn firewall của OS**: Oracle Linux dùng `firewalld`; nếu là image Ubuntu của OCI thì là iptables với rule REJECT mặc định. Oracle Linux bật **SELinux enforcing**: script cài k3s tự cài `k3s-selinux`, không tắt SELinux. SSH chỉ qua **Tailscale SSH**.
 - **gpu-01**: không port-forward bất kỳ cổng nào trên router.
 - **Tailscale**: tag và policy ở §4.2. Phân quyền giữa các pod dùng **Kubernetes NetworkPolicy** (k3s có sẵn controller), không dùng Tailscale ACL: traffic pod-to-pod đi trong VXLAN nên ACL theo cổng không nhìn thấy.
 - **k3s qua Tailscale**: `--node-ip=<IP tailscale>`, `--flannel-iface=tailscale0`. **MTU của flannel ≤ 1230**, vì tailscale0 có MTU 1280 và VXLAN tốn thêm 50 byte. Nếu không chỉnh, pod-to-pod sẽ treo ngẫu nhiên với gói lớn.

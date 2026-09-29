@@ -19,11 +19,17 @@ Branches: agent/ag2/i0-hardware-report, agent/ag2/f1-monorepo-ci, agent/ag2/f3-d
 - Domain: winkey.vn (DNS on Cloudflare, all records DNS-only; see docs/INFRASTRUCTURE.md §4.1).
 - You run on a machine on the same LAN as gpu-01 and can SSH into it. The VPSes are reachable over Tailscale by
   their MagicDNS names edge-1, edge-2 and edge-3.
-- Already confirmed, do NOT re-measure: the VPSes are in the same region (so k3s runs HA with 3 servers),
-  Tailscale is direct, and the Oracle account is Pay-As-You-Go.
+- Already confirmed, do NOT re-measure: the VPSes are in the same region, Tailscale is direct, and the Oracle
+  account is Pay-As-You-Go.
+- **Development phase uses ONE VPS only (ADR-013, docs/INFRASTRUCTURE.md §0)**: edge-1 = 138.2.93.173, user `opc`
+  (likely Oracle Linux: firewalld + SELinux). gpu-01 = 192.168.1.4 on the LAN. Ignore edge-2 and edge-3 for now.
+  Credentials are given to you locally by the human; never commit them or paste them into issues.
+- The shared dev stack (task F3) must be deployable on gpu-01 as well as on a laptop: bind ports on all interfaces
+  so every agent on the LAN can use it.
 
 # TASK I0 — verify the hardware (report only, no code)
-Run the remaining checklist in docs/INFRASTRUCTURE.md §9 on all 4 nodes. Post the raw outputs plus a summary table in a
+First make sure docs/runbooks/edge-1-bootstrap.md has been applied (Tailscale on edge-1); if it has not, apply it.
+Then run the remaining checklist in docs/INFRASTRUCTURE.md §9 on edge-1 and gpu-01. Post the raw outputs plus a summary table in a
 GitHub issue titled "[I0] Hardware verification". The table must answer:
 - the CPU architecture and distro of the VPS;
 - RTT between VPSes;

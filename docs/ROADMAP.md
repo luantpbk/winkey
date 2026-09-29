@@ -21,7 +21,8 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | F2 | API + event contracts (`contracts/`) | Opus | — | ✅ |
 | F4 | Data model + migrations + SQL tests (`db/`) | Opus | — | ✅ |
 | DOC | Kiến trúc, hạ tầng, ADR, roadmap, AGENTS.md, prompts | Opus | — | ✅ |
-| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Còn: `uname -m`, uplink, NVENC benchmark; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
+| BOOT | Bootstrap edge-1: Tailscale, firewall, hostname ([runbook](runbooks/edge-1-bootstrap.md)) | **Bạn** hoặc phiên Claude Code chạy trên máy nhà | — | ⬜ |
+| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9; chỉ edge-1 + gpu-01, ADR-013). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Còn: `uname -m`, uplink, NVENC benchmark; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
 | F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ⬜ |
 | F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ⬜ |
 
