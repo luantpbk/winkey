@@ -21,7 +21,10 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | F2 | API + event contracts (`contracts/`) | Opus | — | ✅ |
 | F4 | Data model + migrations + SQL tests (`db/`) | Opus | — | ✅ |
 | DOC | Kiến trúc, hạ tầng, ADR, roadmap, AGENTS.md, prompts | Opus | — | ✅ |
-| BOOT | Bootstrap edge-1: Tailscale, firewall, hostname ([runbook](runbooks/edge-1-bootstrap.md)) | **Bạn** hoặc phiên Claude Code chạy trên máy nhà | — | ⬜ |
+| BOOT | Bootstrap edge-1: Tailscale, firewall, hostname ([runbook](runbooks/edge-1-bootstrap.md)) | Claude (phiên Windows) | — | ✅ |
+| I1-e1 | k3s trên edge-1 sau nginx host (ADR-014), Ansible ở branch `agent/claude/i1-k3s-edge-1` | Claude (phiên Windows) | BOOT | 🟡 chờ PR |
+| SEC0 | edge-1: đóng Cockpit :9090 và :7890 khỏi public (chỉ qua Tailscale); hardening SSH; thêm `www.winkey.vn` vào DNS + cert | **Bạn** / Antigravity 2 | — | ⬜ |
+| TS | Gộp mọi thiết bị về **một tailnet**; xác minh máy nhà 192.168.1.4 là Linux hay Windows và đúng là thiết bị `gpu-01`; áp policy mới §4.2 | **Bạn** | — | ⬜ |
 | I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9; chỉ edge-1 + gpu-01, ADR-013). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Còn: `uname -m`, uplink, NVENC benchmark; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
 | F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ⬜ |
 | F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ⬜ |
@@ -39,10 +42,10 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp |
 | U1 | Web: layout, trang chủ, trang xem SSR, đăng nhập/đăng ký, upload (multipart, resume) | Antigravity 1 | F2 (Prism mock) | TB |
 | PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE | Antigravity 1 | S1 | TB |
-| I1 | Ansible: hardening, Tailscale, k3s HA (MTU!), NVIDIA toolkit trên gpu-01 | Antigravity 2 | I0 | **Cao** |
+| I1 | Ansible: hardening, Tailscale, k3s (edge-1 ✅ qua I1-e1; edge-2/3 sau). gpu-01: worker transcoder ngoài k3s (ADR-015): driver NVIDIA, FFmpeg NVENC, service | Antigravity 2 | I0 | **Cao** |
 | STO | Garage cluster ×3, bucket + CORS (`ExposeHeaders: ETag`) + web endpoint | Antigravity 2 | I1 | TB |
 | DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey | Antigravity 2 | I1 | **Cao** |
-| EDGE | Traefik: routing, forwardAuth, **xóa header định danh**, rate limit, cert-manager DNS-01, media-cache DaemonSet | Antigravity 2 | I1, A1 | **Cao** |
+| EDGE | Traefik: routing, forwardAuth, **xóa header định danh trên mọi route**, rate limit; edge-1: nginx host (TLS Certbot, media `proxy_cache`, cấu hình upload s3) theo ADR-014; mở NATS/PG/Garage cho tailnet qua NodePort trên IP Tailscale (ADR-015) | Antigravity 2 | I1, A1 | **Cao** |
 | I2 | Helm chart cho từng service + pipeline deploy (GitOps: Argo CD hoặc Flux) | Antigravity 2 | I1 | TB |
 | Q1 | E2E Playwright: đăng ký → upload → READY → xem; k6 smoke | Antigravity 1 | U1, V2, A1 | TB |
 
