@@ -1,6 +1,6 @@
 # NodePorts from ADR-015 for internal tailnet access by tag:gpu (transcoder worker)
-# kube-proxy binds these ONLY to the Tailscale IP (100.113.240.3) via nodeport-addresses.
-# Public IP (138.2.93.173) is strictly blocked by kube-proxy DNAT scoping and firewalld.
+# kube-proxy binds these ONLY to the Tailscale IP ({{ tailscale_ipv4 }}) via nodeport-addresses.
+# Public IP ({{ node_external_ip }}) is strictly blocked by kube-proxy DNAT scoping and firewalld.
 apiVersion: v1
 kind: Service
 metadata:

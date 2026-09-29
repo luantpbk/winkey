@@ -11,8 +11,8 @@ traefik_trusted_ips:
 
 nginx_front:
   cert_name: winkey.vn
-  # www.winkey.vn has no DNS record yet; add it here once the CNAME exists.
   hosts:
     - winkey.vn
+    - www.winkey.vn
     - media.winkey.vn
     - s3.winkey.vn
