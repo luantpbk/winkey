@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/video.progress.schema.json",
+  "$id": "https://winkey.vn/contracts/events/video.progress.schema.json",
   "title": "video.progress v1 (ephemeral)",
   "description": "Transcoding progress. Published on core NATS (NOT JetStream) subject `rt.video.{video_id}.progress`, at most once per 5s per job. Lost messages are fine: the DB column transcode_jobs.progress is the source of truth.",
   "type": "object",

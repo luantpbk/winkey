@@ -13,10 +13,10 @@ Nền tảng video streaming kiểu YouTube: upload, transcode HLS nhiều độ
                            ▼          ▼                      ▼
         ┌─────────── edge-1 / edge-2 / edge-3 (Oracle, arm64, IP public) ───────────┐
         │  Traefik :443 ── forwardAuth ──► auth-svc                                 │
-        │    ├─ <domain>/v1/*        ► auth · upload · video · social · realtime-gw │
-        │    ├─ <domain>/*           ► web (Next.js SSR)                            │
-        │    ├─ media.<domain>       ► media-cache (nginx, cache local) ─► Garage web│
-        │    └─ s3.<domain>          ► Garage S3 API                                │
+        │    ├─ winkey.vn/v1/*       ► auth · upload · video · social · realtime-gw │
+        │    ├─ winkey.vn/*          ► web (Next.js SSR)                            │
+        │    ├─ media.winkey.vn      ► media-cache (nginx, cache local) ─► Garage web│
+        │    └─ s3.winkey.vn         ► Garage S3 API                                │
         │                                                                           │
         │  Garage ×3 (S3, RF2) · NATS JetStream ×3 · PostgreSQL (CNPG P+R) · Valkey │
         └──────────────────────────────▲────────────────────────────────────────────┘
@@ -45,7 +45,7 @@ Nền tảng video streaming kiểu YouTube: upload, transcode HLS nhiều độ
 
 **Upload → READY**
 1. Web gọi `POST /v1/uploads`, upload-svc tạo `media.videos` (`UPLOADING`) và multipart upload trên Garage.
-2. Web xin presigned URL theo lô 100 part, rồi `PUT` thẳng lên `s3.<domain>`, tối đa 4 part song song, lưu lại `ETag` của từng part. Có thể resume.
+2. Web xin presigned URL theo lô 100 part, rồi `PUT` thẳng lên `s3.winkey.vn`, tối đa 4 part song song, lưu lại `ETag` của từng part. Có thể resume.
 3. `POST …/complete`: upload-svc hoàn tất multipart. Trong **một transaction**, nó set `UPLOADED` và ghi `video.uploaded` vào outbox; relay publish lên JetStream.
 4. Transcoder trên gpu-01 kéo job:
    - `UPLOADED→PROCESSING`, tạo `transcode_jobs`.
@@ -57,7 +57,7 @@ Nền tảng video streaming kiểu YouTube: upload, transcode HLS nhiều độ
 
 **Xem video**
 1. Web SSR gọi `GET /v1/videos/{id}` (video-svc, cache Valkey 30s) và render trang có poster.
-2. Player (hls.js; Safari dùng HLS native) tải `https://media.<domain>/v/{id}/a{n}/hls/master.m3u8` qua media-cache và tự chọn chất lượng (ABR).
+2. Player (hls.js; Safari dùng HLS native) tải `https://media.winkey.vn/v/{id}/a{n}/hls/master.m3u8` qua media-cache và tự chọn chất lượng (ABR).
 3. **Không service nào nằm trên đường truyền byte video.**
 
 **Xác thực**

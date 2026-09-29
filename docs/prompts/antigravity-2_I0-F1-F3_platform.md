@@ -15,12 +15,18 @@ docs/ARCHITECTURE.md, contracts/events/README.md, db/README.md.
 You own: deploy/, .github/workflows/* (except contracts.yml), root tooling files.
 Branches: agent/ag2/i0-hardware-report, agent/ag2/f1-monorepo-ci, agent/ag2/f3-dev-compose. One PR each.
 
+# CONTEXT
+- Domain: winkey.vn (DNS on Cloudflare, all records DNS-only; see docs/INFRASTRUCTURE.md §4.1).
+- You run on a machine on the same LAN as gpu-01 and can SSH into it. The VPSes are reachable over Tailscale by
+  their MagicDNS names edge-1, edge-2 and edge-3.
+- Already confirmed, do NOT re-measure: the VPSes are in the same region (so k3s runs HA with 3 servers),
+  Tailscale is direct, and the Oracle account is Pay-As-You-Go.
+
 # TASK I0 — verify the hardware (report only, no code)
-Run the checklist in docs/INFRASTRUCTURE.md §9 on all 4 nodes. Post the raw outputs plus a summary table in a
+Run the remaining checklist in docs/INFRASTRUCTURE.md §9 on all 4 nodes. Post the raw outputs plus a summary table in a
 GitHub issue titled "[I0] Hardware verification". The table must answer:
-- the CPU architecture of the VPS;
-- RTT between VPSes (it decides k3s HA vs 1 server + 2 agents: the threshold is 15 ms);
-- whether Tailscale is direct or DERP on each pair;
+- the CPU architecture and distro of the VPS;
+- RTT between VPSes;
 - gpu-01 → edge upload and download throughput;
 - the NVIDIA driver version;
 - NVENC ×realtime for 1080p30 and the maximum number of concurrent NVENC sessions (try 3..10);

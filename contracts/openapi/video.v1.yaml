@@ -8,12 +8,15 @@ info:
     Visibility rules for non-owners: only `READY` videos are returned; `PRIVATE` → 404;
     `UNLISTED` → readable by id but never listed. Owners and `admin`/`moderator` see everything.
     Media URLs are built as `MEDIA_BASE_URL + object key`, e.g.
-    `https://media.winkey.local/v/{video_id}/a{attempt}/hls/master.m3u8`.
+    `https://media.winkey.vn/v/{video_id}/a{attempt}/hls/master.m3u8`.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 servers:
-  - url: https://winkey.local
+  - url: https://winkey.vn
+    description: Production.
+  - url: http://localhost:8080
+    description: Local dev stack (Traefik from deploy/compose).
 tags:
   - name: videos
     description: Public video metadata and playback info.

@@ -21,7 +21,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | F2 | API + event contracts (`contracts/`) | Opus | — | ✅ |
 | F4 | Data model + migrations + SQL tests (`db/`) | Opus | — | ✅ |
 | DOC | Kiến trúc, hạ tầng, ADR, roadmap, AGENTS.md, prompts | Opus | — | ✅ |
-| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9); nâng OCI lên PAYG; Tailscale ACL + tag; chốt domain | Antigravity 2 + **bạn** | — | ⬜ |
+| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Còn: `uname -m`, uplink, NVENC benchmark; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
 | F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ⬜ |
 | F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ⬜ |
 
@@ -64,3 +64,4 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | R2 | Recommendation v1: candidate (trending, co-view, subscription) + ranking; khung A/B | Opus (thiết kế) + Sonnet |
 | V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
 | V5 | Thumbnail sprite, phụ đề WebVTT, auto-caption (Whisper trên GPU) | Sonnet |
+| LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |

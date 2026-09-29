@@ -8,9 +8,21 @@
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
 |---|---|---|---|---|
 | **gpu-01** (nhà) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
-| **edge-1/2/3** (Oracle) | 4 core, 24 GB RAM, 200 GB SSD | **Giả định arm64** (Ampere A1 Always Free) **[đo: `uname -m`]** | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
+| **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64 gần như chắc chắn** (Ampere A1: `lshw` không hiện model CPU, cấu hình trùng hạn mức A1) **[chốt: `uname -m`]** | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
+Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
+
+### Đã xác nhận (2026-09-29)
+
+| Hạng mục | Kết quả | Hệ quả |
+|---|---|---|
+| 3 VPS cùng region | ✅ | **k3s HA 3 server** (embedded etcd), không cần phương án 1 server + 2 agent |
+| Tailscale kết nối trực tiếp | ✅ | Không qua DERP; throughput gpu-01 ↔ edge chỉ bị giới hạn bởi uplink nhà |
+| Oracle Pay-As-You-Go | ✅ | Instance không bị thu hồi do "nhàn rỗi" |
+| Tên miền | ✅ `winkey.vn` | Xem §4.1 |
+| Kiến trúc VPS | 🟡 gần chắc chắn arm64 | Không chặn gì (image đa kiến trúc); chạy `uname -m` để chốt |
+| Uplink nhà, NVENC benchmark, số phiên NVENC | ⬜ | Đo trong I0 (§9) |
 
 ## 2. Nguyên tắc phân bổ
 
@@ -42,13 +54,57 @@ Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic n�
 
 - **Public**: chỉ `80/tcp`, `443/tcp` trên 3 VPS, và `41641/udp` để Tailscale kết nối trực tiếp. Cần mở ở **cả VCN Security List lẫn iptables** (image Ubuntu của OCI mặc định có sẵn rule REJECT). SSH chỉ qua **Tailscale SSH**.
 - **gpu-01**: không port-forward bất kỳ cổng nào trên router.
-- **Tailscale ACL**: tag `tag:edge`, `tag:gpu`, `tag:admin`. `tag:gpu` chỉ được gọi tới Garage S3 (3900), NATS (4222), PostgreSQL (5432) và k3s API (6443) trên `tag:edge`.
+- **Tailscale**: tag và policy ở §4.2. Phân quyền giữa các pod dùng **Kubernetes NetworkPolicy** (k3s có sẵn controller), không dùng Tailscale ACL: traffic pod-to-pod đi trong VXLAN nên ACL theo cổng không nhìn thấy.
 - **k3s qua Tailscale**: `--node-ip=<IP tailscale>`, `--flannel-iface=tailscale0`. **MTU của flannel ≤ 1230**, vì tailscale0 có MTU 1280 và VXLAN tốn thêm 50 byte. Nếu không chỉnh, pod-to-pod sẽ treo ngẫu nhiên với gói lớn.
-- **Tên miền** (cần bạn cung cấp):
-  - `<domain>`: web và API (`/v1/*`), cùng origin.
-  - `media.<domain>`: HLS, **DNS-only**, không bật proxy Cloudflare (ADR-005).
-  - `s3.<domain>`: endpoint S3 public, chỉ dùng cho presigned upload.
-- **TLS**: cert-manager + Let's Encrypt **DNS-01**, để cả 3 node dùng chung cert.
+- **TLS**: cert-manager + Let's Encrypt **DNS-01** (Cloudflare API), để cả 3 node dùng chung cert.
+
+### 4.1 DNS — `winkey.vn`
+
+Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-manager cần DNS API để làm DNS-01. Tất cả record để **DNS-only (mây xám)** trong P1:
+- `media`: điều khoản CDN không cho proxy video (ADR-005).
+- `s3`: Cloudflare giới hạn request body 100 MB, trong khi part upload tới 16 MB+ và có thể dài hơn.
+- Apex: để thống nhất; cân nhắc bật proxy ở P2 nếu cần chống DDoS.
+
+| Record | Type | Giá trị | TTL | Dùng cho |
+|---|---|---|---|---|
+| `winkey.vn` | A ×3 | IP public edge-1, edge-2, edge-3 | 60 | Web + API `/v1/*` (cùng origin) |
+| `www` | CNAME | `winkey.vn` | 300 | Traefik redirect 301 → apex |
+| `media` | A ×3 | 3 IP edge | 60 | HLS qua media-cache |
+| `s3` | A ×3 | 3 IP edge | 60 | Presigned upload vào Garage |
+| `winkey.vn` | CAA | `0 issue "letsencrypt.org"` | 3600 | Chỉ Let's Encrypt được cấp cert |
+| (tùy chọn) | AAAA ×3 | IPv6 của edge nếu VCN bật IPv6 | 60 | |
+
+- DNS round-robin **không có health check**. Trình duyệt tự thử IP khác khi một IP không kết nối được; ngoài ra task EDGE làm thêm một CronJob gỡ/thêm A record qua Cloudflare API khi node chết hoặc hồi phục.
+- Cloudflare API token: quyền **Zone → DNS → Edit**, chỉ cho zone `winkey.vn`. Lưu làm Kubernetes Secret, **không commit và không dán vào chat**.
+
+### 4.2 Tailscale — tên máy, tag, policy
+
+- Tên máy (MagicDNS): `gpu-01`, `edge-1`, `edge-2`, `edge-3`.
+- Đăng ký node bằng `tailscale up --ssh --advertise-tags=tag:edge` (hoặc `tag:gpu`). Node có tag thì key không hết hạn.
+- Dán policy dưới đây vào *Admin console → Access controls*:
+
+```hujson
+{
+  "tagOwners": {
+    "tag:edge": ["autogroup:admin"],
+    "tag:gpu":  ["autogroup:admin"],
+  },
+  "acls": [
+    // Máy của bạn và các máy chạy agent (thiết bị do admin sở hữu): toàn quyền.
+    {"action": "accept", "src": ["autogroup:admin"], "dst": ["*:*"]},
+    // Edge ↔ edge: etcd, k3s, flannel, Garage RPC, NATS cluster, Postgres replication.
+    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:edge:*"]},
+    // gpu-01 (k3s agent) → edge: k3s API, flannel VXLAN, kubelet, node-exporter.
+    {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:6443,8472,10250,9100"]},
+    // edge → gpu-01: flannel VXLAN, kubelet (logs/exec), node-exporter.
+    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:8472,10250,9100"]},
+  ],
+  "ssh": [
+    {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:edge", "tag:gpu"],
+     "users": ["autogroup:nonroot", "root"]},
+  ],
+}
+```
 
 ## 5. Lưu trữ & dung lượng
 
@@ -83,21 +139,22 @@ Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic n�
 | Rủi ro | Ảnh hưởng | Biện pháp |
 |---|---|---|
 | gpu-01 mất điện/mạng | Video mới không được xử lý | Queue giữ job (max age 7d); Uptime Kuma cảnh báo; worker x264 có thể tạm chạy trên edge nếu cần (image amd64 → **cần build arm64 cho transcoder-x264**, để dành cho P2) |
-| Oracle thu hồi instance Always Free "nhàn rỗi" | Mất node | **Nâng tài khoản lên Pay-As-You-Go** (tài nguyên Always Free vẫn miễn phí nhưng không bị thu hồi); backup ra ngoài OCI |
-| Tailscale đi qua DERP relay thay vì kết nối trực tiếp | Throughput gpu-01 ↔ edge rất thấp | Mở UDP 41641; kiểm tra `tailscale ping` phải thấy `via <ip>:<port>` (direct) |
-| 3 VPS khác region → độ trễ etcd cao | k3s control plane chập chờn | **[đo]** RTT giữa 3 VPS; nếu > 15 ms thì chạy 1 server + 2 agent, backup etcd định kỳ |
+| Oracle thu hồi instance Always Free "nhàn rỗi" | Mất node | ✅ Đã nâng Pay-As-You-Go. Vẫn backup ra ngoài OCI (gpu-01) |
+| Tailscale rơi về DERP relay (sau khi đổi mạng/router) | Throughput gpu-01 ↔ edge rất thấp | ✅ Hiện đang direct. Giữ UDP 41641 mở; Uptime Kuma kiểm tra định kỳ `tailscale ping` |
+| Hỏng etcd khi mất 2/3 VPS | Control plane dừng | ✅ Cùng region nên chạy HA 3 server; snapshot etcd hằng ngày về gpu-01 |
 | arm64 trên edge | Image không chạy | Mọi image build `linux/amd64,linux/arm64`; riêng transcoder-nvenc chỉ cần amd64 |
 | Uplink nhà thấp/không ổn định | Chờ READY lâu | Multipart upload có retry; đo bằng `iperf3` qua Tailscale; cân nhắc giới hạn 1080p |
 | Một GPU duy nhất | Single point of failure cho tốc độ | Fallback x264 tự động |
 
 ## 9. Checklist I0 (Antigravity 2 chạy, dán kết quả vào issue I0)
 
+Đã xác nhận nên bỏ qua: cùng region, Tailscale direct, PAYG. Còn lại:
+
 ```bash
 # Trên mỗi VPS
-uname -m                                   # kỳ vọng aarch64
+uname -m; cat /etc/os-release | head -3    # kỳ vọng aarch64; ghi lại distro
 nproc; free -g; df -h /
-tailscale status; tailscale ping gpu-01     # phải là direct, không qua DERP
-ping -c 20 <edge-khác qua tailscale>        # RTT giữa các VPS (quyết định k3s HA)
+ping -c 20 edge-2                           # RTT giữa các VPS (kỳ vọng < 2 ms)
 iperf3 -s                                   # (trên edge-1)
 
 # Trên gpu-01

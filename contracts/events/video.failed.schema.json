@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/video.failed.schema.json",
+  "$id": "https://winkey.vn/contracts/events/video.failed.schema.json",
   "title": "video.failed v1",
   "description": "Transcoding gave up (non-retryable error or max deliveries reached). Producer: transcoder.",
   "type": "object",
