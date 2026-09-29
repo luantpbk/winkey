@@ -34,6 +34,7 @@ jobs:
               - '.prettier*'
               - '.github/workflows/ci.yml'
             ts_workspaces:
+              - 'contracts/openapi/**'
               - 'apps/**'
               - 'packages/**'
               - 'services/auth/**'
