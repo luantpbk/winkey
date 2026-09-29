@@ -180,6 +180,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search users (moderator or admin). Newest first. */
+        get: operations["adminListUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /** One user with moderation details (moderator or admin). */
+        get: operations["adminGetUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{user_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a user's roles (admin only). Audited as `USER_ROLES_CHANGED`.
+         * @description The set must contain `viewer`. Setting the same roles again is a no-op (`200`, no audit row).
+         *     Changing your own roles → `403` `CANNOT_MODERATE_TARGET`.
+         */
+        put: operations["adminSetUserRoles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/users/{user_id}/suspension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Suspend a user, or change an existing suspension. Audited as `USER_SUSPENDED`.
+         * @description Sets `status = SUSPENDED`, stores `reason` and `until` (omitted or null = indefinite) and revokes
+         *     every refresh-token family of the user (so `refresh` answers `401`). While suspended, `login`
+         *     answers `403` with code `ACCOUNT_SUSPENDED` (the problem `detail` may include `until`, never the
+         *     internal reason) and the Google callback redirects to `/login?error=ACCOUNT_SUSPENDED` without
+         *     setting `wk_rt`. `verify` keeps accepting already-issued access tokens until they expire
+         *     (≤ 15 min). A `DELETED` user → `409`.
+         */
+        put: operations["adminSuspendUser"];
+        post?: never;
+        /**
+         * Lift a suspension. Audited as `USER_UNSUSPENDED`. Idempotent.
+         * @description An `ACTIVE` user → `200` without an audit row.
+         */
+        delete: operations["adminUnsuspendUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin actions, newest first (admin only). */
+        get: operations["adminListAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -219,6 +326,61 @@ export interface components {
              */
             expires_in: number;
             user: components["schemas"]["User"];
+        };
+        /** @enum {string} */
+        UserStatus: "ACTIVE" | "SUSPENDED" | "DELETED";
+        AdminUser: {
+            id: components["schemas"]["Uuid"];
+            /** Format: email */
+            email: string;
+            email_verified: boolean;
+            handle: string;
+            display_name: string;
+            /** Format: uri */
+            avatar_url: string | null;
+            roles: components["schemas"]["Role"][];
+            status: components["schemas"]["UserStatus"];
+            /**
+             * Format: date-time
+             * @description Null when not suspended or suspended indefinitely.
+             */
+            suspended_until: string | null;
+            /** @description Internal note, shown only to moderators and admins. */
+            suspension_reason: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminUserPage: {
+            items: components["schemas"]["AdminUser"][];
+            next_cursor: string | null;
+        };
+        SetRolesRequest: {
+            roles: components["schemas"]["Role"][];
+        };
+        SuspendUserRequest: {
+            reason: string;
+            /**
+             * Format: date-time
+             * @description Must be in the future; omitted or null = indefinite.
+             */
+            until?: string | null;
+        };
+        AuditEntry: {
+            id: components["schemas"]["Uuid"];
+            actor: components["schemas"]["PublicProfile"];
+            /** @enum {string} */
+            action: "USER_ROLES_CHANGED" | "USER_SUSPENDED" | "USER_UNSUSPENDED";
+            target_user_id: components["schemas"]["Uuid"];
+            /** @description `{from, to}` for roles; `{reason, until}` for suspensions. */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
+        AuditEntryPage: {
+            items: components["schemas"]["AuditEntry"][];
+            next_cursor: string | null;
         };
         /**
          * Format: uuid
@@ -302,8 +464,22 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Authenticated but not allowed. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
-    parameters: never;
+    parameters: {
+        UserId: components["schemas"]["Uuid"];
+        /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+        Cursor: string;
+        Limit: number;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -363,6 +539,18 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /**
+             * @description Correct credentials but the account is suspended (code `ACCOUNT_SUSPENDED`, task A2). Checked
+             *     only after the password verifies, so it does not reveal whether an email exists.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -543,6 +731,176 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    adminListUsers: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive match on email or handle prefix, or on display name (trigram). */
+                q?: string;
+                role?: components["schemas"]["Role"];
+                status?: components["schemas"]["UserStatus"];
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminGetUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminSetUserRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRolesRequest"];
+            };
+        };
+        responses: {
+            /** @description The user after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminSuspendUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuspendUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The user after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    adminUnsuspendUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminListAuditLog: {
+        parameters: {
+            query?: {
+                target_user_id?: components["schemas"]["Uuid"];
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of audit entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

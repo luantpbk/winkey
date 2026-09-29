@@ -92,6 +92,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/videos/{video_id}/moderation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Hide or restore a video (moderator or admin). Emits `video.moderated`.
+         * @description Authorization from `X-User-Roles` only. `HIDDEN` needs a `reason`; `VISIBLE` clears it. Setting
+         *     the current state again is a no-op (`200`, no event). The row update and the `video.moderated`
+         *     outbox row are written in one transaction (ADR-008). Media objects are not deleted.
+         *     Gateway: this path goes to video-svc like the rest of `/v1/videos/*`.
+         */
+        put: operations["moderateVideo"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -130,6 +155,7 @@ export interface components {
             created_at: string;
             /** @description Null until the video is `READY`. */
             playback: components["schemas"]["Playback"] | null;
+            moderation?: components["schemas"]["VideoModeration"];
         };
         VideoSummary: {
             id: components["schemas"]["Uuid"];
@@ -159,6 +185,7 @@ export interface components {
             created_at: string;
             /** Format: uri */
             thumbnail_url: string | null;
+            moderation?: components["schemas"]["VideoModeration"];
         };
         StudioVideoPage: {
             items: components["schemas"]["StudioVideo"][];
@@ -178,6 +205,21 @@ export interface components {
         RecordViewResult: {
             /** @description `true` when this report added one view. */
             counted: boolean;
+        };
+        /** @description Present only for the owner, moderators and admins (task A2). */
+        VideoModeration: {
+            /** @enum {string} */
+            state: "VISIBLE" | "HIDDEN";
+            /** @description Shown to the owner so they know why the video is hidden. */
+            reason: string | null;
+            /** Format: date-time */
+            moderated_at: string | null;
+        };
+        ModerateVideoRequest: {
+            /** @enum {string} */
+            state: "VISIBLE" | "HIDDEN";
+            /** @description Required when `state` is `HIDDEN` (missing → `400`); ignored for `VISIBLE`. */
+            reason?: string;
         };
         /**
          * Format: uuid
@@ -439,6 +481,36 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    moderateVideo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModerateVideoRequest"];
+            };
+        };
+        responses: {
+            /** @description Video after the change, with `moderation`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Video"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }
