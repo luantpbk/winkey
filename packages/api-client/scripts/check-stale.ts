@@ -25,8 +25,23 @@ async function checkStale() {
     }
 
     const existingContent = fs.readFileSync(targetPath, 'utf8');
-    if (normalize(existingContent) !== normalize(freshContent)) {
+    const normExisting = normalize(existingContent);
+    const normFresh = normalize(freshContent);
+    if (normExisting !== normFresh) {
       console.error(`ERROR: Generated file is stale: ${relPath}`);
+      console.error(`Existing length: ${normExisting.length}, Fresh length: ${normFresh.length}`);
+      for (let i = 0; i < Math.max(normExisting.length, normFresh.length); i++) {
+        if (normExisting[i] !== normFresh[i]) {
+          console.error(`Diff at index ${i}:`);
+          console.error(
+            `Existing: ${JSON.stringify(normExisting.slice(Math.max(0, i - 20), i + 40))}`,
+          );
+          console.error(
+            `Fresh:    ${JSON.stringify(normFresh.slice(Math.max(0, i - 20), i + 40))}`,
+          );
+          break;
+        }
+      }
       hasStale = true;
     } else {
       console.log(`OK: ${relPath} is up to date.`);
