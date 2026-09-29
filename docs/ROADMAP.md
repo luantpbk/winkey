@@ -32,10 +32,12 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 ### P1 — MVP
 | ID | Task | Owner | Phụ thuộc | Độ phức tạp |
 |---|---|---|---|---|
-| LIB | `libs/go`: config, logger, OTel, outbox relay, problem+json, UUIDv7 | Sonnet 5.5 | F2 | TB |
-| V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB |
-| V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** |
-| V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB |
+| LIB | `libs/go`: config, logger, OTel, outbox relay, problem+json, UUIDv7 | Sonnet 5.5 | F2 | TB · 🟡 review |
+| V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB · 🟡 review |
+| V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** · 🟡 review (chờ benchmark NVENC trên gpu-01) |
+| V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB · 🟡 review |
+| V3b | Reconciler job kẹt: ghi `transcode_jobs.heartbeat_at` mỗi lần `InProgress`; job RUNNING có heartbeat > 10 phút → attempt FAILED, re-enqueue hoặc fail video (migration 000004); pin FFmpeg release + sha256 trong Dockerfile | Sonnet 5.5 | V2 | TB |
+| CI-GO | Workflow `go.yml` tạm thời: vet, test `-race` với container (`WINKEY_REQUIRE_DOCKER=1`), cross-build arm64/windows; F1 sẽ thay thế | Opus | — | ✅ |
 | S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
 | A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB |
 | PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |

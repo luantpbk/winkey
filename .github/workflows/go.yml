@@ -1,0 +1,61 @@
+name: go
+
+# Interim Go CI owned by the architect until F1 (Antigravity 2) replaces it with the monorepo pipeline.
+# Integration tests start PostgreSQL 17, NATS and Garage with testcontainers; GitHub runners have Docker,
+# so WINKEY_REQUIRE_DOCKER=1 turns any skipped container test into a failure.
+
+on:
+  pull_request:
+    paths: ['libs/go/**', 'services/**/*.go', 'services/**/go.mod', 'services/**/go.sum', 'db/migrations/**', '.github/workflows/go.yml']
+  push:
+    branches: [main]
+    paths: ['libs/go/**', 'services/**/*.go', 'services/**/go.mod', 'services/**/go.sum', 'db/migrations/**', '.github/workflows/go.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.module }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [libs/go, services/upload, services/transcoder, services/video]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Module present?
+        id: present
+        run: |
+          if [ -f "${{ matrix.module }}/go.mod" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else echo "skip: ${{ matrix.module }} has no go.mod yet"; fi
+
+      - uses: actions/setup-go@v5
+        if: steps.present.outputs.yes == 'true'
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: FFmpeg (transcoder real-media tests)
+        if: steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg && ffmpeg -version | head -1
+
+      - name: vet
+        if: steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: test (race, containers required)
+        if: steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        env:
+          WINKEY_REQUIRE_DOCKER: '1'
+        run: go test -race -count=1 -timeout 20m ./...
+
+      - name: cross-build (linux/arm64, windows/amd64)
+        if: steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        run: |
+          GOOS=linux GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...
