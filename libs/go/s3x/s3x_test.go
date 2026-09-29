@@ -245,8 +245,10 @@ func TestDeletePrefixAcrossPages(t *testing.T) {
 			if failBulk && f.callsMatching("DELETE /b/v/abc/") != 8 {
 				t.Errorf("fallback should delete each object once, got %d", f.callsMatching("DELETE /b/v/abc/"))
 			}
-			if !failBulk && f.callsMatching("POST /b?delete") != 3 {
-				t.Errorf("expected one bulk delete per page, got %d", f.callsMatching("POST /b?delete"))
+			// The SDK sends the bucket-level POST as "/b?delete" or "/b/?delete=" depending on
+			// the smithy-go version; count both.
+			if bulk := f.callsMatching("POST /b?delete") + f.callsMatching("POST /b/?delete"); !failBulk && bulk != 3 {
+				t.Errorf("expected one bulk delete per page, got %d", bulk)
 			}
 		})
 	}
