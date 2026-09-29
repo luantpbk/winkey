@@ -1,9 +1,10 @@
 http:
   routers:
-    # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, verify, well-known
+    # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
+    # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
     auth-public:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/v1/auth/register`, `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/verify`, `/.well-known`)"
+      rule: "PathPrefix(`/v1/auth/register`, `/v1/auth/login`, `/v1/auth/refresh`, `/.well-known`)"
       service: "auth-svc"
       middlewares: ["strip-user-headers"]
       priority: 100

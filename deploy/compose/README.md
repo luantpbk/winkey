@@ -5,13 +5,14 @@ Docker Compose development environment for Winkey platform services, supporting 
 ## 1. Overview & Architecture
 
 The stack runs all stateful dependencies and edge ingress required for developing Winkey:
-- **PostgreSQL 17**: Database with roles `winkey_migrator`, `auth_svc`, `media_svc` and transactional outbox tables.
+- **PostgreSQL 17**: Database with roles `winkey_migrator` (DB owner), `auth_svc`, `media_svc`.
 - **golang-migrate**: Applies `db/migrations` schema as `winkey_migrator`.
+- **db-grants**: One-shot job running after migrations applying role permissions per `db/README.md`.
 - **Valkey 8.x**: In-memory Redis-compatible cache and rate limiting.
-- **NATS JetStream 2.x**: Message broker with streams `VIDEO`, `USER`, and `DLQ` configured.
+- **NATS JetStream 2.x**: Message broker with streams `VIDEO`, `USER`, and `DLQ` (replicas: 1).
 - **Garage S3 (v1.x)**: Single-node object storage with buckets `winkey-raw`, `winkey-media`, `winkey-backups`, website hosting, and CORS.
 - **media-cache**: Local Nginx proxy cache on port 8081 fronting Garage web endpoint with byte-range and immutable caching.
-- **Traefik Gateway**: API Gateway on port 8080 routing `/v1/*` endpoints with security middleware stripping spoofed identity headers.
+- **Traefik Gateway (v3.7)**: API Gateway on port 8080 routing `/v1/*` endpoints with security middleware stripping spoofed identity headers (matches production k3s on edge-1).
 - **whoami**: Mock upstream used for gateway smoke testing.
 
 ## 2. Ports & Endpoints
@@ -19,7 +20,7 @@ The stack runs all stateful dependencies and edge ingress required for developin
 | Service | Host Port | Internal Endpoint | Description |
 |---|---|---|---|
 | **Traefik Gateway** | `8080` | `http://traefik:8080` | Main entrypoint for web and API `/v1/*` |
-| **Traefik Dashboard** | `8082` | `http://traefik:8082` | Traefik UI & metrics |
+| **Traefik Dashboard** | `8082` | `http://127.0.0.1:8082` | Traefik UI (localhost only) |
 | **media-cache** | `8081` | `http://media-cache:8081` | HLS video segment delivery cache |
 | **PostgreSQL** | `5432` | `postgres:5432` | PostgreSQL 17 database |
 | **Valkey (Redis)** | `6379` | `valkey:6379` | Cache & session storage |
@@ -28,17 +29,21 @@ The stack runs all stateful dependencies and edge ingress required for developin
 | **Garage S3 API** | `3900` | `http://garage:3900` | S3 compatible API endpoint |
 | **Garage Web Endpoint**| `3902` | `http://garage:3902` | Direct S3 website hosting |
 
-All services bind to `${DEV_BIND_IP:-0.0.0.0}`, allowing access across local network and Tailnet (e.g., when hosted on `gpu-01`).
+### Network Binding & Security
+- Default bind IP is **`127.0.0.1`** (`DEV_BIND_IP=127.0.0.1`).
+- When hosting on **gpu-01** (`192.168.1.4`) or sharing across LAN, explicitly set `DEV_BIND_IP=192.168.1.4` (or tailnet IP) in `deploy/compose/.env` (gitignored), and set strong non-default passwords for PostgreSQL.
+- Traefik dashboard binds strictly to `127.0.0.1:8082`.
+- Total container memory is capped well below 8 GB (PostgreSQL 1.5 GB, Valkey 512 MB, NATS 512 MB, Garage 1 GB, Traefik 512 MB, Media Cache 512 MB). Port 8188 (ComfyUI) is avoided.
 
-## 3. Database Roles & Credentials
+## 3. Database Roles & Grants
 
-Default development credentials configured via `deploy/compose/postgres/01-init-roles.sh`:
+Initialized via `01-init-roles.sh` and `grants.sql` per `db/README.md`:
 
 | Role | Default Password | Permissions & Grants |
 |---|---|---|
 | `winkey_migrator` | `winkey_migrator` | Database owner; schema migrations |
 | `auth_svc` | `auth_svc` | `USAGE` on schema `auth`; CRUD on `auth.*` |
-| `media_svc` | `media_svc` | `USAGE` on `media`; CRUD on `media.*`; `USAGE` on `auth` + `SELECT` on `auth.public_profiles` |
+| `media_svc` | `media_svc` | `USAGE` on `media`; CRUD on `media.*`; `USAGE` on `auth` + `SELECT` **only** on `auth.public_profiles` (never on `auth.users`) |
 | `postgres` (superuser)| `postgres` | Maintenance & administration |
 
 Database Connection URLs:
@@ -98,6 +103,9 @@ make dev-down
 
 # 6. Reset database and storage volumes to initial state
 make dev-reset
+
+# 7. Run reverse migration and SQL tests
+DATABASE_URL="postgres://winkey_migrator:winkey_migrator@localhost:5432/winkey?sslmode=disable" make db-test
 ```
 
 ## 6. How Agents Point Services at the Stack
@@ -132,7 +140,9 @@ S3_PUBLIC_ENDPOINT=http://localhost:3900
 
 ## 7. Security Smoke Test
 
-To verify that Traefik strips client-supplied `X-User-Id` and `X-User-Roles` headers before requests reach upstreams:
+To verify that:
+1. Traefik strips client-supplied `X-User-Id` and `X-User-Roles` headers before requests reach upstreams.
+2. `/v1/auth/verify` is internal only and cannot be accessed publicly through gateway.
 ```bash
 ./deploy/compose/smoke-test.sh
 ```

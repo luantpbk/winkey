@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Smoke test for Traefik header stripping middleware (ADR-009 / ADR-014)
+# Smoke test for Traefik gateway routing & security middleware (ADR-009 / ADR-014)
 set -euo pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 echo "Running Traefik header spoofing smoke test against ${GATEWAY_URL}/smoke/whoami..."
 
-# Send request with spoofed X-User-Id and X-User-Roles
+# 1. Send request with spoofed X-User-Id and X-User-Roles
 RESP=$(curl -sS -H "X-User-Id: spoofed-admin-id" -H "X-User-Roles: admin" "${GATEWAY_URL}/smoke/whoami")
 
 if echo "$RESP" | grep -i "spoofed-admin-id" >/dev/null; then
@@ -21,3 +21,14 @@ if echo "$RESP" | grep -i "X-User-Roles: admin" >/dev/null; then
 fi
 
 echo "SUCCESS: Spoofed identity headers were cleanly stripped by Traefik middleware before reaching upstream."
+
+# 2. Check that /v1/auth/verify is NOT publicly routed (contract: internal gateway forwardAuth only)
+echo "Checking that /v1/auth/verify is not publicly accessible..."
+VERIFY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/v1/auth/verify")
+
+if [ "$VERIFY_STATUS" = "200" ]; then
+    echo "FAILED: /v1/auth/verify was publicly routed and returned HTTP 200!" >&2
+    exit 1
+fi
+
+echo "SUCCESS: /v1/auth/verify is not publicly routed (HTTP $VERIFY_STATUS)."

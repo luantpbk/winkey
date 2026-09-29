@@ -17,7 +17,7 @@ services:
       MEDIA_SVC_USER: ${MEDIA_SVC_USER:-media_svc}
       MEDIA_SVC_PASSWORD: ${MEDIA_SVC_PASSWORD:-media_svc}
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432"
+      - "${DEV_BIND_IP:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/01-init-roles.sh:/docker-entrypoint-initdb.d/01-init-roles.sh:ro
@@ -57,6 +57,39 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
+  # Database Grants: Applies role permissions per db/README.md after migrations
+  # ---------------------------------------------------------------------------
+  db-grants:
+    image: postgres:17-alpine
+    container_name: winkey-db-grants
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./postgres/grants.sql:/grants.sql:ro
+    environment:
+      PGPASSWORD: ${MIGRATOR_PASSWORD:-winkey_migrator}
+    command:
+      [
+        "psql",
+        "-h",
+        "postgres",
+        "-U",
+        "${MIGRATOR_USER:-winkey_migrator}",
+        "-d",
+        "${POSTGRES_DB:-winkey}",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-f",
+        "/grants.sql"
+      ]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
   # Cache / Rate Limiting: Valkey 8.x
   # ---------------------------------------------------------------------------
   valkey:
@@ -64,7 +97,7 @@ services:
     container_name: winkey-valkey
     command: valkey-server --save "" --appendonly no
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${VALKEY_PORT:-6379}:6379"
+      - "${DEV_BIND_IP:-127.0.0.1}:${VALKEY_PORT:-6379}:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -85,8 +118,8 @@ services:
     container_name: winkey-nats
     command: ["-js", "-m", "8222"]
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${NATS_PORT:-4222}:4222"
-      - "${DEV_BIND_IP:-0.0.0.0}:${NATS_MONITOR_PORT:-8222}:8222"
+      - "${DEV_BIND_IP:-127.0.0.1}:${NATS_PORT:-4222}:4222"
+      - "${DEV_BIND_IP:-127.0.0.1}:${NATS_MONITOR_PORT:-8222}:8222"
     volumes:
       - nats_data:/data
     healthcheck:
@@ -127,8 +160,8 @@ services:
     container_name: winkey-garage
     command: ["/garage", "-c", "/etc/garage.toml", "server"]
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${GARAGE_S3_PORT:-3900}:3900"
-      - "${DEV_BIND_IP:-0.0.0.0}:${GARAGE_WEB_PORT:-3902}:3902"
+      - "${DEV_BIND_IP:-127.0.0.1}:${GARAGE_S3_PORT:-3900}:3900"
+      - "${DEV_BIND_IP:-127.0.0.1}:${GARAGE_WEB_PORT:-3902}:3902"
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta
@@ -174,7 +207,7 @@ services:
     depends_on:
       - garage
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${MEDIA_CACHE_PORT:-8081}:8081"
+      - "${DEV_BIND_IP:-127.0.0.1}:${MEDIA_CACHE_PORT:-8081}:8081"
     volumes:
       - ./media-cache/nginx.conf:/etc/nginx/nginx.conf:ro
       - media_cache_data:/var/cache/nginx/media
@@ -200,14 +233,14 @@ services:
           memory: 128M
 
   # ---------------------------------------------------------------------------
-  # Gateway / Ingress: Traefik on :8080 (ADR-009)
+  # Gateway / Ingress: Traefik on :8080 (ADR-009, pinned to v3.7 matching edge-1)
   # ---------------------------------------------------------------------------
   traefik:
-    image: traefik:v3.3
+    image: traefik:v3.7
     container_name: winkey-traefik
     ports:
-      - "${DEV_BIND_IP:-0.0.0.0}:${GATEWAY_PORT:-8080}:8080"
-      - "${DEV_BIND_IP:-0.0.0.0}:8082:8082"
+      - "${DEV_BIND_IP:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
+      - "127.0.0.1:8082:8082"
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
