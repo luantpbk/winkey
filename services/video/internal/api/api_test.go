@@ -49,9 +49,6 @@ type env struct {
 func newEnv(t *testing.T, withCache bool) *env {
 	t.Helper()
 	e := &env{t: t, store: newMemStore(), spec: contract.Load(t)}
-	// Known contract gap, tracked in https://github.com/luantpbk/winkey/issues/34: the studio list
-	// takes limit/status/cursor but documents no 400. Remove once the contract documents it.
-	e.spec.AllowUndocumentedProblem("GET", "/v1/studio/videos", 400, "https://github.com/luantpbk/winkey/issues/34")
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := &Handler{Store: e.store, MediaBaseURL: mediaBase + "/", MediaBucket: "winkey-media",
 		CursorSecret: []byte("test-cursor-secret-123456"), Log: log}

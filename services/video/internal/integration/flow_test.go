@@ -48,8 +48,6 @@ func start(t *testing.T) *stack {
 	t.Helper()
 	pg := testkit.StartPostgres(t)
 	spec := contract.Load(t)
-	// Tracked contract gap: https://github.com/luantpbk/winkey/issues/34
-	spec.AllowUndocumentedProblem("GET", "/v1/studio/videos", 400, "https://github.com/luantpbk/winkey/issues/34")
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := &api.Handler{Store: &store.Postgres{Pool: pg.Pool}, MediaBaseURL: mediaBase, MediaBucket: "winkey-media",
 		CursorSecret: []byte("integration-cursor-secret"), Log: log}
