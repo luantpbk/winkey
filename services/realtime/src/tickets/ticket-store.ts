@@ -15,8 +15,14 @@ export interface IssuedTicket {
 export class TicketStore {
   private readonly redis: Redis | null;
 
-  constructor(redis?: Redis | null) {
-    this.redis = redis ?? null;
+  constructor(redisOrUrl?: Redis | string | null, customRedis?: Redis | null) {
+    if (customRedis) {
+      this.redis = customRedis;
+    } else if (redisOrUrl && typeof redisOrUrl !== 'string') {
+      this.redis = redisOrUrl;
+    } else {
+      this.redis = null;
+    }
   }
 
   private hashTicket(ticket: string): string {

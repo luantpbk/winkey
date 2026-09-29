@@ -164,7 +164,7 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
         NATS_URL: natsUrl,
       });
 
-      const ticketStore = new TicketStore(valkeyUrl, redis);
+      const ticketStore = new TicketStore(redis);
 
       // Stub video client: allowed if in mockAllowedVideos
       const videoClient = new VideoClient('http://localhost:8080');
