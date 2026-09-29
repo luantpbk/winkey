@@ -27,3 +27,5 @@ data_mountpoint: /var/lib/rancher/k3s/storage
 
 # Hosts where the existing host nginx fronts Winkey (see roles/nginx_front).
 nginx_front: {}
+
+root_domain: winkey.vn

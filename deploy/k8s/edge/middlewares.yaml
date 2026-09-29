@@ -1,0 +1,49 @@
+# Traefik Middlewares for Winkey on k3s (ADR-009, ADR-014)
+# Namespace: default
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-user-headers
+  namespace: default
+  labels:
+    app.kubernetes.io/name: traefik-middleware
+    app.kubernetes.io/part-of: winkey
+spec:
+  # Strips client-supplied identity headers BEFORE any forwardAuth or upstream forwarding
+  headers:
+    customRequestHeaders:
+      X-User-Id: ''
+      X-User-Roles: ''
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: auth-verify
+  namespace: default
+  labels:
+    app.kubernetes.io/name: traefik-middleware
+    app.kubernetes.io/part-of: winkey
+spec:
+  # forwardAuth to in-cluster auth-svc verify endpoint (ADR-009)
+  forwardAuth:
+    address: 'http://auth-svc.default.svc.cluster.local:3001/v1/auth/verify'
+    authResponseHeaders:
+      - 'X-User-Id'
+      - 'X-User-Roles'
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: default
+  labels:
+    app.kubernetes.io/name: traefik-middleware
+    app.kubernetes.io/part-of: winkey
+spec:
+  # Rate limiting per client IP (uses forwarded client IP trusted from host nginx)
+  rateLimit:
+    average: 100
+    burst: 50
+    sourceCriterion:
+      ipStrategy:
+        depth: 1

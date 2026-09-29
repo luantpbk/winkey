@@ -21,3 +21,5 @@ spec:
           trustedIPs: {{ traefik_trusted_ips | to_json }}
       websecure:
         nodePort: {{ traefik_nodeport_websecure }}
+        forwardedHeaders:
+          trustedIPs: {{ traefik_trusted_ips | to_json }}

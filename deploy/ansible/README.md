@@ -30,7 +30,8 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 | `firewall` | public: `http`, `https`, `41641/udp`. trusted: `tailscale0`, pod CIDR, service CIDR |
 | `storage` | LV `ocivolume/data` (110 GB, XFS) on `/var/lib/rancher/k3s/storage`, so Garage/Postgres cannot fill `/` |
 | `k3s_server` | `/etc/rancher/k3s/config.yaml`, pinned k3s install, Traefik `HelmChartConfig`; asserts `FLANNEL_MTU <= 1230` |
-| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` + one Let's Encrypt cert for the Winkey hosts |
+| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `s3.winkey.vn`, `media.winkey.vn`), `proxy_cache` on host disk (10 GB max), `client_max_body_size 64m` on s3, and Certbot TLS |
+| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432/30900 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
 
 k3s: `cluster-init`, `node-ip`/`advertise-address` = Tailscale IP, `flannel-iface: tailscale0`,
 `secrets-encryption`, `selinux: true`, kubeconfig `0600`. Joining servers (edge-2/3): set
@@ -53,9 +54,38 @@ client ─443─► host nginx ── winkey.vn, media., s3.  ─► Traefik Nod
   `X-Forwarded-Proto: https`. Traefik trusts forwarded headers only from `10.42.0.1` (host traffic
   to a NodePort is SNATed to cni0) and the node's Tailscale IP. Verified: backends see the real
   client IP, a client-sent `X-Forwarded-For` is dropped.
-- Uploads: `client_max_body_size 0`, request/response buffering off.
+- Uploads: `client_max_body_size 64m` on `s3.winkey.vn` with streaming (`proxy_request_buffering off; proxy_buffering off;`).
+- Web & API: `client_max_body_size 2m` on `winkey.vn` with normal buffering.
+- Media streaming: `proxy_cache` on `media.winkey.vn` with `/var/cache/nginx/winkey-media` (max 10 GB), Range requests enabled, and `X-Cache-Status` header.
 - nginx changes are limited to `conf.d/winkey.conf`. Do not let certbot's installer edit it (the role uses
   `certonly`). Backup of the pre-I1 nginx config: `/root/nginx-backup-20260929.tgz`.
+
+## Edge Ingress & Gateway (Task EDGE)
+
+Kubernetes manifests are located under `deploy/k8s/edge/`:
+- `middlewares.yaml`: `strip-user-headers` (removes client `X-User-Id` / `X-User-Roles`), `auth-verify` (forwardAuth to `http://auth-svc:3001/v1/auth/verify`), and `rate-limit` (per client IP).
+- `ingressroute.yaml`: Traefik `IngressRoute` implementing exact path rules from `deploy/compose/traefik/dynamic.yml` (`/v1/*` routes, `/smoke/whoami`, and web `/` excluding `/v1`).
+- `nodeports.yaml`: Internal NodePorts 30422 (NATS), 30432 (PostgreSQL), and 30900 (Garage S3) bound strictly to the Tailscale IP per ADR-015.
+- `whoami.yaml`: Stand-in upstream for smoke testing gateway header stripping and routing.
+- `clusterip-services.yaml`: ClusterIP service definitions for in-cluster service resolution.
+  - `social-svc`: port 3004 with `targetPort: http` (note: when deploying social-svc in task I2, configure `HTTP_PORT=3004` matching compose, or name container port `http`).
+  - `realtime-svc`: port 3005 with `targetPort: http` (note: realtime-svc in #57 defaults to `HTTP_PORT=8003`; when deploying in task I2, ensure the container port is named `http` or configure `HTTP_PORT=3005`).
+
+### Verification
+
+Run the automated smoke test script from any client with public Internet access:
+```bash
+SKIP_MEDIA=1 ./deploy/edge/smoke-test.sh
+```
+
+Verifies:
+1. `curl -I https://winkey.vn/v1/auth/verify` returns HTTP 404 (internal-only endpoint not publicly routed).
+2. `curl -I https://winkey.vn/v1/nope` returns HTTP 404 (does not bleed into web router).
+3. `curl -H "X-User-Id: spoofed" https://winkey.vn/smoke/whoami` proves client-supplied identity headers are stripped and client public IP is verified.
+4. Traefik rate limiting triggers HTTP 429 under concurrent bursts.
+5. S3/media proxy caching behavior (`MISS` then `HIT`).
+6. NodePorts 30422, 30432, 30900 are TCP unreachable from the public IP.
+
 
 ### Do not set `traefik_service_type: LoadBalancer` on edge-1
 

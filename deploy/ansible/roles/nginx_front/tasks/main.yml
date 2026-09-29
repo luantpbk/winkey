@@ -1,4 +1,11 @@
-# The host nginx is shared with non-Winkey sites: only /etc/nginx/conf.d/winkey.conf is managed here.
+- name: Ensure nginx media cache directory exists
+  ansible.builtin.file:
+    path: /var/cache/nginx/winkey-media
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0700"
+
 - name: Is the certificate there yet?
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem"
@@ -18,15 +25,14 @@
   when: front_conf.changed and not front_cert.stat.exists
 
 # Uses the Let's Encrypt account already registered on the host; certbot only answers the challenge
-# through nginx and never edits the config (certonly).
+# through nginx and never edits the config (certonly). --expand adds any newly added hosts (e.g. www.winkey.vn).
 - name: Certificate for the Winkey hosts
   ansible.builtin.command: >-
-    certbot certonly --nginx --non-interactive --keep-until-expiring
+    certbot certonly --nginx --non-interactive --keep-until-expiring --expand
     --cert-name {{ nginx_front.cert_name }}
     {% for h in nginx_front.hosts %}-d {{ h }} {% endfor %}
-  args:
-    creates: "/etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem"
   register: front_certbot
+  changed_when: "'Certificate not yet due for renewal' not in front_certbot.stdout and 'Keeping the existing certificate' not in front_certbot.stdout"
 
 - name: Winkey server blocks with TLS
   ansible.builtin.template:

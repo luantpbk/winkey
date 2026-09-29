@@ -1,0 +1,145 @@
+# ClusterIP services for Winkey application backends
+# Ensures Traefik IngressRoute can resolve endpoints inside k3s
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: auth-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: auth-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upload-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: upload-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: upload-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: video-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: video-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3003
+      targetPort: 3003
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: video-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: social-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3004
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: social-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: realtime-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: realtime-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3005
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: realtime-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: web-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: web-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-s3
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3-api
+      port: 3900
+      targetPort: 3900
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: garage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-web
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 3902
+      targetPort: 3902
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: garage
