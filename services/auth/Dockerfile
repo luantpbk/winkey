@@ -1,26 +1,33 @@
 # Multi-arch Dockerfile for Winkey auth-svc (linux/amd64 and linux/arm64)
-# ADR-012: Every image must build for linux/amd64,linux/arm64
+# Build context: repository root
+#   docker buildx build --platform linux/amd64,linux/arm64 -f services/auth/Dockerfile .
 
 FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Enable corepack and install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm matching repo version
+RUN npm install -g pnpm@12.6.0
 
-# Copy outbox package first
-COPY packages/outbox /app/packages/outbox
-RUN cd /app/packages/outbox && pnpm install --frozen-lockfile=false && pnpm build
+# Copy root monorepo workspace configuration and lockfile
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
 
-# Copy auth-svc package definition
-COPY services/auth/package.json services/auth/tsconfig.json /app/services/auth/
+# Copy packages and service source
+COPY packages/outbox ./packages/outbox
+COPY services/auth ./services/auth
 
-WORKDIR /app/services/auth
-RUN pnpm install --frozen-lockfile=false
+# Install all workspace dependencies
+RUN pnpm install --frozen-lockfile
 
-# Copy auth-svc source files
-COPY services/auth/src /app/services/auth/src
-RUN pnpm build
+# Build outbox library and auth service
+RUN pnpm --filter @winkey/outbox run build
+RUN pnpm --filter auth-svc run build
+
+# Deploy standalone production bundle
+RUN pnpm --filter=auth-svc --prod deploy /app/deployed
+RUN cp -r /app/services/auth/dist /app/deployed/dist && \
+    mkdir -p /app/deployed/node_modules/@winkey/outbox && \
+    cp -r /app/packages/outbox/dist /app/deployed/node_modules/@winkey/outbox/dist
 
 # --- Production Runner Stage ---
 FROM node:22-bookworm-slim AS runner
@@ -30,14 +37,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HTTP_PORT=8001
 
-# Copy build artifacts and dependencies
-COPY --from=builder /app/packages/outbox/dist /app/packages/outbox/dist
-COPY --from=builder /app/packages/outbox/package.json /app/packages/outbox/package.json
-COPY --from=builder /app/services/auth/dist /app/services/auth/dist
-COPY --from=builder /app/services/auth/node_modules /app/services/auth/node_modules
-COPY --from=builder /app/services/auth/package.json /app/services/auth/package.json
-
-WORKDIR /app/services/auth
+# Copy deployed application from builder
+COPY --from=builder /app/deployed ./
 
 # Run as non-root user (node user has uid 1000)
 USER node
