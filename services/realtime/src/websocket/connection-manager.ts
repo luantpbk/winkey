@@ -340,8 +340,10 @@ export class ConnectionManager {
       return;
     }
 
-    // Max 50 rooms per connection limit
-    if (conn.rooms.size >= this.maxRoomsPerConnection) {
+    // Max 50 client rooms per connection limit (excluding auto-joined user room)
+    const clientRoomCount =
+      conn.userId && conn.rooms.has(`user:${conn.userId}`) ? conn.rooms.size - 1 : conn.rooms.size;
+    if (clientRoomCount >= this.maxRoomsPerConnection) {
       conn.send({
         type: 'error',
         id: msgId,
