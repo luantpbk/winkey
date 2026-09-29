@@ -38,9 +38,9 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** · ✅ (#10); benchmark NVENC thật = V2b |
 | V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB · ✅ (#10) |
 | V3b | Reconciler job kẹt (heartbeat, re-enqueue/fail qua outbox), pin FFmpeg BtbN n7.1.5 + sha256 cho cả image cpu và nvenc; benchmark GPU thật (V2b) | Sonnet 5.5 | V2 | TB · ✅ (#19) |
-| V3c | `HWACCEL_DECODE` (mặc định `true`) nối vào `NoHWDecode`; gpu-01 dùng `HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1` | Sonnet 5.5 | V3b | Thấp |
+| V3c | `HWACCEL_DECODE` (mặc định `true`) nối vào `NoHWDecode`; gpu-01 dùng `HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1` | Sonnet 5.5 | V3b | Thấp · ✅ (#33) |
 | CI-GO | Workflow `go.yml` tạm thời: vet, test `-race` với container (`WINKEY_REQUIRE_DOCKER=1`), cross-build arm64/windows | Opus | — | ✅ (F1 đã thay bằng `ci.yml`) |
-| S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
+| S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB · ✅ (#36) |
 | A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB · ✅ (#16) |
 | PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |
 | PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp · ✅ (#15) |

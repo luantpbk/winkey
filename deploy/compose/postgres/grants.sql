@@ -3,8 +3,8 @@
 -- Permissions matrix specified in db/README.md
 -- =============================================================================
 
--- 1. auth schema: USAGE for auth_svc and media_svc; CRUD for auth_svc
-GRANT USAGE ON SCHEMA auth TO auth_svc, media_svc;
+-- 1. auth schema: USAGE for auth_svc, media_svc, social_svc; CRUD for auth_svc
+GRANT USAGE ON SCHEMA auth TO auth_svc, media_svc, social_svc;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth TO auth_svc;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA auth TO auth_svc;
 
@@ -23,11 +23,21 @@ ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA media
 ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA media
     GRANT USAGE, SELECT ON SEQUENCES TO media_svc;
 
--- 3. media_svc cross-domain read: SELECT ONLY on auth.public_profiles (never auth.users)
+-- 3. social schema: USAGE and CRUD for social_svc
+GRANT USAGE ON SCHEMA social TO social_svc;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA social TO social_svc;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA social TO social_svc;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA social
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO social_svc;
+ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA social
+    GRANT USAGE, SELECT ON SEQUENCES TO social_svc;
+
+-- 4. Cross-domain reads: media_svc and social_svc SELECT ONLY on auth.public_profiles (never auth.users)
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'auth' AND viewname = 'public_profiles') THEN
-        GRANT SELECT ON auth.public_profiles TO media_svc;
+        GRANT SELECT ON auth.public_profiles TO media_svc, social_svc;
     END IF;
 END
 $$;

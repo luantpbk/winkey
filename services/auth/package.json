@@ -1,5 +1,5 @@
 {
-  "name": "auth-svc",
+  "name": "@winkey/auth",
   "version": "1.0.0",
   "description": "Winkey authentication and identity service",
   "type": "module",

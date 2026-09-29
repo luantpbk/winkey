@@ -1,4 +1,4 @@
-import { connect as connectNats } from 'nats';
+import { connect as connectNats, type NatsConnection } from 'nats';
 import { Redis } from 'ioredis';
 import { getEnv } from './config/env.js';
 import { getDb, closeDb } from './db/client.js';
@@ -17,7 +17,7 @@ async function main() {
   const { db } = getDb(env.DATABASE_URL);
 
   // 3. Connect to NATS JetStream
-  let natsConnection: any = null;
+  let natsConnection: NatsConnection | null = null;
   try {
     natsConnection = await connectNats({ servers: env.NATS_URL });
   } catch (err) {
@@ -27,7 +27,7 @@ async function main() {
   // 4. Connect to Valkey (Redis)
   let valkeyClient: Redis | null = null;
   try {
-    valkeyClient = new (Redis as any)(env.VALKEY_URL, {
+    valkeyClient = new Redis(env.VALKEY_URL, {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
     });

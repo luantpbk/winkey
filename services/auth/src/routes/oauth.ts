@@ -21,7 +21,7 @@ import {
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role } from '../db/types.js';
-import type { Kysely } from 'kysely';
+import type { Kysely, Transaction } from 'kysely';
 
 const RETURN_TO_REGEX = /^(\/[^/].*|\/)$/;
 const HANDLE_REGEX = /^[A-Za-z0-9_.]{3,30}$/;
@@ -62,7 +62,15 @@ export const defaultGoogleTokenExchanger: GoogleTokenExchanger = async (
     throw ProblemError.badRequest('Failed to exchange authorization code with Google');
   }
 
-  const tokenData = (await tokenResponse.json()) as any;
+  interface GoogleTokenResponse {
+    access_token: string;
+    id_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    refresh_token?: string;
+  }
+
+  const tokenData = (await tokenResponse.json()) as GoogleTokenResponse;
   const userinfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${tokenData.access_token}` },
   });
@@ -272,7 +280,10 @@ export const oauthRoute: FastifyPluginAsync<{
  * Derives a sanitized unique handle from the email local-part + random suffix.
  * Must match regex ^[A-Za-z0-9_.]{3,30}$
  */
-async function generateUniqueHandle(trx: any, email: string): Promise<string> {
+async function generateUniqueHandle(
+  trx: Transaction<Database> | Kysely<Database>,
+  email: string,
+): Promise<string> {
   const localPart = email.split('@')[0] || 'user';
   // Sanitize characters not in [A-Za-z0-9_.]
   let cleanLocal = localPart.replace(/[^A-Za-z0-9_.]/g, '_').slice(0, 20);
