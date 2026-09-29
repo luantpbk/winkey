@@ -33,6 +33,7 @@ func Streams() []jetstream.StreamConfig {
 	return []jetstream.StreamConfig{
 		cfg("VIDEO", "video.>", 7*24*time.Hour),
 		cfg("USER", "user.>", 7*24*time.Hour),
+		cfg("SOCIAL", "social.>", 7*24*time.Hour),
 		cfg("DLQ", "dlq.>", 30*24*time.Hour),
 	}
 }

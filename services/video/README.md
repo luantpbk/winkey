@@ -32,6 +32,19 @@ The owner comes from `auth.public_profiles` (role `media_svc` has `SELECT` on th
 
 `next_cursor` is an opaque token `base64url(payload).base64url(HMAC-SHA256)` of the last item's `(sort timestamp, id)`. The MAC (key `CURSOR_SECRET`) covers the endpoint and its filters (`owner_id`; user + `status`), so an edited, foreign or replayed cursor gets **400** `INVALID_CURSOR` instead of an arbitrary position. Timestamps are kept at PostgreSQL's microsecond resolution and the id breaks ties, so videos sharing a timestamp are neither skipped nor repeated. Changing `CURSOR_SECRET` invalidates outstanding cursors (clients restart from the first page).
 
+### Like counts (`social.video.like_changed`)
+
+social-svc owns likes and publishes `social.video.like_changed` (JetStream stream `SOCIAL`) with the **absolute** `like_count` after each change. video-svc copies it into `media.videos.like_count`:
+
+- durable pull consumer `video-likes`, `filter_subject: social.video.like_changed`, explicit ack, `ack_wait 30s`, `max_deliver 5`;
+- `UPDATE media.videos SET like_count = $count WHERE id = $id AND like_count <> $count`: it **sets**, never increments, so duplicates and redelivery are harmless, and an un-like lowers the number. An unchanged value writes nothing (no `updated_at` bump);
+- after a change the video's Valkey cache entry is deleted (Valkey is shared, so this reaches every replica), other videos keep theirs; a video that does not exist here (deleted) is acked and dropped;
+- **poison messages** (bad JSON, wrong type, malformed or negative `like_count`, missing fields) are `Term`ed with an error log and never redelivered; events of an unknown `version` are acked and ignored (contracts/events/README.md); extra fields are tolerated;
+- **ordering**: messages are processed strictly one at a time, and a transient database error is retried in-process (3 attempts, 200 ms doubling) instead of Nak-ing at once, because a Nak'd message is redelivered after newer ones and an absolute count applied late would move the number backwards. Only when those attempts fail is the message Nak'd (10 s delay, redelivered up to 5 times); in that rare case the next like/unlike of the video carries a fresh absolute count and corrects it;
+- the consumer keeps looking for the `SOCIAL` stream while it does not exist, so video-svc starts and serves before social-svc is deployed.
+
+Metric: `video_like_events_total{result=applied|unchanged|malformed|ignored_version|error}`. It is not a readiness dependency.
+
 ### Cache (optional)
 
 With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent record** (video + owner + renditions) for `CACHE_TTL` (30 s); visibility is applied after reading it, so one entry serves every viewer and a cached PRIVATE video is never leaked. `PATCH`/`DELETE` invalidate the entry in-process (other replicas see the change when their copy expires) and always decide authorisation from the database, never from the cache. The cache **fails open**: short timeouts, no client retries and a 5 s circuit breaker, so a Valkey outage costs nothing per request. It is not a readiness dependency.
