@@ -12,6 +12,7 @@ export default tseslint.config(
       'deploy/**',
       'tmp/**',
       '**/*.log',
+      '**/next-env.d.ts',
     ],
   },
   js.configs.recommended,
