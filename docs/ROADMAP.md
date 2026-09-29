@@ -45,7 +45,8 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |
 | PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp · ✅ (#15) |
 | U1 | Web: layout, trang chủ, trang xem SSR, đăng nhập/đăng ký, upload (multipart, resume) | Antigravity 1 | F2 (Prism mock) | TB |
-| PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE | Antigravity 1 | S1 | TB |
+| PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE · ✅ (#59) | Antigravity 1 | S1 | TB |
+| U3 | Web social: comment 2 cấp, like, subscribe trên trang xem/kênh. [Brief](prompts/antigravity-1_U3_social-ui.md) | Antigravity 1 | C1 ✅, PL1 ✅ | TB |
 | I1 | Ansible: hardening, Tailscale, k3s (edge-1 ✅ qua I1-e1; edge-2/3 sau). gpu-01: worker transcoder ngoài k3s (ADR-015): driver NVIDIA, FFmpeg NVENC, service | Antigravity 2 | I0 | **Cao** |
 | STO | Garage (1 node RF 1 bây giờ, ×3 RF 2 sau), bucket + CORS (`ExposeHeaders: ETag`) + web endpoint, key theo từng service. [Brief](prompts/antigravity-2_STO_garage.md) | Antigravity 2 | I1, EDGE ✅ | **Cao** |
 | DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) | Antigravity 2 | I1 | **Cao** |
