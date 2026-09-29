@@ -210,24 +210,30 @@ func TestGPUBenchmark(t *testing.T) {
 	one("nvenc x1, CPU decode", media.EncoderNVENC, true)
 	one("x264 veryfast x1", media.EncoderX264, false)
 
-	// Two concurrent NVENC jobs.
-	flows := []*testutil.Flow{testutil.NewFlow(t, tools, media.EncoderNVENC, path), testutil.NewFlow(t, tools, media.EncoderNVENC, path)}
-	p := startPeaks()
-	start := time.Now()
-	var wg sync.WaitGroup
-	xrts := make([]float64, len(flows))
-	for i, f := range flows {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3}); res.Stats != nil {
-				xrts[i] = res.Stats.XRealtime()
-			}
-		}()
+	// Two concurrent NVENC jobs (the default WORKER_CONCURRENCY), with NVDEC and with CPU decode.
+	concurrent := func(label string, noHW bool) {
+		flows := []*testutil.Flow{testutil.NewFlow(t, tools, media.EncoderNVENC, path), testutil.NewFlow(t, tools, media.EncoderNVENC, path)}
+		p := startPeaks()
+		start := time.Now()
+		var wg sync.WaitGroup
+		xrts := make([]float64, len(flows))
+		for i, f := range flows {
+			f.Pipeline.Cfg.NoHWDecode = noHW
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3}); res.Stats != nil {
+					xrts[i] = res.Stats.XRealtime()
+				}
+			}()
+		}
+		wg.Wait()
+		p.finish()
+		rows = append(rows, row{label, time.Since(start), (xrts[0] + xrts[1]) / 2, p,
+			fmt.Sprintf("jobs: x%.1f + x%.1f = x%.1f total", xrts[0], xrts[1], xrts[0]+xrts[1])})
 	}
-	wg.Wait()
-	p.finish()
-	rows = append(rows, row{"nvenc x2 concurrent (per job)", time.Since(start), (xrts[0] + xrts[1]) / 2, p, fmt.Sprintf("jobs: x%.1f + x%.1f = x%.1f total", xrts[0], xrts[1], xrts[0]+xrts[1])})
+	concurrent("nvenc x2 concurrent, NVDEC (per job)", false)
+	concurrent("nvenc x2 concurrent, CPU decode (per job)", true)
 
 	t.Logf("benchmark: %ds of 1080p30 testsrc2 + sine, 3 renditions (1080p/720p/480p)", secs)
 	t.Logf("%-40s %9s %11s %6s %6s %7s %7s %9s  %s", "run", "wall", "x realtime", "cpu%", "gpu%", "nvenc%", "nvdec%", "VRAM MiB", "note")
