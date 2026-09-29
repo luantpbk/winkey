@@ -24,7 +24,8 @@ function findRepoRoot(): string {
 }
 
 async function applyMigrations(pool: pg.Pool, migrationsDir: string) {
-  const files = fs.readdirSync(migrationsDir)
+  const files = fs
+    .readdirSync(migrationsDir)
     .filter((f) => f.endsWith('.up.sql'))
     .sort();
 
@@ -51,15 +52,25 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
   beforeEach((ctx) => {
     if (!isReady) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
-        expect.fail('Real PostgreSQL 17 + NATS required by WINKEY_REQUIRE_DOCKER=1 but unavailable');
+        expect.fail(
+          'Real PostgreSQL 17 + NATS required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
+        );
       }
       ctx.skip();
     }
   });
 
   beforeAll(async () => {
-    let dbUrl = process.env.TEST_DATABASE_URL || (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432') ? process.env.DATABASE_URL : null);
-    let natsUrl = process.env.TEST_NATS_URL || (process.env.NATS_URL && !process.env.NATS_URL.includes('localhost:4222') ? process.env.NATS_URL : null);
+    let dbUrl =
+      process.env.TEST_DATABASE_URL ||
+      (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432')
+        ? process.env.DATABASE_URL
+        : null);
+    let natsUrl =
+      process.env.TEST_NATS_URL ||
+      (process.env.NATS_URL && !process.env.NATS_URL.includes('localhost:4222')
+        ? process.env.NATS_URL
+        : null);
 
     if (!dbUrl) {
       try {
@@ -98,7 +109,9 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
 
     if (!dbUrl || !natsUrl) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
-        expect.fail('Real PostgreSQL 17 + NATS required by WINKEY_REQUIRE_DOCKER=1 but unavailable');
+        expect.fail(
+          'Real PostgreSQL 17 + NATS required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
+        );
       }
       return;
     }
@@ -124,7 +137,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
         expect.fail('Failed initializing PG or NATS: ' + err);
       }
     }
-  });
+  }, 120_000);
 
   afterAll(async () => {
     if (nc) {
@@ -140,7 +153,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
     if (stopNatsContainer) {
       await stopNatsContainer();
     }
-  });
+  }, 60_000);
 
   it('an enqueue in a rolled-back transaction publishes nothing', async () => {
     if (!pool || !nc) return;
@@ -174,10 +187,10 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
     sub.unsubscribe();
 
     const res = await pool.query(
-      "SELECT count(*) as count FROM auth.outbox WHERE subject = 'user.rollback_test'"
+      "SELECT count(*) as count FROM auth.outbox WHERE subject = 'user.rollback_test'",
     );
     expect(Number(res.rows[0].count)).toBe(0);
-  });
+  }, 60_000);
 
   it('a committed transaction is delivered exactly once with Nats-Msg-Id set and semantic payload matches', async () => {
     if (!pool || !nc) return;
@@ -198,7 +211,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
           method: 'password',
           tags: ['creator', 'viewer'],
         },
-        { producer: 'auth-svc', version: 1 }
+        { producer: 'auth-svc', version: 1 },
       );
       await client.query('COMMIT');
     } finally {
@@ -237,10 +250,9 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
       tags: ['creator', 'viewer'],
     });
 
-    const dbRow = await pool.query(
-      'SELECT published_at FROM auth.outbox WHERE event_id = $1',
-      [envelope.event_id]
-    );
+    const dbRow = await pool.query('SELECT published_at FROM auth.outbox WHERE event_id = $1', [
+      envelope.event_id,
+    ]);
     expect(dbRow.rows.length).toBe(1);
     expect(dbRow.rows[0].published_at).not.toBeNull();
 
@@ -249,5 +261,5 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
     expect(sub.getProcessed()).toBe(1);
 
     sub.unsubscribe();
-  });
+  }, 60_000);
 });

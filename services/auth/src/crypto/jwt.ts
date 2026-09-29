@@ -1,12 +1,4 @@
-import {
-  importPKCS8,
-  importSPKI,
-  exportJWK,
-  SignJWT,
-  jwtVerify,
-  type JWK,
-  type JWTVerifyResult,
-} from 'jose';
+import { importPKCS8, importSPKI, exportJWK, SignJWT, jwtVerify, type JWK } from 'jose';
 import { v7 as uuidv7 } from 'uuid';
 import type { Env } from '../config/env.js';
 import type { Role } from '../db/types.js';
@@ -106,7 +98,7 @@ async function jwkToSpki(jwk: JWK): Promise<string> {
 export async function issueAccessToken(
   user: { id: string; roles: Role[] },
   familyId: string,
-  env: Env
+  env: Env,
 ): Promise<{ token: string; expiresIn: number }> {
   const keys = await initializeKeys(env);
   const expiresIn = 900; // 15 minutes in seconds
@@ -130,10 +122,7 @@ export async function issueAccessToken(
 /**
  * Verifies an Access Token in-memory. Zero database interaction.
  */
-export async function verifyAccessToken(
-  token: string,
-  env: Env
-): Promise<AccessTokenClaims> {
+export async function verifyAccessToken(token: string, env: Env): Promise<AccessTokenClaims> {
   const keys = await initializeKeys(env);
   const { decodeProtectedHeader } = await import('jose');
   const header = decodeProtectedHeader(token);

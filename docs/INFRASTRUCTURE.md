@@ -24,13 +24,13 @@ Trong giai đoạn phát triển chỉ dùng **edge-1** (`138.2.93.173`, user `o
 | Hạng mục | Thực tế | Ghi chú |
 |---|---|---|
 | Vai trò máy | **Dùng chung**: nginx host (4 site cũ), 7 app Node, PostgreSQL host, Cockpit | Winkey phải cùng tồn tại, không được làm sập site cũ (ADR-014) |
-| OS | Oracle Linux, **SELinux Permissive** | Kiến trúc CPU vẫn chưa báo (`uname -m`) |
+| OS / CPU | Oracle Linux, **SELinux Permissive**, **`aarch64`** (đã xác nhận) | ADR-012 giữ nguyên |
 | k3s | v1.36.4+k3s1, 1 server `--cluster-init`, secrets-encryption bật | Node IP = Tailscale `100.113.240.3`, flannel trên `tailscale0`, MTU 1230 |
 | Ingress | nginx host :80/:443 (Certbot HTTP-01) → Traefik v3.7 NodePort 30080/30443 (chỉ trên IP Tailscale) | ADR-014 |
 | Đĩa | 200 GB: `/` 70 GB, LV data 110 GB XFS cho `/var/lib/rancher/k3s/storage`, **VG còn ~3 GB** | Xem §5 (dung lượng giảm) |
 | Firewall public | 80, 443, 41641/udp của Winkey; **9090 (Cockpit) và 7890 cũng đang mở public** | ⚠️ Xem §8 |
 | Trusted zone | `tailscale0`, `10.42.0.0/16`, `10.43.0.0/16` | |
-| Code triển khai | `deploy/ansible/` trên branch `agent/claude/i1-k3s-edge-1` | Chưa có PR |
+| Code triển khai | `deploy/ansible/` (đã merge, PR #5) | Chủ sở hữu từ nay: Antigravity 2 |
 
 Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey giới hạn tổng **requests ≤ 2 vCPU / 10 GB**. Mọi pod phải đặt `resources.requests/limits`.
 
@@ -38,8 +38,8 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
 |---|---|---|---|---|
-| **gpu-01** (nhà) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
-| **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64 gần như chắc chắn** (Ampere A1: `lshw` không hiện model CPU, cấu hình trùng hạn mức A1) **[chốt: `uname -m`]** | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
+| **gpu-01** (nhà; hostname `X9DRL-3F-iF`, tailnet `gpu-01` 100.88.247.70, **Ubuntu 26.04**, driver NVIDIA 595) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
+| **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
 Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
@@ -53,7 +53,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 | Oracle Pay-As-You-Go | ✅ | Instance không bị thu hồi do "nhàn rỗi" |
 | Tên miền | ✅ `winkey.vn` | Xem §4.1 |
 | Kiến trúc VPS | 🟡 gần chắc chắn arm64 | Không chặn gì (image đa kiến trúc); chạy `uname -m` để chốt |
-| Uplink nhà, NVENC benchmark, số phiên NVENC | ⬜ | Đo trong I0 (§9) |
+| Uplink nhà | ⬜ | Đo trong I0 (§9). NVENC benchmark và số phiên NVENC: ✅ (§6, V2b) |
 
 ## 2. Nguyên tắc phân bổ
 
@@ -73,7 +73,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 | **PostgreSQL** (CloudNativePG) | primary | replica | | | Backup (barman) vào bucket `winkey-backups`; hằng đêm rclone về gpu-01 |
 | Valkey (Redis-compatible) | | ● | | | Cache/rate-limit; mất thì chỉ chậm hơn, không mất dữ liệu |
 | web, auth-svc, upload-svc, video-svc, social-svc, realtime-gw | ○ | ○ | ○ | | Stateless, 2 replica, anti-affinity |
-| **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency 2 (xem §6) |
+| **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency **1** khi GPU còn dùng chung với miner (xem §6) |
 | transcoder (x264, overflow) | | | | ● | Concurrency 1 |
 | Raw archive, observability (VictoriaMetrics, Loki, Grafana), CI runner amd64 | | | | ● | Nội bộ, chỉ vào qua Tailscale |
 | CI runner arm64 | | | ● | | Build image arm64 native |
@@ -168,9 +168,22 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
 - **Pipeline mặc định** (ADR-006): NVDEC decode (`-hwaccel cuda`, frame được copy về RAM) → scale/format trên CPU → **h264_nvenc** encode 3 rendition.
 - Nếu NVDEC không hỗ trợ codec đầu vào, FFmpeg tự fallback về software decode.
-- **Giới hạn phiên NVENC của GeForce**: driver hiện hành cho tối đa 8 phiên đồng thời **[đo]**. Mỗi job dùng 3 phiên, nên **tối đa 2 job NVENC song song** (6 phiên), chừa phần dư cho test.
-- **Ước tính [đo]**: một job 1080p30 chạy ~5–10× realtime trên NVENC, ~2× với x264 `veryfast` trên 32 thread. Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
-- **Yêu cầu phần mềm**: driver NVIDIA ≥ 570 (Blackwell), NVIDIA Container Toolkit, FFmpeg ≥ 7.1 build có `--enable-nvenc --enable-cuvid`. Kiểm tra bằng `ffmpeg -encoders | grep nvenc` và một lần encode thử.
+- **Phiên NVENC**: driver 595 chạy được **≥ 10 phiên** song song (đo 2026-09-29), nên giới hạn phiên của GeForce không còn là ràng buộc. Ràng buộc thật là **thông lượng khối NVENC**: tổng ~12.3× realtime (~370 fps 1080p30, preset p5), chia đều cho mọi phiên. Thêm phiên không làm nhanh hơn.
+- **Đo encode tổng hợp (2026-09-29, GPU đang chạy miner)**: NVENC h264 1 phiên **12×**; x264 `veryfast` **7.6×** (testsrc2, 1 rendition).
+- **V2b: job transcode thật 3 rendition (2026-09-29, clip 1080p30 dài 120 s, GPU 100% tải và 5.8 GB VRAM bị miner + ComfyUI chiếm)**:
+
+  | Chế độ | ×realtime |
+  |---|---|
+  | NVENC ×1, decode NVDEC (`-hwaccel cuda`) | 3.0 |
+  | **NVENC ×1, decode CPU** | **5.6** (NVENC 100%) |
+  | x264 `veryfast` ×1 | 5.2 (CPU đỉnh 77%) |
+  | NVENC ×2 song song, NVDEC | 4.5 tổng |
+  | NVENC ×2 song song, decode CPU | 5.9 tổng |
+
+  Kết luận: khi GPU bị chia sẻ, NVDEC chậm gấp đôi decode CPU, và một job đã làm NVENC bão hòa. Cấu hình gpu-01: **`HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1`** (V3c). Video 10 phút ≈ 1.8 phút transcode, trong ngưỡng P1 (< 5 phút). Đo lại khi dừng miner. Nút thắt nhiều khả năng là **uplink nhà** khi đẩy HLS lên Garage: ~4.3 GB mỗi giờ video, tương đương khoảng 6 phút ở 100 Mbps.
+- **Phần mềm trên gpu-01 (đã cài)**: driver 595.91.07; FFmpeg **BtbN `autobuild-2026-07-31-14-10` (n7.1.5-12)** tại `/opt/ffmpeg-7.1`. Có h264_nvenc và hevc_nvenc, **không có av1_nvenc**; AV1 (P4) cần bản 8.x. Transcoder gọi FFmpeg qua `FFMPEG_PATH=/opt/ffmpeg-7.1/bin/ffmpeg` / `FFPROBE_PATH`. **Không** symlink vào `/usr/local/bin`, vì như vậy sẽ che FFmpeg 8.0 hệ thống mà ComfyUI và F5-TTS đang dùng.
+- **Thư mục**: `SCRATCH_DIR=/mnt/nvme_models/winkey/scratch` (Kingmax PCIe 3.0, dùng chung phân vùng với model ComfyUI, còn 127 GB trống); `ARCHIVE_DIR=/mnt/hdd_storage/winkey/archive` (HDD 1 TB, còn 838 GB). User hệ thống `winkey`.
+- **Tài nguyên dùng chung**: gpu-01 đồng thời chạy SRBMiner (4.5 GB VRAM, CUDA 100%), ComfyUI và các job Python. NVENC gần như không bị ảnh hưởng; NVDEC (`-hwaccel cuda`) và VRAM thì bị chia sẻ. Ổ `/` chỉ còn khoảng 18 GB trống.
 - **CPU không có AVX2**: x264 vẫn chạy tốt; x265/SVT-AV1 sẽ rất chậm. Dùng **av1_nvenc** nếu sau này làm AV1 (P4).
 
 ## 7. Băng thông phát
@@ -193,6 +206,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 | arm64 trên edge | Image không chạy | Mọi image build `linux/amd64,linux/arm64`; riêng transcoder-nvenc chỉ cần amd64 |
 | Uplink nhà thấp/không ổn định | Chờ READY lâu | Multipart upload có retry; đo bằng `iperf3` qua Tailscale; cân nhắc giới hạn 1080p |
 | Một GPU duy nhất | Single point of failure cho tốc độ | Fallback x264 tự động |
+| **GPU dùng chung với miner/ComfyUI** | Transcode chậm hoặc lỗi hết VRAM khi tải cao | Transcoder retry được (NVENC→x264 fallback, NAK); đo job thật trong V2b; nếu decode CUDA bị nghẽn thì chuyển decode về CPU (`HWACCEL_DECODE=false`); ưu tiên dừng miner khi có hàng đợi dài |
+| Ổ `/` trên gpu-01 gần đầy (85%) | Log hoặc tmp làm đầy ổ, service chết | Scratch và archive đặt ngoài `/`; logrotate; cảnh báo khi còn < 10 GB (I3) |
 
 ## 9. Checklist I0 (Antigravity 2 chạy, dán kết quả vào issue I0)
 

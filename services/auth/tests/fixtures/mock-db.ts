@@ -54,7 +54,10 @@ export function createMockStore(): MockStore {
   };
 }
 
-export function createMockDb(store: MockStore = createMockStore()): { db: Kysely<Database>; store: MockStore } {
+export function createMockDb(store: MockStore = createMockStore()): {
+  db: Kysely<Database>;
+  store: MockStore;
+} {
   let idCounter = 1;
 
   const mockClient = {
@@ -73,7 +76,9 @@ export function createMockDb(store: MockStore = createMockStore()): { db: Kysely
 
         // Check unique constraint on email
         if (store.users.some((u) => u.email.toLowerCase() === String(email).toLowerCase())) {
-          const err: any = new Error('duplicate key value violates unique constraint "users_email_key"');
+          const err: any = new Error(
+            'duplicate key value violates unique constraint "users_email_key"',
+          );
           err.code = '23505';
           err.constraint = 'users_email_key';
           throw err;
@@ -81,7 +86,9 @@ export function createMockDb(store: MockStore = createMockStore()): { db: Kysely
 
         // Check unique constraint on handle
         if (store.users.some((u) => u.handle.toLowerCase() === String(handle).toLowerCase())) {
-          const err: any = new Error('duplicate key value violates unique constraint "users_handle_key"');
+          const err: any = new Error(
+            'duplicate key value violates unique constraint "users_handle_key"',
+          );
           err.code = '23505';
           err.constraint = 'users_handle_key';
           throw err;
@@ -128,7 +135,10 @@ export function createMockDb(store: MockStore = createMockStore()): { db: Kysely
       }
 
       // 3. INSERT INTO "auth"."outbox"
-      if (sql.includes('INSERT INTO "auth"."outbox"') || sql.includes('insert into "auth"."outbox"')) {
+      if (
+        sql.includes('INSERT INTO "auth"."outbox"') ||
+        sql.includes('insert into "auth"."outbox"')
+      ) {
         const [event_id, subject, payload] = params;
         const newEvent = {
           id: String(idCounter++),
@@ -205,7 +215,9 @@ export function createMockDb(store: MockStore = createMockStore()): { db: Kysely
       if (sql.includes('select') && sql.includes('"auth"."oauth_identities"')) {
         let matching = [...store.oauth_identities];
         if (sql.includes('"provider" = $1') && sql.includes('"subject" = $2')) {
-          matching = matching.filter((i) => i.provider === String(params[0]) && i.subject === String(params[1]));
+          matching = matching.filter(
+            (i) => i.provider === String(params[0]) && i.subject === String(params[1]),
+          );
         }
         return { rows: matching, rowCount: matching.length };
       }

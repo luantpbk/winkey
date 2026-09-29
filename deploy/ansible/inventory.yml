@@ -1,0 +1,12 @@
+# Hosts are reached by their Tailscale MagicDNS name (tailnet tail855a33.ts.net).
+# edge-2 / edge-3 join later (ADR-013): add them under k3s_servers with k3s_cluster_init: false.
+all:
+  vars:
+    ansible_user: opc
+  children:
+    edge:
+      children:
+        k3s_servers:
+          hosts:
+            edge-1:
+              ansible_host: edge-1

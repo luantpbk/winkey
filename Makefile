@@ -1,7 +1,7 @@
 REDOCLY := npx -y @redocly/cli@2.55.0
 AJV     := npx -y -p ajv-cli@5.0.0 -p ajv-formats@3.0.1 ajv
 
-.PHONY: contracts-lint openapi-lint events-lint db-test
+.PHONY: contracts-lint openapi-lint events-lint db-test lint typecheck test build format
 
 contracts-lint: openapi-lint events-lint ## Lint every contract
 
@@ -17,3 +17,18 @@ events-lint:
 
 db-test: ## Needs DATABASE_URL, psql and migrate
 	scripts/db-test.sh
+
+lint: ## Run linters across monorepo
+	pnpm lint
+
+typecheck: ## Run typecheck across monorepo
+	pnpm typecheck
+
+test: ## Run unit tests across monorepo
+	pnpm test
+
+build: ## Build monorepo packages
+	pnpm build
+
+format: ## Format code with Prettier
+	pnpm format

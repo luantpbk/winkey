@@ -1,0 +1,18 @@
+k3s_cluster_init: true
+node_external_ip: 138.2.93.173
+
+# edge-1 also serves older, non-Winkey sites from the host nginx, which keeps 80/443.
+# Moving 80/443 to Traefik failed on 2026-09-29 (7 min outage), so nginx fronts Winkey instead:
+# it terminates TLS for the hosts below and proxies to Traefik's NodePort on the tailnet IP.
+traefik_service_type: NodePort
+traefik_trusted_ips:
+  - 10.42.0.1/32        # cni0: host traffic to a NodePort arrives SNATed to this
+  - "{{ tailscale_ipv4 }}/32"
+
+nginx_front:
+  cert_name: winkey.vn
+  # www.winkey.vn has no DNS record yet; add it here once the CNAME exists.
+  hosts:
+    - winkey.vn
+    - media.winkey.vn
+    - s3.winkey.vn

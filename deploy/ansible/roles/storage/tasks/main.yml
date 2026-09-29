@@ -1,0 +1,26 @@
+- name: Data logical volume
+  community.general.lvol:
+    vg: "{{ data_vg }}"
+    lv: "{{ data_lv }}"
+    size: "{{ data_lv_size }}"
+    shrink: false
+
+- name: XFS on the data volume
+  community.general.filesystem:
+    dev: "/dev/{{ data_vg }}/{{ data_lv }}"
+    fstype: xfs
+
+- name: Mount it where local-path provisions volumes
+  ansible.posix.mount:
+    path: "{{ data_mountpoint }}"
+    src: "/dev/{{ data_vg }}/{{ data_lv }}"
+    fstype: xfs
+    opts: defaults,noatime
+    state: mounted
+  register: data_mount
+
+- name: SELinux labels on the new mount
+  ansible.builtin.command: restorecon -R {{ data_mountpoint }}
+  when:
+    - data_mount.changed
+    - ansible_selinux.status == 'enabled'

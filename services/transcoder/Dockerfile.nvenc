@@ -1,0 +1,47 @@
+# transcoder-nvenc: linux/amd64 only (NVENC). Build context: the repository root.
+#   docker build -f services/transcoder/Dockerfile.nvenc -t transcoder-nvenc .
+# Run with the NVIDIA Container Toolkit:  docker run --gpus all ...
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY libs/go/go.mod libs/go/go.sum libs/go/
+COPY services/transcoder/go.mod services/transcoder/go.sum services/transcoder/
+RUN cd services/transcoder && go mod download
+COPY libs/go libs/go
+COPY services/transcoder services/transcoder
+RUN cd services/transcoder && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o /out/transcoder ./cmd/transcoder \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/replay-dlq ./cmd/replay-dlq
+
+# FFmpeg pinned to a dated BtbN FFmpeg-Builds release (static GPL, nvenc/cuda), the same
+# build as Dockerfile.cpu and as validated on gpu-01: FFmpeg n7.1.5-12-g1fdbca85aa,
+# release autobuild-2026-07-31-14-10 (the rolling "latest" asset gets replaced and 404s).
+# The archive is verified with sha256sum -c; to bump, update the ARGs here and in
+# Dockerfile.cpu (checksums are in the release's checksums.sha256) and the README.
+# NVENC loads libnvidia-encode from the host driver, injected by the NVIDIA runtime.
+FROM debian:12-slim AS ffmpeg
+ARG FFMPEG_RELEASE=autobuild-2026-07-31-14-10
+ARG FFMPEG_ARCHIVE=ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1.tar.xz
+ARG FFMPEG_SHA256=c1e6caf48923dd8e6bc5e54d51ba70c321175b8162ae9c414c392990e72f0e79
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_RELEASE}/${FFMPEG_ARCHIVE}" -o /tmp/ffmpeg.tar.xz \
+ && echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c - \
+ && mkdir /ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /ffmpeg --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+
+FROM debian:12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --create-home --home-dir /home/transcoder transcoder \
+ && mkdir -p /scratch /archive && chown transcoder /scratch /archive
+COPY --from=ffmpeg /ffmpeg/ffmpeg /ffmpeg/ffprobe /usr/local/bin/
+COPY --from=build /out/transcoder /out/replay-dlq /usr/local/bin/
+# Without the "video" capability NVENC is not visible inside the container.
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
+    ENCODER=auto \
+    SCRATCH_DIR=/scratch \
+    FFMPEG_PATH=/usr/local/bin/ffmpeg \
+    FFPROBE_PATH=/usr/local/bin/ffprobe
+USER transcoder
+EXPOSE 8081
+ENTRYPOINT ["/usr/local/bin/transcoder"]

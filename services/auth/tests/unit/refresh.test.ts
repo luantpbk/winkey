@@ -37,6 +37,7 @@ describe('refresh crypto & cookie settings', () => {
     const prodEnv = getEnv({
       JWT_PRIVATE_KEY: keys.privateKey,
       NODE_ENV: 'production',
+      COOKIE_SECRET: 'super-secure-production-cookie-secret-min-32-chars-long!',
     });
 
     const cookieOpts = getRefreshCookieOptions(prodEnv);

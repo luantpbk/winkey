@@ -234,7 +234,9 @@ describe('auth-svc full integration flow', () => {
       cookies: { [REFRESH_COOKIE_NAME]: initialCookie },
     });
     expect(refresh1Res.statusCode).toBe(200);
-    const rotatedCookie = refresh1Res.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const rotatedCookie = refresh1Res.cookies.find(
+      (c: any) => c.name === REFRESH_COOKIE_NAME,
+    )!.value;
     expect(rotatedCookie).not.toBe(initialCookie);
 
     // 3. TOKEN REUSE DETECTION!
@@ -471,7 +473,9 @@ describe('auth-svc full integration flow', () => {
     expect(callbackRes.statusCode).toBe(302);
     expect(callbackRes.headers.location).toBe('/watch?v=123');
     const setCookieHeader = callbackRes.headers['set-cookie'];
-    const cookiesStr = Array.isArray(setCookieHeader) ? setCookieHeader.join('; ') : String(setCookieHeader);
+    const cookiesStr = Array.isArray(setCookieHeader)
+      ? setCookieHeader.join('; ')
+      : String(setCookieHeader);
     expect(cookiesStr).toContain(`${REFRESH_COOKIE_NAME}=`);
 
     // Verify user was created in DB and outbox event enqueued

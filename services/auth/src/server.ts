@@ -31,7 +31,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const db = options.db || getDb(env.DATABASE_URL).db;
   const rateLimiter = options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis);
   const trustProxyConfig = env.TRUST_PROXY_CIDRS
-    ? env.TRUST_PROXY_CIDRS.split(',').map((s) => s.trim()).filter(Boolean)
+    ? env.TRUST_PROXY_CIDRS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : false;
 
   const app = fastify({
@@ -86,7 +88,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         type: `https://winkey.vn/problems/${status}`,
         title: err.name || 'Internal Server Error',
         status,
-        detail: env.NODE_ENV === 'production' ? 'An unexpected error occurred' : (err.message || 'Unknown error'),
+        detail:
+          env.NODE_ENV === 'production'
+            ? 'An unexpected error occurred'
+            : err.message || 'Unknown error',
         code: 'INTERNAL_SERVER_ERROR',
         instance: request.url,
       });
@@ -102,7 +107,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(jwksRoute, { env });
   await app.register(usersRoute, { db, env });
   await app.register(oauthRoute, { db, env, tokenExchanger: options.googleTokenExchanger });
-  await app.register(healthRoute, { db, redis: options.redis, natsConnection: options.natsConnection });
+  await app.register(healthRoute, {
+    db,
+    redis: options.redis,
+    natsConnection: options.natsConnection,
+  });
 
   return app;
 }

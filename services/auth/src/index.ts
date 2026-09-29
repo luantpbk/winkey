@@ -14,7 +14,7 @@ async function main() {
   await initializeKeys(env);
 
   // 2. Connect to database
-  const { db, pool } = getDb(env.DATABASE_URL);
+  const { db } = getDb(env.DATABASE_URL);
 
   // 3. Connect to NATS JetStream
   let natsConnection: any = null;

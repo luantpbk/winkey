@@ -1,0 +1,11 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'services/auth'
+  - 'services/social'
+  - 'services/realtime'
+allowBuilds:
+  cpu-features: false
+  esbuild: true
+  protobufjs: true
+  ssh2: false

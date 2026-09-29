@@ -37,10 +37,18 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     ajv.addSchema(commonSpec);
     ajv.addSchema(authSpec);
 
-    validateTokenResponse = ajv.getSchema('https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/TokenResponse')!;
-    validateUser = ajv.getSchema('https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/User')!;
-    validatePublicProfile = ajv.getSchema('https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/PublicProfile')!;
-    validateProblem = ajv.getSchema('https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem')!;
+    validateTokenResponse = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/TokenResponse',
+    )!;
+    validateUser = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/User',
+    )!;
+    validatePublicProfile = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/PublicProfile',
+    )!;
+    validateProblem = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+    )!;
 
     // 3. Build test app
     const keys = getTestKeys();

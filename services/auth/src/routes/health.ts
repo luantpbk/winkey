@@ -11,7 +11,7 @@ export interface HealthCheckDependencies {
 
 export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
   fastify,
-  { db, redis, natsConnection }
+  { db, redis, natsConnection },
 ) => {
   fastify.get('/healthz', async (_request, reply) => {
     return reply.status(200).send({ status: 'ok' });
@@ -30,7 +30,7 @@ export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
       try {
         await sql`SELECT 1`.execute(db);
         checks.db = 'ok';
-      } catch (err) {
+      } catch {
         checks.db = 'error';
         isHealthy = false;
       }

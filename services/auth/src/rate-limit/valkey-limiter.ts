@@ -88,7 +88,10 @@ export class ValkeyRateLimiter implements RateLimiter {
 /**
  * Normalizes email and IP to build safe rate limit keys.
  */
-export function buildLoginRateLimitKeys(ip: string, email: string): { ipEmailKey: string; ipKey: string } {
+export function buildLoginRateLimitKeys(
+  ip: string,
+  email: string,
+): { ipEmailKey: string; ipKey: string } {
   const normEmail = email.trim().toLowerCase();
   const hash = crypto.createHash('sha256').update(`${ip}:${normEmail}`).digest('hex').slice(0, 16);
   return {

@@ -130,7 +130,7 @@ export const refreshRoute: FastifyPluginAsync<{
           token_id: result.tokenId,
           ip: request.ip,
         },
-        'refresh token reuse: family revoked'
+        'refresh token reuse: family revoked',
       );
 
       reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
@@ -141,7 +141,7 @@ export const refreshRoute: FastifyPluginAsync<{
     const { token: accessToken, expiresIn } = await issueAccessToken(
       { id: result.user.id, roles: result.user.roles },
       result.familyId,
-      env
+      env,
     );
 
     // 5. Set new wk_rt cookie
@@ -158,7 +158,9 @@ export const refreshRoute: FastifyPluginAsync<{
         email_verified: result.user.email_verified_at != null,
         handle: result.user.handle,
         display_name: result.user.display_name,
-        avatar_url: result.user.avatar_key ? `${env.MEDIA_BASE_URL}/${result.user.avatar_key}` : null,
+        avatar_url: result.user.avatar_key
+          ? `${env.MEDIA_BASE_URL}/${result.user.avatar_key}`
+          : null,
         roles: result.user.roles,
         created_at: new Date(result.user.created_at).toISOString(),
       },

@@ -1,0 +1,57 @@
+- name: Tailscale repository
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/{{ 'oracle' if ansible_distribution == 'OracleLinux' else 'rhel' }}/{{ ansible_distribution_major_version }}/tailscale.repo"
+    dest: /etc/yum.repos.d/tailscale.repo
+    mode: "0644"
+    force: false
+
+- name: Tailscale package
+  ansible.builtin.dnf:
+    name: tailscale
+    state: present
+
+- name: tailscaled running
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Read Tailscale state
+  ansible.builtin.command: tailscale status --json --peers=false
+  register: ts_status_raw
+  changed_when: false
+  check_mode: false
+
+- name: Log in with an auth key (only when TS_AUTHKEY is set)
+  ansible.builtin.command: >-
+    tailscale up --ssh --hostname={{ inventory_hostname }}
+    --advertise-tags={{ tailscale_tags }} --authkey={{ tailscale_authkey }}
+  no_log: true
+  when:
+    - (ts_status_raw.stdout | from_json).BackendState != 'Running'
+    - tailscale_authkey | length > 0
+
+- name: Re-read Tailscale state
+  ansible.builtin.command: tailscale status --json --peers=false
+  register: ts_status_raw
+  changed_when: false
+  check_mode: false
+
+- name: Node is logged in with the right tag
+  ansible.builtin.assert:
+    that:
+      - ts.BackendState == 'Running'
+      - tailscale_tags in (ts.Self.Tags | default([]))
+    fail_msg: >-
+      Not logged in to the tailnet with {{ tailscale_tags }}. Run once by hand:
+      sudo tailscale up --ssh --hostname={{ inventory_hostname }} --advertise-tags={{ tailscale_tags }}
+      (or export TS_AUTHKEY and re-run).
+  vars:
+    ts: "{{ ts_status_raw.stdout | from_json }}"
+
+- name: Remember the Tailscale address
+  ansible.builtin.set_fact:
+    tailscale_ipv4: "{{ ts.Self.TailscaleIPs | select('match', '^100\\.') | first }}"
+    tailscale_fqdn: "{{ ts.Self.DNSName | regex_replace('\\.$', '') }}"
+  vars:
+    ts: "{{ ts_status_raw.stdout | from_json }}"

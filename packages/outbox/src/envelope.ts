@@ -30,7 +30,7 @@ function extractTraceparent(): string | undefined {
 export function buildEnvelope<T = Record<string, unknown>>(
   subject: string,
   data: T,
-  options: EnqueueOptions = {}
+  options: EnqueueOptions = {},
 ): EventEnvelope<T> {
   const event_id = options.eventId || uuidv7();
   const producer = options.producer || process.env.SERVICE_NAME || 'winkey-service';

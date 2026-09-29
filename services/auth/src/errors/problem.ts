@@ -34,7 +34,9 @@ export class ProblemError extends Error {
     super(options.detail || options.title);
     this.status = options.status;
     this.title = options.title;
-    this.type = options.type || `https://winkey.vn/problems/${options.code?.toLowerCase().replace(/_/g, '-') || options.status}`;
+    this.type =
+      options.type ||
+      `https://winkey.vn/problems/${options.code?.toLowerCase().replace(/_/g, '-') || options.status}`;
     this.detail = options.detail;
     this.code = options.code;
     this.errors = options.errors;
@@ -54,7 +56,11 @@ export class ProblemError extends Error {
     return doc;
   }
 
-  static badRequest(detail: string, errors?: ProblemFieldError[], code = 'BAD_REQUEST'): ProblemError {
+  static badRequest(
+    detail: string,
+    errors?: ProblemFieldError[],
+    code = 'BAD_REQUEST',
+  ): ProblemError {
     return new ProblemError({
       status: 400,
       title: 'Bad Request',
@@ -64,7 +70,10 @@ export class ProblemError extends Error {
     });
   }
 
-  static unauthorized(detail = 'Missing or invalid credentials', code = 'UNAUTHORIZED'): ProblemError {
+  static unauthorized(
+    detail = 'Missing or invalid credentials',
+    code = 'UNAUTHORIZED',
+  ): ProblemError {
     return new ProblemError({
       status: 401,
       title: 'Unauthorized',

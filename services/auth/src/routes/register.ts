@@ -106,7 +106,16 @@ export const registerRoute: FastifyPluginAsync<{
             roles: defaultRoles,
             status: 'ACTIVE',
           })
-          .returning(['id', 'email', 'email_verified_at', 'handle', 'display_name', 'avatar_key', 'roles', 'created_at'])
+          .returning([
+            'id',
+            'email',
+            'email_verified_at',
+            'handle',
+            'display_name',
+            'avatar_key',
+            'roles',
+            'created_at',
+          ])
           .executeTakeFirstOrThrow();
 
         // Atomic outbox insertion for domain event
@@ -119,7 +128,7 @@ export const registerRoute: FastifyPluginAsync<{
             handle: userRow.handle,
             method: 'password',
           },
-          { producer: 'auth-svc', version: 1 }
+          { producer: 'auth-svc', version: 1 },
         );
 
         // Insert initial refresh token in family
@@ -165,7 +174,7 @@ export const registerRoute: FastifyPluginAsync<{
     const { token: accessToken, expiresIn } = await issueAccessToken(
       { id: createdUser.id, roles: createdUser.roles },
       familyId,
-      env
+      env,
     );
 
     // 7. Set wk_rt cookie

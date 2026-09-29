@@ -97,7 +97,7 @@ export const loginRoute: FastifyPluginAsync<{
     const { token: accessToken, expiresIn } = await issueAccessToken(
       { id: user.id, roles: user.roles },
       familyId,
-      env
+      env,
     );
 
     // 8. Set wk_rt cookie

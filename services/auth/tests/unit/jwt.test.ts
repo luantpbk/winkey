@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { issueAccessToken, verifyAccessToken, getJwks, resetKeyCache } from '../../src/crypto/jwt.js';
+import {
+  issueAccessToken,
+  verifyAccessToken,
+  getJwks,
+  resetKeyCache,
+} from '../../src/crypto/jwt.js';
 import { getTestKeys } from '../fixtures/keys.js';
 import { getEnv } from '../../src/config/env.js';
 import { SignJWT, importPKCS8 } from 'jose';

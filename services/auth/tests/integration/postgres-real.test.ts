@@ -9,7 +9,7 @@ import { getTestKeys } from '../fixtures/keys.js';
 import { getDb } from '../../src/db/client.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
-import { validate as isValidUuid, version as uuidVersion } from 'uuid';
+import { version as uuidVersion } from 'uuid';
 import type { FastifyInstance } from 'fastify';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,7 +28,8 @@ function findRepoRoot(): string {
 }
 
 async function applyMigrations(pool: pg.Pool, migrationsDir: string) {
-  const files = fs.readdirSync(migrationsDir)
+  const files = fs
+    .readdirSync(migrationsDir)
     .filter((f) => f.endsWith('.up.sql'))
     .sort();
 
@@ -53,7 +54,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
   beforeEach((ctx) => {
     if (!isReady) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
-        expect.fail('Real PostgreSQL 17 / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable');
+        expect.fail(
+          'Real PostgreSQL 17 / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
+        );
       }
       ctx.skip();
     }
@@ -61,7 +64,11 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
   beforeAll(async () => {
     // 1. Try environment DATABASE_URL or TEST_DATABASE_URL first
-    const envUrl = process.env.TEST_DATABASE_URL || (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432') ? process.env.DATABASE_URL : null);
+    const envUrl =
+      process.env.TEST_DATABASE_URL ||
+      (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost:5432')
+        ? process.env.DATABASE_URL
+        : null);
     if (envUrl) {
       try {
         const testPool = new pg.Pool({ connectionString: envUrl, connectionTimeoutMillis: 3000 });
@@ -90,7 +97,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         };
         pool = new pg.Pool({ connectionString: dbUrl });
         isReady = true;
-      } catch (err) {
+      } catch {
         // testcontainers not available or Docker not running
       }
     }
@@ -98,7 +105,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     // 3. Docker requirement gating (like libs/go/testkit)
     if (!isReady || !pool || !dbUrl) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
-        expect.fail('Real PostgreSQL 17 / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable');
+        expect.fail(
+          'Real PostgreSQL 17 / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
+        );
       }
       return;
     }
@@ -124,7 +133,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       db,
       rateLimiter,
     });
-  });
+  }, 120_000);
 
   afterAll(async () => {
     if (app) {
@@ -136,7 +145,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     if (stopContainer) {
       await stopContainer();
     }
-  });
+  }, 60_000);
 
   it('register: inserts user, atomic outbox row, and rejects duplicate email/handle with 409', async () => {
     if (!app || !pool) return;
@@ -161,15 +170,16 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
     // Verify outbox row written in the SAME transaction
     const outboxRes = await pool.query(
-      'SELECT id, event_id, subject, payload, published_at FROM auth.outbox WHERE subject =  ORDER BY id DESC LIMIT 1',
-      ['user.registered']
+      'SELECT id, event_id, subject, payload, published_at FROM auth.outbox WHERE subject = $1 ORDER BY id DESC LIMIT 1',
+      ['user.registered'],
     );
     expect(outboxRes.rows.length).toBe(1);
     const outboxRow = outboxRes.rows[0];
     expect(uuidVersion(outboxRow.event_id)).toBe(7);
     expect(outboxRow.published_at).toBeNull();
 
-    const payload = typeof outboxRow.payload === 'string' ? JSON.parse(outboxRow.payload) : outboxRow.payload;
+    const payload =
+      typeof outboxRow.payload === 'string' ? JSON.parse(outboxRow.payload) : outboxRow.payload;
     expect(payload.type).toBe('user.registered');
     expect(payload.producer).toBe('auth-svc');
     expect(payload.data.user_id).toBe(body.user.id);
@@ -263,8 +273,8 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
     // Verify parent token has rotated_at set in DB, child token is active
     const parentQuery = await pool.query(
-      'SELECT id, family_id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = ',
-      [regRes.json().user.id]
+      'SELECT id, family_id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = $1',
+      [regRes.json().user.id],
     );
     expect(parentQuery.rows.length).toBe(1);
     expect(parentQuery.rows[0].rotated_at).not.toBeNull();
@@ -284,8 +294,8 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     // In buggy code where throw was inside trx, Kysely rolled this back so revoked_at was NULL.
     // In fixed code, revoked_at MUST NOT be null!
     const revokedTokensRes = await pool.query(
-      'SELECT id, revoked_at FROM auth.refresh_tokens WHERE family_id = ',
-      [familyId]
+      'SELECT id, revoked_at FROM auth.refresh_tokens WHERE family_id = $1',
+      [familyId],
     );
     expect(revokedTokensRes.rows.length).toBe(2);
     for (const row of revokedTokensRes.rows) {
@@ -299,5 +309,5 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       cookies: { [REFRESH_COOKIE_NAME]: childCookie },
     });
     expect(subsequentRes.statusCode).toBe(401);
-  });
+  }, 60_000);
 });

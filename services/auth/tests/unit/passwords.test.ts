@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { hashPassword, verifyPassword, needsRehash, ARGON2_CONFIG } from '../../src/crypto/passwords.js';
+import {
+  hashPassword,
+  verifyPassword,
+  needsRehash,
+  ARGON2_CONFIG,
+} from '../../src/crypto/passwords.js';
 
 describe('passwords (argon2id)', () => {
   it('hashes and verifies a password correctly with OWASP baseline parameters', async () => {

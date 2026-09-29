@@ -37,13 +37,13 @@ export interface GoogleUserInfo {
 export type GoogleTokenExchanger = (
   code: string,
   codeVerifier: string,
-  env: Env
+  env: Env,
 ) => Promise<GoogleUserInfo>;
 
 export const defaultGoogleTokenExchanger: GoogleTokenExchanger = async (
   code,
   codeVerifier,
-  env
+  env,
 ) => {
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -95,7 +95,7 @@ export const oauthRoute: FastifyPluginAsync<{
 
     const signedCookie = signOAuthPayload(
       { state, codeVerifier, returnTo: targetReturnTo },
-      env.COOKIE_SECRET
+      env.COOKIE_SECRET,
     );
 
     reply.setCookie(OAUTH_COOKIE_NAME, signedCookie, getOAuthCookieOptions(env));
@@ -237,7 +237,7 @@ export const oauthRoute: FastifyPluginAsync<{
               handle: derivedHandle,
               method: 'google',
             },
-            { producer: 'auth-svc', version: 1 }
+            { producer: 'auth-svc', version: 1 },
           );
         }
       }

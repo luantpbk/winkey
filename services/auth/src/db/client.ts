@@ -7,7 +7,10 @@ const { Pool } = pg;
 let dbInstance: Kysely<Database> | null = null;
 let poolInstance: pg.Pool | null = null;
 
-export function getDb(databaseUrl?: string, customPool?: pg.Pool): { db: Kysely<Database>; pool: pg.Pool } {
+export function getDb(
+  databaseUrl?: string,
+  customPool?: pg.Pool,
+): { db: Kysely<Database>; pool: pg.Pool } {
   if (customPool) {
     const db = new Kysely<Database>({
       dialect: new PostgresDialect({
