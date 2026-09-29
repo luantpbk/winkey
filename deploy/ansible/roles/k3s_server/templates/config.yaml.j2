@@ -1,0 +1,32 @@
+# Managed by Ansible (deploy/ansible/roles/k3s_server). Local edits are overwritten.
+node-name: {{ inventory_hostname }}
+node-ip: {{ tailscale_ipv4 }}
+advertise-address: {{ tailscale_ipv4 }}
+{% if node_external_ip is defined %}
+node-external-ip: {{ node_external_ip }}
+{% endif %}
+flannel-iface: {{ k3s_flannel_iface }}
+cluster-cidr: {{ k3s_cluster_cidr }}
+service-cidr: {{ k3s_service_cidr }}
+tls-san:
+  - {{ inventory_hostname }}
+  - {{ tailscale_fqdn }}
+  - {{ tailscale_ipv4 }}
+{% if traefik_service_type == 'NodePort' %}
+# NodePorts only on the tailnet address: kube-proxy's DNAT would otherwise bypass firewalld.
+kube-proxy-arg:
+  - nodeport-addresses={{ tailscale_ipv4 }}/32
+{% endif %}
+write-kubeconfig-mode: "0600"
+secrets-encryption: true
+selinux: true
+{% if k3s_cluster_init | bool %}
+cluster-init: true
+{% else %}
+server: {{ k3s_server_url }}
+token: {{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}
+{% endif %}
+{% if not (k3s_enable_traefik | bool) %}
+disable:
+  - traefik
+{% endif %}

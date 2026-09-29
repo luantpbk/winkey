@@ -49,7 +49,8 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Ladder: 1080p 5000k / 720p 2800k / 480p 1400k. Không upscale; tính theo cạnh ngắn để video dọc đúng. Audio AAC-LC 128k 48 kHz stereo; nguồn không có audio thì chèn track im lặng.
 - **Encoder mặc định `h264_nvenc`** (`-preset p5 -tune hq -rc vbr -spatial-aq 1 -no-scenecut 1 -forced-idr 1`). Decode bằng `-hwaccel cuda` và copy frame về RAM để filter CPU (rotate, 10-bit→8-bit, scale) luôn chạy đúng.
 - **Fallback `libx264`** khi không có GPU, khi `ENCODER=x264`, hoặc khi NVENC lỗi.
-- Tối đa **2 job NVENC song song** (giới hạn phiên của GeForce).
+- Tối đa **2 job NVENC song song**. Lý do: thông lượng khối NVENC cố định (~12× realtime tổng, đo 2026-09-29), thêm phiên không tăng tốc; giới hạn phiên của GeForce (≥ 10 phiên với driver 595) không phải ràng buộc.
+- FFmpeg ghim bản **BtbN `autobuild-2026-07-31-14-10` (n7.1.5-12)**, gọi qua `FFMPEG_PATH`. Bản 7.1 này không có av1_nvenc; AV1 ở P4 sẽ cần FFmpeg 8.x.
 - Pipeline full-GPU (`scale_cuda`, zero-copy) để dành cho P3 (task V4).
 **Hệ quả.** Nhanh và rẻ. Ở cùng bitrate, chất lượng NVENC thấp hơn x264 `slow` một chút; chấp nhận được ở giai đoạn này.
 

@@ -22,20 +22,23 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | F4 | Data model + migrations + SQL tests (`db/`) | Opus | — | ✅ |
 | DOC | Kiến trúc, hạ tầng, ADR, roadmap, AGENTS.md, prompts | Opus | — | ✅ |
 | BOOT | Bootstrap edge-1: Tailscale, firewall, hostname ([runbook](runbooks/edge-1-bootstrap.md)) | Claude (phiên Windows) | — | ✅ |
-| I1-e1 | k3s trên edge-1 sau nginx host (ADR-014), Ansible ở branch `agent/claude/i1-k3s-edge-1` | Claude (phiên Windows) | BOOT | 🟡 chờ PR |
+| I1-e1 | k3s trên edge-1 sau nginx host (ADR-014), `deploy/ansible/` (PR #5; follow-up cho EDGE nằm trong comment review) | Claude (phiên Windows) | BOOT | ✅ |
 | SEC0 | edge-1: đóng Cockpit :9090 và :7890 khỏi public (chỉ qua Tailscale); PostgreSQL host chỉ nghe `127.0.0.1`; hardening SSH; thêm `www.winkey.vn` vào DNS + cert | **Bạn** / Antigravity 2 | — | ⬜ |
-| TS | Gộp mọi thiết bị về **một tailnet**; xác minh máy nhà 192.168.1.4 là Linux hay Windows và đúng là thiết bị `gpu-01`; áp policy mới §4.2 | **Bạn** | — | ⬜ |
-| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9; chỉ edge-1 + gpu-01, ADR-013). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Còn: `uname -m`, uplink, NVENC benchmark; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
+| TS | Gộp mọi thiết bị về **một tailnet**; xác minh máy nhà là thiết bị `gpu-01`; áp policy mới §4.2 | **Bạn** | — | ✅ (gpu-01 = Ubuntu 26.04, 100.88.247.70) |
+| V2b-prep | gpu-01: driver ≥ 570, FFmpeg 7.1 NVENC, scratch/archive, Go, SSH LAN | Claude (phiên local) | TS | ✅ |
+| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9; chỉ edge-1 + gpu-01, ADR-013). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Đã có: `aarch64`, NVENC benchmark. Còn: uplink nhà; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
 | F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ⬜ |
 | F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ⬜ |
 
 ### P1 — MVP
 | ID | Task | Owner | Phụ thuộc | Độ phức tạp |
 |---|---|---|---|---|
-| LIB | `libs/go`: config, logger, OTel, outbox relay, problem+json, UUIDv7 | Sonnet 5.5 | F2 | TB |
-| V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB |
-| V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** |
-| V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB |
+| LIB | `libs/go`: config, logger, OTel, outbox relay, problem+json, UUIDv7 | Sonnet 5.5 | F2 | TB · ✅ (#8) |
+| V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB · ✅ (#9) |
+| V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** · ✅ (#10); benchmark NVENC thật = V2b |
+| V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB · ✅ (#10) |
+| V3b | Reconciler job kẹt: ghi `transcode_jobs.heartbeat_at` mỗi lần `InProgress`; job RUNNING có heartbeat > 10 phút → attempt FAILED, re-enqueue hoặc fail video (migration 000004); pin FFmpeg release + sha256 trong Dockerfile | Sonnet 5.5 | V2 | TB |
+| CI-GO | Workflow `go.yml` tạm thời: vet, test `-race` với container (`WINKEY_REQUIRE_DOCKER=1`), cross-build arm64/windows; F1 sẽ thay thế | Opus | — | ✅ |
 | S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
 | A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB |
 | PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |
