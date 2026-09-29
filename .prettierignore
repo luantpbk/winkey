@@ -1,0 +1,18 @@
+node_modules
+dist
+.next
+coverage
+*.sum
+*.log
+pnpm-lock.yaml
+deploy/compose/.generated.env
+
+# Protect other agents' / architect's directories and files from formatting
+contracts/**
+db/**
+docs/**
+libs/**
+deploy/ansible/**
+*.md
+.golangci.yml
+.github/workflows/contracts.yml
