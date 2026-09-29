@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/envelope.schema.json",
+  "title": "EventEnvelope",
+  "description": "Common envelope for every Winkey event. `event_id` is also sent as the `Nats-Msg-Id` header so JetStream de-duplicates retries.",
+  "type": "object",
+  "required": ["event_id", "type", "version", "occurred_at", "producer", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid", "description": "UUIDv7." },
+    "type": { "type": "string", "pattern": "^[a-z]+(\\.[a-z_]+)+$", "description": "Equals the NATS subject for persistent events." },
+    "version": { "type": "integer", "minimum": 1, "description": "Schema version of `data`. Breaking changes bump it; consumers ignore versions they do not know." },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "producer": { "type": "string", "examples": ["upload-svc", "transcoder"] },
+    "traceparent": { "type": "string", "description": "W3C trace context for OpenTelemetry propagation." },
+    "data": { "type": "object" }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "event_id": "0192f5f0-4444-7000-8000-000000000005",
+  "type": "video.deleted",
+  "version": 1,
+  "occurred_at": "2026-10-02T10:00:00Z",
+  "producer": "video-svc",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "raw_bucket": "winkey-raw",
+    "raw_key": "0192f5e0-0000-7000-8000-000000000001/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/source",
+    "media_bucket": "winkey-media",
+    "media_prefix": "v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/"
+  }
+}

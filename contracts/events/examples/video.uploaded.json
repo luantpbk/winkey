@@ -1,0 +1,15 @@
+{
+  "event_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01",
+  "type": "video.uploaded",
+  "version": 1,
+  "occurred_at": "2026-10-01T08:00:00Z",
+  "producer": "upload-svc",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "raw_bucket": "winkey-raw",
+    "raw_key": "0192f5e0-0000-7000-8000-000000000001/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/source",
+    "size_bytes": 734003200,
+    "content_type": "video/mp4"
+  }
+}

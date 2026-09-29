@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/video.failed.schema.json",
+  "title": "video.failed v1",
+  "description": "Transcoding gave up (non-retryable error or max deliveries reached). Producer: transcoder.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.failed" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "job_id", "attempt", "reason", "message", "retryable"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "job_id": { "type": "string", "format": "uuid" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "reason": { "enum": ["INVALID_INPUT", "TIMEOUT", "ENCODER_ERROR", "STORAGE_ERROR", "INTERNAL"] },
+        "message": { "type": "string", "maxLength": 2000, "description": "Safe to show to the owner; no paths or stack traces." },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

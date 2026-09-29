@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/video.progress.schema.json",
+  "title": "video.progress v1 (ephemeral)",
+  "description": "Transcoding progress. Published on core NATS (NOT JetStream) subject `rt.video.{video_id}.progress`, at most once per 5s per job. Lost messages are fine: the DB column transcode_jobs.progress is the source of truth.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.progress" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "job_id", "stage", "percent"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "job_id": { "type": "string", "format": "uuid" },
+        "stage": { "enum": ["DOWNLOADING", "PROBING", "TRANSCODING", "UPLOADING"] },
+        "percent": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

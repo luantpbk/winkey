@@ -1,0 +1,344 @@
+openapi: 3.1.0
+info:
+  title: Winkey auth-svc API
+  version: 1.0.0
+  description: |
+    Identity, sessions and public user profiles. Owner: Antigravity 3 (tasks A1, A2).
+
+    Session model:
+    - Access token: RS256 JWT, 15 min, returned in the response body; the web client keeps it in memory.
+      Claims: `iss`, `aud=winkey-api`, `sub` (user id), `roles`, `sid` (refresh family id), `iat`, `exp`, `jti`.
+      Header `kid` references a key published at `/.well-known/jwks.json`.
+    - Refresh token: opaque 256-bit random value in cookie `wk_rt`
+      (`HttpOnly; Secure; SameSite=Strict; Path=/v1/auth; Max-Age=2592000`).
+      Only its SHA-256 is stored. Every refresh rotates it; presenting an already-rotated token
+      revokes the whole family (reuse detection).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.local
+    description: Same origin as the web app; the gateway routes `/v1/auth/*`, `/v1/users/*` and `/.well-known/*` to auth-svc.
+tags:
+  - name: auth
+    description: Registration, sign-in and session management.
+  - name: users
+    description: Public user profiles.
+  - name: internal
+    description: Endpoints for the gateway only; not routed to the internet.
+paths:
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Create an account with email and password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created and signed in. Sets the `wk_rt` cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in with email and password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in. Sets the `wk_rt` cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: Rotate the refresh cookie and issue a new access token.
+      description: Requires the `wk_rt` cookie. The server also rejects requests whose `Origin` is not the site origin.
+      security: []
+      responses:
+        '200':
+          description: New access token; `wk_rt` rotated.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the current refresh family and clear the cookie.
+      security: []
+      responses:
+        '204':
+          description: Signed out.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current user.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/auth/oauth/google:
+    get:
+      tags: [auth]
+      operationId: googleStart
+      summary: Start Google OAuth (authorization code + PKCE).
+      security: []
+      parameters:
+        - name: return_to
+          in: query
+          required: false
+          description: Relative path to return to after sign-in. Absolute URLs are rejected.
+          schema:
+            type: string
+            pattern: '^/[^/].*$|^/$'
+      responses:
+        '302':
+          description: Redirect to Google.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/auth/oauth/google/callback:
+    get:
+      tags: [auth]
+      operationId: googleCallback
+      summary: Google OAuth callback. Links or creates the account, sets `wk_rt`, redirects to `return_to`.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect back to the web app. The web app then calls `/v1/auth/refresh` to get an access token.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/auth/verify:
+    get:
+      tags: [internal]
+      operationId: verify
+      summary: Gateway forwardAuth endpoint. Not routed publicly.
+      description: |
+        - No `Authorization` header → `204` without identity headers (anonymous request).
+        - Valid bearer token → `204` with `X-User-Id` and `X-User-Roles`.
+        - Invalid or expired token → `401`.
+
+        Stateless: signature and claims are checked in memory, no database access.
+        The gateway MUST strip client-supplied `X-User-Id` / `X-User-Roles` before calling upstreams.
+      security: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+            pattern: '^Bearer .+$'
+      responses:
+        '204':
+          description: Request may proceed.
+          headers:
+            X-User-Id:
+              description: Present only for authenticated requests.
+              schema:
+                type: string
+                format: uuid
+            X-User-Roles:
+              description: Comma-separated roles, e.g. `viewer,creator`. Present only for authenticated requests.
+              schema:
+                type: string
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /.well-known/jwks.json:
+    get:
+      tags: [internal]
+      operationId: jwks
+      summary: Public signing keys (JWKS). Keep the previous key published for at least 24h after rotation.
+      security: []
+      responses:
+        '200':
+          description: JSON Web Key Set.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/users/{handle}:
+    get:
+      tags: [users]
+      operationId: getUserByHandle
+      summary: Public profile (channel header).
+      security: []
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_.]{3,30}$'
+      responses:
+        '200':
+          description: Public profile.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/PublicProfile'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, handle, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+        handle:
+          type: string
+          pattern: '^[A-Za-z0-9_.]{3,30}$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 50
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+
+    User:
+      type: object
+      required: [id, email, email_verified, handle, display_name, avatar_url, roles, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+        handle:
+          type: string
+        display_name:
+          type: string
+        avatar_url:
+          type: [string, 'null']
+          format: uri
+        roles:
+          type: array
+          items:
+            $ref: './common.yaml#/components/schemas/Role'
+        created_at:
+          type: string
+          format: date-time
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: Seconds until the access token expires.
+          examples: [900]
+        user:
+          $ref: '#/components/schemas/User'
