@@ -33,7 +33,7 @@ export interface RealtimeServer {
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeServer> {
   const env = options.env || getEnv();
-  const ticketStore = options.ticketStore || new TicketStore(options.redis);
+  const ticketStore = options.ticketStore || new TicketStore(options.redis ?? null);
   const videoClient = options.videoClient || new VideoClient(env.VIDEO_SVC_URL);
   const connectionManager =
     options.connectionManager ||

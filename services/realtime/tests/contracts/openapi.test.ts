@@ -3,14 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import Ajv from 'ajv';
+import { Ajv, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { TicketStore } from '../../src/tickets/ticket-store.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import type { FastifyInstance } from 'fastify';
-import type { ValidateFunction } from 'ajv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

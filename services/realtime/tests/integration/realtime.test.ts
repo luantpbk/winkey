@@ -739,7 +739,6 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     await waitForFrame(wsA, (f) => f.type === 'welcome');
 
     // Prevent client A from answering pings
-    // @ts-expect-error override pong method
     wsA.pong = () => {};
 
     // Client B (control client that automatically responds to pings)
