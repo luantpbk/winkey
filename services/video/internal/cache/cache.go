@@ -32,19 +32,35 @@ type Valkey struct {
 	downUntil atomic.Int64 // unix nanoseconds; Get/Set are skipped until then
 }
 
-// New connects lazily to the server at url (redis://host:port/db).
-func New(url string, ttl time.Duration, log *slog.Logger) (*Valkey, error) {
+// NewClient builds a Valkey client with the settings the service needs: short
+// timeouts (a cache or counter must never make a request slower than the database)
+// and no client-side retries (with the server down they multiply the latency).
+// It connects lazily. Share one client between the cache and the view counter.
+func NewClient(url string) (*redis.Client, error) {
 	opt, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, err
 	}
-	// Short timeouts: the cache must never make a request slower than the database.
 	opt.DialTimeout, opt.ReadTimeout, opt.WriteTimeout = 200*time.Millisecond, 200*time.Millisecond, 200*time.Millisecond
-	opt.MaxRetries = -1 // no client-side retries: with the server down they multiply the latency
+	opt.MaxRetries = -1
+	return redis.NewClient(opt), nil
+}
+
+// New connects lazily to the server at url (redis://host:port/db) with its own client.
+func New(url string, ttl time.Duration, log *slog.Logger) (*Valkey, error) {
+	client, err := NewClient(url)
+	if err != nil {
+		return nil, err
+	}
+	return FromClient(client, ttl, log), nil
+}
+
+// FromClient wraps an existing client (see NewClient). Close closes it.
+func FromClient(client *redis.Client, ttl time.Duration, log *slog.Logger) *Valkey {
 	if ttl <= 0 {
 		ttl = 30 * time.Second
 	}
-	return &Valkey{client: redis.NewClient(opt), ttl: ttl, log: log}, nil
+	return &Valkey{client: client, ttl: ttl, log: log}
 }
 
 func key(id uuid.UUID) string { return "video:v1:" + id.String() }

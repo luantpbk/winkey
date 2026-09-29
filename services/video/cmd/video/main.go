@@ -26,6 +26,7 @@ import (
 	"github.com/luantpbk/winkey/services/video/internal/domain"
 	"github.com/luantpbk/winkey/services/video/internal/likes"
 	"github.com/luantpbk/winkey/services/video/internal/store"
+	"github.com/luantpbk/winkey/services/video/internal/views"
 )
 
 const service = "video-svc"
@@ -91,6 +92,26 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	st := &store.Postgres{Pool: pool}
+
+	proxies, err := views.ParseCIDRs(cfg.TrustProxyCIDRs)
+	if err != nil {
+		return fmt.Errorf("TRUST_PROXY_CIDRS: %w", err)
+	}
+	var viewCounter api.ViewCounter
+	var viewFlusher *views.Flusher
+	if cfg.ValkeyURL != "" {
+		rc, err := cache.NewClient(cfg.ValkeyURL)
+		if err != nil {
+			return fmt.Errorf("valkey (views): %w", err)
+		}
+		defer func() { _ = rc.Close() }()
+		vv := views.NewValkey(rc, cfg.ViewDedupTTL)
+		viewCounter = vv
+		viewFlusher = &views.Flusher{V: vv, DB: st, Interval: cfg.ViewFlushInterval, LockTTL: cfg.ViewFlushLockTTL, Log: log}
+		log.Info("view counter enabled", "flush_interval", cfg.ViewFlushInterval.String(), "dedup_ttl", cfg.ViewDedupTTL.String())
+	} else {
+		log.Warn("VALKEY_URL is empty: views are not counted")
+	}
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
 
 	outbox.SetProducer(service)
@@ -101,6 +122,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	(&api.Handler{
 		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
+		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
 	}).Routes(router)
 
 	srv := &http.Server{
@@ -113,6 +135,10 @@ func run(cfg config.Config, log *slog.Logger) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); _ = relay.Run(ctx) }()
 	go func() { defer wg.Done(); _ = likeConsumer.Run(ctx) }()
+	if viewFlusher != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); _ = viewFlusher.Run(ctx) }()
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()

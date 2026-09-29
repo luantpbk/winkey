@@ -3,9 +3,11 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	libconfig "github.com/luantpbk/winkey/libs/go/config"
+	"github.com/luantpbk/winkey/services/video/internal/views"
 )
 
 // Config is loaded from the environment; see the README for the table.
@@ -27,6 +29,13 @@ type Config struct {
 	// ValkeyURL enables the GET /v1/videos/{id} cache; empty = disabled.
 	ValkeyURL string        `env:"VALKEY_URL"`
 	CacheTTL  time.Duration `env:"CACHE_TTL" default:"30s"`
+
+	// View counter (C3). Needs VALKEY_URL; without it views are not counted.
+	TrustProxyCIDRs   []string      `env:"TRUST_PROXY_CIDRS" default:"10.42.0.0/16,127.0.0.1"`
+	ViewFlushInterval time.Duration `env:"VIEW_FLUSH_INTERVAL" default:"30s"`
+	ViewFlushLockTTL  time.Duration `env:"VIEW_FLUSH_LOCK_TTL" default:"2m"`
+	ViewDedupTTL      time.Duration `env:"VIEW_DEDUP_TTL" default:"30m"`
+	ViewRateLimit     int           `env:"VIEW_RATE_LIMIT" default:"60"`
 }
 
 // Load reads and validates the environment.
@@ -42,6 +51,12 @@ func Load() (Config, error) {
 func (c Config) Validate() error {
 	if len(c.CursorSecret) < 16 {
 		return errors.New("CURSOR_SECRET must be at least 16 characters")
+	}
+	if _, err := views.ParseCIDRs(c.TrustProxyCIDRs); err != nil {
+		return fmt.Errorf("TRUST_PROXY_CIDRS: %w", err)
+	}
+	if c.ViewFlushInterval <= 0 || c.ViewFlushLockTTL <= 0 || c.ViewDedupTTL <= 0 || c.ViewRateLimit <= 0 {
+		return errors.New("VIEW_FLUSH_INTERVAL, VIEW_FLUSH_LOCK_TTL, VIEW_DEDUP_TTL and VIEW_RATE_LIMIT must be positive")
 	}
 	return nil
 }

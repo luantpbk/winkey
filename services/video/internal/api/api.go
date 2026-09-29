@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"unicode/utf8"
@@ -42,6 +43,11 @@ type Handler struct {
 	MediaBucket  string       // bucket named in video.deleted
 	CursorSecret []byte
 	Log          *slog.Logger
+
+	// View counter (task C3). Views nil disables counting: reports get 202 {counted:false}.
+	Views          ViewCounter
+	TrustedProxies []netip.Prefix // TRUST_PROXY_CIDRS
+	ViewRateLimit  int            // reports per client IP per minute; default 60
 }
 
 // Routes mounts the API on r.
@@ -50,6 +56,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Use(httpx.OptionalAuthenticate)
 		r.Get("/v1/videos", h.listVideos)
 		r.Get("/v1/videos/{video_id}", h.getVideo)
+		r.Post("/v1/videos/{video_id}/views", h.recordView)
 	})
 	r.Group(func(r chi.Router) { // identity required
 		r.Use(httpx.Authenticate)
