@@ -17,6 +17,10 @@ info:
     - Gateway routing: `/v1/videos/{video_id}/comments` and `/v1/videos/{video_id}/like` go to
       social-svc and must win over the `/v1/videos` prefix that goes to video-svc, e.g. Traefik
       `PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`)` with a higher priority.
+    - Task A2: a video hidden by a moderator (`video.moderated` with `state: HIDDEN`, projected into
+      `social.videos.hidden`) answers `404` on its comment and like endpoints for everyone except
+      moderators and admins, until `state: VISIBLE` arrives. Existing comments and likes are kept.
+    - Task A2: `/v1/reports` and `/v1/moderation/*` also go to social-svc (gateway: `PathPrefix`).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -32,6 +36,12 @@ tags:
     description: Video likes.
   - name: subscriptions
     description: Channel subscriptions.
+  - name: moderation
+    description: |
+      User reports and the moderation queue (task A2). Reading and resolving reports needs `moderator` or
+      `admin` in `X-User-Roles`. Resolving a report records the decision only; the action itself uses
+      the owning endpoint: `moderateComment` here, `moderateVideo` in video-svc, `adminSuspendUser` in
+      auth-svc.
 paths:
   /v1/videos/{video_id}/comments:
     parameters:
@@ -358,6 +368,127 @@ paths:
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 
+  /v1/reports:
+    post:
+      tags: [moderation]
+      operationId: createReport
+      summary: Report a video, a comment or a user (any signed-in user).
+      description: |
+        The target must exist and be visible to the reporter (otherwise `404`); reporting yourself or
+        your own content → `400`. A second report by the same user on the same target while the first
+        is still `OPEN` returns the existing report with `200`. Rate limit per user: 20 reports per hour
+        (`429`). The reporter never learns the outcome through this API.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Report created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+        '200':
+          description: An open report by the same user on the same target already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReceipt'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/moderation/reports:
+    get:
+      tags: [moderation]
+      operationId: listReports
+      summary: Moderation queue (moderator or admin).
+      description: |
+        Reports grouped by target: one item per (target_type, target_id) with its open report count and
+        the most recent reports. `status=OPEN` (default) sorts by the oldest open report first, so the
+        longest-waiting target is on top; other statuses sort by `resolved_at` descending.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportStatus'
+        - name: target_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportTargetType'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of moderation cases.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationCasePage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/moderation/cases/{target_type}/{target_id}/resolution:
+    parameters:
+      - name: target_type
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ReportTargetType'
+      - name: target_id
+        in: path
+        required: true
+        schema:
+          $ref: './common.yaml#/components/schemas/Uuid'
+    put:
+      tags: [moderation]
+      operationId: resolveModerationCase
+      summary: Close every OPEN report on one target (moderator or admin).
+      description: |
+        Sets `status`, `resolved_by`, `resolution_note` and `resolved_at` on all OPEN reports of the
+        target in one statement and returns how many changed. No OPEN report → `404`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveCaseRequest'
+      responses:
+        '200':
+          description: Reports closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveCaseResult'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -513,3 +644,135 @@ components:
             $ref: '#/components/schemas/Subscription'
         next_cursor:
           type: [string, 'null']
+
+    ReportTargetType:
+      type: string
+      enum: [VIDEO, COMMENT, USER]
+
+    ReportReason:
+      type: string
+      enum: [SPAM, HARASSMENT, HATE, SEXUAL, VIOLENCE, COPYRIGHT, MISINFORMATION, OTHER]
+
+    ReportStatus:
+      type: string
+      enum: [OPEN, ACTIONED, DISMISSED]
+
+    CreateReportRequest:
+      type: object
+      additionalProperties: false
+      required: [target_type, target_id, reason]
+      properties:
+        target_type:
+          $ref: '#/components/schemas/ReportTargetType'
+        target_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        reason:
+          $ref: '#/components/schemas/ReportReason'
+        note:
+          type: string
+          maxLength: 500
+          default: ''
+
+    ReportReceipt:
+      type: object
+      required: [id, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        created_at:
+          type: string
+          format: date-time
+
+    Report:
+      type: object
+      required: [id, reporter, reason, note, status, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        reporter:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/PublicProfile'
+            - type: 'null'
+        reason:
+          $ref: '#/components/schemas/ReportReason'
+        note:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        created_at:
+          type: string
+          format: date-time
+
+    ModerationCase:
+      type: object
+      required: [target_type, target_id, status, open_count, first_reported_at, reasons, reports, resolution]
+      properties:
+        target_type:
+          $ref: '#/components/schemas/ReportTargetType'
+        target_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        open_count:
+          type: integer
+          minimum: 0
+        first_reported_at:
+          type: string
+          format: date-time
+        reasons:
+          type: object
+          description: 'Count of reports per reason, e.g. `{"SPAM": 3, "HATE": 1}`.'
+          additionalProperties:
+            type: integer
+            minimum: 1
+        reports:
+          type: array
+          maxItems: 5
+          description: The five most recent reports of this case.
+          items:
+            $ref: '#/components/schemas/Report'
+        resolution:
+          description: Null while OPEN.
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [resolved_by, note, resolved_at]
+              properties:
+                resolved_by:
+                  $ref: './common.yaml#/components/schemas/Uuid'
+                note:
+                  type: [string, 'null']
+                resolved_at:
+                  type: string
+                  format: date-time
+
+    ModerationCasePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModerationCase'
+        next_cursor:
+          type: [string, 'null']
+
+    ResolveCaseRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ACTIONED, DISMISSED]
+        note:
+          type: string
+          maxLength: 500
+
+    ResolveCaseResult:
+      type: object
+      required: [resolved_count]
+      properties:
+        resolved_count:
+          type: integer
+          minimum: 1
