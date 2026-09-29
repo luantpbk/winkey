@@ -1,6 +1,8 @@
 name: verify-compose
 
 on:
+  pull_request:
+    paths: ['deploy/compose/**', 'db/migrations/**', 'Makefile', '.github/workflows/verify-compose.yml']
   workflow_dispatch:
 
 jobs:
@@ -11,7 +13,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
       - name: Install tools
         run: |

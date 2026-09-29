@@ -12,7 +12,7 @@ http:
     # 2. Auth protected endpoints (users, profile management)
     auth-protected:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/v1/auth`) || PathPrefix(`/v1/users`)"
+      rule: "(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`)"
       service: "auth-svc"
       middlewares: ["strip-user-headers", "auth-verify"]
       priority: 90
@@ -44,7 +44,7 @@ http:
     # 6. Web Next.js fallback
     web:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/`)"
+      rule: "PathPrefix(`/`) && !PathPrefix(`/v1`)"
       service: "web-svc"
       priority: 10
 

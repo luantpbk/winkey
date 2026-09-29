@@ -23,12 +23,25 @@ fi
 echo "SUCCESS: Spoofed identity headers were cleanly stripped by Traefik middleware before reaching upstream."
 
 # 2. Check that /v1/auth/verify is NOT publicly routed (contract: internal gateway forwardAuth only)
-echo "Checking that /v1/auth/verify is not publicly accessible..."
+# Traefik should match no router and return 404 Not Found directly
+echo "Checking that /v1/auth/verify returns 404..."
 VERIFY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/v1/auth/verify")
 
-if [ "$VERIFY_STATUS" = "200" ]; then
-    echo "FAILED: /v1/auth/verify was publicly routed and returned HTTP 200!" >&2
+if [ "$VERIFY_STATUS" != "404" ]; then
+    echo "FAILED: /v1/auth/verify returned HTTP $VERIFY_STATUS (expected 404)!" >&2
     exit 1
 fi
 
-echo "SUCCESS: /v1/auth/verify is not publicly routed (HTTP $VERIFY_STATUS)."
+echo "SUCCESS: /v1/auth/verify is not publicly routed (HTTP 404)."
+
+# 3. Check that unknown /v1 routes return 404 and do not fall through to web service
+echo "Checking that unknown /v1/nope returns 404..."
+NOPE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/v1/nope")
+
+if [ "$NOPE_STATUS" != "404" ]; then
+    echo "FAILED: /v1/nope returned HTTP $NOPE_STATUS (expected 404)!" >&2
+    exit 1
+fi
+
+echo "SUCCESS: /v1/nope returned 404 and did not fall through to web service."
+
