@@ -159,7 +159,7 @@ jobs:
             echo "yes=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
         with:
           go-version-file: ${{ matrix.module }}/go.mod
