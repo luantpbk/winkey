@@ -399,4 +399,134 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     expect(selfSubRes.statusCode).toBe(400);
     expect(validateProblem(selfSubRes.json())).toBe(true);
   });
+
+  it('Validates UUID format and returns 400 or 404 according to contract', async () => {
+    const invalidId = 'not-a-valid-uuid';
+
+    // Routes declaring 400: return 400 INVALID_ID
+    const getCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${invalidId}/comments`,
+    });
+    expect(getCommentsRes.statusCode).toBe(400);
+    expect(getCommentsRes.json().code).toBe('INVALID_ID');
+
+    const postCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${invalidId}/comments`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'test' },
+    });
+    expect(postCommentRes.statusCode).toBe(400);
+    expect(postCommentRes.json().code).toBe('INVALID_ID');
+
+    const patchCommentRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/comments/${invalidId}`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'edited' },
+    });
+    expect(patchCommentRes.statusCode).toBe(400);
+    expect(patchCommentRes.json().code).toBe('INVALID_ID');
+
+    const getRepliesRes = await app.inject({
+      method: 'GET',
+      url: `/v1/comments/${invalidId}/replies`,
+    });
+    expect(getRepliesRes.statusCode).toBe(400);
+    expect(getRepliesRes.json().code).toBe('INVALID_ID');
+
+    const putModRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/comments/${invalidId}/moderation`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(putModRes.statusCode).toBe(400);
+    expect(putModRes.json().code).toBe('INVALID_ID');
+
+    const getSubRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${invalidId}/subscription`,
+    });
+    expect(getSubRes.statusCode).toBe(400);
+    expect(getSubRes.json().code).toBe('INVALID_ID');
+
+    const putSubRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${invalidId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(putSubRes.statusCode).toBe(400);
+    expect(putSubRes.json().code).toBe('INVALID_ID');
+
+    // Routes declaring only 404: return 404
+    const getCommentRes = await app.inject({
+      method: 'GET',
+      url: `/v1/comments/${invalidId}`,
+    });
+    expect(getCommentRes.statusCode).toBe(404);
+
+    const deleteCommentRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/comments/${invalidId}`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(deleteCommentRes.statusCode).toBe(404);
+
+    const getLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${invalidId}/like`,
+    });
+    expect(getLikeRes.statusCode).toBe(404);
+
+    const putLikeRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${invalidId}/like`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(putLikeRes.statusCode).toBe(404);
+
+    const deleteLikeRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/videos/${invalidId}/like`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(deleteLikeRes.statusCode).toBe(404);
+
+    // DELETE channel subscription returns 200 for invalid/non-existent channel
+    const delSubRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/channels/${invalidId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(delSubRes.statusCode).toBe(200);
+    expect(delSubRes.json().channel_id).toBe(invalidId);
+    expect(delSubRes.json().subscribed).toBe(false);
+
+    // Invalid X-User-Id header returns 401
+    const invalidAuthRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${videoId}/comments`,
+      headers: { 'x-user-id': 'invalid-user-uuid' },
+    });
+    expect(invalidAuthRes.statusCode).toBe(401);
+    expect(invalidAuthRes.json().code).toBe('UNAUTHORIZED');
+
+    // Invalid cursor returns 400 INVALID_CURSOR
+    const invalidCursorRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${videoId}/comments?cursor=not-valid-base64-json`,
+    });
+    expect(invalidCursorRes.statusCode).toBe(400);
+    expect(invalidCursorRes.json().code).toBe('INVALID_CURSOR');
+
+    const invalidSubCursorRes = await app.inject({
+      method: 'GET',
+      url: `/v1/me/subscriptions?cursor=not-valid-base64-json`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(invalidSubCursorRes.statusCode).toBe(400);
+    expect(invalidSubCursorRes.json().code).toBe('INVALID_CURSOR');
+  });
 });

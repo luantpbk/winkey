@@ -7,7 +7,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildCommentRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
-import { getCaller, requireAuth } from '../utils/auth.js';
+import { getCaller, requireAuth, isValidUuid } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 
@@ -34,6 +34,10 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     const { video_id } = request.params;
     const { cursor, limit } = request.query;
 
+    if (!isValidUuid(video_id)) {
+      throw ProblemError.badRequest('Invalid video ID', undefined, 'INVALID_ID');
+    }
+
     const caller = getCaller(request);
 
     // Verify video exists
@@ -52,7 +56,12 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     let cursorData: CursorPayload | null = null;
     if (cursor) {
       cursorData = decodeCursor<CursorPayload>(cursor);
-      if (!cursorData || !cursorData.created_at || !cursorData.id) {
+      if (
+        !cursorData ||
+        !isValidUuid(cursorData.id) ||
+        !cursorData.created_at ||
+        isNaN(Date.parse(cursorData.created_at))
+      ) {
         throw ProblemError.badRequest('Invalid pagination cursor', undefined, 'INVALID_CURSOR');
       }
     }
@@ -71,6 +80,9 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         'c.reply_count',
         'c.created_at',
         'c.edited_at',
+        sql<string>`to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'created_at_cursor',
+        ),
         'p.id as profile_id',
         'p.handle as profile_handle',
         'p.display_name as profile_display_name',
@@ -81,7 +93,6 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
 
     // Visibility rules:
     // Non-moderators: omit HIDDEN.
-    // DELETED is included only as tombstone when it has at least one reply.
     if (!caller.isModeratorOrAdmin) {
       query = query.where('c.status', '!=', 'HIDDEN');
     }
@@ -91,15 +102,10 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       sql<boolean>`c.status != 'DELETED' OR EXISTS (SELECT 1 FROM social.comments replies WHERE replies.parent_id = c.id)`,
     );
 
-    // Keyset pagination (newest first: created_at DESC, id DESC)
+    // Keyset pagination (newest first: created_at DESC, id DESC) with microsecond precision
     if (cursorData) {
-      const cursorDate = new Date(cursorData.created_at);
-      const cursorId = cursorData.id;
-      query = query.where((eb) =>
-        eb.or([
-          eb('c.created_at', '<', cursorDate),
-          eb.and([eb('c.created_at', '=', cursorDate), eb('c.id', '<', cursorId)]),
-        ]),
+      query = query.where(
+        sql<boolean>`(c.created_at < ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id < ${cursorData.id}::uuid)`,
       );
     }
 
@@ -145,8 +151,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     let nextCursor: string | null = null;
     if (hasMore && pageRows.length > 0) {
       const last = pageRows[pageRows.length - 1];
+      const cursorCreatedAt =
+        (last as { created_at_cursor?: string }).created_at_cursor ||
+        new Date(last.created_at).toISOString();
       nextCursor = encodeCursor<CursorPayload>({
-        created_at: new Date(last.created_at).toISOString(),
+        created_at: cursorCreatedAt,
         id: last.id,
       });
     }
@@ -165,6 +174,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     Body: { body?: string; parent_id?: string };
   }>('/v1/videos/:video_id/comments', async (request, reply) => {
     const { video_id } = request.params;
+
+    if (!isValidUuid(video_id)) {
+      throw ProblemError.badRequest('Invalid video ID', undefined, 'INVALID_ID');
+    }
+
     const caller = requireAuth(request);
 
     // Rate limit: 10 comments per minute per user
@@ -188,7 +202,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       );
     }
 
-    const parentId = request.body?.parent_id ? request.body.parent_id.trim() : null;
+    const rawParentId = request.body?.parent_id ? request.body.parent_id.trim() : null;
+    if (rawParentId && !isValidUuid(rawParentId)) {
+      throw ProblemError.badRequest('Invalid parent comment ID', undefined, 'INVALID_ID');
+    }
+    const parentId = rawParentId;
 
     // Check video exists
     const video = await db
@@ -208,6 +226,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       parent_id: string | null;
       status: string;
     } | null = null;
+
     if (parentId) {
       parentComment =
         (await db
@@ -237,13 +256,12 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     }
 
     const commentId = uuidv7();
-    const now = new Date();
-    const nowIso = now.toISOString();
+    let createdAtIso: string;
 
     // Execute in transaction: insert comment + enqueue outbox event
     await db.transaction().execute(async (trx) => {
       try {
-        await trx
+        const inserted = await trx
           .insertInto('social.comments')
           .values({
             id: commentId,
@@ -253,11 +271,24 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
             body: trimmedBody,
             status: 'VISIBLE',
           })
-          .execute();
+          .returning(['created_at'])
+          .executeTakeFirstOrThrow();
+
+        createdAtIso = new Date(inserted.created_at).toISOString();
       } catch (err: unknown) {
-        const dbErr = err as { code?: string };
-        if (dbErr.code === '23514' || dbErr.code === '23503') {
-          // Check violation from guard_comment_parent or FK violation
+        const dbErr = err as { code?: string; constraint?: string; detail?: string };
+        // FK violation (e.g. video was concurrently deleted)
+        if (dbErr.code === '23503') {
+          if (dbErr.constraint?.includes('video') || dbErr.detail?.includes('videos')) {
+            throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
+          }
+          if (dbErr.constraint?.includes('parent') || dbErr.detail?.includes('parent')) {
+            throw ProblemError.conflict('Parent comment is not replyable', 'PARENT_NOT_REPLYABLE');
+          }
+          throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
+        }
+        if (dbErr.code === '23514') {
+          // Check violation from guard_comment_parent
           throw ProblemError.conflict('Parent comment is not replyable', 'PARENT_NOT_REPLYABLE');
         }
         throw err;
@@ -275,7 +306,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
           parent_id: parentId,
           parent_author_id: parentComment ? parentComment.author_id : null,
           body: trimmedBody,
-          created_at: nowIso,
+          created_at: createdAtIso,
         },
         { producer: 'social-svc', version: 1 },
       );
@@ -296,7 +327,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       body: trimmedBody,
       status: 'VISIBLE',
       reply_count: 0,
-      created_at: nowIso,
+      created_at: createdAtIso!,
       edited_at: null,
       can_edit: true,
       can_delete: true,
@@ -310,6 +341,12 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     '/v1/comments/:comment_id',
     async (request, reply) => {
       const { comment_id } = request.params;
+
+      // Contract specifies only 200 and 404 for this route
+      if (!isValidUuid(comment_id)) {
+        throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+      }
+
       const caller = getCaller(request);
 
       const comment = await db
@@ -387,12 +424,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     },
   );
 
-  // 4. Edit comment body (author only, VISIBLE only)
+  // 4. Edit comment body (author only, VISIBLE only) with race condition protection
   fastify.patch<{
     Params: { comment_id: string };
     Body: { body?: string };
   }>('/v1/comments/:comment_id', async (request, reply) => {
     const { comment_id } = request.params;
+
+    if (!isValidUuid(comment_id)) {
+      throw ProblemError.badRequest('Invalid comment ID', undefined, 'INVALID_ID');
+    }
+
     const caller = requireAuth(request);
 
     const bodyRaw = request.body?.body;
@@ -407,6 +449,39 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         undefined,
         'INVALID_BODY_LENGTH',
       );
+    }
+
+    const now = new Date();
+
+    // Conditional UPDATE: guarantees status is VISIBLE and author is caller
+    const updateResult = await db
+      .updateTable('social.comments')
+      .set({
+        body: trimmedBody,
+        edited_at: now,
+      })
+      .where('id', '=', comment_id)
+      .where('status', '=', 'VISIBLE')
+      .where('author_id', '=', caller.userId)
+      .executeTakeFirst();
+
+    if (Number(updateResult.numUpdatedRows) === 0) {
+      // Re-read to provide accurate status code instead of failing DB constraints
+      const current = await db
+        .selectFrom('social.comments')
+        .select(['id', 'author_id', 'status'])
+        .where('id', '=', comment_id)
+        .executeTakeFirst();
+
+      if (!current) {
+        throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+      }
+      if (current.author_id !== caller.userId) {
+        throw ProblemError.forbidden('Only the author can edit this comment', 'NOT_COMMENT_AUTHOR');
+      }
+      if (current.status !== 'VISIBLE') {
+        throw ProblemError.conflict('Only VISIBLE comments can be edited', 'COMMENT_NOT_EDITABLE');
+      }
     }
 
     const comment = await db
@@ -430,29 +505,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         'p.avatar_key as profile_avatar_key',
       ])
       .where('c.id', '=', comment_id)
-      .executeTakeFirst();
-
-    if (!comment) {
-      throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
-    }
-
-    if (comment.author_id !== caller.userId) {
-      throw ProblemError.forbidden('Only the author can edit this comment', 'NOT_COMMENT_AUTHOR');
-    }
-
-    if (comment.status !== 'VISIBLE') {
-      throw ProblemError.conflict('Only VISIBLE comments can be edited', 'COMMENT_NOT_EDITABLE');
-    }
-
-    const now = new Date();
-    await db
-      .updateTable('social.comments')
-      .set({
-        body: trimmedBody,
-        edited_at: now,
-      })
-      .where('id', '=', comment_id)
-      .execute();
+      .executeTakeFirstOrThrow();
 
     const profile = comment.profile_id
       ? {
@@ -480,11 +533,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     return reply.status(200).send(result);
   });
 
-  // 5. Delete comment (author, video owner, moderator, or admin)
+  // 5. Delete comment with race condition protection
   fastify.delete<{ Params: { comment_id: string } }>(
     '/v1/comments/:comment_id',
     async (request, reply) => {
       const { comment_id } = request.params;
+
+      // Contract specifies 204, 401, 403, 404 (no 400)
+      if (!isValidUuid(comment_id)) {
+        throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+      }
+
       const caller = requireAuth(request);
 
       const comment = await db
@@ -506,19 +565,36 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         throw ProblemError.forbidden('Not authorized to delete this comment', 'FORBIDDEN');
       }
 
-      // Idempotent delete: if already DELETED, 204
+      // If already DELETED, idempotent 204
       if (comment.status === 'DELETED') {
         return reply.status(204).send();
       }
 
-      await db
+      const updateResult = await db
         .updateTable('social.comments')
         .set({
           status: 'DELETED',
           body: '',
         })
         .where('id', '=', comment_id)
-        .execute();
+        .where('status', '!=', 'DELETED')
+        .executeTakeFirst();
+
+      if (Number(updateResult.numUpdatedRows) === 0) {
+        // Re-read in case of race
+        const current = await db
+          .selectFrom('social.comments')
+          .select(['id', 'status'])
+          .where('id', '=', comment_id)
+          .executeTakeFirst();
+
+        if (!current) {
+          throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+        }
+        if (current.status === 'DELETED') {
+          return reply.status(204).send();
+        }
+      }
 
       return reply.status(204).send();
     },
@@ -531,6 +607,10 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
   }>('/v1/comments/:comment_id/replies', async (request, reply) => {
     const { comment_id } = request.params;
     const { cursor, limit } = request.query;
+
+    if (!isValidUuid(comment_id)) {
+      throw ProblemError.badRequest('Invalid comment ID', undefined, 'INVALID_ID');
+    }
 
     const caller = getCaller(request);
 
@@ -551,7 +631,12 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     let cursorData: CursorPayload | null = null;
     if (cursor) {
       cursorData = decodeCursor<CursorPayload>(cursor);
-      if (!cursorData || !cursorData.created_at || !cursorData.id) {
+      if (
+        !cursorData ||
+        !isValidUuid(cursorData.id) ||
+        !cursorData.created_at ||
+        isNaN(Date.parse(cursorData.created_at))
+      ) {
         throw ProblemError.badRequest('Invalid pagination cursor', undefined, 'INVALID_CURSOR');
       }
     }
@@ -569,6 +654,9 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         'c.reply_count',
         'c.created_at',
         'c.edited_at',
+        sql<string>`to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'created_at_cursor',
+        ),
         'p.id as profile_id',
         'p.handle as profile_handle',
         'p.display_name as profile_display_name',
@@ -584,15 +672,10 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     // Replies cannot have nested replies, so DELETED replies have no replies and are omitted
     query = query.where('c.status', '!=', 'DELETED');
 
-    // Keyset pagination (oldest first: created_at ASC, id ASC)
+    // Keyset pagination (oldest first: created_at ASC, id ASC) with microsecond precision
     if (cursorData) {
-      const cursorDate = new Date(cursorData.created_at);
-      const cursorId = cursorData.id;
-      query = query.where((eb) =>
-        eb.or([
-          eb('c.created_at', '>', cursorDate),
-          eb.and([eb('c.created_at', '=', cursorDate), eb('c.id', '>', cursorId)]),
-        ]),
+      query = query.where(
+        sql<boolean>`(c.created_at > ${cursorData.created_at}::timestamptz) OR (c.created_at = ${cursorData.created_at}::timestamptz AND c.id > ${cursorData.id}::uuid)`,
       );
     }
 
@@ -638,8 +721,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     let nextCursor: string | null = null;
     if (hasMore && pageRows.length > 0) {
       const last = pageRows[pageRows.length - 1];
+      const cursorCreatedAt =
+        (last as { created_at_cursor?: string }).created_at_cursor ||
+        new Date(last.created_at).toISOString();
       nextCursor = encodeCursor<CursorPayload>({
-        created_at: new Date(last.created_at).toISOString(),
+        created_at: cursorCreatedAt,
         id: last.id,
       });
     }
@@ -652,12 +738,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     return reply.status(200).send(response);
   });
 
-  // 7. Moderate comment (moderator or admin)
+  // 7. Moderate comment with race condition protection
   fastify.put<{
     Params: { comment_id: string };
     Body: { status?: string };
   }>('/v1/comments/:comment_id/moderation', async (request, reply) => {
     const { comment_id } = request.params;
+
+    if (!isValidUuid(comment_id)) {
+      throw ProblemError.badRequest('Invalid comment ID', undefined, 'INVALID_ID');
+    }
+
     const caller = requireAuth(request);
 
     if (!caller.isModeratorOrAdmin) {
@@ -671,6 +762,29 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         undefined,
         'INVALID_STATUS',
       );
+    }
+
+    // Conditional update: only update if not DELETED
+    const updateResult = await db
+      .updateTable('social.comments')
+      .set({ status: requestedStatus as CommentStatus })
+      .where('id', '=', comment_id)
+      .where('status', '!=', 'DELETED')
+      .executeTakeFirst();
+
+    if (Number(updateResult.numUpdatedRows) === 0) {
+      const current = await db
+        .selectFrom('social.comments')
+        .select(['id', 'status'])
+        .where('id', '=', comment_id)
+        .executeTakeFirst();
+
+      if (!current) {
+        throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+      }
+      if (current.status === 'DELETED') {
+        throw ProblemError.conflict('Cannot moderate a deleted comment', 'CANNOT_MODERATE_DELETED');
+      }
     }
 
     const comment = await db
@@ -694,23 +808,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         'p.avatar_key as profile_avatar_key',
       ])
       .where('c.id', '=', comment_id)
-      .executeTakeFirst();
-
-    if (!comment) {
-      throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
-    }
-
-    if (comment.status === 'DELETED') {
-      throw ProblemError.conflict('Cannot moderate a deleted comment', 'CANNOT_MODERATE_DELETED');
-    }
-
-    if (comment.status !== requestedStatus) {
-      await db
-        .updateTable('social.comments')
-        .set({ status: requestedStatus as CommentStatus })
-        .where('id', '=', comment_id)
-        .execute();
-    }
+      .executeTakeFirstOrThrow();
 
     const profile = comment.profile_id
       ? {

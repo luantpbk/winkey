@@ -11,7 +11,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildSubscriptionRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
-import { getCaller, requireAuth } from '../utils/auth.js';
+import { getCaller, requireAuth, isValidUuid } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 
@@ -35,6 +35,11 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
     '/v1/channels/:channel_id/subscription',
     async (request, reply) => {
       const { channel_id } = request.params;
+
+      if (!isValidUuid(channel_id)) {
+        throw ProblemError.badRequest('Invalid channel ID', undefined, 'INVALID_ID');
+      }
+
       const caller = getCaller(request);
 
       const channel = await db
@@ -71,6 +76,11 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
     '/v1/channels/:channel_id/subscription',
     async (request, reply) => {
       const { channel_id } = request.params;
+
+      if (!isValidUuid(channel_id)) {
+        throw ProblemError.badRequest('Invalid channel ID', undefined, 'INVALID_ID');
+      }
+
       const caller = requireAuth(request);
 
       // Rate limit: 60/min per user
@@ -150,6 +160,17 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
     '/v1/channels/:channel_id/subscription',
     async (request, reply) => {
       const { channel_id } = request.params;
+
+      // Contract specifies 200, 401, 429 (no 400). Unsubscribing from non-existent channel is 200.
+      if (!isValidUuid(channel_id)) {
+        const response: SubscriptionStateDto = {
+          channel_id,
+          subscribed: false,
+          subscriber_count: 0,
+        };
+        return reply.status(200).send(response);
+      }
+
       const caller = requireAuth(request);
 
       // Rate limit: 60/min per user
@@ -216,7 +237,12 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
     let cursorData: SubscriptionCursor | null = null;
     if (cursor) {
       cursorData = decodeCursor<SubscriptionCursor>(cursor);
-      if (!cursorData || !cursorData.created_at || !cursorData.channel_id) {
+      if (
+        !cursorData ||
+        !isValidUuid(cursorData.channel_id) ||
+        !cursorData.created_at ||
+        isNaN(Date.parse(cursorData.created_at))
+      ) {
         throw ProblemError.badRequest('Invalid pagination cursor', undefined, 'INVALID_CURSOR');
       }
     }
@@ -227,6 +253,9 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
       .select([
         's.channel_id',
         's.created_at as subscribed_at',
+        sql<string>`to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'subscribed_at_cursor',
+        ),
         'p.id as profile_id',
         'p.handle as profile_handle',
         'p.display_name as profile_display_name',
@@ -235,13 +264,8 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
       .where('s.subscriber_id', '=', caller.userId);
 
     if (cursorData) {
-      const cursorDate = new Date(cursorData.created_at);
-      const cursorChannelId = cursorData.channel_id;
-      query = query.where((eb) =>
-        eb.or([
-          eb('s.created_at', '<', cursorDate),
-          eb.and([eb('s.created_at', '=', cursorDate), eb('s.channel_id', '<', cursorChannelId)]),
-        ]),
+      query = query.where(
+        sql<boolean>`(s.created_at < ${cursorData.created_at}::timestamptz) OR (s.created_at = ${cursorData.created_at}::timestamptz AND s.channel_id < ${cursorData.channel_id}::uuid)`,
       );
     }
 
@@ -271,8 +295,11 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
     let nextCursor: string | null = null;
     if (hasMore && pageRows.length > 0) {
       const last = pageRows[pageRows.length - 1];
+      const cursorCreatedAt =
+        (last as { subscribed_at_cursor?: string }).subscribed_at_cursor ||
+        new Date(last.subscribed_at).toISOString();
       nextCursor = encodeCursor<SubscriptionCursor>({
-        created_at: new Date(last.subscribed_at).toISOString(),
+        created_at: cursorCreatedAt,
         channel_id: last.channel_id,
       });
     }

@@ -1,6 +1,12 @@
 import type { FastifyRequest } from 'fastify';
 import { ProblemError } from '../errors/problem.js';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidUuid(id: unknown): id is string {
+  return typeof id === 'string' && UUID_REGEX.test(id.trim());
+}
+
 export interface CallerIdentity {
   userId: string | null;
   roles: string[];
@@ -23,8 +29,14 @@ export function parseRoles(rawRoles?: string | string[]): string[] {
 
 export function getCaller(request: FastifyRequest): CallerIdentity {
   const rawUserId = request.headers['x-user-id'];
-  const userId =
-    typeof rawUserId === 'string' && rawUserId.trim().length > 0 ? rawUserId.trim() : null;
+  let userId: string | null = null;
+  if (typeof rawUserId === 'string' && rawUserId.trim().length > 0) {
+    const trimmed = rawUserId.trim();
+    if (!isValidUuid(trimmed)) {
+      throw ProblemError.unauthorized('Invalid user ID in X-User-Id header', 'UNAUTHORIZED');
+    }
+    userId = trimmed;
+  }
   const roles = parseRoles(request.headers['x-user-roles']);
   const isModeratorOrAdmin = roles.includes('moderator') || roles.includes('admin');
 

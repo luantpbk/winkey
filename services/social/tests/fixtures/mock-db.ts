@@ -168,8 +168,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
       // UPDATE COMMENTS
       if (sql.includes('update "social"."comments"') || sql.includes('update social.comments')) {
-        const commentId = String(params[params.length - 1]);
-        const comment = store.comments.find((c) => c.id === commentId);
+        const comment = store.comments.find((c) => params.includes(c.id));
         if (!comment) return { rows: [], rowCount: 0 };
 
         if (sql.includes('"status" = $1') && sql.includes('"body" = $2')) {
@@ -378,6 +377,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
             return {
               channel_id: s.channel_id,
               subscribed_at: s.created_at,
+              subscribed_at_cursor: s.created_at.toISOString(),
               profile_id: p.id,
               profile_handle: p.handle,
               profile_display_name: p.display_name,
@@ -401,6 +401,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
         const row = {
           ...comment,
+          created_at_cursor: comment.created_at.toISOString(),
           video_owner_id: video?.owner_id,
           profile_id: profile?.id,
           profile_handle: profile?.handle,
@@ -450,6 +451,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           const profile = store.public_profiles.find((p) => p.id === c.author_id);
           return {
             ...c,
+            created_at_cursor: c.created_at.toISOString(),
             profile_id: profile?.id,
             profile_handle: profile?.handle,
             profile_display_name: profile?.display_name,

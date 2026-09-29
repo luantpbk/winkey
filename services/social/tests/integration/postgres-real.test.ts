@@ -625,5 +625,271 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       await new Promise((r) => setTimeout(r, 200));
     }
     expect(cascadeOk).toBe(true);
+
+    // 15. Keyset Microsecond Precision Test (7 comments with identical created_at)
+    // Architect review: insert ~7 comments with identical created_at, paginate limit=2, assert all ids retrieved, no duplicates, no gaps. For both top-level and replies.
+    const microsecondVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9030';
+    await pool.query('INSERT INTO social.videos (id, owner_id) VALUES ($1, $2)', [
+      microsecondVideoId,
+      videoOwnerId,
+    ]);
+
+    // Top-level identical timestamp test
+    const fixedTopTimestamp = '2026-09-29 12:34:56.123456+00';
+    const topLevelExpectedIds: string[] = [];
+    for (let i = 1; i <= 7; i++) {
+      const cid = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b000${i}`;
+      topLevelExpectedIds.push(cid);
+      await pool.query(
+        `INSERT INTO social.comments (id, video_id, author_id, parent_id, body, status, created_at)
+         VALUES ($1, $2, $3, NULL, $4, 'VISIBLE', $5::timestamptz)`,
+        [cid, microsecondVideoId, authorId, `Identical timestamp top ${i}`, fixedTopTimestamp],
+      );
+    }
+
+    // Paginate top-level with limit=2
+    const retrievedTopIds: string[] = [];
+    let topCursor: string | null = null;
+    let maxPages = 10;
+    while (maxPages-- > 0) {
+      const url = topCursor
+        ? `/v1/videos/${microsecondVideoId}/comments?limit=2&cursor=${encodeURIComponent(topCursor)}`
+        : `/v1/videos/${microsecondVideoId}/comments?limit=2`;
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(200);
+      const data = res.json();
+      for (const item of data.items) {
+        retrievedTopIds.push(item.id);
+      }
+      topCursor = data.next_cursor;
+      if (!topCursor) break;
+    }
+
+    expect(retrievedTopIds).toHaveLength(7);
+    expect(new Set(retrievedTopIds).size).toBe(7);
+    for (const expectedId of topLevelExpectedIds) {
+      expect(retrievedTopIds).toContain(expectedId);
+    }
+
+    // Replies identical timestamp test
+    const parentCommentId = topLevelExpectedIds[0];
+    const fixedReplyTimestamp = '2026-09-29 12:34:56.654321+00';
+    const replyExpectedIds: string[] = [];
+    for (let i = 1; i <= 7; i++) {
+      const rid = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b001${i}`;
+      replyExpectedIds.push(rid);
+      await pool.query(
+        `INSERT INTO social.comments (id, video_id, author_id, parent_id, body, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'VISIBLE', $6::timestamptz)`,
+        [
+          rid,
+          microsecondVideoId,
+          strangerId,
+          parentCommentId,
+          `Identical timestamp reply ${i}`,
+          fixedReplyTimestamp,
+        ],
+      );
+    }
+
+    // Paginate replies with limit=2 (oldest first)
+    const retrievedReplyIds: string[] = [];
+    let replyCursor: string | null = null;
+    maxPages = 10;
+    while (maxPages-- > 0) {
+      const url = replyCursor
+        ? `/v1/comments/${parentCommentId}/replies?limit=2&cursor=${encodeURIComponent(replyCursor)}`
+        : `/v1/comments/${parentCommentId}/replies?limit=2`;
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(200);
+      const data = res.json();
+      for (const item of data.items) {
+        retrievedReplyIds.push(item.id);
+      }
+      replyCursor = data.next_cursor;
+      if (!replyCursor) break;
+    }
+
+    expect(retrievedReplyIds).toHaveLength(7);
+    expect(new Set(retrievedReplyIds).size).toBe(7);
+    for (const expectedId of replyExpectedIds) {
+      expect(retrievedReplyIds).toContain(expectedId);
+    }
+
+    // 16. Invalid UUID and Cursor Handling (avoid Postgres 22P02 500 error)
+    const invalidId = 'not-a-valid-uuid';
+    // 400 routes
+    const c1 = await app.inject({ method: 'GET', url: `/v1/videos/${invalidId}/comments` });
+    expect(c1.statusCode).toBe(400);
+    expect(c1.json().code).toBe('INVALID_ID');
+
+    const c2 = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${invalidId}/comments`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'hello' },
+    });
+    expect(c2.statusCode).toBe(400);
+    expect(c2.json().code).toBe('INVALID_ID');
+
+    const c3 = await app.inject({
+      method: 'PATCH',
+      url: `/v1/comments/${invalidId}`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'hello' },
+    });
+    expect(c3.statusCode).toBe(400);
+    expect(c3.json().code).toBe('INVALID_ID');
+
+    const c4 = await app.inject({ method: 'GET', url: `/v1/comments/${invalidId}/replies` });
+    expect(c4.statusCode).toBe(400);
+    expect(c4.json().code).toBe('INVALID_ID');
+
+    const c5 = await app.inject({
+      method: 'PUT',
+      url: `/v1/comments/${invalidId}/moderation`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(c5.statusCode).toBe(400);
+    expect(c5.json().code).toBe('INVALID_ID');
+
+    const c6 = await app.inject({ method: 'GET', url: `/v1/channels/${invalidId}/subscription` });
+    expect(c6.statusCode).toBe(400);
+    expect(c6.json().code).toBe('INVALID_ID');
+
+    const c7 = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${invalidId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(c7.statusCode).toBe(400);
+    expect(c7.json().code).toBe('INVALID_ID');
+
+    // 404 routes
+    const c8 = await app.inject({ method: 'GET', url: `/v1/comments/${invalidId}` });
+    expect(c8.statusCode).toBe(404);
+
+    const c9 = await app.inject({
+      method: 'DELETE',
+      url: `/v1/comments/${invalidId}`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(c9.statusCode).toBe(404);
+
+    const c10 = await app.inject({ method: 'GET', url: `/v1/videos/${invalidId}/like` });
+    expect(c10.statusCode).toBe(404);
+
+    const c11 = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${invalidId}/like`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(c11.statusCode).toBe(404);
+
+    const c12 = await app.inject({
+      method: 'DELETE',
+      url: `/v1/videos/${invalidId}/like`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(c12.statusCode).toBe(404);
+
+    // DELETE subscription returns 200
+    const c13 = await app.inject({
+      method: 'DELETE',
+      url: `/v1/channels/${invalidId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(c13.statusCode).toBe(200);
+
+    // Invalid X-User-Id returns 401
+    const c14 = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${secondVideoId}/comments`,
+      headers: { 'x-user-id': 'bad-uuid' },
+    });
+    expect(c14.statusCode).toBe(401);
+
+    // Invalid cursor returns 400
+    const c15 = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${secondVideoId}/comments?cursor=bad_base64_json`,
+    });
+    expect(c15.statusCode).toBe(400);
+    expect(c15.json().code).toBe('INVALID_CURSOR');
+
+    // 17. JetStream Poison Message Handling & Subsequent Success
+    // Send malformed JSON
+    await js.publish('video.ready', Buffer.from('malformed json {{{'));
+    // Send invalid UUID
+    await js.publish(
+      'video.ready',
+      Buffer.from(
+        JSON.stringify({
+          event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9090',
+          type: 'video.ready',
+          version: 1,
+          data: { video_id: 'not-a-uuid', owner_id: 'not-a-uuid' },
+        }),
+      ),
+    );
+
+    // Send valid video.ready for a new video
+    const poisonRecoverVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9040';
+    const validVideoEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9091',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: poisonRecoverVideoId,
+        owner_id: videoOwnerId,
+        job_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9092',
+        attempt: 1,
+        encoder: 'x264',
+        hls_master_key: `hls/${poisonRecoverVideoId}/master.m3u8`,
+        thumbnail_key: `thumbnails/${poisonRecoverVideoId}.jpg`,
+        duration_ms: 60000,
+        width: 1920,
+        height: 1080,
+        renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 4500 }],
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(validVideoEvent)));
+
+    let recoveredVideo = false;
+    for (let i = 0; i < 20; i++) {
+      const v = await pool.query('SELECT * FROM social.videos WHERE id = $1', [
+        poisonRecoverVideoId,
+      ]);
+      if (v.rows.length === 1) {
+        recoveredVideo = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(recoveredVideo).toBe(true);
+
+    // 18. Race Conditions & Deleted Video Handling
+    // Deleted video race on comment creation returns 404
+    const nonExistentVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9050';
+    const deletedVideoCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${nonExistentVideoId}/comments`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'Comment on non-existent video' },
+    });
+    expect(deletedVideoCommentRes.statusCode).toBe(404);
+    expect(deletedVideoCommentRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Deleted video race on like returns 404
+    const deletedVideoLikeRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${nonExistentVideoId}/like`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(deletedVideoLikeRes.statusCode).toBe(404);
+    expect(deletedVideoLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
   });
 });

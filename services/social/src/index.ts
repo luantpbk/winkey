@@ -13,15 +13,7 @@ async function main() {
   // 1. Connect to database
   const { db } = getDb(env.DATABASE_URL);
 
-  // 2. Connect to NATS JetStream
-  let natsConnection: NatsConnection | null = null;
-  try {
-    natsConnection = await connectNats({ servers: env.NATS_URL });
-  } catch (err) {
-    console.warn('Warning: Could not connect to NATS on startup. Outbox relay delayed:', err);
-  }
-
-  // 3. Connect to Valkey (Redis)
+  // 2. Connect to Valkey (Redis)
   let valkeyClient: Redis | null = null;
   try {
     valkeyClient = new Redis(env.VALKEY_URL, {
@@ -34,31 +26,73 @@ async function main() {
 
   const rateLimiter = new ValkeyRateLimiter(env.VALKEY_URL, valkeyClient ?? undefined);
 
-  // 4. Start Outbox Relay worker for schema "social"
+  // 3. Connect to NATS JetStream, OutboxRelay & VideoProjectionConsumer with periodic retry
+  let natsConnection: NatsConnection | null = null;
   let outboxRelay: OutboxRelay | null = null;
-  if (natsConnection) {
-    outboxRelay = new OutboxRelay({
-      db,
-      natsConnection,
-      schema: 'social',
-      batchSize: 100,
-      pollIntervalMs: 500,
-      cleanupMaxAgeDays: 7,
-    });
-    outboxRelay.start();
-  }
-
-  // 5. Start projection consumer for stream "VIDEO"
   let projectionConsumer: VideoProjectionConsumer | null = null;
-  if (natsConnection) {
-    projectionConsumer = new VideoProjectionConsumer({
-      db,
-      natsConnection,
-    });
-    await projectionConsumer.start();
-  }
+  let retryTimer: NodeJS.Timeout | null = null;
 
-  // 6. Build and listen HTTP app
+  const trySetupNatsAndServices = async () => {
+    try {
+      if (!natsConnection || natsConnection.isClosed()) {
+        try {
+          natsConnection = await connectNats({ servers: env.NATS_URL });
+          console.log('Connected to NATS JetStream');
+        } catch (err) {
+          console.warn(
+            'Warning: Could not connect to NATS. Will retry in 10s:',
+            (err as Error).message,
+          );
+          return;
+        }
+      }
+
+      if (!outboxRelay && natsConnection) {
+        outboxRelay = new OutboxRelay({
+          db,
+          natsConnection,
+          schema: 'social',
+          batchSize: 100,
+          pollIntervalMs: 500,
+          cleanupMaxAgeDays: 7,
+        });
+        outboxRelay.start();
+        console.log('Outbox relay started');
+      }
+
+      if (natsConnection && (!projectionConsumer || !projectionConsumer.isRunning())) {
+        if (!projectionConsumer) {
+          projectionConsumer = new VideoProjectionConsumer({
+            db,
+            natsConnection,
+          });
+        }
+        const started = await projectionConsumer.start();
+        if (started) {
+          console.log('Projection consumer started');
+        }
+      }
+    } catch (err) {
+      console.warn('Warning during NATS/services startup/retry:', err);
+    }
+  };
+
+  await trySetupNatsAndServices();
+
+  // Periodic retry (~10s) if NATS, outbox relay, or projection consumer not yet started
+  retryTimer = setInterval(async () => {
+    if (
+      !natsConnection ||
+      natsConnection.isClosed() ||
+      !outboxRelay ||
+      !projectionConsumer ||
+      !projectionConsumer.isRunning()
+    ) {
+      await trySetupNatsAndServices();
+    }
+  }, 10_000);
+
+  // 4. Build and listen HTTP app
   const app = await buildApp({
     env,
     db,
@@ -70,9 +104,14 @@ async function main() {
   await app.listen({ port: env.HTTP_PORT, host: '0.0.0.0' });
   app.log.info({ port: env.HTTP_PORT, service: 'social-svc' }, 'social-svc started');
 
-  // 7. Graceful shutdown handler (SIGTERM / SIGINT)
+  // 5. Graceful shutdown handler (SIGTERM / SIGINT)
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'Graceful shutdown initiated');
+
+    if (retryTimer) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+    }
 
     // Stop accepting new HTTP requests
     await app.close();
