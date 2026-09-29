@@ -1,0 +1,64 @@
+name: verify-compose
+
+on:
+  pull_request:
+    paths: ['deploy/compose/**', 'db/migrations/**', 'Makefile', '.github/workflows/verify-compose.yml']
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install tools
+        run: |
+          go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client curl jq
+
+      - name: Setup .env
+        run: |
+          cp deploy/compose/.env.example deploy/compose/.env
+
+      - name: Run make dev
+        run: |
+          make dev
+
+      - name: Check container health and status
+        run: |
+          docker compose -f deploy/compose/dev.yml ps -a
+
+      - name: Run smoke test
+        run: |
+          chmod +x deploy/compose/smoke-test.sh
+          ./deploy/compose/smoke-test.sh
+
+      - name: List NATS streams
+        run: |
+          docker compose -f deploy/compose/dev.yml run --rm nats-bootstrap nats stream ls --server=nats:4222
+
+      - name: CORS preflight verification
+        run: |
+          curl -X OPTIONS \
+            -H "Origin: http://localhost:3000" \
+            -H "Access-Control-Request-Method: PUT" \
+            -H "Access-Control-Request-Headers: Content-Type,ETag" \
+            -i http://localhost:3900/winkey-raw/test
+
+      - name: Run db-test against dev PostgreSQL
+        run: |
+          DATABASE_URL="postgres://winkey_migrator:winkey_migrator@127.0.0.1:5432/winkey?sslmode=disable" make db-test
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f deploy/compose/dev.yml logs
+
+      - name: Stop dev stack
+        if: always()
+        run: |
+          make dev-down

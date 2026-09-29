@@ -1,0 +1,50 @@
+{
+  "name": "@winkey/outbox",
+  "version": "0.1.0",
+  "description": "Transactional outbox for TypeScript services on Winkey",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "nats": "^2.29.3",
+    "uuid": "^11.1.0"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.0.0",
+    "kysely": "^0.27.0",
+    "pg": "^8.11.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "kysely": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@testcontainers/postgresql": "^10.18.0",
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.11",
+    "@types/uuid": "^10.0.0",
+    "kysely": "^0.27.6",
+    "pg": "^8.13.3",
+    "testcontainers": "^10.18.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}
