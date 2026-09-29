@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import type { OutboxRelayOptions, OutboxRow, Logger } from './types.js';
 
 const sc = StringCodec();
-const VALID_IDENTIFIER = /^[a-zA-Z0-9_]+$/;
+const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
 
 const defaultLogger: Logger = {
   info: (obj, msg) => console.log(JSON.stringify({ level: 'info', msg, ...(typeof obj === 'object' ? obj : { data: obj }) })),
@@ -28,7 +28,7 @@ export class OutboxRelay {
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(options: OutboxRelayOptions) {
-    if (!VALID_IDENTIFIER.test(options.schema)) {
+    if (!VALID_SCHEMA.test(options.schema)) {
       throw new Error(`Invalid schema identifier: ${options.schema}`);
     }
     this.db = options.db;
