@@ -3,7 +3,7 @@ import { OutboxRelay } from '../src/relay.js';
 
 describe('OutboxRelay', () => {
   it('polls pending rows, publishes with Nats-Msg-Id header, and marks published', async () => {
-    const publishedRows: any[] = [];
+    const publishedRows: Array<{ subj: string; payload: Uint8Array; headers?: unknown }> = [];
     const mockJetStream = {
       publish: vi.fn().mockImplementation(async (subj, payload, opts) => {
         publishedRows.push({ subj, payload, headers: opts?.headers });
@@ -85,7 +85,7 @@ describe('OutboxRelay', () => {
 
     const relay = new OutboxRelay({
       db: mockPool,
-      natsConnection: {} as any,
+      natsConnection: {} as unknown as import('nats').NatsConnection,
       schema: 'auth',
       cleanupMaxAgeDays: 7,
       logger: { info: () => {}, warn: () => {}, error: () => {} },

@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { connect, StringCodec } from 'nats';
+import { connect, StringCodec, type NatsConnection } from 'nats';
 import { enqueue } from '../src/enqueue.js';
 import { OutboxRelay } from '../src/relay.js';
+import type { EventEnvelope } from '../src/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,7 +45,7 @@ async function applyMigrations(pool: pg.Pool, migrationsDir: string) {
 
 describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
   let pool: pg.Pool | null = null;
-  let nc: any = null;
+  let nc: NatsConnection | null = null;
   let stopPgContainer: (() => Promise<void>) | null = null;
   let stopNatsContainer: (() => Promise<void>) | null = null;
   let isReady = false;
@@ -197,7 +198,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
 
     const sub = nc.subscribe('user.registered');
 
-    let envelope: any;
+    let envelope: EventEnvelope | undefined;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

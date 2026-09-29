@@ -30,11 +30,14 @@ export interface EnqueueOptions {
   traceparent?: string;
 }
 
-export interface OutboxRow {
+import type { NatsConnection } from 'nats';
+import type { QueryExecutorProvider } from 'kysely';
+
+export interface OutboxRow<T = unknown> {
   id: string | number;
   event_id: string;
   subject: string;
-  payload: EventEnvelope<any> | string;
+  payload: EventEnvelope<T> | string;
   created_at: Date | string;
   published_at: Date | string | null;
 }
@@ -42,6 +45,29 @@ export interface OutboxRow {
 export interface SqlExecutor {
   executeQuery<R>(query: { sql: string; parameters: readonly unknown[] }): Promise<{ rows: R[] }>;
 }
+
+export interface PgQueryResult<R = unknown> {
+  rows: R[];
+  rowCount?: number | null;
+}
+
+export interface PgClientLike {
+  query<R = unknown>(queryText: string, values?: readonly unknown[]): Promise<PgQueryResult<R>>;
+  release?: () => void;
+}
+
+export interface PgPoolLike {
+  connect(): Promise<PgClientLike>;
+  query<R = unknown>(queryText: string, values?: readonly unknown[]): Promise<PgQueryResult<R>>;
+}
+
+export interface KyselyDatabaseLike extends QueryExecutorProvider {
+  transaction(): {
+    execute<T>(callback: (trx: QueryExecutorProvider) => Promise<T>): Promise<T>;
+  };
+}
+
+export type OutboxDatabaseClient = unknown;
 
 export interface Logger {
   info(obj: Record<string, unknown> | string, msg?: string): void;
@@ -51,10 +77,10 @@ export interface Logger {
 }
 
 export interface OutboxRelayOptions {
-  /** Database connection pool or Kysely instance. */
-  db: any;
+  /** Database connection pool, Kysely instance, or Client. */
+  db: OutboxDatabaseClient;
   /** NATS connection with JetStream capability. */
-  natsConnection: any;
+  natsConnection: NatsConnection;
   /** Schema name where the outbox table is located (e.g. 'auth'). */
   schema: string;
   /** Batch size per poll. Defaults to 100 per ADR-008. */
