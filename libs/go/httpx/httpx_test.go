@@ -125,3 +125,29 @@ func TestDecodeJSONStrict(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionalAuthenticate(t *testing.T) {
+	uid := ids.NewString()
+	h := OptionalAuthenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := IdentityFrom(r.Context())
+		if ok {
+			w.Header().Set("X-Seen", id.UserID.String()+"|"+strings.Join(id.Roles, ","))
+		}
+		w.WriteHeader(204)
+	}))
+
+	w := do(h, "GET", "/", nil, "")
+	if w.Code != 204 || w.Header().Get("X-Seen") != "" {
+		t.Fatalf("anonymous: %d seen=%q", w.Code, w.Header().Get("X-Seen"))
+	}
+	w = do(h, "GET", "/", map[string]string{"X-User-Id": uid, "X-User-Roles": "viewer, moderator"}, "")
+	if w.Code != 204 || w.Header().Get("X-Seen") != uid+"|viewer,moderator" {
+		t.Fatalf("authenticated: %d seen=%q", w.Code, w.Header().Get("X-Seen"))
+	}
+	// Present but malformed is a 401, not an anonymous request.
+	for _, bad := range []string{"nope", "00000000-0000-0000-0000-000000000000"} {
+		if w := do(h, "GET", "/", map[string]string{"X-User-Id": bad}, ""); w.Code != 401 {
+			t.Errorf("X-User-Id %q: %d, want 401", bad, w.Code)
+		}
+	}
+}
