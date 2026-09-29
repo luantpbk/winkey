@@ -1,0 +1,12 @@
+{
+  "event_id": "0192f5e0-6666-7000-8000-000000000007",
+  "type": "user.registered",
+  "version": 1,
+  "occurred_at": "2026-10-01T07:00:00Z",
+  "producer": "auth-svc",
+  "data": {
+    "user_id": "0192f5e0-0000-7000-8000-000000000001",
+    "handle": "luan.dev",
+    "method": "password"
+  }
+}

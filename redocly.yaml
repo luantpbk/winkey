@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # Same-origin API; the placeholder host is replaced per environment.
+  no-server-example.com: off
+  # 3xx-only OAuth redirects have no 2xx body by design.
+  operation-2xx-response: off

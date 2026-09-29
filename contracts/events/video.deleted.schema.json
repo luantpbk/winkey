@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/video.deleted.schema.json",
+  "title": "video.deleted v1",
+  "description": "Video row deleted. Consumers purge objects, caches and search documents. Producer: video-svc.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.deleted" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "raw_bucket", "raw_key", "media_bucket", "media_prefix"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "raw_bucket": { "type": "string" },
+        "raw_key": { "type": "string" },
+        "media_bucket": { "type": "string" },
+        "media_prefix": { "type": "string", "description": "e.g. `v/{video_id}/` — every attempt lives under it." }
+      }
+    }
+  }
+}

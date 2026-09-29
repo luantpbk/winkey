@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/video.ready.schema.json",
+  "title": "video.ready v1",
+  "description": "HLS output published and the video row switched to READY. Producer: transcoder.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.ready" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "job_id", "attempt", "encoder", "hls_master_key", "thumbnail_key", "duration_ms", "width", "height", "renditions"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "job_id": { "type": "string", "format": "uuid" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "encoder": { "enum": ["nvenc", "x264"] },
+        "hls_master_key": { "type": "string" },
+        "thumbnail_key": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 1 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "renditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "width", "height", "bitrate_kbps"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[0-9]{3,4}p$" },
+              "width": { "type": "integer", "minimum": 1 },
+              "height": { "type": "integer", "minimum": 1 },
+              "bitrate_kbps": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

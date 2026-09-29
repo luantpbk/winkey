@@ -1,0 +1,265 @@
+openapi: 3.1.0
+info:
+  title: Winkey upload-svc API
+  version: 1.0.0
+  description: |
+    Direct-to-object-storage multipart upload. Owner: Sonnet 5.5 (task V1).
+
+    Flow:
+    1. `POST /v1/uploads` creates the video row (`UPLOADING`) and an S3 multipart upload.
+    2. `POST /v1/uploads/{video_id}/parts` returns presigned `PUT` URLs (TTL 1h) on the **public**
+       S3 endpoint. The browser uploads each part directly and reads the `ETag` response header
+       (the raw bucket CORS policy exposes `ETag`).
+    3. `POST /v1/uploads/{video_id}/complete` completes the multipart upload, sets `UPLOADED` and
+       writes a `video.uploaded` event to the transactional outbox in the same DB transaction.
+
+    Limits: `size_bytes` ≤ 20 GiB. `part_size = max(16 MiB, ceil(size_bytes / 10000))` rounded up to
+    a whole MiB, so `part_count` ≤ 10,000. Abandoned uploads (`UPLOADING` > 24h) are aborted by a janitor.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.local
+tags:
+  - name: uploads
+    description: Direct-to-storage multipart uploads.
+security:
+  - bearerAuth: []
+paths:
+  /v1/uploads:
+    post:
+      tags: [uploads]
+      operationId: createUpload
+      summary: Start an upload. Requires role `creator`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadRequest'
+      responses:
+        '201':
+          description: Upload started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateUploadResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/uploads/{video_id}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [uploads]
+      operationId: getUpload
+      summary: Upload / processing status (owner only). Used for polling when realtime is unavailable.
+      responses:
+        '200':
+          description: Current status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadStatus'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    delete:
+      tags: [uploads]
+      operationId: abortUpload
+      summary: Abort an upload that is still `UPLOADING` (owner only). Deletes the video row.
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/uploads/{video_id}/parts:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    post:
+      tags: [uploads]
+      operationId: presignParts
+      summary: Presign part upload URLs (owner only, status `UPLOADING`). Can be called again to resume.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignPartsRequest'
+      responses:
+        '200':
+          description: Presigned URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignPartsResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/uploads/{video_id}/complete:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    post:
+      tags: [uploads]
+      operationId: completeUpload
+      summary: Complete the multipart upload (owner only). Idempotent once `UPLOADED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        '202':
+          description: Upload accepted; transcoding is queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadStatus'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  schemas:
+    CreateUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [title, filename, content_type, size_bytes]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 5000
+          default: ''
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+        content_type:
+          type: string
+          enum: [video/mp4, video/quicktime, video/webm, video/x-matroska]
+          description: Advisory only; the transcoder validates the real container with ffprobe.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 21474836480
+
+    CreateUploadResponse:
+      type: object
+      required: [video_id, part_size, part_count]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        part_size:
+          type: integer
+          format: int64
+          description: Bytes per part. Every part except the last must be exactly this size.
+        part_count:
+          type: integer
+          minimum: 1
+          maximum: 10000
+
+    PresignPartsRequest:
+      type: object
+      additionalProperties: false
+      required: [part_numbers]
+      properties:
+        part_numbers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 10000
+
+    PresignPartsResponse:
+      type: object
+      required: [urls, expires_at]
+      properties:
+        urls:
+          type: array
+          items:
+            type: object
+            required: [part_number, url]
+            properties:
+              part_number:
+                type: integer
+              url:
+                type: string
+                format: uri
+        expires_at:
+          type: string
+          format: date-time
+
+    CompleteUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            type: object
+            additionalProperties: false
+            required: [part_number, etag]
+            properties:
+              part_number:
+                type: integer
+                minimum: 1
+                maximum: 10000
+              etag:
+                type: string
+                minLength: 1
+
+    UploadStatus:
+      type: object
+      required: [video_id, status, progress, error]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        status:
+          $ref: './common.yaml#/components/schemas/VideoStatus'
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Transcoding progress of the latest job; 0 before processing starts.
+        error:
+          type: [string, 'null']

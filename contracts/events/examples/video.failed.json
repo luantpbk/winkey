@@ -1,0 +1,16 @@
+{
+  "event_id": "0192f5e9-3333-7000-8000-000000000004",
+  "type": "video.failed",
+  "version": 1,
+  "occurred_at": "2026-10-01T08:01:00Z",
+  "producer": "transcoder",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "job_id": "0192f5e5-2222-7000-8000-000000000003",
+    "attempt": 1,
+    "reason": "INVALID_INPUT",
+    "message": "The file does not contain a video stream.",
+    "retryable": false
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/user.registered.schema.json",
+  "title": "user.registered v1",
+  "description": "New account created. No email or other PII in the payload. Producer: auth-svc.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "user.registered" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["user_id", "handle", "method"],
+      "additionalProperties": false,
+      "properties": {
+        "user_id": { "type": "string", "format": "uuid" },
+        "handle": { "type": "string" },
+        "method": { "enum": ["password", "google"] }
+      }
+    }
+  }
+}

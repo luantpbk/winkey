@@ -1,0 +1,315 @@
+openapi: 3.1.0
+info:
+  title: Winkey video-svc API
+  version: 1.0.0
+  description: |
+    Video metadata, feeds and playback info. Owner: Sonnet 5.5 (task S1).
+
+    Visibility rules for non-owners: only `READY` videos are returned; `PRIVATE` → 404;
+    `UNLISTED` → readable by id but never listed. Owners and `admin`/`moderator` see everything.
+    Media URLs are built as `MEDIA_BASE_URL + object key`, e.g.
+    `https://media.winkey.local/v/{video_id}/a{attempt}/hls/master.m3u8`.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.local
+tags:
+  - name: videos
+    description: Public video metadata and playback info.
+  - name: studio
+    description: Creator views of their own videos.
+paths:
+  /v1/videos:
+    get:
+      tags: [videos]
+      operationId: listVideos
+      summary: Public feed, newest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - name: owner_id
+          in: query
+          required: false
+          description: Restrict to one creator (channel page).
+          schema:
+            $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: One page of videos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/videos/{video_id}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [videos]
+      operationId: getVideo
+      summary: Watch page data. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Video with playback info.
+          headers:
+            Cache-Control:
+              description: '`public, max-age=30` for public READY videos, otherwise `private, no-store`.'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [videos]
+      operationId: updateVideo
+      summary: Edit metadata (owner only).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVideoRequest'
+      responses:
+        '200':
+          description: Updated video.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    delete:
+      tags: [videos]
+      operationId: deleteVideo
+      summary: Delete (owner, moderator or admin). Emits `video.deleted`; objects are removed asynchronously.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/studio/videos:
+    get:
+      tags: [studio]
+      operationId: listStudioVideos
+      summary: The caller's own videos in every status, newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/VideoStatus'
+      responses:
+        '200':
+          description: One page of the caller's videos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudioVideoPage'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  schemas:
+    Rendition:
+      type: object
+      required: [name, width, height, bitrate_kbps]
+      properties:
+        name:
+          type: string
+          pattern: '^[0-9]{3,4}p$'
+          examples: ['1080p']
+        width:
+          type: integer
+        height:
+          type: integer
+        bitrate_kbps:
+          type: integer
+
+    Playback:
+      type: object
+      required: [hls_url, thumbnail_url, renditions]
+      properties:
+        hls_url:
+          type: string
+          format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+        renditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rendition'
+
+    Video:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - owner
+        - visibility
+        - status
+        - duration_ms
+        - width
+        - height
+        - view_count
+        - like_count
+        - published_at
+        - created_at
+        - playback
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        title:
+          type: string
+        description:
+          type: string
+        owner:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+        status:
+          $ref: './common.yaml#/components/schemas/VideoStatus'
+        duration_ms:
+          type: [integer, 'null']
+        width:
+          type: [integer, 'null']
+        height:
+          type: [integer, 'null']
+        view_count:
+          type: integer
+          format: int64
+        like_count:
+          type: integer
+          format: int64
+        published_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        playback:
+          description: Null until the video is `READY`.
+          oneOf:
+            - $ref: '#/components/schemas/Playback'
+            - type: 'null'
+
+    VideoSummary:
+      type: object
+      required: [id, title, owner, duration_ms, view_count, published_at, thumbnail_url]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        title:
+          type: string
+        owner:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        duration_ms:
+          type: integer
+        view_count:
+          type: integer
+          format: int64
+        published_at:
+          type: string
+          format: date-time
+        thumbnail_url:
+          type: string
+          format: uri
+
+    VideoPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoSummary'
+        next_cursor:
+          type: [string, 'null']
+
+    StudioVideo:
+      type: object
+      required: [id, title, visibility, status, progress, error, duration_ms, created_at, thumbnail_url]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        title:
+          type: string
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+        status:
+          $ref: './common.yaml#/components/schemas/VideoStatus'
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        error:
+          type: [string, 'null']
+        duration_ms:
+          type: [integer, 'null']
+        created_at:
+          type: string
+          format: date-time
+        thumbnail_url:
+          type: [string, 'null']
+          format: uri
+
+    StudioVideoPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudioVideo'
+        next_cursor:
+          type: [string, 'null']
+
+    UpdateVideoRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 5000
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'

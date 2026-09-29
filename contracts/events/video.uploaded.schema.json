@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.local/contracts/events/video.uploaded.schema.json",
+  "title": "video.uploaded v1",
+  "description": "Source file fully uploaded; transcoding may start. Producer: upload-svc. Consumer: transcoder.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.uploaded" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "raw_bucket", "raw_key", "size_bytes", "content_type"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "raw_bucket": { "type": "string" },
+        "raw_key": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "content_type": { "type": "string" }
+      }
+    }
+  }
+}
