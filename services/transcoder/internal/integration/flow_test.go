@@ -143,27 +143,38 @@ func (s *stack) waitStatus(t *testing.T, id uuid.UUID, want string, within time.
 	t.Fatalf("video %s: status %q after %v, want %s", id, status, within, want)
 }
 
-func (s *stack) events(t *testing.T, subject string, n int) []outbox.Envelope {
+// events returns the events on subject whose data.video_id equals videoID,
+// waiting up to 10 s for at least one. Filtering by video matters: the stream
+// keeps every video's events, and subtests share one stack.
+func (s *stack) events(t *testing.T, subject, videoID string) []outbox.Envelope {
 	t.Helper()
 	ctx := context.Background()
 	cons, err := s.nats.JS.CreateOrUpdateConsumer(ctx, "VIDEO", jetstream.ConsumerConfig{
-		FilterSubject: subject, AckPolicy: jetstream.AckExplicitPolicy,
+		FilterSubject: subject, AckPolicy: jetstream.AckNonePolicy,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch, err := cons.Fetch(n, jetstream.FetchMaxWait(10*time.Second))
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var out []outbox.Envelope
+		batch, err := cons.Fetch(100, jetstream.FetchMaxWait(time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for m := range batch.Messages() {
+			var e outbox.Envelope
+			var d struct {
+				VideoID string `json:"video_id"`
+			}
+			if json.Unmarshal(m.Data(), &e) == nil && json.Unmarshal(e.Data, &d) == nil && d.VideoID == videoID {
+				out = append(out, e)
+			}
+		}
+		if len(out) > 0 || time.Now().After(deadline) {
+			return out
+		}
 	}
-	var out []outbox.Envelope
-	for m := range batch.Messages() {
-		var e outbox.Envelope
-		_ = json.Unmarshal(m.Data(), &e)
-		out = append(out, e)
-		_ = m.Ack()
-	}
-	return out
 }
 
 func TestEndToEndX264(t *testing.T) {
@@ -222,7 +233,7 @@ func TestEndToEndX264(t *testing.T) {
 				t.Errorf("renditions=%d job=%s encoder=%s progress=%v", nRend, jobStatus, encoder, progress)
 			}
 
-			ready := s.events(t, "video.ready", 1)
+			ready := s.events(t, "video.ready", id.String())
 			if len(ready) != 1 || ready[0].Producer != "transcoder" {
 				t.Fatalf("video.ready: %+v", ready)
 			}
@@ -289,7 +300,7 @@ func TestInvalidInputFailsVideoAndEmitsEvent(t *testing.T) {
 	if errMsg == "" {
 		t.Error("owner-safe error message missing")
 	}
-	failed := s.events(t, "video.failed", 1)
+	failed := s.events(t, "video.failed", id.String())
 	if len(failed) != 1 {
 		t.Fatal("video.failed not published")
 	}
@@ -439,7 +450,7 @@ func TestMaxDeliveriesAdvisoryFailsVideo(t *testing.T) {
 		}
 	}()
 	s.waitStatus(t, id, "FAILED", 30*time.Second)
-	failed := s.events(t, "video.failed", 1)
+	failed := s.events(t, "video.failed", id.String())
 	if len(failed) != 1 {
 		t.Fatal("video.failed not published")
 	}
