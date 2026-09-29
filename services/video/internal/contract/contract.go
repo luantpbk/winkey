@@ -30,7 +30,6 @@ const (
 type Spec struct {
 	video, common map[string]any
 	compiler      *jsonschema.Compiler
-	allowed       map[string]string // "METHOD path status" -> reason (tracking issue)
 }
 
 // Load reads the contract files from the repository (walking up from this
@@ -50,7 +49,7 @@ func Load(t testing.TB) *Spec {
 	if root == "" {
 		t.Fatal("contract: contracts/openapi not found")
 	}
-	s := &Spec{compiler: jsonschema.NewCompiler(), allowed: map[string]string{}}
+	s := &Spec{compiler: jsonschema.NewCompiler()}
 	s.compiler.DefaultDraft(jsonschema.Draft2020)
 	s.compiler.AssertFormat()
 	for _, d := range []struct {
@@ -150,16 +149,6 @@ func keys(m map[string]any) []string {
 	return out
 }
 
-// AllowUndocumentedProblem tolerates ONE response that the contract does not
-// document yet, for a known gap tracked in an issue (contract changes are made
-// by the architect, never here). The response must still be an RFC 9457
-// application/problem+json body that validates against the shared Problem
-// schema; every other undocumented status keeps failing. Remove the call when
-// the contract is fixed.
-func (s *Spec) AllowUndocumentedProblem(method, pathTemplate string, status int, issue string) {
-	s.allowed[fmt.Sprintf("%s %s %d", method, pathTemplate, status)] = issue
-}
-
 // Check validates one response. pathTemplate is the OpenAPI path
 // (e.g. /v1/videos/{video_id}); contentType is the response's Content-Type
 // header (parameters such as charset are ignored).
@@ -173,12 +162,8 @@ func (s *Spec) Check(t testing.TB, method, pathTemplate string, status int, cont
 		return
 	}
 	if !documented {
-		if _, ok := s.allowed[fmt.Sprintf("%s %s %d", method, pathTemplate, status)]; ok && mt == "application/problem+json" {
-			loc, documented = commonURL+"#/components/schemas/Problem", true
-		} else {
-			t.Errorf("contract: %s %s returned %d, which the contract does not document", method, pathTemplate, status)
-			return
-		}
+		t.Errorf("contract: %s %s returned %d, which the contract does not document", method, pathTemplate, status)
+		return
 	}
 	if loc == "" {
 		if len(bytes.TrimSpace(body)) != 0 {
