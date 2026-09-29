@@ -21,3 +21,6 @@ deploy/ansible/**
 
 # Generated OpenAPI types (freshness enforced by check:generated)
 packages/api-client/src/types/
+
+# Generated MSW browser service worker script
+apps/web/public/mockServiceWorker.js

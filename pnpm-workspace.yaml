@@ -4,8 +4,11 @@ packages:
   - 'services/auth'
   - 'services/social'
   - 'services/realtime'
+  - 'e2e'
+
 allowBuilds:
   cpu-features: false
   esbuild: true
+  msw: true
   protobufjs: true
   ssh2: false

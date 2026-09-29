@@ -1,0 +1,95 @@
+{
+  "nav": {
+    "home": "Trang chủ",
+    "studio": "Winkey Studio",
+    "upload": "Tải video lên",
+    "subscriptions": "Kênh đăng ký",
+    "library": "Thư viện",
+    "history": "Lịch sử xem",
+    "settings": "Cài đặt",
+    "signIn": "Đăng nhập",
+    "register": "Đăng ký",
+    "signOut": "Đăng xuất",
+    "searchPlaceholder": "Tìm kiếm trên Winkey...",
+    "lightMode": "Giao diện sáng",
+    "darkMode": "Giao diện tối",
+    "creatorRoleRequired": "Cần quyền Creator"
+  },
+  "home": {
+    "recommended": "Video đề xuất",
+    "noVideos": "Chưa có video nào. Hãy là người đầu tiên tải lên!",
+    "loadingMore": "Đang tải thêm video...",
+    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}"
+  },
+  "watch": {
+    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
+    "publishedOn": "Đã xuất bản vào {date}",
+    "description": "Mô tả",
+    "showMore": "Xem thêm",
+    "showLess": "Thu gọn",
+    "videoNotFound": "Video không tồn tại hoặc không ở trạng thái công khai.",
+    "backHome": "Về trang chủ",
+    "ready": "Sẵn sàng phát",
+    "processing": "Video đang được xử lý..."
+  },
+  "channel": {
+    "videos": "Danh sách video",
+    "noVideos": "Kênh này chưa đăng video nào.",
+    "subscribers": "{count} người đăng ký",
+    "subscribe": "Đăng ký",
+    "subscribed": "Đã đăng ký"
+  },
+  "auth": {
+    "loginTitle": "Đăng nhập vào Winkey",
+    "registerTitle": "Tạo tài khoản Winkey",
+    "email": "Email",
+    "password": "Mật khẩu",
+    "handle": "Handle (tên người dùng)",
+    "displayName": "Tên hiển thị",
+    "submitLogin": "Đăng nhập",
+    "submitRegister": "Tạo tài khoản",
+    "continueGoogle": "Tiếp tục với Google",
+    "noAccount": "Chưa có tài khoản?",
+    "haveAccount": "Đã có tài khoản?",
+    "invalidCredentials": "Email hoặc mật khẩu không chính xác.",
+    "registerSuccess": "Đăng ký thành công! Đang chuyển hướng..."
+  },
+  "upload": {
+    "title": "Tải video lên Winkey",
+    "dragDrop": "Kéo thả file video vào đây",
+    "browseFiles": "Hoặc bấm để chọn file",
+    "videoTitle": "Tiêu đề video",
+    "videoDescription": "Mô tả",
+    "visibility": "Chế độ hiển thị",
+    "public": "Công khai (Public)",
+    "unlisted": "Không công khai (Unlisted)",
+    "private": "Riêng tư (Private)",
+    "startUpload": "Bắt đầu tải lên",
+    "uploading": "Đang tải lên...",
+    "speed": "Tốc độ: {speed} MB/s",
+    "eta": "Còn lại khoảng {eta}",
+    "cancel": "Hủy bỏ",
+    "cancelling": "Đang hủy...",
+    "resuming": "Đang khôi phục tiến trình tải lên...",
+    "complete": "Tải lên hoàn tất! Video đã được đưa vào hàng đợi xử lý.",
+    "goToStudio": "Đi tới Studio",
+    "onlyCreator": "Chỉ tài khoản có vai trò Creator mới được tải video lên."
+  },
+  "studio": {
+    "title": "Quản lý video - Studio",
+    "uploadNew": "Tải video mới",
+    "tableTitle": "Video",
+    "tableVisibility": "Chế độ hiển thị",
+    "tableStatus": "Trạng thái",
+    "tableProgress": "Tiến độ",
+    "tableDate": "Ngày tạo",
+    "noVideos": "Bạn chưa có video nào trong Studio.",
+    "status": {
+      "UPLOADING": "Đang tải lên",
+      "UPLOADED": "Đã tải lên",
+      "PROCESSING": "Đang xử lý",
+      "READY": "Sẵn sàng",
+      "FAILED": "Lỗi xử lý"
+    }
+  }
+}

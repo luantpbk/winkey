@@ -1,17 +1,30 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { EventEnvelope, EnqueueOptions } from './types.js';
 
+interface OTelApiGlobal {
+  trace?: {
+    getActiveSpan?: () => {
+      spanContext?: () => {
+        traceId?: string;
+        spanId?: string;
+        traceFlags?: number;
+      };
+    } | null;
+  };
+}
+
 /**
  * Extracts active W3C traceparent from OpenTelemetry context if available.
  */
 function extractTraceparent(): string | undefined {
   try {
     // Dynamic check without hard failing if @opentelemetry/api is not installed
-    const api = (globalThis as any)[Symbol.for('opentelemetry.js.api.1')];
+    const globalSymbols = globalThis as unknown as Record<symbol, OTelApiGlobal | undefined>;
+    const api = globalSymbols[Symbol.for('opentelemetry.js.api.1')];
     if (api?.trace?.getActiveSpan) {
       const span = api.trace.getActiveSpan();
       if (span) {
-        const ctx = span.spanContext();
+        const ctx = span.spanContext?.();
         if (ctx && ctx.traceId && ctx.spanId) {
           const flags = (ctx.traceFlags ?? 1).toString(16).padStart(2, '0');
           return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;

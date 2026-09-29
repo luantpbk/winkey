@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Winkey realtime-gw API
+  version: 1.0.0
+  description: |
+    HTTP side of the realtime gateway. Owner: Antigravity 3 (task C2). The WebSocket protocol
+    (rooms, message schemas, heartbeat, close codes) is in `contracts/realtime/README.md`.
+
+    - `POST /v1/realtime/ticket` trusts only the gateway headers `X-User-Id` / `X-User-Roles` (ADR-009).
+    - `GET /v1/realtime` is the WebSocket upgrade. Browsers cannot send `Authorization` on a WebSocket,
+      and a JWT must never appear in a URL, so the connection is authenticated with a single-use ticket.
+      realtime-gw ignores `X-User-Id` on the upgrade request.
+    - Gateway routing: `/v1/realtime` (exact path and `/v1/realtime/ticket`) go to realtime-gw with
+      WebSocket support and an idle timeout of at least 120 s.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.vn
+    description: Production.
+  - url: http://localhost:8080
+    description: Local dev stack (Traefik from deploy/compose).
+tags:
+  - name: realtime
+    description: WebSocket gateway.
+paths:
+  /v1/realtime/ticket:
+    post:
+      tags: [realtime]
+      operationId: createRealtimeTicket
+      summary: Issue a single-use ticket for opening the WebSocket.
+      description: |
+        The ticket is valid for 30 seconds and can be redeemed once. It is stored in Valkey under
+        `rt:ticket:{sha256(ticket)}` with the caller's user id and roles, and deleted atomically when
+        the WebSocket upgrade redeems it. Rate limit per user: 30 tickets per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Ticket issued.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RealtimeTicket'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+  /v1/realtime:
+    get:
+      tags: [realtime]
+      operationId: openRealtime
+      summary: WebSocket upgrade.
+      description: |
+        Without `ticket` the connection is anonymous and can only join `video:*` rooms of videos the
+        public can read. With an invalid, expired or already used ticket the upgrade is refused with
+        `401` before switching protocols. After `101`, frames follow `contracts/realtime/*.schema.json`.
+      security:
+        - {}
+      parameters:
+        - name: ticket
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 128
+        - name: Upgrade
+          in: header
+          required: true
+          schema:
+            type: string
+            const: websocket
+      responses:
+        '101':
+          description: Switching protocols; the server sends a `welcome` message first.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  schemas:
+    RealtimeTicket:
+      type: object
+      required: [ticket, expires_at]
+      additionalProperties: false
+      properties:
+        ticket:
+          type: string
+          description: Opaque, URL-safe, at least 256 bits of randomness. Never logged.
+          minLength: 32
+          maxLength: 128
+          examples: ['6oJrJZ0gk3v1wz7r1p6Vx3m9w8u2QHc4Ljq7bN5sT0Y']
+        expires_at:
+          type: string
+          format: date-time
+          examples: ['2026-09-29T12:00:30Z']

@@ -57,9 +57,9 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | ID | Task | Owner | Phụ thuộc |
 |---|---|---|---|
 | A2 | RBAC + trang admin/moderation | Antigravity 3 (+ Antigravity 1 UI) | A1 |
-| C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) | Antigravity 3 | A1 ✅ |
-| C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out | Antigravity 3 | C1 |
-| C3 | View counter (Valkey → flush PG), chống view ảo | Sonnet 5.5 | S1 |
+| C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) · ✅ (#48) | Antigravity 3 | A1 ✅ |
+| C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) | Antigravity 3 | C1 ✅ |
+| C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) | Sonnet 5.5 | S1 ✅ |
 | U2 | Creator Studio realtime | Antigravity 1 | C2 |
 | SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm` | Sonnet 5.5 (+ Opus migration) | S1 |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |

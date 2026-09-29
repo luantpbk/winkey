@@ -1,0 +1,9 @@
+{
+  "type": "event",
+  "room": "user:0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9a01",
+  "event": "video.ready",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d"
+  },
+  "ts": "2026-09-29T12:00:00.000Z"
+}
