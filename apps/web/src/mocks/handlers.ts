@@ -22,7 +22,9 @@ function getDynamicVideos(): Video[] {
     try {
       const stored = window.sessionStorage.getItem('wk_mock_videos');
       if (stored) return JSON.parse(stored);
-    } catch {}
+    } catch {
+      // ignore storage errors
+    }
   }
   return dynamicVideos;
 }
@@ -32,7 +34,9 @@ function setDynamicVideos(videos: Video[]) {
   if (typeof window !== 'undefined' && window.sessionStorage) {
     try {
       window.sessionStorage.setItem('wk_mock_videos', JSON.stringify(videos));
-    } catch {}
+    } catch {
+      // ignore storage errors
+    }
   }
 }
 
@@ -41,7 +45,9 @@ function getDynamicStudioVideos(): StudioVideo[] {
     try {
       const stored = window.sessionStorage.getItem('wk_mock_studio_videos');
       if (stored) return JSON.parse(stored);
-    } catch {}
+    } catch {
+      // ignore storage errors
+    }
   }
   return dynamicStudioVideos;
 }
@@ -51,7 +57,9 @@ function setDynamicStudioVideos(videos: StudioVideo[]) {
   if (typeof window !== 'undefined' && window.sessionStorage) {
     try {
       window.sessionStorage.setItem('wk_mock_studio_videos', JSON.stringify(videos));
-    } catch {}
+    } catch {
+      // ignore storage errors
+    }
   }
 }
 
@@ -79,7 +87,8 @@ export const handlers = [
       errors.push({ field: 'password', message: 'Password must be at least 8 characters' });
     }
     if (!body.handle) errors.push({ field: 'handle', message: 'Handle is required' });
-    if (!body.display_name) errors.push({ field: 'display_name', message: 'Display name is required' });
+    if (!body.display_name)
+      errors.push({ field: 'display_name', message: 'Display name is required' });
 
     if (errors.length > 0) {
       const problem: Problem = {
@@ -109,7 +118,8 @@ export const handlers = [
       email_verified: false,
       handle: body.handle,
       display_name: body.display_name,
-      avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      avatar_url:
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
       roles: ['viewer', 'creator'],
       created_at: new Date().toISOString(),
     };
@@ -134,7 +144,7 @@ export const handlers = [
         headers: {
           'Set-Cookie': 'wk_rt=mock_refresh_token; HttpOnly; Path=/v1/auth; SameSite=Strict',
         },
-      }
+      },
     );
   }),
 
@@ -164,7 +174,7 @@ export const handlers = [
         headers: {
           'Set-Cookie': 'wk_rt=mock_refresh_token; HttpOnly; Path=/v1/auth; SameSite=Strict',
         },
-      }
+      },
     );
   }),
 
@@ -200,7 +210,7 @@ export const handlers = [
           status: 401,
           code: 'UNAUTHORIZED',
         },
-        { status: 401 }
+        { status: 401 },
       );
     }
     return HttpResponse.json(currentUser);
@@ -217,7 +227,7 @@ export const handlers = [
           status: 404,
           code: 'NOT_FOUND',
         },
-        { status: 404 }
+        { status: 404 },
       );
     }
     return HttpResponse.json(profile);
@@ -244,7 +254,9 @@ export const handlers = [
       duration_ms: v.duration_ms || 0,
       view_count: v.view_count,
       published_at: v.published_at || v.created_at,
-      thumbnail_url: v.playback?.thumbnail_url || 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url:
+        v.playback?.thumbnail_url ||
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
     }));
 
     const nextIndex = startIndex + limit;
@@ -268,7 +280,7 @@ export const handlers = [
           status: 404,
           code: 'VIDEO_NOT_FOUND',
         },
-        { status: 404 }
+        { status: 404 },
       );
     }
     return HttpResponse.json(video);
@@ -282,7 +294,7 @@ export const handlers = [
     if (videoIndex === -1) {
       return HttpResponse.json(
         { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
-        { status: 404 }
+        { status: 404 },
       );
     }
     const current = currentVideos[videoIndex];
@@ -342,7 +354,7 @@ export const handlers = [
     if (!upload) {
       return HttpResponse.json(
         { type: '/problems/not-found', title: 'Upload not found', status: 404, code: 'NOT_FOUND' },
-        { status: 404 }
+        { status: 404 },
       );
     }
     const body = (await request.json()) as { part_numbers: number[] };
@@ -376,7 +388,7 @@ export const handlers = [
     if (!upload) {
       return HttpResponse.json(
         { type: '/problems/not-found', title: 'Upload not found', status: 404, code: 'NOT_FOUND' },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -393,7 +405,8 @@ export const handlers = [
       error: null,
       duration_ms: 180000,
       created_at: new Date().toISOString(),
-      thumbnail_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url:
+        'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
     };
     const currentStudio = [newStudioVideo, ...getDynamicStudioVideos()];
     setDynamicStudioVideos(currentStudio);
@@ -402,12 +415,14 @@ export const handlers = [
       id: videoId,
       title: upload.title,
       description: 'Uploaded via Winkey Web Creator Studio.',
-      owner: currentUser ? {
-        id: currentUser.id,
-        handle: currentUser.handle,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
-      } : mockPublicProfiles.winkey_creator,
+      owner: currentUser
+        ? {
+            id: currentUser.id,
+            handle: currentUser.handle,
+            display_name: currentUser.display_name,
+            avatar_url: currentUser.avatar_url,
+          }
+        : mockPublicProfiles.winkey_creator,
       visibility: 'PUBLIC',
       status: 'READY',
       duration_ms: 180000,
@@ -419,10 +434,9 @@ export const handlers = [
       created_at: new Date().toISOString(),
       playback: {
         hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-        thumbnail_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
-        renditions: [
-          { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 },
-        ],
+        thumbnail_url:
+          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+        renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
       },
     };
     const currentVideos = [newVideo, ...getDynamicVideos()];
@@ -463,7 +477,7 @@ export const handlers = [
     if (!upload) {
       return HttpResponse.json(
         { type: '/problems/not-found', title: 'Upload not found', status: 404, code: 'NOT_FOUND' },
-        { status: 404 }
+        { status: 404 },
       );
     }
 

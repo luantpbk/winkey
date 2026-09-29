@@ -109,9 +109,7 @@ export default function UploadPage() {
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
             Yêu cầu vai trò Creator
           </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
-            {t('onlyCreator')}
-          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">{t('onlyCreator')}</p>
           {!isAuthenticated ? (
             <Link
               href="/login"
@@ -121,7 +119,8 @@ export default function UploadPage() {
             </Link>
           ) : (
             <p className="text-xs text-gray-400">
-              Tài khoản hiện tại: <span className="font-semibold">{user?.email}</span> (Vai trò: {user?.roles?.join(', ')})
+              Tài khoản hiện tại: <span className="font-semibold">{user?.email}</span> (Vai trò:{' '}
+              {user?.roles?.join(', ')})
             </p>
           )}
         </div>
@@ -172,9 +171,7 @@ export default function UploadPage() {
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600/10 text-red-500 mb-4">
               <UploadCloud className="h-8 w-8" />
             </div>
-            <p className="text-base font-semibold text-gray-900 dark:text-white">
-              {t('dragDrop')}
-            </p>
+            <p className="text-base font-semibold text-gray-900 dark:text-white">{t('dragDrop')}</p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {t('browseFiles')} (MP4, MOV, WebM, MKV ≤ 20 GB)
             </p>
@@ -192,9 +189,7 @@ export default function UploadPage() {
                   <span className="font-semibold text-sm text-gray-900 dark:text-white truncate">
                     {selectedFile.name}
                   </span>
-                  <span className="text-xs text-gray-500">
-                    {formatBytes(selectedFile.size)}
-                  </span>
+                  <span className="text-xs text-gray-500">{formatBytes(selectedFile.size)}</span>
                 </div>
               </div>
 
@@ -215,7 +210,8 @@ export default function UploadPage() {
               <div className="flex items-center gap-2 rounded-xl bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-blue-400">
                 <RotateCcw className="h-4 w-4 shrink-0" />
                 <span>
-                  Phát hiện phiên tải lên chưa hoàn tất trước đó trong trình duyệt. Bấm Bắt đầu tải lên để tiếp tục ngay tại vị trí đã ngắt.
+                  Phát hiện phiên tải lên chưa hoàn tất trước đó trong trình duyệt. Bấm Bắt đầu tải
+                  lên để tiếp tục ngay tại vị trí đã ngắt.
                 </span>
               </div>
             )}
@@ -269,8 +265,8 @@ export default function UploadPage() {
                         {mode === 'PUBLIC'
                           ? t('public')
                           : mode === 'UNLISTED'
-                          ? t('unlisted')
-                          : t('private')}
+                            ? t('unlisted')
+                            : t('private')}
                       </button>
                     ))}
                   </div>

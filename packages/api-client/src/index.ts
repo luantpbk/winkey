@@ -41,7 +41,9 @@ export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   getAccessToken?: () => string | null | undefined | Promise<string | null | undefined>;
 }
 
-export function createAuthInterceptor(getAccessToken: () => string | null | undefined | Promise<string | null | undefined>): Middleware {
+export function createAuthInterceptor(
+  getAccessToken: () => string | null | undefined | Promise<string | null | undefined>,
+): Middleware {
   return {
     async onRequest({ request }) {
       const token = await getAccessToken();

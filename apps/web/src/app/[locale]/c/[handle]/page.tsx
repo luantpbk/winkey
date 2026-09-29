@@ -78,9 +78,7 @@ export default async function ChannelPage({ params }: ChannelPageProps) {
 
       {/* Navigation Tabs */}
       <div className="flex border-b border-[#272727] dark:border-[#272727] border-gray-200 text-sm font-semibold">
-        <button className="border-b-2 border-red-600 px-4 py-3 text-red-600">
-          Video
-        </button>
+        <button className="border-b-2 border-red-600 px-4 py-3 text-red-600">Video</button>
         <button className="px-4 py-3 text-gray-500 hover:text-gray-900 dark:hover:text-white transition">
           Danh sách phát
         </button>

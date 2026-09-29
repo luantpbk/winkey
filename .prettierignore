@@ -2,6 +2,8 @@ node_modules
 dist
 .next
 coverage
+test-results
+e2e/test-results
 *.sum
 *.log
 pnpm-lock.yaml
@@ -12,7 +14,13 @@ contracts/**
 db/**
 docs/**
 libs/**
-deploy/ansible/**
+deploy/**
 *.md
 .golangci.yml
-.github/workflows/contracts.yml
+.github/workflows/**
+
+# Generated OpenAPI types (freshness enforced by check:generated)
+packages/api-client/src/types/
+
+# Generated MSW browser service worker script
+apps/web/public/mockServiceWorker.js

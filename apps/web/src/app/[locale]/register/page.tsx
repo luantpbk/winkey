@@ -55,7 +55,9 @@ export default function RegisterPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white shadow-lg">
             <PlaySquare className="h-7 w-7 fill-current" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{t('registerTitle')}</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+            {t('registerTitle')}
+          </h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Tạo kênh và bắt đầu đăng tải video của bạn
           </p>
@@ -169,9 +171,7 @@ export default function RegisterPage() {
             <div className="w-full border-t border-[#2e2e2e] dark:border-[#2e2e2e] border-gray-200" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-[#141414] dark:bg-[#141414] bg-white px-2 text-gray-500">
-              Hoặc
-            </span>
+            <span className="bg-[#141414] dark:bg-[#141414] bg-white px-2 text-gray-500">Hoặc</span>
           </div>
         </div>
 

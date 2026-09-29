@@ -22,7 +22,9 @@ export async function generateAll(): Promise<Map<string, string>> {
   const results = new Map<string, string>();
 
   for (const contract of contracts) {
-    console.log(`Generating types for ${contract.name} from ${path.relative(rootDir, contract.file)}...`);
+    console.log(
+      `Generating types for ${contract.name} from ${path.relative(rootDir, contract.file)}...`,
+    );
     const fileUrl = new URL(`file:///${contract.file.replace(/\\/g, '/')}`);
     const ast = await openapiTS(fileUrl);
     const content = astToString(ast);

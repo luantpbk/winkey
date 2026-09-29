@@ -55,7 +55,7 @@ describe('Auth Session Management & In-Memory Token Store', () => {
             expires_in: 900,
             user: { id: 'user-1' },
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -63,16 +63,16 @@ describe('Auth Session Management & In-Memory Token Store', () => {
         callCount++;
         const authHeader = req.headers.get('Authorization');
         if (authHeader === 'Bearer expired-token') {
-          return new Response(
-            JSON.stringify({ title: 'Unauthorized', status: 401 }),
-            { status: 401, headers: { 'Content-Type': 'application/problem+json' } }
-          );
+          return new Response(JSON.stringify({ title: 'Unauthorized', status: 401 }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/problem+json' },
+          });
         }
         if (authHeader === 'Bearer fresh-reloaded-token') {
-          return new Response(
-            JSON.stringify({ message: 'Success after token refresh!' }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ message: 'Success after token refresh!' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
       }
 
@@ -100,8 +100,12 @@ describe('Auth Session Management & In-Memory Token Store', () => {
         refreshCount++;
         await new Promise((r) => setTimeout(r, 25)); // simulate network latency
         return new Response(
-          JSON.stringify({ access_token: 'coalesced-token', token_type: 'Bearer', expires_in: 900 }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          JSON.stringify({
+            access_token: 'coalesced-token',
+            token_type: 'Bearer',
+            expires_in: 900,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -120,7 +124,7 @@ describe('Auth Session Management & In-Memory Token Store', () => {
 
     // 5 concurrent requests hit 401 simultaneously
     const requests = Array.from({ length: 5 }, (_, i) =>
-      customFetch(`http://localhost:3000/v1/protected/endpoint?i=${i}`).then((res) => res.json())
+      customFetch(`http://localhost:3000/v1/protected/endpoint?i=${i}`).then((res) => res.json()),
     );
 
     const results = await Promise.all(requests);
@@ -168,8 +172,12 @@ describe('Auth Session Management & In-Memory Token Store', () => {
         refreshCount++;
         await new Promise((r) => setTimeout(r, 20));
         return new Response(
-          JSON.stringify({ access_token: `token-from-refresh-${refreshCount}`, token_type: 'Bearer', expires_in: 900 }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          JSON.stringify({
+            access_token: `token-from-refresh-${refreshCount}`,
+            token_type: 'Bearer',
+            expires_in: 900,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
       return new Response(null, { status: 404 });
@@ -198,7 +206,7 @@ describe('Auth Session Management & In-Memory Token Store', () => {
       if (url.includes('/v1/auth/refresh')) {
         return new Response(
           JSON.stringify({ access_token: 'new-token', token_type: 'Bearer', expires_in: 900 }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -209,7 +217,9 @@ describe('Auth Session Management & In-Memory Token Store', () => {
         }
         if (auth === 'Bearer new-token') {
           capturedBodyOnRetry = await req.json();
-          return new Response(JSON.stringify({ created: true, data: capturedBodyOnRetry }), { status: 201 });
+          return new Response(JSON.stringify({ created: true, data: capturedBodyOnRetry }), {
+            status: 201,
+          });
         }
       }
 
@@ -224,5 +234,24 @@ describe('Auth Session Management & In-Memory Token Store', () => {
 
     expect(response.status).toBe(201);
     expect(capturedBodyOnRetry).toEqual({ item: 'Winkey Video', count: 42 });
+  });
+
+  it('sends refresh request with same-origin credentials to ensure HttpOnly cookie is attached', async () => {
+    let capturedInit: RequestInit | undefined;
+    let capturedUrl = '';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      capturedUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+      capturedInit = init;
+      return new Response(
+        JSON.stringify({ access_token: 'new-token-123', token_type: 'Bearer', expires_in: 900 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    const token = await refreshAccessToken();
+    expect(token).toBe('new-token-123');
+    expect(capturedUrl).toContain('/v1/auth/refresh');
+    expect(capturedInit?.credentials).toBe('same-origin');
   });
 });

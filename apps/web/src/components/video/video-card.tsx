@@ -10,15 +10,15 @@ export function VideoCard({ video }: { video: VideoSummary | Video }) {
     'thumbnail_url' in video && video.thumbnail_url
       ? video.thumbnail_url
       : 'playback' in video && video.playback?.thumbnail_url
-      ? video.playback.thumbnail_url
-      : 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80';
+        ? video.playback.thumbnail_url
+        : 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80';
 
   const publishedAt =
     'published_at' in video && video.published_at
       ? video.published_at
       : 'created_at' in video
-      ? video.created_at
-      : '';
+        ? video.created_at
+        : '';
 
   return (
     <div className="group flex flex-col gap-3">

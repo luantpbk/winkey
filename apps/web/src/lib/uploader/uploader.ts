@@ -15,7 +15,15 @@ export interface UploadProgress {
   etaSeconds: number;
   completedParts: number;
   totalParts: number;
-  status: 'idle' | 'resuming' | 'presigning' | 'uploading' | 'completing' | 'completed' | 'cancelled' | 'error';
+  status:
+    | 'idle'
+    | 'resuming'
+    | 'presigning'
+    | 'uploading'
+    | 'completing'
+    | 'completed'
+    | 'cancelled'
+    | 'error';
   error?: string;
 }
 
@@ -270,7 +278,9 @@ export class MultipartUploader {
         if (response.status === 403) {
           // Presigned URL expired (1h TTL) -> invalidate and refresh
           this.presignedUrls.delete(partNumber);
-          throw new Error(`Presigned URL expired for part ${partNumber} (403), refreshed URL and retrying`);
+          throw new Error(
+            `Presigned URL expired for part ${partNumber} (403), refreshed URL and retrying`,
+          );
         }
 
         if (!response.ok) {
@@ -292,7 +302,9 @@ export class MultipartUploader {
       }
     }
 
-    throw lastError || new Error(`Failed to upload part ${partNumber} after ${this.maxRetries} retries`);
+    throw (
+      lastError || new Error(`Failed to upload part ${partNumber} after ${this.maxRetries} retries`)
+    );
   }
 
   private updateSpeed() {

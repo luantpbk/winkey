@@ -3,7 +3,7 @@ import { tokenStore } from './auth/token-store';
 
 export const getBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
-    return process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+    return window.location.origin;
   }
   return process.env.API_INTERNAL_URL || 'http://localhost:8080';
 };
@@ -21,6 +21,7 @@ async function doRefresh(): Promise<string | null> {
       const res = await fetch(`${baseUrl}/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
       });
       if (res.ok) {
         const data = await res.json();
@@ -43,7 +44,11 @@ async function doRefresh(): Promise<string | null> {
 
 export async function refreshAccessToken(): Promise<string | null> {
   // Cross-tab synchronization via Web Locks API when available
-  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.locks?.request) {
+  if (
+    typeof window !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    navigator.locks?.request
+  ) {
     return navigator.locks.request('wk-refresh', async () => {
       return doRefresh();
     });

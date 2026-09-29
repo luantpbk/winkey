@@ -48,17 +48,24 @@ describe('MultipartUploader State Machine', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const method = (
+        init?.method || (input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
 
       // POST /v1/uploads
-      if (url.includes('/v1/uploads') && method === 'POST' && !url.includes('/parts') && !url.includes('/complete')) {
+      if (
+        url.includes('/v1/uploads') &&
+        method === 'POST' &&
+        !url.includes('/parts') &&
+        !url.includes('/complete')
+      ) {
         return new Response(
           JSON.stringify({
             video_id: 'video-uuid-12345',
             part_size: 16 * 1024 * 1024,
             part_count: 3,
           }),
-          { status: 201, headers: { 'Content-Type': 'application/json' } }
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -74,7 +81,7 @@ describe('MultipartUploader State Machine', () => {
             })),
             expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -101,7 +108,7 @@ describe('MultipartUploader State Machine', () => {
             progress: 25,
             error: null,
           }),
-          { status: 202, headers: { 'Content-Type': 'application/json' } }
+          { status: 202, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -133,16 +140,23 @@ describe('MultipartUploader State Machine', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const method = (
+        init?.method || (input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
 
-      if (url.includes('/v1/uploads') && method === 'POST' && !url.includes('/parts') && !url.includes('/complete')) {
+      if (
+        url.includes('/v1/uploads') &&
+        method === 'POST' &&
+        !url.includes('/parts') &&
+        !url.includes('/complete')
+      ) {
         return new Response(
           JSON.stringify({
             video_id: 'video-retry-123',
             part_size: 35 * 1024 * 1024,
             part_count: 1,
           }),
-          { status: 201, headers: { 'Content-Type': 'application/json' } }
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -152,7 +166,7 @@ describe('MultipartUploader State Machine', () => {
             urls: [{ part_number: 1, url: 'https://s3.winkey.vn/part-1' }],
             expires_at: new Date().toISOString(),
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -203,7 +217,9 @@ describe('MultipartUploader State Machine', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const method = (
+        init?.method || (input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
 
       if (url.includes('/parts') && method === 'POST') {
         const body = await getRequestBody(input, init);
@@ -216,7 +232,7 @@ describe('MultipartUploader State Machine', () => {
             })),
             expires_at: new Date().toISOString(),
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -260,16 +276,23 @@ describe('MultipartUploader State Machine', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const method = (
+        init?.method || (input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
 
-      if (url.includes('/v1/uploads') && method === 'POST' && !url.includes('/parts') && !url.includes('/complete')) {
+      if (
+        url.includes('/v1/uploads') &&
+        method === 'POST' &&
+        !url.includes('/parts') &&
+        !url.includes('/complete')
+      ) {
         return new Response(
           JSON.stringify({
             video_id: 'video-403-refresh',
             part_size: 35 * 1024 * 1024,
             part_count: 1,
           }),
-          { status: 201, headers: { 'Content-Type': 'application/json' } }
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -277,10 +300,12 @@ describe('MultipartUploader State Machine', () => {
         presignCallCount++;
         return new Response(
           JSON.stringify({
-            urls: [{ part_number: 1, url: `https://s3.winkey.vn/part-1?token=${presignCallCount}` }],
+            urls: [
+              { part_number: 1, url: `https://s3.winkey.vn/part-1?token=${presignCallCount}` },
+            ],
             expires_at: new Date().toISOString(),
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -322,7 +347,9 @@ describe('MultipartUploader State Machine', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const method = (
+        init?.method || (input instanceof Request ? input.method : 'GET')
+      ).toUpperCase();
 
       if (url.includes('/v1/uploads') && method === 'POST' && !url.includes('/parts')) {
         return new Response(
@@ -331,7 +358,7 @@ describe('MultipartUploader State Machine', () => {
             part_size: 16 * 1024 * 1024,
             part_count: 5,
           }),
-          { status: 201, headers: { 'Content-Type': 'application/json' } }
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
         );
       }
 
@@ -346,7 +373,7 @@ describe('MultipartUploader State Machine', () => {
             })),
             expires_at: new Date().toISOString(),
           }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
 

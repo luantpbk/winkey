@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  async rewrites() {
+    return [
+      {
+        source: '/v1/:path*',
+        destination: `${process.env.API_INTERNAL_URL ?? 'http://localhost:8080'}/v1/:path*`,
+      },
+    ];
+  },
 };
 
 export default withNextIntl(nextConfig);

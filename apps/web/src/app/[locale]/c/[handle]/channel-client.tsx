@@ -32,7 +32,9 @@ export function ChannelClientHeader({
             {profile.display_name}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
-            <span className="font-semibold text-gray-700 dark:text-gray-300">@{profile.handle}</span>
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              @{profile.handle}
+            </span>
             <span>•</span>
             <span>128K người đăng ký</span>
             <span>•</span>

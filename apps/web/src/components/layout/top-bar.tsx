@@ -47,13 +47,18 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
           <Menu className="h-5 w-5" />
         </button>
 
-        <Link href="/" className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-600 rounded">
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-600 rounded"
+        >
           <div className="flex h-7 w-8 items-center justify-center rounded-lg bg-red-600 text-white shadow">
             <PlaySquare className="h-5 w-5 fill-current" />
           </div>
           <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white flex items-center">
             Winkey
-            <span className="ml-1 text-[10px] uppercase font-bold text-red-500 tracking-wider">VN</span>
+            <span className="ml-1 text-[10px] uppercase font-bold text-red-500 tracking-wider">
+              VN
+            </span>
           </span>
         </Link>
       </div>
@@ -88,7 +93,11 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
           aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
           className="rounded-full p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
         >
-          {theme === 'dark' ? <Sun className="h-5 w-5 text-yellow-400" /> : <Moon className="h-5 w-5 text-gray-700" />}
+          {theme === 'dark' ? (
+            <Sun className="h-5 w-5 text-yellow-400" />
+          ) : (
+            <Moon className="h-5 w-5 text-gray-700" />
+          )}
         </button>
 
         {isAuthenticated ? (
@@ -137,8 +146,12 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
                   onMouseLeave={() => setShowUserMenu(false)}
                 >
                   <div className="px-3 py-2 border-b border-[#2e2e2e] dark:border-[#2e2e2e] border-gray-100">
-                    <p className="font-semibold text-gray-900 dark:text-white truncate">{user?.display_name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{user?.handle}</p>
+                    <p className="font-semibold text-gray-900 dark:text-white truncate">
+                      {user?.display_name}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      @{user?.handle}
+                    </p>
                   </div>
 
                   <Link

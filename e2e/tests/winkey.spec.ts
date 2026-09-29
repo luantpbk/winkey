@@ -30,7 +30,11 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     // Verify owner display name or subscribe button
     await expect(
-      page.locator('button:has-text("Đăng ký"), button:has-text("Đã đăng ký"), button:has-text("Subscribe")').first()
+      page
+        .locator(
+          'button:has-text("Đăng ký"), button:has-text("Đã đăng ký"), button:has-text("Subscribe")',
+        )
+        .first(),
     ).toBeVisible();
     await expect(page.locator('h1')).toBeVisible();
   });
@@ -51,7 +55,10 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.locator('main button[type="submit"]').click();
 
     // Wait for redirect to home
-    await page.waitForURL((url) => url.pathname === '/' || url.pathname === '/vi' || url.pathname === '/en', { timeout: 15000 });
+    await page.waitForURL(
+      (url) => url.pathname === '/' || url.pathname === '/vi' || url.pathname === '/en',
+      { timeout: 15000 },
+    );
 
     // 2. Navigate to upload
     await page.goto('/upload');
@@ -65,11 +72,17 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await fileInput.setInputFiles(sampleFilePath);
 
     // Fill title
-    const uploadTitleInput = page.locator('input[placeholder*="Tiêu đề video"], input[placeholder*="Video Title"], input[required]').first();
+    const uploadTitleInput = page
+      .locator(
+        'input[placeholder*="Tiêu đề video"], input[placeholder*="Video Title"], input[required]',
+      )
+      .first();
     await uploadTitleInput.fill('E2E Automated Video Upload');
 
     // Click Start Upload
-    const startUploadBtn = page.locator('button:has-text("Bắt đầu tải lên"), button:has-text("Start Upload")');
+    const startUploadBtn = page.locator(
+      'button:has-text("Bắt đầu tải lên"), button:has-text("Start Upload")',
+    );
     await startUploadBtn.click();
 
     // Wait for upload completion indicator

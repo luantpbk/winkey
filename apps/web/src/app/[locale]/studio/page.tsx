@@ -23,11 +23,7 @@ export default function StudioPage() {
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
 
-  const {
-    data,
-    isLoading,
-    refetch,
-  } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['studio', 'videos'],
     queryFn: async () => {
       const { data: page, error: apiErr, response } = await api.video.GET('/v1/studio/videos');
@@ -43,7 +39,7 @@ export default function StudioPage() {
   // Polling every 5s while any video is UPLOADED or PROCESSING
   useEffect(() => {
     const processingVideos = videos.filter(
-      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING'
+      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
     );
 
     if (processingVideos.length === 0) return;
@@ -68,7 +64,7 @@ export default function StudioPage() {
                         progress: statusData.progress,
                         error: statusData.error,
                       }
-                    : item
+                    : item,
                 ),
               };
             });
