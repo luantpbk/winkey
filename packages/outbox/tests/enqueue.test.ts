@@ -3,10 +3,22 @@ import { enqueue } from '../src/enqueue.js';
 import { Kysely, PostgresDialect } from 'kysely';
 
 describe('enqueue', () => {
-  it('throws an error for unsafe schema names', async () => {
+  it('throws an error for unsafe or invalid schema names not matching ^[a-z_][a-z0-9_]*$', async () => {
     const mockTx = { query: vi.fn() };
-    await expect(enqueue(mockTx, 'auth; DROP TABLE users;', 'user.registered', {}))
-      .rejects.toThrow('Invalid schema identifier');
+    const invalidSchemas = [
+      'auth; DROP TABLE users;',
+      '123auth', // starts with digit
+      'Auth',    // uppercase
+      'AUTH',    // uppercase
+      'auth-svc', // hyphen
+      'auth.svc', // dot
+      '',
+    ];
+
+    for (const schema of invalidSchemas) {
+      await expect(enqueue(mockTx, schema, 'user.registered', {}))
+        .rejects.toThrow('Invalid schema identifier');
+    }
   });
 
   it('inserts into outbox table using pg client query', async () => {

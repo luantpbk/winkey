@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { buildEnvelope } from './envelope.js';
 import type { EventEnvelope, EnqueueOptions } from './types.js';
 
-const VALID_IDENTIFIER = /^[a-zA-Z0-9_]+$/;
+const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
 
 /**
  * Enqueues a domain event into the transactional outbox table in the same transaction
@@ -21,7 +21,7 @@ export async function enqueue<T = Record<string, unknown>>(
   data: T,
   options: EnqueueOptions = {}
 ): Promise<EventEnvelope<T>> {
-  if (!VALID_IDENTIFIER.test(schema)) {
+  if (!VALID_SCHEMA.test(schema)) {
     throw new Error(`Invalid schema identifier: ${schema}`);
   }
 
