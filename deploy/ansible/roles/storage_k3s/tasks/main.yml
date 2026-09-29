@@ -1,0 +1,57 @@
+---
+# Role: storage_k3s
+# Deploys Garage S3 StatefulSet, ConfigMap, Secrets, and bootstrap Job to k3s via Kustomize (task STO)
+
+- name: Check if garage-rpc-secret exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret garage-rpc-secret -n default
+  register: rpc_secret_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create garage-rpc-secret if missing
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    SECRET=$(openssl rand -hex 32) &&
+    /usr/local/bin/k3s kubectl create secret generic garage-rpc-secret -n default --from-literal=rpc_secret="$SECRET"
+  args:
+    executable: /bin/bash
+  when: rpc_secret_check.rc != 0
+
+- name: Check if garage-admin-token exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret garage-admin-token -n default
+  register: admin_token_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create garage-admin-token if missing
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    TOKEN=$(openssl rand -hex 32) &&
+    /usr/local/bin/k3s kubectl create secret generic garage-admin-token -n default --from-literal=admin_token="$TOKEN"
+  args:
+    executable: /bin/bash
+  when: admin_token_check.rc != 0
+
+- name: Sync Garage storage manifests to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../k8s/storage/"
+    dest: /var/lib/rancher/k3s/storage-manifests/
+    mode: "0644"
+  register: storage_manifests_sync
+
+- name: Apply Garage storage kustomization
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/storage-manifests/
+  register: kustomize_apply
+  changed_when: "'configured' in kustomize_apply.stdout or 'created' in kustomize_apply.stdout"
+
+- name: Wait for Garage StatefulSet rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/garage -n default --timeout=120s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for garage-bootstrap Job completion
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=complete job/garage-bootstrap -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode

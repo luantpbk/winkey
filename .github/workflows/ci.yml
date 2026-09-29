@@ -19,12 +19,16 @@ jobs:
       go_upload: ${{ steps.filter.outputs.go_upload }}
       go_transcoder: ${{ steps.filter.outputs.go_transcoder }}
       go_video: ${{ steps.filter.outputs.go_video }}
+      deploy_k8s: ${{ steps.filter.outputs.deploy_k8s }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
+            deploy_k8s:
+              - 'deploy/k8s/**'
+              - '.github/workflows/ci.yml'
             root_ts:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -187,3 +191,25 @@ jobs:
         run: |
           GOOS=linux GOARCH=arm64 go build ./...
           GOOS=windows GOARCH=amd64 go build ./...
+
+  k8s-ci:
+    name: k8s (kustomize & kubeconform)
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.deploy_k8s == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kustomize & kubeconform
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate kustomize build
+        run: |
+          kustomize build deploy/k8s/storage
+      - name: Validate schemas with kubeconform
+        run: |
+          kubeconform -strict -summary -skip IngressRoute,Middleware -schema-location default deploy/k8s/edge/*.yaml
+          kustomize build deploy/k8s/storage | kubeconform -strict -summary -schema-location default
