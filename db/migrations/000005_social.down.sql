@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS social.outbox;
+DROP TABLE IF EXISTS social.subscriptions;
+DROP TABLE IF EXISTS social.channels;
+DROP TABLE IF EXISTS social.video_likes;
+DROP TABLE IF EXISTS social.comments;
+DROP TABLE IF EXISTS social.videos;
+DROP FUNCTION IF EXISTS social.subscriber_counts();
+DROP FUNCTION IF EXISTS social.like_counts();
+DROP FUNCTION IF EXISTS social.comment_counts();
+DROP FUNCTION IF EXISTS social.guard_comment_parent();
+DROP TYPE IF EXISTS social.comment_status;
+DROP SCHEMA IF EXISTS social;

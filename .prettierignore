@@ -14,10 +14,10 @@ contracts/**
 db/**
 docs/**
 libs/**
-deploy/**
+deploy/ansible/**
 *.md
 .golangci.yml
-.github/workflows/**
+.github/workflows/contracts.yml
 
 # Generated OpenAPI types (freshness enforced by check:generated)
 packages/api-client/src/types/

@@ -49,6 +49,8 @@ NATS_URL=nats://... replay-dlq -max 10
 ```
 Messages keep their payload (same `event_id`; the transcoder is idempotent) and get a fresh `Nats-Msg-Id`. A durable consumer remembers what was replayed. The video must be `FAILED` or `PROCESSING` (both are accepted by `BeginJob`).
 
+S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; the transcoder never presigns).
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -61,6 +63,7 @@ Messages keep their payload (same `event_id`; the transcoder is idempotent) and 
 | `S3_RAW_BUCKET` / `S3_MEDIA_BUCKET` | `winkey-raw` / `winkey-media` | |
 | `ENCODER` | `auto` | `auto` = NVENC if a 1-frame test encode works at startup, else x264; or `nvenc` / `x264` |
 | `X264_PRESET` | `veryfast` | |
+| `HWACCEL_DECODE` | `true` | NVENC only. `false` = decode on the CPU, encode on the GPU. **gpu-01 uses `false` with `WORKER_CONCURRENCY=1`**: with the miner running, `-hwaccel cuda` decode measured 3.0x realtime vs 5.6x with CPU decode (docs/INFRASTRUCTURE.md section 6) |
 | `WORKER_CONCURRENCY` | auto | 2 with NVENC (GeForce allows ~8 sessions, each job uses 3), 1 with x264 |
 | `UPLOAD_PARALLELISM` | `8` | parallel uploads per job |
 | `SCRATCH_DIR` | `<os temp>/winkey-scratch` | fast local disk (NVMe) |

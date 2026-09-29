@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/luantpbk/winkey/libs/go/s3x"
 )
 
 // Video statuses (media.video_status).
@@ -78,14 +80,15 @@ type Part struct {
 	ETag   string
 }
 
-// Errors returned by Storage implementations.
+// Errors returned by Storage implementations: the shared s3x sentinels, so
+// errors.Is works no matter which layer wrapped them.
 var (
 	// ErrNoSuchUpload: the multipart upload id is unknown (aborted/completed).
-	ErrNoSuchUpload = errors.New("no such multipart upload")
+	ErrNoSuchUpload = s3x.ErrNoSuchUpload
 	// ErrInvalidPart: a part is missing or its ETag does not match.
-	ErrInvalidPart = errors.New("invalid multipart part")
+	ErrInvalidPart = s3x.ErrInvalidPart
 	// ErrNoSuchObject: the object does not exist.
-	ErrNoSuchObject = errors.New("no such object")
+	ErrNoSuchObject = s3x.ErrNotFound
 )
 
 // Storage is the object-storage port. Server-side calls use the internal

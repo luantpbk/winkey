@@ -7,6 +7,10 @@ info:
 
     Visibility rules for non-owners: only `READY` videos are returned; `PRIVATE` → 404;
     `UNLISTED` → readable by id but never listed. Owners and `admin`/`moderator` see everything.
+    Videos whose owner has no active profile (suspended or deleted, i.e. absent from
+    `auth.public_profiles`) are hidden from feeds and return `404` to everyone except the owner,
+    moderators and admins; for those callers `owner` is a placeholder profile with handle `deleted_user`.
+    `GET /v1/videos?owner_id=` lists only `PUBLIC` + `READY` videos, even for the owner (use the studio).
     Media URLs are built as `MEDIA_BASE_URL + object key`, e.g.
     `https://media.winkey.vn/v/{video_id}/a{attempt}/hls/master.m3u8`.
   license:
@@ -139,6 +143,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StudioVideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import openapiTS, { astToString } from 'openapi-typescript';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +25,7 @@ export async function generateAll(): Promise<Map<string, string>> {
     console.log(
       `Generating types for ${contract.name} from ${path.relative(rootDir, contract.file)}...`,
     );
-    const fileUrl = new URL(`file:///${contract.file.replace(/\\/g, '/')}`);
+    const fileUrl = pathToFileURL(contract.file);
     const ast = await openapiTS(fileUrl);
     const content = astToString(ast);
     const targetPath = path.join(outDir, `${contract.name}.ts`);
