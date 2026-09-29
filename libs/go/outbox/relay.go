@@ -216,6 +216,12 @@ func (r *Relay) listenOnce(ctx context.Context, wake chan<- struct{}) error {
 	if _, err := pc.Exec(ctx, "LISTEN "+pgx.Identifier{NotifyChannel(r.Schema)}.Sanitize()); err != nil {
 		return err
 	}
+	// Rows committed before LISTEN took effect sent their NOTIFY to nobody:
+	// wake the relay once so it drains them now instead of at the next poll.
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
 	for {
 		if _, err := pc.WaitForNotification(ctx); err != nil {
 			return err

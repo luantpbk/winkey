@@ -64,31 +64,37 @@ func TestEnqueueRelayEndToEnd(t *testing.T) {
 	if got == nil {
 		t.Fatal("event not delivered after commit")
 	}
+	// The payload goes through a jsonb column, which normalises whitespace, so
+	// compare the data structurally.
+	var data map[string]any
+	if err := json.Unmarshal(got.Data, &data); err != nil {
+		t.Fatal(err)
+	}
 	if got.Type != "video.uploaded" || got.Version != 1 || got.Producer != "upload-svc" ||
-		string(got.Data) != `{"video_id":"v1"}` {
+		len(data) != 1 || data["video_id"] != "v1" {
 		t.Fatalf("bad envelope: %+v", got)
 	}
 
-	var pending int
-	if err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE published_at IS NULL`).Scan(&pending); err != nil {
-		t.Fatal(err)
-	}
-	if pending != 0 {
-		t.Fatalf("%d rows still pending", pending)
-	}
+	// published_at is committed just after the message is published.
+	waitFor(t, 5*time.Second, "row marked published", func() bool {
+		var pending int
+		_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE published_at IS NULL`).Scan(&pending)
+		return pending == 0
+	})
 
-	// Cleanup removes only old published rows.
+	// Cleanup removes published rows older than the retention (fresh relay:
+	// the first one keeps running with its own settings).
+	cancel()
 	if _, err := pg.Pool.Exec(ctx, `UPDATE media.outbox SET published_at = now() - interval '8 days'`); err != nil {
 		t.Fatal(err)
 	}
-	relay.Retention = 7 * 24 * time.Hour
-	relay.CleanupInterval = 50 * time.Millisecond
-	cancel()
-	rctx2, cancel2 := context.WithCancel(ctx)
-	defer cancel2()
-	relay2 := *relay
-	relay2.PollInterval = 50 * time.Millisecond
-	go func() { _ = relay2.Run(rctx2) }()
+	cleaner := &outbox.Relay{
+		Pool: pg.Pool, Publisher: outbox.JetStreamPublisher{JS: ns.JS}, Schema: "media",
+		PollInterval: 50 * time.Millisecond, CleanupInterval: 50 * time.Millisecond, Retention: 7 * 24 * time.Hour,
+	}
+	cctx, ccancel := context.WithCancel(ctx)
+	defer ccancel()
+	go func() { _ = cleaner.Run(cctx) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var n int
