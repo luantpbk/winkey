@@ -198,6 +198,13 @@ export function createMockDb(store: MockStore = createMockStore()): {
       }
 
       // 5. SELECT FROM "auth"."users"
+      if (sql.includes('count(*)') && sql.includes('"auth"."users"')) {
+        const cnt = store.users.filter(
+          (u) => u.roles.includes('admin') && u.status !== 'DELETED',
+        ).length;
+        return { rows: [{ cnt }], rowCount: 1 };
+      }
+
       if (sql.includes('select') && sql.includes('"auth"."users"')) {
         let matching = store.users.map((u) => ({
           ...u,

@@ -49,11 +49,11 @@ export function checkRbacPermission(params: RbacCheckParams): RbacCheckResult {
         reason: 'Cannot change own roles',
       };
     }
-    if (action === 'SUSPEND_USER') {
+    if (action === 'SUSPEND_USER' || action === 'UNSUSPEND_USER') {
       return {
         allowed: false,
         errorCode: 'CANNOT_MODERATE_TARGET',
-        reason: 'Cannot suspend self',
+        reason: 'Cannot moderate self',
       };
     }
   }
@@ -63,15 +63,8 @@ export function checkRbacPermission(params: RbacCheckParams): RbacCheckResult {
     const isTargetAdmin = targetRoles.includes('admin');
     const isTargetMod = targetRoles.includes('moderator');
 
-    // Admin protection: nobody can suspend or change roles of an admin
+    // Admin protection: nobody can suspend or unsuspend an admin
     if (isTargetAdmin) {
-      if (action === 'CHANGE_ROLES') {
-        return {
-          allowed: false,
-          errorCode: 'CANNOT_MODERATE_TARGET',
-          reason: 'Cannot modify roles of an admin',
-        };
-      }
       if (action === 'SUSPEND_USER' || action === 'UNSUSPEND_USER') {
         return {
           allowed: false,

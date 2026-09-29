@@ -180,12 +180,11 @@ describe('RBAC Matrix (Table-Driven)', () => {
       expectedAllowed: true,
     },
     {
-      name: 'admin CANNOT change roles of another admin',
+      name: 'admin CAN change roles of another admin',
       actorRoles: ['admin'],
       action: 'CHANGE_ROLES',
       targetRoles: ['admin', 'viewer'],
-      expectedAllowed: false,
-      expectedErrorCode: 'CANNOT_MODERATE_TARGET',
+      expectedAllowed: true,
     },
     {
       name: 'admin CANNOT change own roles',

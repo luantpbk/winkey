@@ -754,5 +754,102 @@ describe('auth-svc full integration flow', () => {
       expect(modSuspMod.statusCode).toBe(403);
       expect(modSuspMod.json().code).toBe('CANNOT_MODERATE_TARGET');
     });
+
+    it('Admin: Admin A can change Admin B roles, but cannot demote the sole admin (409 LAST_ADMIN)', async () => {
+      // Create admin B
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'admin_b@winkey.vn',
+          password: 'Password123!',
+          handle: 'admin_b',
+          display_name: 'Admin B',
+        },
+      });
+      const adminBId = reg.json().user.id;
+      store.users.find((u) => u.id === adminBId)!.roles = ['admin', 'viewer'];
+
+      // Admin A promotes Admin B with creator role
+      const updateRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${adminBId}/roles`,
+        headers: adminHeaders,
+        payload: {
+          roles: ['admin', 'creator', 'viewer'],
+        },
+      });
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.json().roles).toEqual(['admin', 'creator', 'viewer']);
+
+      // But if there is only 1 admin, demoting them returns 409 LAST_ADMIN
+      // Remove admin role from Admin B
+      store.users.find((u) => u.id === adminBId)!.roles = ['viewer'];
+      // Ensure only caller admin is in store as admin
+      const soleAdminTarget = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'sole_admin_target@winkey.vn',
+          password: 'Password123!',
+          handle: 'sole_admin_target',
+          display_name: 'Sole Admin Target',
+        },
+      });
+      const soleAdminId = soleAdminTarget.json().user.id;
+      store.users.find((u) => u.id === soleAdminId)!.roles = ['admin', 'viewer'];
+      store.users = store.users.filter((u) => u.id === soleAdminId || !u.roles.includes('admin'));
+
+      const demoteRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${soleAdminId}/roles`,
+        headers: adminHeaders,
+        payload: {
+          roles: ['viewer'],
+        },
+      });
+      expect(demoteRes.statusCode).toBe(409);
+      expect(demoteRes.json().code).toBe('LAST_ADMIN');
+    });
+
+    it('Admin/Moderator: Unsuspend/Suspend on DELETED user returns 409 conflict and user remains DELETED', async () => {
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'deleted_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'deleted_user',
+          display_name: 'Deleted User',
+        },
+      });
+      const deletedId = reg.json().user.id;
+      store.users.find((u) => u.id === deletedId)!.status = 'DELETED';
+
+      // 1. Unsuspend must fail with 409
+      const unsuspRes = await app.inject({
+        method: 'DELETE',
+        url: `/v1/admin/users/${deletedId}/suspension`,
+        headers: modHeaders,
+      });
+      expect(unsuspRes.statusCode).toBe(409);
+      expect(unsuspRes.json().detail).toContain('User is deleted');
+
+      // Database status remains DELETED
+      expect(store.users.find((u) => u.id === deletedId)!.status).toBe('DELETED');
+
+      // 2. Suspend must fail with 409
+      const suspRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${deletedId}/suspension`,
+        headers: modHeaders,
+        payload: {
+          reason: 'Attempting to suspend deleted user',
+        },
+      });
+      expect(suspRes.statusCode).toBe(409);
+      expect(suspRes.json().detail).toContain('User is deleted');
+      expect(store.users.find((u) => u.id === deletedId)!.status).toBe('DELETED');
+    });
   });
 });

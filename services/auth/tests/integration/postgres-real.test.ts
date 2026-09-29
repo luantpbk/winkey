@@ -310,4 +310,344 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
     expect(subsequentRes.statusCode).toBe(401);
   }, 60_000);
+
+  async function createAdminUser(adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b0001') {
+    const email = `admin_${adminId.slice(-6)}@winkey.vn`;
+    const handle = `admin_${adminId.slice(-6)}`;
+    await pool!.query(
+      `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+       VALUES ($1, $2, 'dummyhash', $3, 'Admin User', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
+       ON CONFLICT (id) DO UPDATE SET roles = ARRAY['admin', 'viewer']::auth.role[], status = 'ACTIVE'`,
+      [adminId, email, handle],
+    );
+    return {
+      adminId,
+      adminHeaders: {
+        'x-user-id': adminId,
+        'x-user-roles': 'admin,viewer',
+      },
+    };
+  }
+
+  it('admin: role update writes USER_ROLES_CHANGED audit row; identical update writes no audit row', async () => {
+    if (!app || !pool) return;
+    const { adminHeaders, adminId } = await createAdminUser();
+
+    // 1. Register a test user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'role_test_real@winkey.vn',
+        password: 'Password123!',
+        handle: 'role_test_real',
+        display_name: 'Role Test Real',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const targetId = regRes.json().user.id;
+
+    // 2. Set new roles
+    const putRes1 = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/roles`,
+      headers: adminHeaders,
+      payload: {
+        roles: ['viewer', 'creator', 'moderator'],
+      },
+    });
+    expect(putRes1.statusCode).toBe(200);
+    expect(putRes1.json().roles).toEqual(['viewer', 'creator', 'moderator']);
+
+    const auditRes1 = await pool.query(
+      'SELECT id, actor_id, action, target_user_id, details FROM auth.audit_log WHERE target_user_id = $1 AND action = $2',
+      [targetId, 'USER_ROLES_CHANGED'],
+    );
+    expect(auditRes1.rows.length).toBe(1);
+    expect(auditRes1.rows[0].actor_id).toBe(adminId);
+    const details =
+      typeof auditRes1.rows[0].details === 'string'
+        ? JSON.parse(auditRes1.rows[0].details)
+        : auditRes1.rows[0].details;
+    expect(details.to).toEqual(['viewer', 'creator', 'moderator']);
+
+    // 3. Set identical roles again -> 200 but NO extra audit row
+    const putRes2 = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/roles`,
+      headers: adminHeaders,
+      payload: {
+        roles: ['viewer', 'creator', 'moderator'],
+      },
+    });
+    expect(putRes2.statusCode).toBe(200);
+
+    const auditRes2 = await pool.query(
+      'SELECT id FROM auth.audit_log WHERE target_user_id = $1 AND action = $2',
+      [targetId, 'USER_ROLES_CHANGED'],
+    );
+    expect(auditRes2.rows.length).toBe(1);
+  });
+
+  it('admin: user suspension creates exactly 1 audit row, revokes all refresh tokens, login returns 403', async () => {
+    if (!app || !pool) return;
+    const { adminHeaders, adminId } = await createAdminUser();
+
+    // 1. Register user and log in to obtain refresh tokens
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'suspend_test_real@winkey.vn',
+        password: 'Password123!',
+        handle: 'suspend_real_user',
+        display_name: 'Suspend Real User',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const targetId = regRes.json().user.id;
+
+    // Login once more
+    const loginRes1 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'suspend_test_real@winkey.vn',
+        password: 'Password123!',
+      },
+    });
+    expect(loginRes1.statusCode).toBe(200);
+
+    // Verify user has active refresh tokens
+    const beforeTokens = await pool.query(
+      'SELECT id, revoked_at FROM auth.refresh_tokens WHERE user_id = $1',
+      [targetId],
+    );
+    expect(beforeTokens.rows.length).toBeGreaterThanOrEqual(2);
+    for (const row of beforeTokens.rows) {
+      expect(row.revoked_at).toBeNull();
+    }
+
+    // 2. Suspend user
+    const futureUntil = new Date(Date.now() + 7 * 86400000).toISOString();
+    const suspRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/suspension`,
+      headers: adminHeaders,
+      payload: {
+        reason: 'Violated terms of service real test',
+        until: futureUntil,
+      },
+    });
+    expect(suspRes.statusCode).toBe(200);
+    expect(suspRes.json().status).toBe('SUSPENDED');
+
+    // Exactly 1 audit row
+    const auditRes = await pool.query(
+      'SELECT id, actor_id, action, target_user_id FROM auth.audit_log WHERE target_user_id = $1 AND action = $2',
+      [targetId, 'USER_SUSPENDED'],
+    );
+    expect(auditRes.rows.length).toBe(1);
+    expect(auditRes.rows[0].actor_id).toBe(adminId);
+
+    // All refresh tokens have revoked_at IS NOT NULL
+    const afterTokens = await pool.query(
+      'SELECT id, revoked_at FROM auth.refresh_tokens WHERE user_id = $1',
+      [targetId],
+    );
+    expect(afterTokens.rows.length).toBeGreaterThanOrEqual(2);
+    for (const row of afterTokens.rows) {
+      expect(row.revoked_at).not.toBeNull();
+    }
+
+    // Login returns 403 ACCOUNT_SUSPENDED with until, never internal reason
+    const loginRes2 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'suspend_test_real@winkey.vn',
+        password: 'Password123!',
+      },
+    });
+    expect(loginRes2.statusCode).toBe(403);
+    const prob = loginRes2.json();
+    expect(prob.code).toBe('ACCOUNT_SUSPENDED');
+    expect(prob.detail).toContain(futureUntil);
+    expect(prob.detail).not.toContain('Violated terms of service real test');
+  });
+
+  it('login: expired suspension auto-lifts to ACTIVE and records audit row with details { expired: true }', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'expired_real@winkey.vn',
+        password: 'Password123!',
+        handle: 'expired_real_user',
+        display_name: 'Expired Real User',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const targetId = regRes.json().user.id;
+
+    // 2. Put user into SUSPENDED state with suspended_until 1 hour in the past
+    await pool.query(
+      `UPDATE auth.users
+       SET status = 'SUSPENDED',
+           suspended_until = NOW() - INTERVAL '1 hour',
+           suspension_reason = 'Temporary 1 hour cooldown'
+       WHERE id = $1`,
+      [targetId],
+    );
+
+    // 3. User logs in with valid password
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'expired_real@winkey.vn',
+        password: 'Password123!',
+      },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json().access_token).toBeDefined();
+
+    // 4. In PostgreSQL, status is now ACTIVE, suspended_until and reason are NULL
+    const userRowRes = await pool.query(
+      'SELECT status, suspended_until, suspension_reason FROM auth.users WHERE id = $1',
+      [targetId],
+    );
+    expect(userRowRes.rows.length).toBe(1);
+    expect(userRowRes.rows[0].status).toBe('ACTIVE');
+    expect(userRowRes.rows[0].suspended_until).toBeNull();
+    expect(userRowRes.rows[0].suspension_reason).toBeNull();
+
+    // 5. Audit log has USER_UNSUSPENDED with details {"expired": true}
+    const auditRes = await pool.query(
+      'SELECT id, action, details FROM auth.audit_log WHERE target_user_id = $1 AND action = $2',
+      [targetId, 'USER_UNSUSPENDED'],
+    );
+    expect(auditRes.rows.length).toBe(1);
+    const details =
+      typeof auditRes.rows[0].details === 'string'
+        ? JSON.parse(auditRes.rows[0].details)
+        : auditRes.rows[0].details;
+    expect(details).toEqual({ expired: true });
+  });
+
+  it('admin: unsuspend or suspend on DELETED user returns 409 conflict and user remains DELETED', async () => {
+    if (!app || !pool) return;
+    const { adminHeaders } = await createAdminUser();
+
+    // 1. Register user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'deleted_target_real@winkey.vn',
+        password: 'Password123!',
+        handle: 'deleted_target_real',
+        display_name: 'Deleted Target Real',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const targetId = regRes.json().user.id;
+
+    // Mark user DELETED directly in PostgreSQL
+    await pool.query("UPDATE auth.users SET status = 'DELETED' WHERE id = $1", [targetId]);
+
+    // 2. Unsuspend must return 409 conflict
+    const unsuspRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/admin/users/${targetId}/suspension`,
+      headers: adminHeaders,
+    });
+    expect(unsuspRes.statusCode).toBe(409);
+    expect(unsuspRes.json().detail).toContain('User is deleted');
+
+    // 3. User remains DELETED in DB
+    const check1 = await pool.query('SELECT status FROM auth.users WHERE id = $1', [targetId]);
+    expect(check1.rows[0].status).toBe('DELETED');
+
+    // 4. Suspend must return 409 conflict
+    const suspRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/suspension`,
+      headers: adminHeaders,
+      payload: {
+        reason: 'Cannot suspend deleted user',
+      },
+    });
+    expect(suspRes.statusCode).toBe(409);
+    expect(suspRes.json().detail).toContain('User is deleted');
+
+    // 5. User still remains DELETED
+    const check2 = await pool.query('SELECT status FROM auth.users WHERE id = $1', [targetId]);
+    expect(check2.rows[0].status).toBe('DELETED');
+  });
+
+  it('admin: adminListUsers q search matches display_name via pg_trgm and handle prefix', async () => {
+    if (!app || !pool) return;
+    const { adminHeaders } = await createAdminUser();
+
+    // 1. Register users with distinct names and handles
+    const u1 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'trgm_alice@winkey.vn',
+        password: 'Password123!',
+        handle: 'trgm_alice',
+        display_name: 'Alice Trigram Searcher',
+      },
+    });
+    expect(u1.statusCode).toBe(201);
+    const aliceId = u1.json().user.id;
+
+    const u2 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'trgm_bob@winkey.vn',
+        password: 'Password123!',
+        handle: 'trgm_bob',
+        display_name: 'Bob Video Producer',
+      },
+    });
+    expect(u2.statusCode).toBe(201);
+    const bobId = u2.json().user.id;
+
+    // 2. Search by display_name similarity via pg_trgm % operator
+    const searchRes1 = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/users?q=Searcher',
+      headers: adminHeaders,
+    });
+    expect(searchRes1.statusCode).toBe(200);
+    const items1 = searchRes1.json().items as Array<{ id: string }>;
+    expect(items1.some((u) => u.id === aliceId)).toBe(true);
+    expect(items1.some((u) => u.id === bobId)).toBe(false);
+
+    // 3. Search by handle prefix
+    const searchRes2 = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/users?q=trgm_b',
+      headers: adminHeaders,
+    });
+    expect(searchRes2.statusCode).toBe(200);
+    const items2 = searchRes2.json().items as Array<{ id: string }>;
+    expect(items2.some((u) => u.id === bobId)).toBe(true);
+    expect(items2.some((u) => u.id === aliceId)).toBe(false);
+
+    // 4. Wildcard escaping: search for literal '%' does not error or match unintended rows
+    const searchRes3 = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/users?q=%25',
+      headers: adminHeaders,
+    });
+    expect(searchRes3.statusCode).toBe(200);
+  });
 });

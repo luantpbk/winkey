@@ -155,10 +155,11 @@ export const adminRoute: FastifyPluginAsync<{
 
     if (q && q.trim()) {
       const term = q.trim();
+      const escapedTerm = term.replace(/[\\%_]/g, '\\$&');
       query = query.where((eb) =>
         eb.or([
-          sql<boolean>`email ILIKE ${term + '%'}`,
-          sql<boolean>`handle ILIKE ${term + '%'}`,
+          sql<boolean>`email ILIKE ${escapedTerm + '%'}`,
+          sql<boolean>`handle ILIKE ${escapedTerm + '%'}`,
           sql<boolean>`display_name % ${term}`,
         ]),
       );
@@ -267,40 +268,54 @@ export const adminRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Validation failed', fieldErrors);
     }
 
-    const target = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirst();
-
-    if (!target) {
-      throw ProblemError.notFound('User not found');
-    }
-    if (target.status === 'DELETED') {
-      throw ProblemError.conflict('User is deleted');
-    }
-
-    enforceRbac({
-      actorRoles: caller.roles,
-      action: 'CHANGE_ROLES',
-      targetRoles: target.roles,
-      isSelf: caller.id === user_id,
-    });
-
     const newRoles = parseResult.data.roles as Role[];
-    const currentSorted = [...target.roles].sort();
-    const newSorted = [...newRoles].sort();
-    const isSame =
-      currentSorted.length === newSorted.length &&
-      currentSorted.every((r, idx) => r === newSorted[idx]);
+    const result = await db.transaction().execute(async (trx) => {
+      const lockedTarget = await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .forUpdate()
+        .executeTakeFirst();
 
-    if (isSame) {
-      // Idempotent: return without audit row
-      return reply.status(200).send(formatAdminUser(target, env));
-    }
+      if (!lockedTarget) {
+        throw ProblemError.notFound('User not found');
+      }
+      if (lockedTarget.status === 'DELETED') {
+        throw ProblemError.conflict('User is deleted');
+      }
 
-    const now = new Date();
-    await db.transaction().execute(async (trx) => {
+      enforceRbac({
+        actorRoles: caller.roles,
+        action: 'CHANGE_ROLES',
+        targetRoles: lockedTarget.roles,
+        isSelf: caller.id === user_id,
+      });
+
+      const currentSorted = [...lockedTarget.roles].sort();
+      const newSorted = [...newRoles].sort();
+      const isSame =
+        currentSorted.length === newSorted.length &&
+        currentSorted.every((r, idx) => r === newSorted[idx]);
+
+      if (isSame) {
+        // Idempotent: return without audit row
+        return lockedTarget;
+      }
+
+      // Safeguard: cannot remove the last admin
+      if (lockedTarget.roles.includes('admin') && !newRoles.includes('admin')) {
+        const adminCountRes = await trx
+          .selectFrom('auth.users')
+          .select(sql<number>`count(*)::int`.as('cnt'))
+          .where(sql<boolean>`'admin' = ANY(roles)`)
+          .where('status', '!=', 'DELETED')
+          .executeTakeFirst();
+        if (Number(adminCountRes?.cnt ?? 0) <= 1) {
+          throw ProblemError.conflict('Cannot remove the last admin', 'LAST_ADMIN');
+        }
+      }
+
+      const now = new Date();
       await trx
         .updateTable('auth.users')
         .set({
@@ -318,20 +333,20 @@ export const adminRoute: FastifyPluginAsync<{
           action: 'USER_ROLES_CHANGED',
           target_user_id: user_id,
           details: JSON.stringify({
-            from: target.roles,
+            from: lockedTarget.roles,
             to: newRoles,
           }),
         })
         .execute();
+
+      return await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .executeTakeFirstOrThrow();
     });
 
-    const updated = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirstOrThrow();
-
-    return reply.status(200).send(formatAdminUser(updated, env));
+    return reply.status(200).send(formatAdminUser(result, env));
   });
 
   // 4. Suspend user (moderator or admin)
@@ -369,28 +384,29 @@ export const adminRoute: FastifyPluginAsync<{
       }
     }
 
-    const target = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirst();
+    const result = await db.transaction().execute(async (trx) => {
+      const lockedTarget = await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .forUpdate()
+        .executeTakeFirst();
 
-    if (!target) {
-      throw ProblemError.notFound('User not found');
-    }
-    if (target.status === 'DELETED') {
-      throw ProblemError.conflict('User is deleted');
-    }
+      if (!lockedTarget) {
+        throw ProblemError.notFound('User not found');
+      }
+      if (lockedTarget.status === 'DELETED') {
+        throw ProblemError.conflict('User is deleted');
+      }
 
-    enforceRbac({
-      actorRoles: caller.roles,
-      action: 'SUSPEND_USER',
-      targetRoles: target.roles,
-      isSelf: caller.id === user_id,
-    });
+      enforceRbac({
+        actorRoles: caller.roles,
+        action: 'SUSPEND_USER',
+        targetRoles: lockedTarget.roles,
+        isSelf: caller.id === user_id,
+      });
 
-    const now = new Date();
-    await db.transaction().execute(async (trx) => {
+      const now = new Date();
       await trx
         .updateTable('auth.users')
         .set({
@@ -423,15 +439,15 @@ export const adminRoute: FastifyPluginAsync<{
           }),
         })
         .execute();
+
+      return await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .executeTakeFirstOrThrow();
     });
 
-    const updated = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirstOrThrow();
-
-    return reply.status(200).send(formatAdminUser(updated, env));
+    return reply.status(200).send(formatAdminUser(result, env));
   });
 
   // 5. Unsuspend user (moderator or admin)
@@ -445,30 +461,34 @@ export const adminRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Invalid user ID');
     }
 
-    const target = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirst();
+    const result = await db.transaction().execute(async (trx) => {
+      const lockedTarget = await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .forUpdate()
+        .executeTakeFirst();
 
-    if (!target) {
-      throw ProblemError.notFound('User not found');
-    }
+      if (!lockedTarget) {
+        throw ProblemError.notFound('User not found');
+      }
+      if (lockedTarget.status === 'DELETED') {
+        throw ProblemError.conflict('User is deleted');
+      }
 
-    enforceRbac({
-      actorRoles: caller.roles,
-      action: 'UNSUSPEND_USER',
-      targetRoles: target.roles,
-      isSelf: caller.id === user_id,
-    });
+      enforceRbac({
+        actorRoles: caller.roles,
+        action: 'UNSUSPEND_USER',
+        targetRoles: lockedTarget.roles,
+        isSelf: caller.id === user_id,
+      });
 
-    if (target.status === 'ACTIVE') {
-      // Idempotent: return 200 without audit row
-      return reply.status(200).send(formatAdminUser(target, env));
-    }
+      if (lockedTarget.status === 'ACTIVE') {
+        // Idempotent: return 200 without audit row
+        return lockedTarget;
+      }
 
-    const now = new Date();
-    await db.transaction().execute(async (trx) => {
+      const now = new Date();
       await trx
         .updateTable('auth.users')
         .set({
@@ -490,15 +510,15 @@ export const adminRoute: FastifyPluginAsync<{
           details: JSON.stringify({}),
         })
         .execute();
+
+      return await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', user_id)
+        .executeTakeFirstOrThrow();
     });
 
-    const updated = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', user_id)
-      .executeTakeFirstOrThrow();
-
-    return reply.status(200).send(formatAdminUser(updated, env));
+    return reply.status(200).send(formatAdminUser(result, env));
   });
 
   // 6. List audit log (admin only)
