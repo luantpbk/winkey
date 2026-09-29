@@ -65,18 +65,20 @@ describe('MultipartUploader State Machine', () => {
       // POST /v1/uploads/{id}/parts
       if (url.includes('/parts') && method === 'POST') {
         const body = await getRequestBody(input, init);
-        const partNumbers = body.part_numbers || [1, 2, 3];
-        const urls = partNumbers.map((pn: number) => ({
-          part_number: pn,
-          url: `https://s3.winkey.vn/part-${pn}`,
-        }));
+        const partNumbers = body.part_numbers || [];
         return new Response(
-          JSON.stringify({ urls, expires_at: new Date().toISOString() }),
+          JSON.stringify({
+            urls: partNumbers.map((pn: number) => ({
+              part_number: pn,
+              url: `https://s3.winkey.vn/upload/part-${pn}?sig=mock`,
+            })),
+            expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+          }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
-      // PUT part
+      // PUT to S3
       if (method === 'PUT') {
         parallelCount++;
         maxObservedParallel = Math.max(maxObservedParallel, parallelCount);
@@ -118,6 +120,8 @@ describe('MultipartUploader State Machine', () => {
     expect(videoId).toBe('video-uuid-12345');
     expect(maxObservedParallel).toBeLessThanOrEqual(4);
     expect(completedPartsSent.length).toBe(3);
+    // Unchanged ETag string sent back as per contract
+    expect(completedPartsSent[0].etag).toBe('"test-etag-mock"');
     expect(progressUpdates.some((p) => p.status === 'completed')).toBe(true);
 
     const saved = await getUploadSession(computeFileFingerprint(dummyFile));
@@ -159,7 +163,7 @@ describe('MultipartUploader State Machine', () => {
         }
         return new Response(null, {
           status: 200,
-          headers: { ETag: '"recovered-etag"' },
+          headers: { ETag: '"etag-retry-ok"' },
         });
       }
 
@@ -179,18 +183,18 @@ describe('MultipartUploader State Machine', () => {
     const videoId = await uploader.start();
 
     expect(videoId).toBe('video-retry-123');
-    expect(putAttemptCount).toBe(3);
+    expect(putAttemptCount).toBe(3); // 2 failures + 1 success
   });
 
-  it('resumes unfinished upload from IndexedDB, uploading only missing parts', async () => {
+  it('resumes incomplete upload from IndexedDB session state', async () => {
     const fp = computeFileFingerprint(dummyFile);
     await saveUploadSession({
       fingerprint: fp,
       video_id: 'resumed-video-id-999',
-      part_size: 16 * 1024 * 1024,
+      part_size: 18 * 1024 * 1024,
       part_count: 2,
       completed_parts: [{ part_number: 1, etag: 'etag-saved-part-1' }],
-      created_at: Date.now(),
+      created_at: Date.now() - 10000,
     });
 
     const presignedPartNumbers: number[] = [];
@@ -246,8 +250,71 @@ describe('MultipartUploader State Machine', () => {
     expect(putParts).toEqual([2]);
     expect(completedPartsPayload).toEqual([
       { part_number: 1, etag: 'etag-saved-part-1' },
-      { part_number: 2, etag: 'etag-for-part-2' },
+      { part_number: 2, etag: '"etag-for-part-2"' },
     ]);
+  });
+
+  it('refreshes presigned URL when S3 returns 403 (expired TTL) and retries successfully', async () => {
+    let presignCallCount = 0;
+    let putAttemptCount = 0;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+      const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+
+      if (url.includes('/v1/uploads') && method === 'POST' && !url.includes('/parts') && !url.includes('/complete')) {
+        return new Response(
+          JSON.stringify({
+            video_id: 'video-403-refresh',
+            part_size: 35 * 1024 * 1024,
+            part_count: 1,
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('/parts') && method === 'POST') {
+        presignCallCount++;
+        return new Response(
+          JSON.stringify({
+            urls: [{ part_number: 1, url: `https://s3.winkey.vn/part-1?token=${presignCallCount}` }],
+            expires_at: new Date().toISOString(),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (method === 'PUT') {
+        putAttemptCount++;
+        if (url.includes('token=1')) {
+          // First attempt gets 403 forbidden (expired presigned URL)
+          return new Response('Forbidden: Request has expired', { status: 403 });
+        }
+        // Second attempt with fresh URL succeeds
+        return new Response(null, {
+          status: 200,
+          headers: { ETag: '"fresh-token-etag"' },
+        });
+      }
+
+      if (url.includes('/complete') && method === 'POST') {
+        return new Response(JSON.stringify({ status: 'UPLOADED' }), { status: 202 });
+      }
+
+      return new Response(null, { status: 404 });
+    });
+
+    const uploader = new MultipartUploader({
+      file: dummyFile,
+      title: 'S3 403 URL Expiration Test',
+      maxRetries: 3,
+    });
+
+    const videoId = await uploader.start();
+
+    expect(videoId).toBe('video-403-refresh');
+    expect(presignCallCount).toBe(2); // First presign + re-presign on 403
+    expect(putAttemptCount).toBe(2); // 403 failed + fresh retry succeeded
   });
 
   it('cancels upload and sends DELETE /v1/uploads/{id}', async () => {

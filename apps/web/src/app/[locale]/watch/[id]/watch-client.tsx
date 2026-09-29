@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
 import { Link } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
-import { ThumbsUp, Share2, Bookmark, Check } from 'lucide-react';
+import { ThumbsUp, Share2 } from 'lucide-react';
 
 export function WatchClientSection({ video }: { video: Video }) {
   const [liked, setLiked] = useState(false);

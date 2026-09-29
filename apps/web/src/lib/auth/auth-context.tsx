@@ -24,10 +24,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = async () => {
     try {
-      const { data, error } = await api.auth.POST('/v1/auth/refresh');
-      if (data && data.access_token) {
-        tokenStore.set(data.access_token);
-        setUser(data.user);
+      const token = await refreshAccessToken();
+      if (token) {
+        const { data } = await api.auth.GET('/v1/auth/me');
+        if (data) {
+          setUser(data);
+        }
       } else {
         tokenStore.clear();
         setUser(null);

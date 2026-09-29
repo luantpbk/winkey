@@ -14,8 +14,46 @@ import type {
 import { mockUsers, mockPublicProfiles, mockVideos, mockStudioVideos } from './fixtures';
 
 let currentUser: User | null = mockUsers.creator;
-const dynamicVideos: Video[] = [...mockVideos];
-const dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
+let dynamicVideos: Video[] = [...mockVideos];
+let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
+
+function getDynamicVideos(): Video[] {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_videos');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+  }
+  return dynamicVideos;
+}
+
+function setDynamicVideos(videos: Video[]) {
+  dynamicVideos = videos;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem('wk_mock_videos', JSON.stringify(videos));
+    } catch {}
+  }
+}
+
+function getDynamicStudioVideos(): StudioVideo[] {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_studio_videos');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+  }
+  return dynamicStudioVideos;
+}
+
+function setDynamicStudioVideos(videos: StudioVideo[]) {
+  dynamicStudioVideos = videos;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem('wk_mock_studio_videos', JSON.stringify(videos));
+    } catch {}
+  }
+}
 
 interface ActiveUpload {
   video_id: string;
@@ -192,7 +230,8 @@ export const handlers = [
     const cursor = url.searchParams.get('cursor');
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
 
-    let filtered = dynamicVideos.filter((v) => v.status === 'READY' && v.visibility === 'PUBLIC');
+    const allVideos = getDynamicVideos();
+    let filtered = allVideos.filter((v) => v.status === 'READY' && v.visibility === 'PUBLIC');
     if (ownerId) {
       filtered = filtered.filter((v) => v.owner.id === ownerId);
     }
@@ -220,7 +259,7 @@ export const handlers = [
 
   http.get('*/v1/videos/:id', async ({ params }) => {
     const videoId = params.id as string;
-    const video = dynamicVideos.find((v) => v.id === videoId);
+    const video = getDynamicVideos().find((v) => v.id === videoId);
     if (!video) {
       return HttpResponse.json(
         {
@@ -238,30 +277,32 @@ export const handlers = [
   http.patch('*/v1/videos/:id', async ({ params, request }) => {
     const videoId = params.id as string;
     const body = (await request.json()) as any;
-    const videoIndex = dynamicVideos.findIndex((v) => v.id === videoId);
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
     if (videoIndex === -1) {
       return HttpResponse.json(
         { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
         { status: 404 }
       );
     }
-    const current = dynamicVideos[videoIndex];
+    const current = currentVideos[videoIndex];
     const updated: Video = {
       ...current,
       title: body.title ?? current.title,
       description: body.description ?? current.description,
       visibility: body.visibility ?? current.visibility,
     };
-    dynamicVideos[videoIndex] = updated;
+    currentVideos[videoIndex] = updated;
+    setDynamicVideos(currentVideos);
     return HttpResponse.json(updated);
   }),
 
   http.delete('*/v1/videos/:id', async ({ params }) => {
     const videoId = params.id as string;
-    const idx = dynamicVideos.findIndex((v) => v.id === videoId);
-    if (idx !== -1) dynamicVideos.splice(idx, 1);
-    const studioIdx = dynamicStudioVideos.findIndex((v) => v.id === videoId);
-    if (studioIdx !== -1) dynamicStudioVideos.splice(studioIdx, 1);
+    const currentVideos = getDynamicVideos().filter((v) => v.id !== videoId);
+    setDynamicVideos(currentVideos);
+    const currentStudio = getDynamicStudioVideos().filter((v) => v.id !== videoId);
+    setDynamicStudioVideos(currentStudio);
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -329,7 +370,7 @@ export const handlers = [
     });
   }),
 
-  http.post('*/v1/uploads/:id/complete', async ({ params, request }) => {
+  http.post('*/v1/uploads/:id/complete', async ({ params }) => {
     const videoId = params.id as string;
     const upload = activeUploads.get(videoId);
     if (!upload) {
@@ -354,7 +395,8 @@ export const handlers = [
       created_at: new Date().toISOString(),
       thumbnail_url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
     };
-    dynamicStudioVideos.unshift(newStudioVideo);
+    const currentStudio = [newStudioVideo, ...getDynamicStudioVideos()];
+    setDynamicStudioVideos(currentStudio);
 
     const newVideo: Video = {
       id: videoId,
@@ -383,7 +425,8 @@ export const handlers = [
         ],
       },
     };
-    dynamicVideos.unshift(newVideo);
+    const currentVideos = [newVideo, ...getDynamicVideos()];
+    setDynamicVideos(currentVideos);
 
     const resp: UploadStatus = {
       video_id: videoId,
@@ -397,7 +440,8 @@ export const handlers = [
   http.get('*/v1/uploads/:id', async ({ params }) => {
     const videoId = params.id as string;
     const upload = activeUploads.get(videoId);
-    const studioVideo = dynamicStudioVideos.find((v) => v.id === videoId);
+    const studioList = [...getDynamicStudioVideos()];
+    const studioVideo = studioList.find((v) => v.id === videoId);
 
     if (studioVideo) {
       if (studioVideo.status === 'PROCESSING') {
@@ -405,6 +449,7 @@ export const handlers = [
         if (studioVideo.progress >= 100) {
           studioVideo.status = 'READY';
         }
+        setDynamicStudioVideos(studioList);
       }
       const resp: UploadStatus = {
         video_id: videoId,
@@ -434,14 +479,14 @@ export const handlers = [
   http.delete('*/v1/uploads/:id', async ({ params }) => {
     const videoId = params.id as string;
     activeUploads.delete(videoId);
-    const sIndex = dynamicStudioVideos.findIndex((v) => v.id === videoId);
-    if (sIndex !== -1) dynamicStudioVideos.splice(sIndex, 1);
+    const sList = getDynamicStudioVideos().filter((v) => v.id !== videoId);
+    setDynamicStudioVideos(sList);
     return new HttpResponse(null, { status: 204 });
   }),
 
   http.get('*/v1/studio/videos', async () => {
     const page: StudioVideoPage = {
-      items: dynamicStudioVideos,
+      items: getDynamicStudioVideos(),
       next_cursor: null,
     };
     return HttpResponse.json(page);

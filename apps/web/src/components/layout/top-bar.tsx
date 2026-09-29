@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Link, usePathname } from '../../i18n/routing';
+import { Link } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useTheme } from '../theme-provider';
 import {

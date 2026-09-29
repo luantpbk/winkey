@@ -1,7 +1,6 @@
 import type {
   User,
   PublicProfile,
-  VideoSummary,
   Video,
   StudioVideo,
 } from '@winkey/api-client';

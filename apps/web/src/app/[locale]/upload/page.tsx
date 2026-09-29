@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { Link, useRouter } from '../../../i18n/routing';
+import { Link } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import {
   MultipartUploader,
@@ -25,7 +25,6 @@ import {
 
 export default function UploadPage() {
   const t = useTranslations('upload');
-  const router = useRouter();
   const { user, isLoading: authLoading, isCreator, isAuthenticated } = useAuth();
 
   const fileInputRef = useRef<HTMLInputElement>(null);

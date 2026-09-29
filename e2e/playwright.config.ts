@@ -21,11 +21,12 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm --filter @winkey/web run start',
+    command: 'pnpm --filter @winkey/web run dev -p 3000',
     url: 'http://localhost:3000/healthz',
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 120 * 1000,
     env: {
+      API_MOCKS: '1',
       NEXT_PUBLIC_API_MOCKS: '1',
       PORT: '3000',
     },

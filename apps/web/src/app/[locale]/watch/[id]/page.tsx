@@ -2,9 +2,9 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
-import { mockVideos } from '../../../../mocks/fixtures';
+import type { Video, VideoSummary, VideoPage } from '@winkey/api-client';
 import { VideoPlayer } from '../../../../components/video/video-player';
-import { formatViews, formatRelativeTime } from '../../../../lib/format';
+import { formatViews } from '../../../../lib/format';
 import { Link } from '../../../../i18n/routing';
 import { WatchClientSection } from './watch-client';
 
@@ -12,13 +12,31 @@ interface WatchPageProps {
   params: Promise<{ locale: string; id: string }>;
 }
 
-async function getVideo(id: string) {
-  // Find in mock fixtures or via API
-  const video = mockVideos.find((v) => v.id === id);
-  if (!video || video.status !== 'READY') {
+async function getVideo(id: string): Promise<Video | null> {
+  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  try {
+    const res = await fetch(`${baseUrl}/v1/videos/${id}`, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
     return null;
   }
-  return video;
+}
+
+async function getRelatedVideos(): Promise<VideoSummary[]> {
+  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  try {
+    const res = await fetch(`${baseUrl}/v1/videos?limit=10`, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return [];
+    const data: VideoPage = await res.json();
+    return data.items || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: WatchPageProps): Promise<Metadata> {
@@ -65,13 +83,13 @@ export default async function WatchPage({ params }: WatchPageProps) {
   const { locale, id } = await params;
   setRequestLocale(locale);
 
-  const video = await getVideo(id);
+  const [video, allRelated] = await Promise.all([getVideo(id), getRelatedVideos()]);
 
   if (!video) {
     notFound();
   }
 
-  const relatedVideos = mockVideos.filter((v) => v.id !== id);
+  const relatedVideos = allRelated.filter((v) => v.id !== id);
 
   return (
     <div className="w-full max-w-[1800px] mx-auto grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -105,7 +123,7 @@ export default async function WatchPage({ params }: WatchPageProps) {
             >
               <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-gray-800">
                 <img
-                  src={item.playback?.thumbnail_url}
+                  src={item.thumbnail_url}
                   alt={item.title}
                   className="h-full w-full object-cover group-hover:scale-105 transition duration-200"
                   loading="lazy"

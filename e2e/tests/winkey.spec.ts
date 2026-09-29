@@ -93,7 +93,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
   });
 
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(180000);
 
     const viewports = [
       { name: '375', width: 375, height: 667 },

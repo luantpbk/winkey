@@ -10,7 +10,6 @@ import {
   Tv,
   FolderHeart,
   History,
-  Settings,
   Flame,
   Music2,
   Gamepad2,

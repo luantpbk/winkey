@@ -2,49 +2,54 @@ import { createWinkeyClient } from '@winkey/api-client';
 import { tokenStore } from './auth/token-store';
 
 export const getBaseUrl = (): string => {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
+  if (typeof window !== 'undefined') {
+    return process.env.NEXT_PUBLIC_API_URL || window.location.origin;
   }
-  return 'http://localhost:3000';
+  return process.env.API_INTERNAL_URL || 'http://localhost:8080';
 };
 
-let isRefreshing = false;
-let refreshQueue: Array<(token: string | null) => void> = [];
+let refreshPromise: Promise<string | null> | null = null;
+
+async function doRefresh(): Promise<string | null> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        tokenStore.set(data.access_token);
+        return data.access_token;
+      } else {
+        tokenStore.clear();
+        return null;
+      }
+    } catch {
+      tokenStore.clear();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
 
 export async function refreshAccessToken(): Promise<string | null> {
-  if (isRefreshing) {
-    return new Promise((resolve) => {
-      refreshQueue.push((token) => resolve(token));
+  // Cross-tab synchronization via Web Locks API when available
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('wk-refresh', async () => {
+      return doRefresh();
     });
   }
 
-  isRefreshing = true;
-  try {
-    const baseUrl = getBaseUrl();
-    const res = await fetch(`${baseUrl}/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      tokenStore.set(data.access_token);
-      for (const cb of refreshQueue) cb(data.access_token);
-      refreshQueue = [];
-      return data.access_token;
-    } else {
-      tokenStore.clear();
-      for (const cb of refreshQueue) cb(null);
-      refreshQueue = [];
-      return null;
-    }
-  } catch {
-    tokenStore.clear();
-    for (const cb of refreshQueue) cb(null);
-    refreshQueue = [];
-    return null;
-  } finally {
-    isRefreshing = false;
-  }
+  return doRefresh();
 }
 
 export const customFetch: typeof fetch = async (input, init) => {
@@ -55,6 +60,8 @@ export const customFetch: typeof fetch = async (input, init) => {
     req.headers.set('Authorization', `Bearer ${token}`);
   }
 
+  // Clone request before the first fetch so body can be reused if retry is needed after 401
+  const reqForRetry = req.clone();
   const response = await fetch(req);
 
   const url = req.url;
@@ -67,12 +74,8 @@ export const customFetch: typeof fetch = async (input, init) => {
   if (response.status === 401 && !isAuthRoute) {
     const newToken = await refreshAccessToken();
     if (newToken) {
-      const retryHeaders = new Headers(req.headers);
-      retryHeaders.set('Authorization', `Bearer ${newToken}`);
-      return fetch(req.url, {
-        method: req.method,
-        headers: retryHeaders,
-      });
+      reqForRetry.headers.set('Authorization', `Bearer ${newToken}`);
+      return fetch(reqForRetry);
     }
   }
 

@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../i18n/routing';
 import { api } from '../../../lib/api-client';
-import { useAuth } from '../../../lib/auth/auth-context';
 import { formatDuration, formatRelativeTime } from '../../../lib/format';
 import type { StudioVideo, StudioVideoPage } from '@winkey/api-client';
 import {
@@ -23,13 +22,10 @@ import {
 export default function StudioPage() {
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const {
     data,
     isLoading,
-    isError,
-    error,
     refetch,
   } = useQuery({
     queryKey: ['studio', 'videos'],
@@ -93,7 +89,7 @@ export default function StudioPage() {
         params: { path: { video_id: videoId } },
       });
       refetch();
-    } catch (delErr) {
+    } catch {
       alert('Không thể xóa video');
     }
   };

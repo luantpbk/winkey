@@ -50,6 +50,7 @@ export class MultipartUploader {
   private partSize: number = 0;
   private partCount: number = 0;
   private completedParts: Map<number, string> = new Map(); // part_number -> etag
+  private presignedUrls: Map<number, string> = new Map(); // part_number -> url
 
   private startTime: number = 0;
   private lastTransferredBytes: number = 0;
@@ -157,36 +158,13 @@ export class MultipartUploader {
         }
       }
 
-      // 3. Presign URLs in batches of <= 100 parts
-      this.notify('presigning');
-      const presignedUrls = new Map<number, string>();
-      const batchSize = 100;
-
-      for (let i = 0; i < missingPartNumbers.length; i += batchSize) {
-        if (this.isCancelled) throw new Error('UPLOAD_CANCELLED');
-        const batch = missingPartNumbers.slice(i, i + batchSize);
-
-        const { data, error, response } = await api.upload.POST('/v1/uploads/{video_id}/parts', {
-          params: { path: { video_id: this.videoId } },
-          body: { part_numbers: batch },
-        });
-
-        if (!response.ok || !data) {
-          throw new Error(error?.detail || 'Failed to presign upload parts');
-        }
-
-        for (const item of data.urls) {
-          presignedUrls.set(item.part_number, item.url);
-        }
-      }
-
-      // 4. Upload parts in parallel (concurrency <= 4) with retry and exponential backoff
+      // 3. Upload parts in parallel (concurrency <= 4) with lazy presigning and retry
       this.notify('uploading');
-      await this.uploadPartsWithConcurrency(missingPartNumbers, presignedUrls);
+      await this.uploadPartsWithConcurrency(missingPartNumbers);
 
       if (this.isCancelled) throw new Error('UPLOAD_CANCELLED');
 
-      // 5. Complete multipart upload
+      // 4. Complete multipart upload
       this.notify('completing');
       await this.completeUpload();
 
@@ -203,10 +181,42 @@ export class MultipartUploader {
     }
   }
 
-  private async uploadPartsWithConcurrency(
-    partsToUpload: number[],
-    presignedUrls: Map<number, string>
-  ): Promise<void> {
+  private async fetchPresignedBatch(startPartNumber: number): Promise<void> {
+    const batch: number[] = [];
+    for (let i = startPartNumber; i <= this.partCount && batch.length < 20; i++) {
+      if (!this.completedParts.has(i) && !this.presignedUrls.has(i)) {
+        batch.push(i);
+      }
+    }
+    if (batch.length === 0) return;
+
+    const { data, error, response } = await api.upload.POST('/v1/uploads/{video_id}/parts', {
+      params: { path: { video_id: this.videoId } },
+      body: { part_numbers: batch },
+    });
+
+    if (!response.ok || !data) {
+      throw new Error(error?.detail || 'Failed to presign upload parts');
+    }
+
+    for (const item of data.urls) {
+      this.presignedUrls.set(item.part_number, item.url);
+    }
+  }
+
+  private async getPresignedUrl(partNumber: number): Promise<string> {
+    const existing = this.presignedUrls.get(partNumber);
+    if (existing) return existing;
+
+    await this.fetchPresignedBatch(partNumber);
+    const url = this.presignedUrls.get(partNumber);
+    if (!url) {
+      throw new Error(`Failed to obtain presigned URL for part ${partNumber}`);
+    }
+    return url;
+  }
+
+  private async uploadPartsWithConcurrency(partsToUpload: number[]): Promise<void> {
     let index = 0;
     const total = partsToUpload.length;
 
@@ -216,13 +226,8 @@ export class MultipartUploader {
         const currentIdx = index++;
         const partNumber = partsToUpload[currentIdx];
         if (this.isCancelled) return;
-        const url = presignedUrls.get(partNumber);
-        if (!url) {
-          if (this.isCancelled) return;
-          throw new Error(`Missing presigned URL for part ${partNumber}`);
-        }
 
-        await this.uploadPartWithRetry(partNumber, url);
+        await this.uploadPartWithRetry(partNumber);
         await this.persistSession();
         this.updateSpeed();
         this.notify('uploading');
@@ -238,7 +243,7 @@ export class MultipartUploader {
     await Promise.all(workers);
   }
 
-  private async uploadPartWithRetry(partNumber: number, url: string): Promise<void> {
+  private async uploadPartWithRetry(partNumber: number): Promise<void> {
     const startByte = (partNumber - 1) * this.partSize;
     const endByte = Math.min(this.file.size, partNumber * this.partSize);
     const chunk = this.file.slice(startByte, endByte);
@@ -255,11 +260,18 @@ export class MultipartUploader {
       }
 
       try {
+        const url = await this.getPresignedUrl(partNumber);
         const response = await fetch(url, {
           method: 'PUT',
           body: chunk,
           signal: this.abortController.signal,
         });
+
+        if (response.status === 403) {
+          // Presigned URL expired (1h TTL) -> invalidate and refresh
+          this.presignedUrls.delete(partNumber);
+          throw new Error(`Presigned URL expired for part ${partNumber} (403), refreshed URL and retrying`);
+        }
 
         if (!response.ok) {
           throw new Error(`Part ${partNumber} upload returned status ${response.status}`);
@@ -270,7 +282,8 @@ export class MultipartUploader {
           throw new Error(`Missing ETag header in response for part ${partNumber}`);
         }
 
-        const etag = rawEtag.replace(/^"|"$/g, '');
+        // Store header value unchanged as per contract
+        const etag = rawEtag.trim();
         this.completedParts.set(partNumber, etag);
         return;
       } catch (err: any) {

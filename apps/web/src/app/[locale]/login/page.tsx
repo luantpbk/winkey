@@ -9,7 +9,7 @@ import { PlaySquare, AlertCircle } from 'lucide-react';
 export default function LoginPage() {
   const t = useTranslations('auth');
   const router = useRouter();
-  const { login, isAuthenticated } = useAuth();
+  const { login } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

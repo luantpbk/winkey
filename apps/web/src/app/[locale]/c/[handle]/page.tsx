@@ -2,7 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
-import { mockPublicProfiles, mockVideos } from '../../../../mocks/fixtures';
+import type { PublicProfile, VideoSummary, VideoPage } from '@winkey/api-client';
 import { VideoCard } from '../../../../components/video/video-card';
 import { ChannelClientHeader } from './channel-client';
 
@@ -10,9 +10,31 @@ interface ChannelPageProps {
   params: Promise<{ locale: string; handle: string }>;
 }
 
-async function getProfile(handle: string) {
-  const profile = mockPublicProfiles[handle];
-  return profile || null;
+async function getProfile(handle: string): Promise<PublicProfile | null> {
+  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  try {
+    const res = await fetch(`${baseUrl}/v1/users/${handle}`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function getChannelVideos(handle: string): Promise<VideoSummary[]> {
+  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  try {
+    const res = await fetch(`${baseUrl}/v1/videos?limit=50`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return [];
+    const data: VideoPage = await res.json();
+    return (data.items || []).filter((v) => v.owner.handle === handle);
+  } catch {
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: ChannelPageProps): Promise<Metadata> {
@@ -35,12 +57,14 @@ export default async function ChannelPage({ params }: ChannelPageProps) {
   const { locale, handle } = await params;
   setRequestLocale(locale);
 
-  const profile = await getProfile(handle);
+  const [profile, channelVideos] = await Promise.all([
+    getProfile(handle),
+    getChannelVideos(handle),
+  ]);
+
   if (!profile) {
     notFound();
   }
-
-  const channelVideos = mockVideos.filter((v) => v.owner.handle === handle);
 
   return (
     <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
