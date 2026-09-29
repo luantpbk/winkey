@@ -12,8 +12,9 @@ RUN npm install -g pnpm@12.6.0
 # Copy root monorepo workspace configuration and lockfile
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
 
-# Copy service source
+# Copy service source and contracts
 COPY services/realtime ./services/realtime
+COPY contracts/realtime ./contracts/realtime
 
 # Install all workspace dependencies
 RUN pnpm install --frozen-lockfile
@@ -33,8 +34,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HTTP_PORT=8003
 
-# Copy deployed application from builder
+# Copy deployed application and contracts from builder
 COPY --from=builder /app/deployed ./
+COPY --from=builder /app/contracts/realtime ./contracts/realtime
 
 # Run as non-root user (node user has uid 1000)
 USER node

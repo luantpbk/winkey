@@ -4,12 +4,13 @@ import { ProblemError } from './errors/problem.js';
 import { healthRoute } from './routes/health.js';
 import { ticketRoute } from './routes/ticket.js';
 import { getEnv, type Env } from './config/env.js';
-import { TicketStore } from './tickets/ticket-store.js';
+import { TicketStore, type TicketPayload } from './tickets/ticket-store.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
 import { ConnectionManager, type ConnectionMeta } from './websocket/connection-manager.js';
 import { VideoClient } from './video/video-client.js';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
+import type { RealtimeEventConsumer } from './nats/consumer.js';
 
 export interface BuildAppOptions {
   env?: Env;
@@ -19,6 +20,7 @@ export interface BuildAppOptions {
   rateLimiter?: RateLimiter;
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
+  eventConsumer?: RealtimeEventConsumer | null;
 }
 
 export interface RealtimeServer {
@@ -26,11 +28,12 @@ export interface RealtimeServer {
   wss: WebSocketServer;
   connectionManager: ConnectionManager;
   ticketStore: TicketStore;
+  setShuttingDown: (val: boolean) => void;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeServer> {
   const env = options.env || getEnv();
-  const ticketStore = options.ticketStore || new TicketStore(env.VALKEY_URL, options.redis);
+  const ticketStore = options.ticketStore || new TicketStore(options.redis);
   const videoClient = options.videoClient || new VideoClient(env.VIDEO_SVC_URL);
   const connectionManager =
     options.connectionManager ||
@@ -104,6 +107,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
   await app.register(healthRoute, {
     redis: options.redis,
     natsConnection: options.natsConnection,
+    eventConsumer: options.eventConsumer,
   });
 
   await app.register(ticketRoute, {
@@ -119,8 +123,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
     }
   });
 
+  let isShuttingDown = false;
+
   // Setup WebSocket Server for HTTP upgrade
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+  // Hard cap well above the 4 KiB contract limit; frames 4 KiB–64 KiB get BAD_MESSAGE in handleClientFrame.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
   app.server.on('upgrade', async (req, socket, head) => {
     const host = req.headers.host || 'localhost';
@@ -132,12 +139,68 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
       return;
     }
 
-    const ticket = url.searchParams.get('ticket');
+    if (isShuttingDown) {
+      const problemJson = JSON.stringify({
+        type: 'https://winkey.vn/problems/service-unavailable',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'Server is shutting down',
+        code: 'SERVICE_UNAVAILABLE',
+      });
+      socket.write(
+        'HTTP/1.1 503 Service Unavailable\r\n' +
+          'Content-Type: application/problem+json\r\n' +
+          `Content-Length: ${Buffer.byteLength(problemJson)}\r\n` +
+          'Connection: close\r\n\r\n' +
+          problemJson,
+      );
+      socket.destroy();
+      return;
+    }
+
     let userMeta: ConnectionMeta = { userId: null, roles: [] };
 
-    if (ticket) {
+    if (url.searchParams.has('ticket')) {
+      const ticket = url.searchParams.get('ticket') || '';
+      if (!ticket) {
+        const problemJson = JSON.stringify({
+          type: 'https://winkey.vn/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          detail: 'Invalid, expired, or already used ticket',
+          code: 'UNAUTHORIZED',
+        });
+        socket.write(
+          'HTTP/1.1 401 Unauthorized\r\n' +
+            'Content-Type: application/problem+json\r\n' +
+            `Content-Length: ${Buffer.byteLength(problemJson)}\r\n` +
+            'Connection: close\r\n\r\n' +
+            problemJson,
+        );
+        socket.destroy();
+        return;
+      }
+
       // Validate & redeem ticket BEFORE upgrade
-      const redeemed = await ticketStore.redeemTicket(ticket);
+      let redeemed: TicketPayload | null = null;
+      try {
+        redeemed = await ticketStore.redeemTicket(ticket);
+      } catch (err) {
+        if (err instanceof ProblemError && err.status === 503) {
+          const problemJson = JSON.stringify(err.toProblemDocument());
+          socket.write(
+            'HTTP/1.1 503 Service Unavailable\r\n' +
+              'Content-Type: application/problem+json\r\n' +
+              `Content-Length: ${Buffer.byteLength(problemJson)}\r\n` +
+              'Connection: close\r\n\r\n' +
+              problemJson,
+          );
+          socket.destroy();
+          return;
+        }
+        throw err;
+      }
+
       if (!redeemed) {
         const problemJson = JSON.stringify({
           type: 'https://winkey.vn/problems/unauthorized',
@@ -169,6 +232,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
   });
 
   app.addHook('onClose', async () => {
+    isShuttingDown = true;
     await connectionManager.closeAll(1001, 'Server shutting down');
     wss.close();
   });
@@ -178,5 +242,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
     wss,
     connectionManager,
     ticketStore,
+    setShuttingDown: (val: boolean) => {
+      isShuttingDown = val;
+    },
   };
 }

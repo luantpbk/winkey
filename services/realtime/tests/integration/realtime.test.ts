@@ -191,6 +191,7 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
         videoClient,
         redis,
         natsConnection: nc,
+        eventConsumer,
       });
 
       await gatewayServer.app.listen({ port: 0, host: '127.0.0.1' });
@@ -271,6 +272,18 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
       });
       wsBad.on('open', () => {
         expect.fail('Upgrade with invalid ticket should have been rejected with 401');
+      });
+    });
+
+    // 4b. Upgrade with empty ticket parameter (?ticket=) fails with 401
+    await new Promise<void>((resolve) => {
+      const wsEmpty = new WebSocket(`ws://127.0.0.1:${gatewayPort}/v1/realtime?ticket=`);
+      wsEmpty.on('unexpected-response', (_req, res) => {
+        expect(res.statusCode).toBe(401);
+        resolve();
+      });
+      wsEmpty.on('open', () => {
+        expect.fail('Upgrade with empty ticket should have been rejected with 401');
       });
     });
 
@@ -648,6 +661,26 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
       expect(badMsg.code).toBe('BAD_MESSAGE');
     }
 
+    // 2b. Frame > 4 KiB (5000 bytes) -> BAD_MESSAGE and connection stays open (ping succeeds)
+    await new Promise((r) => setTimeout(r, 60));
+    ws.send('x'.repeat(5000));
+    const badOversized = await waitForFrame(
+      ws,
+      (f) => f.type === 'error' && f.code === 'BAD_MESSAGE',
+    );
+    expect(badOversized.type).toBe('error');
+    if (badOversized.type === 'error') {
+      expect(badOversized.code).toBe('BAD_MESSAGE');
+    }
+
+    await new Promise((r) => setTimeout(r, 60));
+    ws.send(JSON.stringify({ type: 'ping', id: 'ping-after-oversized' }));
+    const pongMsg = await waitForFrame(
+      ws,
+      (f) => f.type === 'pong' && f.id === 'ping-after-oversized',
+    );
+    expect(pongMsg.type).toBe('pong');
+
     ws.close();
 
     // 3. Limits: 6th connection for same user -> closed with 4429
@@ -685,12 +718,12 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     }
   });
 
-  it('heartbeat timeout closes connection with 4408', async () => {
-    // Setup gateway with valid heartbeat interval (schema min is 1000ms) and short timeout for test
+  it('heartbeat timeout closes connection with 4408, control client remains OPEN', async () => {
+    // Setup gateway with heartbeatIntervalMs: 1000 and heartbeatTimeoutMs: 2500
     const fastMgr = new ConnectionManager({
       videoClient: new VideoClient('http://localhost:8080'),
       heartbeatIntervalMs: 1000,
-      heartbeatTimeoutMs: 500,
+      heartbeatTimeoutMs: 2500,
     });
 
     const fastGw = await buildApp({
@@ -701,19 +734,44 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     await fastGw.app.listen({ port: 0, host: '127.0.0.1' });
     const fastPort = (fastGw.app.server.address() as net.AddressInfo).port;
 
-    const ws = new WebSocket(`ws://127.0.0.1:${fastPort}/v1/realtime`);
-    await waitForFrame(ws, (f) => f.type === 'welcome');
+    // Client A (unresponsive client that overrides pong)
+    const wsA = new WebSocket(`ws://127.0.0.1:${fastPort}/v1/realtime`);
+    await waitForFrame(wsA, (f) => f.type === 'welcome');
 
-    // Prevent client from answering pings
-    // @ts-expect-error override pong
-    ws.pong = () => {};
+    // Prevent client A from answering pings
+    // @ts-expect-error override pong method
+    wsA.pong = () => {};
 
-    const code = await new Promise<number>((resolve) => {
-      ws.on('close', (c) => resolve(c));
+    // Client B (control client that automatically responds to pings)
+    const wsB = new WebSocket(`ws://127.0.0.1:${fastPort}/v1/realtime`);
+    await waitForFrame(wsB, (f) => f.type === 'welcome');
+
+    const codeA = await new Promise<number>((resolve) => {
+      wsA.on('close', (c) => resolve(c));
     });
 
-    expect(code).toBe(4408);
+    // Unresponsive client A closed with 4408 after timeout
+    expect(codeA).toBe(4408);
+
+    // Give an extra 1000ms (total ~4s elapsed) and verify control client B is still OPEN
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(wsB.readyState).toBe(WebSocket.OPEN);
+
+    wsB.close();
     await fastMgr.closeAll();
     await fastGw.app.close();
+  });
+
+  it('/readyz reflects JetStream consumer status and Valkey status', async () => {
+    const res = await gatewayServer!.app.inject({
+      method: 'GET',
+      url: '/readyz',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe('ok');
+    expect(body.checks.consumer).toBe('ok');
+    expect(body.checks.valkey).toBe('ok');
+    expect(body.checks.nats).toBe('ok');
   });
 });

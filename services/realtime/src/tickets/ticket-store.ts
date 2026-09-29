@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
+import { ProblemError } from '../errors/problem.js';
 
 export interface TicketPayload {
   user_id: string;
@@ -13,24 +14,9 @@ export interface IssuedTicket {
 
 export class TicketStore {
   private readonly redis: Redis | null;
-  private readonly memoryStore = new Map<string, { payload: TicketPayload; expiresAt: number }>();
 
-  constructor(valkeyUrl?: string, customRedis?: Redis | null) {
-    if (customRedis) {
-      this.redis = customRedis;
-    } else if (valkeyUrl) {
-      try {
-        this.redis = new Redis(valkeyUrl, {
-          lazyConnect: true,
-          maxRetriesPerRequest: 1,
-          enableOfflineQueue: false,
-        });
-      } catch {
-        this.redis = null;
-      }
-    } else {
-      this.redis = null;
-    }
+  constructor(redis?: Redis | null) {
+    this.redis = redis ?? null;
   }
 
   private hashTicket(ticket: string): string {
@@ -38,6 +24,10 @@ export class TicketStore {
   }
 
   async issueTicket(user_id: string, roles: string[] = []): Promise<IssuedTicket> {
+    if (!this.redis || this.redis.status !== 'ready') {
+      throw ProblemError.serviceUnavailable('Valkey is unavailable');
+    }
+
     const rawBytes = crypto.randomBytes(32); // 256 bits
     const ticket = rawBytes.toString('base64url');
     const hash = this.hashTicket(ticket);
@@ -48,21 +38,12 @@ export class TicketStore {
     const payload: TicketPayload = { user_id, roles };
     const payloadJson = JSON.stringify(payload);
 
-    if (this.redis && this.redis.status === 'ready') {
-      try {
-        await this.redis.set(`rt:ticket:${hash}`, payloadJson, 'EX', ttlSeconds);
-        return { ticket, expires_at };
-      } catch {
-        // Fallback to memory store if Redis write fails
-      }
+    try {
+      await this.redis.set(`rt:ticket:${hash}`, payloadJson, 'EX', ttlSeconds);
+      return { ticket, expires_at };
+    } catch {
+      throw ProblemError.serviceUnavailable('Valkey write failed');
     }
-
-    this.memoryStore.set(hash, {
-      payload,
-      expiresAt: expiresAtMs,
-    });
-
-    return { ticket, expires_at };
   }
 
   async redeemTicket(ticket: string): Promise<TicketPayload | null> {
@@ -70,33 +51,23 @@ export class TicketStore {
       return null;
     }
 
+    if (!this.redis || this.redis.status !== 'ready') {
+      throw ProblemError.serviceUnavailable('Valkey is unavailable');
+    }
+
     const hash = this.hashTicket(ticket);
 
-    if (this.redis && this.redis.status === 'ready') {
-      try {
-        // Atomic single-use redemption with GETDEL (Redis / Valkey >= 6.2)
-        const raw = await this.redis.getdel(`rt:ticket:${hash}`);
-        if (!raw) {
-          return null;
-        }
-        return JSON.parse(raw) as TicketPayload;
-      } catch {
-        // Fallback to memory store if Redis call fails
+    try {
+      // Atomic single-use redemption with GETDEL (Redis / Valkey >= 6.2)
+      const raw = await this.redis.getdel(`rt:ticket:${hash}`);
+      if (!raw) {
+        return null;
       }
+      return JSON.parse(raw) as TicketPayload;
+    } catch (err) {
+      if (err instanceof ProblemError) throw err;
+      throw ProblemError.serviceUnavailable('Valkey operation failed');
     }
-
-    const entry = this.memoryStore.get(hash);
-    if (!entry) {
-      return null;
-    }
-
-    this.memoryStore.delete(hash);
-
-    if (Date.now() > entry.expiresAt) {
-      return null;
-    }
-
-    return entry.payload;
   }
 
   async close(): Promise<void> {

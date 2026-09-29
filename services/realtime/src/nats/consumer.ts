@@ -65,6 +65,8 @@ export class RealtimeEventConsumer {
   private readonly logger: NatsConsumerOptions['logger'];
 
   private isRunning = false;
+  private isVideoConsumerReady = false;
+  private isSocialConsumerReady = false;
   private coreSub: Subscription | null = null;
   private videoConsumerIter: { stop(): void } | null = null;
   private socialConsumerIter: { stop(): void } | null = null;
@@ -75,11 +77,29 @@ export class RealtimeEventConsumer {
     this.logger = options.logger;
   }
 
+  isReady(): boolean {
+    return this.isVideoConsumerReady && this.isSocialConsumerReady;
+  }
+
   async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
 
     // 1. Core NATS subscription: rt.video.*.progress
+    this.setupCoreSub();
+
+    // 2. Start JetStream consumers with auto-retry
+    const videoPromise = this.setupVideoConsumer();
+    const socialPromise = this.setupSocialConsumer();
+
+    // Await up to 500ms so isReady is true immediately if streams already exist
+    await Promise.race([
+      Promise.all([videoPromise, socialPromise]),
+      new Promise((r) => setTimeout(r, 500)),
+    ]);
+  }
+
+  private setupCoreSub(): void {
     try {
       this.coreSub = this.nats.subscribe('rt.video.*.progress');
       (async () => {
@@ -99,53 +119,91 @@ export class RealtimeEventConsumer {
     } catch (err) {
       this.logger?.error({ err }, 'Failed to subscribe to core NATS progress');
     }
+  }
 
+  private async setupVideoConsumer(): Promise<void> {
     const js = this.nats.jetstream();
+    let delayMs = 1000;
 
-    // 2. Ephemeral ordered consumer on VIDEO stream: video.ready, video.failed
-    try {
-      const videoConsumer = await js.consumers.get('VIDEO', {
-        filterSubjects: ['video.ready', 'video.failed'],
-        deliver_policy: DeliverPolicy.New,
-      });
-      const videoMessages = await videoConsumer.consume();
-      this.videoConsumerIter = videoMessages;
+    while (this.isRunning && !this.isVideoConsumerReady) {
+      try {
+        const videoConsumer = await js.consumers.get('VIDEO', {
+          filterSubjects: ['video.ready', 'video.failed'],
+          deliver_policy: DeliverPolicy.New,
+        });
+        const videoMessages = await videoConsumer.consume();
+        this.videoConsumerIter = videoMessages;
+        this.isVideoConsumerReady = true;
+        this.logger?.info({}, 'Started ephemeral ordered consumer on stream VIDEO');
 
-      (async () => {
-        for await (const m of videoMessages) {
-          if (!this.isRunning) break;
-          this.handleJetStreamMessage(m);
-        }
-      })();
-      this.logger?.info({}, 'Started ephemeral ordered consumer on stream VIDEO');
-    } catch (err) {
-      this.logger?.warn(
-        { err },
-        'Could not start ephemeral consumer on stream VIDEO; stream may not exist yet',
-      );
+        (async () => {
+          try {
+            for await (const m of videoMessages) {
+              if (!this.isRunning) break;
+              this.handleJetStreamMessage(m);
+            }
+          } catch (err) {
+            this.logger?.warn({ err }, 'VIDEO consumer iteration error');
+          } finally {
+            this.isVideoConsumerReady = false;
+            if (this.isRunning) {
+              void this.setupVideoConsumer();
+            }
+          }
+        })();
+        break;
+      } catch (err) {
+        this.logger?.warn(
+          { err, retryInMs: delayMs },
+          'Could not start ephemeral consumer on stream VIDEO; retrying',
+        );
+        if (!this.isRunning) break;
+        await new Promise((r) => setTimeout(r, delayMs));
+        delayMs = Math.min(delayMs * 2, 30000);
+      }
     }
+  }
 
-    // 3. Ephemeral ordered consumer on SOCIAL stream: social.comment.created, social.video.like_changed
-    try {
-      const socialConsumer = await js.consumers.get('SOCIAL', {
-        filterSubjects: ['social.comment.created', 'social.video.like_changed'],
-        deliver_policy: DeliverPolicy.New,
-      });
-      const socialMessages = await socialConsumer.consume();
-      this.socialConsumerIter = socialMessages;
+  private async setupSocialConsumer(): Promise<void> {
+    const js = this.nats.jetstream();
+    let delayMs = 1000;
 
-      (async () => {
-        for await (const m of socialMessages) {
-          if (!this.isRunning) break;
-          this.handleJetStreamMessage(m);
-        }
-      })();
-      this.logger?.info({}, 'Started ephemeral ordered consumer on stream SOCIAL');
-    } catch (err) {
-      this.logger?.warn(
-        { err },
-        'Could not start ephemeral consumer on stream SOCIAL; stream may not exist yet',
-      );
+    while (this.isRunning && !this.isSocialConsumerReady) {
+      try {
+        const socialConsumer = await js.consumers.get('SOCIAL', {
+          filterSubjects: ['social.comment.created', 'social.video.like_changed'],
+          deliver_policy: DeliverPolicy.New,
+        });
+        const socialMessages = await socialConsumer.consume();
+        this.socialConsumerIter = socialMessages;
+        this.isSocialConsumerReady = true;
+        this.logger?.info({}, 'Started ephemeral ordered consumer on stream SOCIAL');
+
+        (async () => {
+          try {
+            for await (const m of socialMessages) {
+              if (!this.isRunning) break;
+              this.handleJetStreamMessage(m);
+            }
+          } catch (err) {
+            this.logger?.warn({ err }, 'SOCIAL consumer iteration error');
+          } finally {
+            this.isSocialConsumerReady = false;
+            if (this.isRunning) {
+              void this.setupSocialConsumer();
+            }
+          }
+        })();
+        break;
+      } catch (err) {
+        this.logger?.warn(
+          { err, retryInMs: delayMs },
+          'Could not start ephemeral consumer on stream SOCIAL; retrying',
+        );
+        if (!this.isRunning) break;
+        await new Promise((r) => setTimeout(r, delayMs));
+        delayMs = Math.min(delayMs * 2, 30000);
+      }
     }
   }
 
@@ -288,6 +346,8 @@ export class RealtimeEventConsumer {
 
   async stop(): Promise<void> {
     this.isRunning = false;
+    this.isVideoConsumerReady = false;
+    this.isSocialConsumerReady = false;
     if (this.coreSub) {
       this.coreSub.unsubscribe();
       this.coreSub = null;

@@ -41,16 +41,18 @@ class ManagedConnection {
   private msgCountInSec = 0;
   private consecutiveRateLimitSecs = 0;
 
-  // Outbound queue buffer (max 256)
+  // Outbound queue buffer (max 256 in-flight + queued)
   private outboundQueue: string[] = [];
-  private isFlushing = false;
+  private inFlight = 0;
+  private readonly onDefaultDropped?: () => void;
 
-  constructor(id: string, ws: WebSocket, meta: ConnectionMeta) {
+  constructor(id: string, ws: WebSocket, meta: ConnectionMeta, onDefaultDropped?: () => void) {
     this.id = id;
     this.ws = ws;
     this.userId = meta.userId;
     this.roles = meta.roles;
     this.lastPongReceivedAt = Date.now();
+    this.onDefaultDropped = onDefaultDropped;
   }
 
   checkRateLimit(msgId: string | null): boolean {
@@ -92,10 +94,14 @@ class ManagedConnection {
 
     const payload = JSON.stringify(msg);
 
-    if (this.outboundQueue.length >= 256) {
-      // Drop oldest message to protect memory buffer
-      this.outboundQueue.shift();
+    if (this.outboundQueue.length + this.inFlight >= 256) {
+      if (this.outboundQueue.length > 0) {
+        this.outboundQueue.shift();
+        this.outboundQueue.push(payload);
+      }
       onDropped?.();
+      this.onDefaultDropped?.();
+      return;
     }
 
     this.outboundQueue.push(payload);
@@ -103,18 +109,20 @@ class ManagedConnection {
   }
 
   private flushQueue(): void {
-    if (this.isFlushing || this.ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    this.isFlushing = true;
-    while (this.outboundQueue.length > 0 && this.ws.readyState === WebSocket.OPEN) {
+    while (
+      this.outboundQueue.length > 0 &&
+      this.inFlight < 256 &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
       const item = this.outboundQueue.shift();
       if (item !== undefined) {
-        this.ws.send(item);
+        this.inFlight++;
+        this.ws.send(item, () => {
+          this.inFlight--;
+          this.flushQueue();
+        });
       }
     }
-    this.isFlushing = false;
   }
 
   close(code: number, reason: string): void {
@@ -194,7 +202,9 @@ export class ConnectionManager {
       }
     }
 
-    const conn = new ManagedConnection(connectionId, ws, meta);
+    const conn = new ManagedConnection(connectionId, ws, meta, () => {
+      this.droppedMessagesTotal++;
+    });
     this.connections.set(connectionId, conn);
 
     if (meta.userId) {

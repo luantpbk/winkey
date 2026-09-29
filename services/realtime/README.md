@@ -22,8 +22,8 @@ Implements:
   - `upload:{video_id}`: Authenticated only. Events are delivered only if `event.data.owner_id === connection.user_id` or role is `moderator`/`admin`.
   - `user:{user_id}`: Automatically joined upon authenticated connection. Receives personal events (`video.ready`, `video.failed`, `comment.reply` excluding self-replies).
 - **Limits**:
-  - 50 rooms per connection (exceeding returns `TOO_MANY_ROOMS`).
-  - 5 connections per user (6th connection closed with code `4429`).
+  - 50 rooms per connection (exceeding returns `TOO_MANY_ROOMS`). Internal auto-joined `user:{me}` room does not count against client subscription slots.
+  - 5 connections per user (6th connection closed with code `4429`). Currently tracked per pod in memory for the single-replica deployment; can transition to Valkey-backed session counters when scaled out.
   - 20 messages/second per connection (exceeding returns `RATE_LIMITED`, 5 consecutive seconds closed with `4429`).
   - 4 KiB maximum client frame size (binary or malformed frames return `BAD_MESSAGE`, 5 consecutive closed with `4400`).
   - 256 queued outbound messages per connection (drops oldest message on overflow).

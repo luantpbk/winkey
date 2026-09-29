@@ -1,15 +1,17 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
+import type { RealtimeEventConsumer } from '../nats/consumer.js';
 
 export interface HealthCheckDependencies {
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
+  eventConsumer?: RealtimeEventConsumer | null;
 }
 
 export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
   fastify,
-  { redis, natsConnection },
+  { redis, natsConnection, eventConsumer },
 ) => {
   fastify.get('/healthz', async (_request, reply) => {
     return reply.status(200).send({ status: 'ok' });
@@ -19,6 +21,7 @@ export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
     const checks: Record<string, string> = {
       valkey: 'unknown',
       nats: 'unknown',
+      consumer: 'unknown',
     };
     let isHealthy = true;
 
@@ -36,7 +39,7 @@ export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
       checks.valkey = 'skipped';
     }
 
-    // Check NATS JetStream
+    // Check NATS connection
     if (natsConnection) {
       try {
         if (!natsConnection.isClosed()) {
@@ -57,6 +60,17 @@ export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
       }
     } else {
       checks.nats = 'skipped';
+    }
+
+    // Check JetStream consumers readiness (VIDEO and SOCIAL consumers must both be active)
+    if (eventConsumer) {
+      const consumerReady = eventConsumer.isReady();
+      checks.consumer = consumerReady ? 'ok' : 'degraded';
+      if (!consumerReady) {
+        isHealthy = false;
+      }
+    } else {
+      checks.consumer = 'skipped';
     }
 
     const statusCode = isHealthy ? 200 : 503;

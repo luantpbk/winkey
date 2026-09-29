@@ -51,7 +51,21 @@ describe('OpenAPI Contract Verification against realtime.v1.yaml and common.yaml
 
     // 3. Build test server
     const env = getEnv({ NODE_ENV: 'test' });
-    const ticketStore = new TicketStore();
+    const storeMap = new Map<string, string>();
+    const mockRedis = {
+      status: 'ready',
+      set: async (key: string, val: string) => {
+        storeMap.set(key, val);
+        return 'OK';
+      },
+      getdel: async (key: string) => {
+        const val = storeMap.get(key) || null;
+        storeMap.delete(key);
+        return val;
+      },
+    } as unknown as import('ioredis').Redis;
+
+    const ticketStore = new TicketStore(mockRedis);
     const rateLimiter = new ValkeyRateLimiter();
 
     const server = await buildApp({

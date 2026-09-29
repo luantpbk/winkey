@@ -120,4 +120,16 @@ export class ProblemError extends Error {
       },
     });
   }
+
+  static serviceUnavailable(
+    detail = 'Service temporarily unavailable',
+    code = 'SERVICE_UNAVAILABLE',
+  ): ProblemError {
+    return new ProblemError({
+      status: 503,
+      title: 'Service Unavailable',
+      code,
+      detail,
+    });
+  }
 }

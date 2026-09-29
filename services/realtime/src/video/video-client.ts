@@ -47,9 +47,27 @@ export class VideoClient {
       const res = await fetch(`${this.videoSvcUrl}/v1/videos/${videoId}`, {
         method: 'GET',
         headers,
+        signal: AbortSignal.timeout(2000),
       });
 
       const allowed = res.status === 200;
+
+      if (this.cache.size >= 10000) {
+        const nowMs = Date.now();
+        for (const [k, v] of this.cache) {
+          if (v.expiresAt <= nowMs) {
+            this.cache.delete(k);
+          }
+        }
+        if (this.cache.size >= 10000) {
+          let count = 0;
+          for (const k of this.cache.keys()) {
+            this.cache.delete(k);
+            if (++count >= 1000) break;
+          }
+        }
+      }
+
       this.cache.set(cacheKey, {
         allowed,
         expiresAt: now + this.cacheTtlMs,
@@ -57,7 +75,7 @@ export class VideoClient {
 
       return allowed;
     } catch {
-      // In case video-svc is down or network error, fail closed
+      // In case video-svc is down, timeout or network error, fail closed
       return false;
     }
   }
