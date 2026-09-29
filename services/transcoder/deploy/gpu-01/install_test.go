@@ -165,6 +165,21 @@ func TestInstallScript(t *testing.T) {
 	}
 }
 
+// The runbook says ./install.sh: the file must be executable in git (a checkout from
+// Windows loses the bit unless it is recorded in the index).
+func TestInstallScriptIsExecutableInGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	out, err := exec.Command("git", "ls-files", "-s", "install.sh").Output()
+	if err != nil || len(out) == 0 {
+		t.Skip("not a git checkout")
+	}
+	if !strings.HasPrefix(string(out), "100755") {
+		t.Fatalf("install.sh is not executable in git: %s (git update-index --chmod=+x)", out)
+	}
+}
+
 // A dirty tree is refused unless the operator says otherwise, so a version name always means one commit.
 func TestInstallScriptRefusesDirtyTreeUnlessAllowed(t *testing.T) {
 	if runtime.GOOS != "linux" {
