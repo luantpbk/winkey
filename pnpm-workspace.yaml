@@ -1,7 +1,9 @@
 packages:
-  - 'packages/*'
   - 'apps/*'
-  - 'e2e'
+  - 'packages/*'
+  - 'services/auth'
+  - 'services/social'
+  - 'services/realtime'
 
 allowBuilds:
   esbuild: true

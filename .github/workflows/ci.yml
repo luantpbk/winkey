@@ -1,0 +1,189 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: detect changes
+    runs-on: ubuntu-24.04
+    outputs:
+      root_ts: ${{ steps.filter.outputs.root_ts }}
+      ts_workspaces: ${{ steps.filter.outputs.ts_workspaces }}
+      go_libs: ${{ steps.filter.outputs.go_libs }}
+      go_upload: ${{ steps.filter.outputs.go_upload }}
+      go_transcoder: ${{ steps.filter.outputs.go_transcoder }}
+      go_video: ${{ steps.filter.outputs.go_video }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            root_ts:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - 'eslint.config.*'
+              - '.prettier*'
+              - '.github/workflows/ci.yml'
+            ts_workspaces:
+              - 'contracts/openapi/**'
+              - 'apps/**'
+              - 'packages/**'
+              - 'services/auth/**'
+              - 'services/social/**'
+              - 'services/realtime/**'
+            go_libs:
+              - 'libs/go/**'
+              - 'go.work*'
+              - '.golangci.yml'
+              - '.github/workflows/ci.yml'
+            go_upload:
+              - 'services/upload/**'
+              - 'libs/go/**'
+              - 'db/migrations/**'
+              - 'go.work*'
+              - '.github/workflows/ci.yml'
+            go_transcoder:
+              - 'services/transcoder/**'
+              - 'libs/go/**'
+              - 'db/migrations/**'
+              - 'go.work*'
+              - '.github/workflows/ci.yml'
+            go_video:
+              - 'services/video/**'
+              - 'libs/go/**'
+              - 'db/migrations/**'
+              - 'go.work*'
+              - '.github/workflows/ci.yml'
+
+  root-lint:
+    name: root lint & format
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.root_ts == 'true' || needs.changes.outputs.ts_workspaces == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
+      - run: pnpm run lint:root
+
+  ts-ci:
+    name: ts monorepo (lint, typecheck, test, build)
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.root_ts == 'true' || needs.changes.outputs.ts_workspaces == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Turbo lint, typecheck, test, build
+        env:
+          # Container tests (PostgreSQL 17, NATS) must fail, not skip, on runners that have Docker.
+          WINKEY_REQUIRE_DOCKER: '1'
+        run: |
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
+          pnpm run build
+
+  go-ci:
+    name: go (${{ matrix.module }})
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: libs/go
+            filter_key: go_libs
+          - module: services/upload
+            filter_key: go_upload
+          - module: services/transcoder
+            filter_key: go_transcoder
+          - module: services/video
+            filter_key: go_video
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Should run?
+        id: gate
+        env:
+          IS_PUSH: ${{ github.event_name == 'push' }}
+          OUTPUTS_JSON: ${{ toJSON(needs.changes.outputs) }}
+          KEY: ${{ matrix.filter_key }}
+        run: |
+          if [ "$IS_PUSH" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            VAL=$(echo "$OUTPUTS_JSON" | grep -o "\"$KEY\": *\"true\"" || true)
+            if [ -n "$VAL" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip: no changes in ${{ matrix.module }}"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Module present?
+        id: present
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if [ -f "${{ matrix.module }}/go.mod" ]; then
+            echo "yes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip: ${{ matrix.module }} has no go.mod yet"
+            echo "yes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: FFmpeg (transcoder real-media tests)
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg && ffmpeg -version | head -1
+
+      - name: vet
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: test (race, containers required)
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        env:
+          WINKEY_REQUIRE_DOCKER: '1'
+        run: go test -race -count=1 -timeout 20m ./...
+
+      - name: cross-build (linux/arm64, windows/amd64)
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
+        working-directory: ${{ matrix.module }}
+        run: |
+          GOOS=linux GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...

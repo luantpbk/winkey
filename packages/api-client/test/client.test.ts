@@ -68,4 +68,26 @@ describe('@winkey/api-client', () => {
 
     expect(capturedHeaders?.get('Authorization')).toBe('Bearer explicit-token-override');
   });
+
+  it('sends no Authorization header when getAccessToken returns null', async () => {
+    let capturedHeaders: Headers | undefined;
+    const mockFetch: typeof fetch = async (input, init) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      capturedHeaders = req.headers;
+      return new Response(JSON.stringify({ id: '123' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const client = createAuthClient({
+      fetch: mockFetch,
+      baseUrl: 'http://localhost:8080',
+      getAccessToken: () => null,
+    });
+
+    await client.GET('/v1/auth/me');
+
+    expect(capturedHeaders?.has('Authorization')).toBe(false);
+  });
 });

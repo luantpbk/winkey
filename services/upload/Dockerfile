@@ -1,6 +1,6 @@
 # Build context: the repository root (the service depends on libs/go).
 #   docker buildx build --platform linux/amd64,linux/arm64 -f services/upload/Dockerfile .
-FROM --platform=$BUILDPLATFORM golang:1.24 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY libs/go/go.mod libs/go/go.sum libs/go/
