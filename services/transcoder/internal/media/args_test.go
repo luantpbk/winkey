@@ -54,6 +54,19 @@ func TestGoldenNVENCSingle(t *testing.T) {
 	golden(t, "nvenc_single_360p", BuildHLSArgs(plan(EncoderNVENC, 640, 360, true)))
 }
 
+func TestNoHWDecodeDropsHwaccelOnly(t *testing.T) {
+	p := plan(EncoderNVENC, 1920, 1080, true)
+	with := strings.Join(BuildHLSArgs(p), " ")
+	p.NoHWDecode = true
+	without := strings.Join(BuildHLSArgs(p), " ")
+	if !strings.Contains(with, "-hwaccel cuda") || strings.Contains(without, "-hwaccel") {
+		t.Fatalf("hwaccel handling wrong:\n%s\n%s", with, without)
+	}
+	if strings.ReplaceAll(with, "-hwaccel cuda ", "") != without {
+		t.Fatal("NoHWDecode must change nothing else (still h264_nvenc with the same options)")
+	}
+}
+
 func TestX264PresetOverride(t *testing.T) {
 	p := plan(EncoderX264, 1920, 1080, true)
 	p.X264Preset = "medium"

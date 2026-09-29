@@ -28,7 +28,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V2b-prep | gpu-01: driver ≥ 570, FFmpeg 7.1 NVENC, scratch/archive, Go, SSH LAN | Claude (phiên local) | TS | ✅ |
 | I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9; chỉ edge-1 + gpu-01, ADR-013). Đã xong: cùng region, Tailscale direct, PAYG, domain `winkey.vn`. Đã có: `aarch64`, NVENC benchmark. Còn: uplink nhà; **bạn**: chuyển NS sang Cloudflare, áp policy Tailscale §4.2 | Antigravity 2 + **bạn** | — | 🟡 |
 | F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ✅ (#14) |
-| F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | 🟡 (#17) |
+| F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ✅ (#17) |
 
 ### P1 — MVP
 | ID | Task | Owner | Phụ thuộc | Độ phức tạp |
@@ -37,12 +37,13 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB · ✅ (#9) |
 | V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** · ✅ (#10); benchmark NVENC thật = V2b |
 | V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB · ✅ (#10) |
-| V3b | Reconciler job kẹt: ghi `transcode_jobs.heartbeat_at` mỗi lần `InProgress`; job RUNNING có heartbeat > 10 phút → attempt FAILED, re-enqueue hoặc fail video (migration 000004). Pin FFmpeg + sha256 cho `Dockerfile.nvenc` đã xong ở #20 | Sonnet 5.5 | V2 | TB |
+| V3b | Reconciler job kẹt (heartbeat, re-enqueue/fail qua outbox), pin FFmpeg BtbN n7.1.5 + sha256 cho cả image cpu và nvenc; benchmark GPU thật (V2b) | Sonnet 5.5 | V2 | TB · ✅ (#19) |
+| V3c | `HWACCEL_DECODE` (mặc định `true`) nối vào `NoHWDecode`; gpu-01 dùng `HWACCEL_DECODE=false`, `WORKER_CONCURRENCY=1` | Sonnet 5.5 | V3b | Thấp |
 | CI-GO | Workflow `go.yml` tạm thời: vet, test `-race` với container (`WINKEY_REQUIRE_DOCKER=1`), cross-build arm64/windows | Opus | — | ✅ (F1 đã thay bằng `ci.yml`) |
 | S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
-| A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB · 🟡 (#16) |
+| A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB · ✅ (#16) |
 | PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |
-| PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp · 🟡 (#15) |
+| PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp · ✅ (#15) |
 | U1 | Web: layout, trang chủ, trang xem SSR, đăng nhập/đăng ký, upload (multipart, resume) | Antigravity 1 | F2 (Prism mock) | TB |
 | PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE | Antigravity 1 | S1 | TB |
 | I1 | Ansible: hardening, Tailscale, k3s (edge-1 ✅ qua I1-e1; edge-2/3 sau). gpu-01: worker transcoder ngoài k3s (ADR-015): driver NVIDIA, FFmpeg NVENC, service | Antigravity 2 | I0 | **Cao** |

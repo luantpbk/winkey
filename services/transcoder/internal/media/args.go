@@ -22,6 +22,10 @@ type HLSPlan struct {
 	Renditions []Rendition
 	FPS        string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
 	HasAudio   bool
+	// NoHWDecode makes NVENC runs decode on the CPU (no -hwaccel cuda). It is
+	// the hook for a possible HWACCEL_DECODE=false when NVDEC is unavailable or
+	// slow on a shared GPU; it is not wired to configuration yet.
+	NoHWDecode bool
 }
 
 // MasterPlaylist is the master playlist file name inside OutDir.
@@ -48,7 +52,7 @@ func BuildHLSArgs(p HLSPlan) []string {
 		"-progress", "pipe:1", "-nostats",
 		"-protocol_whitelist", "file,pipe",
 	}
-	if p.Encoder == EncoderNVENC {
+	if p.Encoder == EncoderNVENC && !p.NoHWDecode {
 		// No -hwaccel_output_format: frames come back to system memory so the
 		// CPU filters (rotate, 10-bit→8-bit, scale) always work.
 		a = append(a, "-hwaccel", "cuda")

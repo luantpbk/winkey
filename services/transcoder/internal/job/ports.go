@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -89,6 +90,35 @@ type Store interface {
 	// FAILED and writes video.failed to the outbox. ok is false when there was
 	// nothing to do (already READY/FAILED, deleted): the call is idempotent.
 	FailStuck(ctx context.Context, videoID uuid.UUID, f Failure) (rec FailRecord, ok bool, err error)
+	// Heartbeat stamps transcode_jobs.heartbeat_at = now() for a running job.
+	Heartbeat(ctx context.Context, jobID uuid.UUID) error
+	// ReconcileStale handles RUNNING jobs whose worker is gone: those with
+	// coalesce(heartbeat_at, started_at) older than staleAfter. Each is marked
+	// FAILED ("worker lost (no heartbeat)"). If the video is still PROCESSING
+	// and the job's attempt is below maxAttempts, a new video.uploaded (fresh
+	// event_id, same data) is enqueued in the same transaction; otherwise the
+	// video is failed like FailStuck (FAILED + video.failed). Safe to call from
+	// several workers at once: every job is handled exactly once.
+	ReconcileStale(ctx context.Context, staleAfter time.Duration, maxAttempts, limit int) ([]Reconciled, error)
+}
+
+// Reconciled reports what ReconcileStale did with one lost job.
+type Reconciled struct {
+	VideoID uuid.UUID
+	JobID   uuid.UUID
+	Attempt int
+	// Retried is true when a new video.uploaded was enqueued; false when the
+	// video was failed (attempts exhausted) or was no longer PROCESSING.
+	Retried bool
+	Failed  bool
+}
+
+// GaveUpFailure is recorded for videos whose processing was abandoned: JetStream
+// exhausted max_deliver, or the reconciler ran out of attempts.
+var GaveUpFailure = Failure{
+	Reason:    ReasonInternal,
+	Retryable: true, // a human can reset or replay it once the cause is fixed
+	Message:   "Processing did not complete after several attempts.",
 }
 
 // Objects is the object-storage port.
