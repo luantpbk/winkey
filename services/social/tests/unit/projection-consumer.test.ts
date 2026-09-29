@@ -39,7 +39,7 @@ describe('VideoProjectionConsumer unit tests', () => {
     expect(mockMsg.term).toHaveBeenCalledTimes(1);
   });
 
-  it('calls m.term() on missing or invalid version', async () => {
+  it('calls m.ack() and logs warn on unsupported event version', async () => {
     const mockDb = {} as any;
     const mockNats = {} as any;
     const consumer = new VideoProjectionConsumer({ db: mockDb, natsConnection: mockNats });
@@ -53,7 +53,9 @@ describe('VideoProjectionConsumer unit tests', () => {
     };
 
     await consumer.processMessage(mockMsg as any);
-    expect(mockMsg.term).toHaveBeenCalledTimes(1);
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+    expect(mockMsg.term).not.toHaveBeenCalled();
+    expect(mockMsg.nak).not.toHaveBeenCalled();
   });
 
   it('calls m.term() on video.ready with invalid UUIDs', async () => {

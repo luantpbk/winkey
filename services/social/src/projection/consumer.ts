@@ -112,9 +112,9 @@ export class VideoProjectionConsumer {
       if (event.version !== 1) {
         this.logger.warn(
           { type: event.type, version: event.version },
-          'Poison message: unsupported or missing event version; terminating message',
+          'Unsupported event version; acknowledging',
         );
-        m.term();
+        m.ack();
         return;
       }
 
