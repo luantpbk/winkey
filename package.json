@@ -1,0 +1,10 @@
+{
+  "name": "winkey",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "generate": "pnpm --filter @winkey/api-client run generate",
+    "check:generated": "pnpm --filter @winkey/api-client run check:generated"
+  },
+  "packageManager": "pnpm@12.6.0"
+}
