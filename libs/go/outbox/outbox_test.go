@@ -77,18 +77,19 @@ func TestEnqueueRelayEndToEnd(t *testing.T) {
 		t.Fatalf("%d rows still pending", pending)
 	}
 
-	// Cleanup removes only old published rows.
+	// Cleanup removes published rows older than the retention (fresh relay:
+	// the first one keeps running with its own settings).
+	cancel()
 	if _, err := pg.Pool.Exec(ctx, `UPDATE media.outbox SET published_at = now() - interval '8 days'`); err != nil {
 		t.Fatal(err)
 	}
-	relay.Retention = 7 * 24 * time.Hour
-	relay.CleanupInterval = 50 * time.Millisecond
-	cancel()
-	rctx2, cancel2 := context.WithCancel(ctx)
-	defer cancel2()
-	relay2 := *relay
-	relay2.PollInterval = 50 * time.Millisecond
-	go func() { _ = relay2.Run(rctx2) }()
+	cleaner := &outbox.Relay{
+		Pool: pg.Pool, Publisher: outbox.JetStreamPublisher{JS: ns.JS}, Schema: "media",
+		PollInterval: 50 * time.Millisecond, CleanupInterval: 50 * time.Millisecond, Retention: 7 * 24 * time.Hour,
+	}
+	cctx, ccancel := context.WithCancel(ctx)
+	defer ccancel()
+	go func() { _ = cleaner.Run(cctx) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var n int
