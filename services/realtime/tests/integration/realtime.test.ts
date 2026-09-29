@@ -615,15 +615,17 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     );
     await waitForFrame(ws, (f) => f.type === 'welcome');
 
-    // Subscribe to 50 rooms
+    // Subscribe to 50 rooms (throttled to respect 20 msgs/s client rate limit)
     for (let i = 1; i <= 50; i++) {
       const hex = i.toString(16).padStart(12, '0');
       const room = `upload:0192f5e4-7c1a-7b3e-9d2a-${hex}`;
+      await new Promise((r) => setTimeout(r, 60));
       ws.send(JSON.stringify({ type: 'subscribe', id: `r-${i}`, room }));
       await waitForFrame(ws, (f) => f.type === 'ack' && f.id === `r-${i}`);
     }
 
     // 51st room triggers TOO_MANY_ROOMS
+    await new Promise((r) => setTimeout(r, 60));
     ws.send(
       JSON.stringify({
         type: 'subscribe',
@@ -638,6 +640,7 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     }
 
     // 2. Oversized / binary frame -> BAD_MESSAGE
+    await new Promise((r) => setTimeout(r, 60));
     ws.send(Buffer.from('binary-frame-data'));
     const badMsg = await waitForFrame(ws, (f) => f.type === 'error' && f.code === 'BAD_MESSAGE');
     expect(badMsg.type).toBe('error');
@@ -683,11 +686,11 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
   });
 
   it('heartbeat timeout closes connection with 4408', async () => {
-    // Setup gateway with very fast heartbeat interval and timeout for test
+    // Setup gateway with valid heartbeat interval (schema min is 1000ms) and short timeout for test
     const fastMgr = new ConnectionManager({
       videoClient: new VideoClient('http://localhost:8080'),
-      heartbeatIntervalMs: 50,
-      heartbeatTimeoutMs: 150,
+      heartbeatIntervalMs: 1000,
+      heartbeatTimeoutMs: 500,
     });
 
     const fastGw = await buildApp({
