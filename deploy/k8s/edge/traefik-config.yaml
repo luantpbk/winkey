@@ -1,0 +1,29 @@
+# HelmChartConfig for bundled Traefik on k3s (ADR-009, ADR-014)
+# Configures NodePort type and trustedIPs for forwarded headers from host nginx
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        type: NodePort
+    ports:
+      web:
+        nodePort: 30080
+        forwardedHeaders:
+          trustedIPs:
+            - '127.0.0.1/32'
+            - '10.42.0.1/32'
+            - '100.113.240.3/32'
+            - '138.2.93.173/32'
+      websecure:
+        nodePort: 30443
+        forwardedHeaders:
+          trustedIPs:
+            - '127.0.0.1/32'
+            - '10.42.0.1/32'
+            - '100.113.240.3/32'
+            - '138.2.93.173/32'

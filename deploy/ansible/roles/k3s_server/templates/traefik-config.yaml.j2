@@ -18,6 +18,7 @@ spec:
         nodePort: {{ traefik_nodeport_web }}
         forwardedHeaders:
           # The host nginx sets X-Forwarded-For / -Proto; only trust it (host traffic arrives SNATed).
-          trustedIPs: {{ traefik_trusted_ips | to_json }}
       websecure:
         nodePort: {{ traefik_nodeport_websecure }}
+        forwardedHeaders:
+          trustedIPs: {{ traefik_trusted_ips | to_json }}

@@ -7,6 +7,7 @@ PUBLIC_IP="${PUBLIC_IP:-138.2.93.173}"
 BASE_URL="${BASE_URL:-https://winkey.vn}"
 MEDIA_URL="${MEDIA_URL:-https://media.winkey.vn}"
 S3_URL="${S3_URL:-https://s3.winkey.vn}"
+SKIP_MEDIA="${SKIP_MEDIA:-0}"
 
 echo "=========================================================="
 echo " Running Winkey Edge Smoke Tests against ${BASE_URL}"
@@ -30,14 +31,21 @@ if [ "$NOPE_STATUS" != "404" ]; then
 fi
 echo "SUCCESS: ${BASE_URL}/v1/nope returned HTTP 404 (not handled by web router)."
 
-# 3. Check gateway header spoofing protection and XFF overwrite via /smoke/whoami
-echo "[3/6] Checking header stripping and XFF overwrite via /smoke/whoami..."
+# 3. Check gateway header spoofing protection and client IP assertion via /smoke/whoami
+echo "[3/6] Checking header stripping and client IP assertion via /smoke/whoami..."
+CLIENT_IP=$(curl -sS https://api.ipify.org 2>/dev/null || curl -sS https://ifconfig.me 2>/dev/null || true)
+if [ -z "$CLIENT_IP" ]; then
+    echo "FAILED: Could not detect client public IP to verify X-Forwarded-For!" >&2
+    exit 1
+fi
+echo "  Detected client public IP: $CLIENT_IP"
+
 SPOOFED_IP="203.0.113.195"
 WHOAMI_RESP=$(curl -sS -i \
   -H "X-User-Id: spoofed-admin-id" \
   -H "X-User-Roles: admin" \
   -H "X-Forwarded-For: ${SPOOFED_IP}" \
-  "${BASE_URL}/smoke/whoami" || true)
+  "${BASE_URL}/smoke/whoami")
 
 HTTP_CODE=$(echo "$WHOAMI_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
 if [ "$HTTP_CODE" != "200" ]; then
@@ -46,64 +54,82 @@ if [ "$HTTP_CODE" != "200" ]; then
     exit 1
 fi
 
+# Assert spoofed headers stripped
 if echo "$WHOAMI_RESP" | grep -qi "spoofed-admin-id"; then
     echo "FAILED: Spoofed X-User-Id reached upstream whoami!" >&2
     exit 1
 fi
-
 if echo "$WHOAMI_RESP" | grep -qi "X-User-Roles"; then
     echo "FAILED: Spoofed X-User-Roles reached upstream whoami!" >&2
     exit 1
 fi
-
 if echo "$WHOAMI_RESP" | grep -qi "${SPOOFED_IP}"; then
     echo "FAILED: Spoofed X-Forwarded-For (${SPOOFED_IP}) was not overwritten by nginx!" >&2
     exit 1
 fi
 
-echo "SUCCESS: whoami returned HTTP 200; identity headers stripped; spoofed XFF overwritten."
+# Assert whoami received the actual client IP (proves trustedIPs + depth: 1 works)
+if ! echo "$WHOAMI_RESP" | grep -qE "(X-Forwarded-For|X-Real-Ip):.*${CLIENT_IP}"; then
+    echo "FAILED: Upstream whoami did not see real client IP ($CLIENT_IP)!" >&2
+    echo "Upstream received headers:"
+    echo "$WHOAMI_RESP" | grep -iE 'X-Forwarded|X-Real' || true
+    exit 1
+fi
+echo "SUCCESS: whoami returned 200; identity headers stripped; upstream sees real client IP ($CLIENT_IP)."
 
 # 4. Check Traefik rate limit behavior (ipStrategy depth: 1)
 echo "[4/6] Checking Traefik rate limiting on ${BASE_URL}/smoke/whoami..."
-BURST_BLOCKED=0
-for i in $(seq 1 70); do
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/smoke/whoami" || true)
-    if [ "$CODE" = "429" ]; then
-        BURST_BLOCKED=1
-        echo "  Request $i was rate limited with HTTP 429 Too Many Requests."
-        break
+echo "  Firing 150 concurrent requests (threshold: average 100/s, burst 50)..."
+
+TMP_DIR=$(mktemp -d)
+RESP_LOG="${TMP_DIR}/rate_limit_codes.txt"
+
+# Concurrently fire requests in background
+for i in $(seq 1 150); do
+    curl -s -o /dev/null -w "%{http_code}\n" "${BASE_URL}/smoke/whoami" >> "$RESP_LOG" &
+    if [ $((i % 30)) -eq 0 ]; then
+        sleep 0.05
     fi
 done
+wait
 
-if [ "$BURST_BLOCKED" -eq 1 ]; then
-    echo "SUCCESS: Traefik rateLimit triggered HTTP 429 upon burst limit."
-else
-    echo "NOTE: Burst within window (average 100/s, burst 50)."
+COUNT_429=$(grep -c "^429$" "$RESP_LOG" || true)
+COUNT_200=$(grep -c "^200$" "$RESP_LOG" || true)
+rm -rf "$TMP_DIR"
+
+echo "  Results: $COUNT_200 OK (200), $COUNT_429 Rate Limited (429)"
+if [ "$COUNT_429" -le 0 ]; then
+    echo "FAILED: Traefik rateLimit did NOT trigger HTTP 429 under 150 concurrent requests!" >&2
+    exit 1
 fi
+echo "SUCCESS: Traefik rateLimit engaged ($COUNT_429 requests received HTTP 429 Too Many Requests)."
 
-# 5. Check media.winkey.vn caching (MISS -> HIT)
+# 5. Check media proxy_cache on media.winkey.vn (MISS -> HIT)
 echo "[5/6] Checking media proxy_cache on ${MEDIA_URL}..."
-MEDIA_RESP1=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
-CACHE_STATUS1=$(echo "$MEDIA_RESP1" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
-CODE1=$(echo "$MEDIA_RESP1" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
-
-MEDIA_RESP2=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
-CACHE_STATUS2=$(echo "$MEDIA_RESP2" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
-CODE2=$(echo "$MEDIA_RESP2" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
-
-echo "  Fetch 1: HTTP $CODE1, X-Cache-Status: ${CACHE_STATUS1:-NONE}"
-echo "  Fetch 2: HTTP $CODE2, X-Cache-Status: ${CACHE_STATUS2:-NONE}"
-
-if [ "$CODE1" = "200" ] && [ "$CODE2" = "200" ]; then
-    if [ "$CACHE_STATUS1" = "MISS" ] && [ "$CACHE_STATUS2" = "HIT" ]; then
-        echo "SUCCESS: media object cached correctly: MISS then HIT."
-    elif [ "$CACHE_STATUS2" = "HIT" ]; then
-        echo "SUCCESS: media object served from cache (HIT)."
-    else
-        echo "WARNING: Expected MISS then HIT, got '${CACHE_STATUS1}' then '${CACHE_STATUS2}'"
-    fi
+if [ "${SKIP_MEDIA}" = "1" ]; then
+    echo "SKIP: Media proxy_cache test skipped via SKIP_MEDIA=1 (pending task STO)."
 else
-    echo "INFO: Media object /v/smoke/hello.txt returned HTTP $CODE1 (ready for object upload in STO)."
+    MEDIA_RESP1=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
+    CACHE_STATUS1=$(echo "$MEDIA_RESP1" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
+    CODE1=$(echo "$MEDIA_RESP1" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
+
+    MEDIA_RESP2=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
+    CACHE_STATUS2=$(echo "$MEDIA_RESP2" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
+    CODE2=$(echo "$MEDIA_RESP2" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
+
+    echo "  Fetch 1: HTTP $CODE1, X-Cache-Status: ${CACHE_STATUS1:-NONE}"
+    echo "  Fetch 2: HTTP $CODE2, X-Cache-Status: ${CACHE_STATUS2:-NONE}"
+
+    if [ "$CODE1" != "200" ] || [ "$CODE2" != "200" ]; then
+        echo "FAILED: Expected HTTP 200 from ${MEDIA_URL}/v/smoke/hello.txt, got $CODE1 / $CODE2 (set SKIP_MEDIA=1 if STO not yet deployed)!" >&2
+        exit 1
+    fi
+
+    if [ "$CACHE_STATUS1" != "MISS" ] || [ "$CACHE_STATUS2" != "HIT" ]; then
+        echo "FAILED: Expected cache status MISS then HIT, got '$CACHE_STATUS1' then '$CACHE_STATUS2'!" >&2
+        exit 1
+    fi
+    echo "SUCCESS: media object cached correctly: MISS then HIT."
 fi
 
 # 6. Check that internal NodePorts are strictly unreachable from public IP
@@ -119,5 +145,5 @@ done
 echo "SUCCESS: NodePorts 30422, 30432, 30900 are unreachable from the public IP."
 
 echo "=========================================================="
-echo " Edge Ingress & Gateway Smoke Tests completed."
+echo " All Edge Ingress & Gateway Smoke Tests PASSED!"
 echo "=========================================================="

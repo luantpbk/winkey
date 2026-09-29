@@ -6,8 +6,10 @@ node_external_ip: 138.2.93.173
 # it terminates TLS for the hosts below and proxies to Traefik's NodePort on the tailnet IP.
 traefik_service_type: NodePort
 traefik_trusted_ips:
-  - 10.42.0.1/32        # cni0: host traffic to a NodePort arrives SNATed to this
+  - "127.0.0.1/32"
+  - 10.42.0.1/32 # cni0: host traffic to a NodePort arrives SNATed to this
   - "{{ tailscale_ipv4 }}/32"
+  - "{{ node_external_ip }}/32"
 
 nginx_front:
   cert_name: winkey.vn

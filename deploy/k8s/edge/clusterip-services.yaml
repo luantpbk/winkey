@@ -67,10 +67,28 @@ spec:
   ports:
     - name: http
       port: 3004
-      targetPort: 3004
+      targetPort: http
       protocol: TCP
   selector:
     app.kubernetes.io/name: social-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: realtime-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: realtime-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3005
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: realtime-svc
 ---
 apiVersion: v1
 kind: Service

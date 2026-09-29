@@ -3,6 +3,12 @@
 # Deploys Traefik IngressRoute, Middlewares, fixed NodePorts, and whoami smoke test service to k3s.
 # Uses k3s auto-deploy manifests directory (/var/lib/rancher/k3s/server/manifests)
 
+- name: Deploy Traefik HelmChartConfig manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../k8s/edge/traefik-config.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+    mode: "0644"
+
 - name: Deploy Traefik middlewares manifest
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../k8s/edge/middlewares.yaml"

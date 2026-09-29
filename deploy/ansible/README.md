@@ -68,6 +68,8 @@ Kubernetes manifests are located under `deploy/k8s/edge/`:
 - `nodeports.yaml`: Internal NodePorts 30422 (NATS), 30432 (PostgreSQL), and 30900 (Garage S3) bound strictly to the Tailscale IP per ADR-015.
 - `whoami.yaml`: Stand-in upstream for smoke testing gateway header stripping and routing.
 - `clusterip-services.yaml`: ClusterIP service definitions for in-cluster service resolution.
+  - `social-svc`: port 3004 with `targetPort: http` (note: when deploying social-svc in task I2, configure `HTTP_PORT=3004` matching compose, or name container port `http`).
+  - `realtime-svc`: port 3005 with `targetPort: http` (supports WebSocket and ticket issuance).
 
 ### Verification
 
