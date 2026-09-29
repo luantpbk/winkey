@@ -29,6 +29,11 @@ type Config struct {
 	WorkerConcurrency int    `env:"WORKER_CONCURRENCY"`
 	Encoder           string `env:"ENCODER" default:"auto"` // auto | nvenc | x264
 	X264Preset        string `env:"X264_PRESET" default:"veryfast"`
+	// HWAccelDecode: with NVENC, decode on the GPU (-hwaccel cuda, the default). Set
+	// false to decode on the CPU and only encode on the GPU; measured ~2x faster
+	// on gpu-01 while the GPU is shared with a miner (docs/INFRASTRUCTURE.md section 6).
+	// Ignored by x264.
+	HWAccelDecode bool `env:"HWACCEL_DECODE" default:"true"`
 
 	ScratchDir string `env:"SCRATCH_DIR"` // default: <os temp dir>/winkey-scratch
 	ArchiveDir string `env:"ARCHIVE_DIR"` // optional raw archive
@@ -47,9 +52,12 @@ type Config struct {
 }
 
 // Load reads and validates the environment and fills path defaults.
-func Load() (Config, error) {
+func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
+
+// LoadFrom is Load with an explicit lookup function (used by tests).
+func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	var c Config
-	if err := libconfig.Load(&c); err != nil {
+	if err := libconfig.LoadFrom(&c, lookup); err != nil {
 		return c, err
 	}
 	if c.ScratchDir == "" {
