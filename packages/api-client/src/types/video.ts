@@ -350,6 +350,7 @@ export interface operations {
                     "application/json": components["schemas"]["StudioVideoPage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };
