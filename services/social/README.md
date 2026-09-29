@@ -18,8 +18,19 @@ Part of **Task C1**, owned by **Antigravity 3**.
 - **Subscriptions**: Idempotent channel subscriptions and unsubscriptions.
   - Self-subscription rejection (`400 CANNOT_SUBSCRIBE_SELF`).
   - Automatically publishes `social.subscription.changed` with absolute `subscriber_count` via transactional outbox.
-- **Projection Consumer**: Durable pull consumer `social-videos` on JetStream `VIDEO` stream (`video.ready`, `video.deleted`).
-- **Rate Limiting**: Valkey-backed sliding window rate limiter (10 comments/min, 60 likes/min, 60 subscriptions/min).
+- **Content Reporting (Task A2)**:
+  - `POST /v1/reports`: Users can report videos, comments, and user profiles.
+  - Target visibility and existence checks: non-hidden videos, visible comments on visible videos, active profiles.
+  - Self-reporting protection: users cannot report their own videos, comments, or profile (`400 CANNOT_REPORT_OWN_CONTENT`, `400 CANNOT_REPORT_SELF`).
+  - Idempotent deduplication: Repeated reports on the same target while OPEN return `200` with the existing report receipt (backed by partial unique index `(reporter_id, target_type, target_id) WHERE status = 'OPEN'`).
+  - Rate limiting: 20 reports per hour per user sliding window.
+- **Moderation Queue & Resolution (Task A2)**:
+  - `GET /v1/moderation/reports`: Cases grouped by `(target_type, target_id)` with `open_count`, reasons histogram, earliest report time, and the 5 most recent reports (including reporter public profile). Sorted by oldest open case first; cursor pagination. Requires `moderator` or `admin` in `X-User-Roles`.
+  - `PUT /v1/moderation/cases/{target_type}/{target_id}/resolution`: Atomic batch update of all OPEN reports on a target to `ACTIONED` or `DISMISSED` with optional note and `resolved_by`. Returns `404` if no open reports exist.
+- **Projection Consumer & Hidden Videos (Task A2)**:
+  - Durable pull consumer `social-videos` on JetStream stream `VIDEO` listening to `video.ready`, `video.deleted`, and `video.moderated`.
+  - Ingests `video.moderated` events, setting `social.videos.hidden = (state === 'HIDDEN')`.
+  - Hidden video rule: When a video is hidden, its comment and like endpoints answer `404` for regular users; moderators and admins retain full access.
 - **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.
 

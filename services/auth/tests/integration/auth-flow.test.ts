@@ -498,4 +498,261 @@ describe('auth-svc full integration flow', () => {
     expect(readyz.statusCode).toBe(200);
     expect(readyz.json().status).toBe('ok');
   });
+
+  describe('Admin and Moderation Integration', () => {
+    const adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b0001';
+    const modId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b0002';
+    const adminHeaders = {
+      'x-user-id': adminId,
+      'x-user-roles': 'admin,viewer',
+    };
+    const modHeaders = {
+      'x-user-id': modId,
+      'x-user-roles': 'moderator,viewer',
+    };
+
+    it('Admin: update roles writes USER_ROLES_CHANGED audit log; no-op writes nothing', async () => {
+      // 1. Register a user
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'role_target@winkey.vn',
+          password: 'Password123!',
+          handle: 'role_target',
+          display_name: 'Role Target',
+        },
+      });
+      expect(reg.statusCode).toBe(201);
+      const targetId = reg.json().user.id;
+
+      // 2. Admin promotes user to creator, moderator
+      const updateRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${targetId}/roles`,
+        headers: adminHeaders,
+        payload: {
+          roles: ['viewer', 'creator', 'moderator'],
+        },
+      });
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.json().roles).toEqual(['viewer', 'creator', 'moderator']);
+
+      // Check audit log
+      expect(store.audit_log.length).toBe(1);
+      expect(store.audit_log[0].action).toBe('USER_ROLES_CHANGED');
+      expect(store.audit_log[0].actor_id).toBe(adminId);
+      expect(store.audit_log[0].target_user_id).toBe(targetId);
+
+      // 3. No-op update (same roles)
+      const noopRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${targetId}/roles`,
+        headers: adminHeaders,
+        payload: {
+          roles: ['viewer', 'creator', 'moderator'],
+        },
+      });
+      expect(noopRes.statusCode).toBe(200);
+      // Audit log count must remain 1
+      expect(store.audit_log.length).toBe(1);
+    });
+
+    it('Moderator: suspends user revoking refresh tokens; login returns 403 ACCOUNT_SUSPENDED without leaking reason', async () => {
+      // 1. Register a user and log in to get a refresh token
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'suspend_target@winkey.vn',
+          password: 'Password123!',
+          handle: 'suspend_target',
+          display_name: 'Suspend Target',
+        },
+      });
+      expect(reg.statusCode).toBe(201);
+      const targetId = reg.json().user.id;
+      const initialCookie = reg.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+      // 2. Moderator suspends user until tomorrow
+      const until = new Date(Date.now() + 86400000).toISOString();
+      const suspRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${targetId}/suspension`,
+        headers: modHeaders,
+        payload: {
+          reason: 'Internal notes about harassment',
+          until,
+        },
+      });
+      expect(suspRes.statusCode).toBe(200);
+      expect(suspRes.json().status).toBe('SUSPENDED');
+      expect(suspRes.json().suspension_reason).toBe('Internal notes about harassment');
+
+      // Check audit log
+      expect(store.audit_log.some((a) => a.action === 'USER_SUSPENDED')).toBe(true);
+
+      // 3. User refresh token must be revoked (401)
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: initialCookie },
+      });
+      expect(refreshRes.statusCode).toBe(401);
+
+      // 4. User login must answer 403 ACCOUNT_SUSPENDED with until in detail, never internal reason
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'suspend_target@winkey.vn',
+          password: 'Password123!',
+        },
+      });
+      expect(loginRes.statusCode).toBe(403);
+      const problem = loginRes.json();
+      expect(problem.code).toBe('ACCOUNT_SUSPENDED');
+      expect(problem.detail).toContain(until);
+      expect(problem.detail).not.toContain('harassment');
+    });
+
+    it('Login: expired temporary suspension auto-lifts with USER_UNSUSPENDED audit log', async () => {
+      // 1. Create a user who was temporarily suspended in the past
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'expired_target@winkey.vn',
+          password: 'Password123!',
+          handle: 'expired_target',
+          display_name: 'Expired Target',
+        },
+      });
+      expect(reg.statusCode).toBe(201);
+      const targetId = reg.json().user.id;
+
+      // Manually set suspension expired in the past
+      const user = store.users.find((u) => u.id === targetId)!;
+      user.status = 'SUSPENDED';
+      user.suspended_until = new Date(Date.now() - 3600000); // 1 hour ago
+      user.suspension_reason = 'Past minor warning';
+
+      // 2. User logs in with correct password
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'expired_target@winkey.vn',
+          password: 'Password123!',
+        },
+      });
+      expect(loginRes.statusCode).toBe(200);
+      expect(loginRes.json().access_token).toBeDefined();
+
+      // User must now be ACTIVE in database with suspension cleared
+      expect(user.status).toBe('ACTIVE');
+      expect(user.suspended_until).toBeNull();
+      expect(user.suspension_reason).toBeNull();
+
+      // Audit log must have recorded USER_UNSUSPENDED with { expired: true }
+      const unSuspAudit = store.audit_log.find(
+        (a) => a.target_user_id === targetId && a.action === 'USER_UNSUSPENDED',
+      );
+      expect(unSuspAudit).toBeDefined();
+      expect(unSuspAudit!.details).toEqual({ expired: true });
+    });
+
+    it('Admin/Moderator: Unsuspend of ACTIVE user is idempotent without audit row', async () => {
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'active_target@winkey.vn',
+          password: 'Password123!',
+          handle: 'active_target',
+          display_name: 'Active Target',
+        },
+      });
+      const targetId = reg.json().user.id;
+      const initialLogCount = store.audit_log.length;
+
+      const unsuspRes = await app.inject({
+        method: 'DELETE',
+        url: `/v1/admin/users/${targetId}/suspension`,
+        headers: modHeaders,
+      });
+      expect(unsuspRes.statusCode).toBe(200);
+      expect(unsuspRes.json().status).toBe('ACTIVE');
+      expect(store.audit_log.length).toBe(initialLogCount);
+    });
+
+    it('Admin/Moderator: Self-protection and admin-protection enforce CANNOT_MODERATE_TARGET (403)', async () => {
+      // 1. Admin cannot suspend self
+      const selfSusp = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${adminId}/suspension`,
+        headers: adminHeaders,
+        payload: { reason: 'Test self' },
+      });
+      expect(selfSusp.statusCode).toBe(403);
+      expect(selfSusp.json().code).toBe('CANNOT_MODERATE_TARGET');
+
+      // 2. Admin cannot change own roles
+      const selfRoles = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${adminId}/roles`,
+        headers: adminHeaders,
+        payload: { roles: ['viewer'] },
+      });
+      expect(selfRoles.statusCode).toBe(403);
+      expect(selfRoles.json().code).toBe('CANNOT_MODERATE_TARGET');
+
+      // 3. Register another admin user
+      const anotherAdmin = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'another_admin@winkey.vn',
+          password: 'Password123!',
+          handle: 'another_admin',
+          display_name: 'Another Admin',
+        },
+      });
+      const anotherAdminId = anotherAdmin.json().user.id;
+      store.users.find((u) => u.id === anotherAdminId)!.roles = ['admin', 'viewer'];
+
+      // Admin cannot suspend another admin
+      const adminSuspAdmin = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${anotherAdminId}/suspension`,
+        headers: adminHeaders,
+        payload: { reason: 'Test' },
+      });
+      expect(adminSuspAdmin.statusCode).toBe(403);
+      expect(adminSuspAdmin.json().code).toBe('CANNOT_MODERATE_TARGET');
+
+      // Moderator cannot suspend another moderator
+      const anotherMod = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'another_mod@winkey.vn',
+          password: 'Password123!',
+          handle: 'another_mod',
+          display_name: 'Another Mod',
+        },
+      });
+      const anotherModId = anotherMod.json().user.id;
+      store.users.find((u) => u.id === anotherModId)!.roles = ['moderator', 'viewer'];
+
+      const modSuspMod = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${anotherModId}/suspension`,
+        headers: modHeaders,
+        payload: { reason: 'Test' },
+      });
+      expect(modSuspMod.statusCode).toBe(403);
+      expect(modSuspMod.json().code).toBe('CANNOT_MODERATE_TARGET');
+    });
+  });
 });

@@ -4,8 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { connect as connectNats, type NatsConnection } from 'nats';
-import Ajv2020 from 'ajv/dist/2020.js';
+import _Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+const Ajv2020 = (_Ajv2020 as any).default ?? _Ajv2020;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getDb } from '../../src/db/client.js';
@@ -702,12 +703,12 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     let topCursor: string | null = null;
     let maxPages = 10;
     while (maxPages-- > 0) {
-      const url = topCursor
+      const topUrl: string = topCursor
         ? `/v1/videos/${microsecondVideoId}/comments?limit=2&cursor=${encodeURIComponent(topCursor)}`
         : `/v1/videos/${microsecondVideoId}/comments?limit=2`;
-      const res = await app.inject({ method: 'GET', url });
+      const res = await app.inject({ method: 'GET', url: topUrl });
       expect(res.statusCode).toBe(200);
-      const data = res.json();
+      const data: any = res.json();
       for (const item of data.items) {
         retrievedTopIds.push(item.id);
       }
@@ -747,12 +748,12 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     let replyCursor: string | null = null;
     maxPages = 10;
     while (maxPages-- > 0) {
-      const url = replyCursor
+      const replyUrl: string = replyCursor
         ? `/v1/comments/${parentCommentId}/replies?limit=2&cursor=${encodeURIComponent(replyCursor)}`
         : `/v1/comments/${parentCommentId}/replies?limit=2`;
-      const res = await app.inject({ method: 'GET', url });
+      const res = await app.inject({ method: 'GET', url: replyUrl });
       expect(res.statusCode).toBe(200);
-      const data = res.json();
+      const data: any = res.json();
       for (const item of data.items) {
         retrievedReplyIds.push(item.id);
       }
@@ -941,5 +942,154 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(deletedVideoLikeRes.statusCode).toBe(404);
     expect(deletedVideoLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // 19. Task A2: Video Moderation Projection & Moderation Workflow
+    const modVideoId = poisonRecoverVideoId;
+    const moderatorId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999';
+    const modHeaders = { 'x-user-id': moderatorId, 'x-user-roles': 'moderator' };
+
+    // Publish video.moderated with state: 'HIDDEN'
+    const hideEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9993',
+      type: 'video.moderated',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: modVideoId,
+        owner_id: videoOwnerId,
+        state: 'HIDDEN',
+        moderator_id: moderatorId,
+      },
+    };
+    await js.publish('video.moderated', Buffer.from(JSON.stringify(hideEvent)));
+
+    // Wait for projection to update social.videos hidden = true
+    let isHidden = false;
+    for (let i = 0; i < 20; i++) {
+      const v = await pool.query('SELECT hidden FROM social.videos WHERE id = $1', [modVideoId]);
+      if (v.rows.length === 1 && v.rows[0].hidden === true) {
+        isHidden = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(isHidden).toBe(true);
+
+    // Hidden video returns 404 for viewer
+    const viewerCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerCommentsRes.statusCode).toBe(404);
+
+    const viewerLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/like`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerLikeRes.statusCode).toBe(404);
+
+    // Hidden video allows moderator access
+    const modCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/comments`,
+      headers: modHeaders,
+    });
+    expect(modCommentsRes.statusCode).toBe(200);
+
+    const modLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/like`,
+      headers: modHeaders,
+    });
+    expect(modLikeRes.statusCode).toBe(200);
+
+    // Create report on hidden video by moderator
+    const rep1Res = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: modHeaders,
+      payload: {
+        target_type: 'VIDEO',
+        target_id: modVideoId,
+        reason: 'SPAM',
+        note: 'Flagged for moderation',
+      },
+    });
+    expect(rep1Res.statusCode).toBe(201);
+    const rep1 = rep1Res.json();
+    expect(rep1.id).toBeDefined();
+
+    // Deduplication check: second report while OPEN returns 200 with same id
+    const rep2Res = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: modHeaders,
+      payload: {
+        target_type: 'VIDEO',
+        target_id: modVideoId,
+        reason: 'SPAM',
+      },
+    });
+    expect(rep2Res.statusCode).toBe(200);
+    expect(rep2Res.json().id).toBe(rep1.id);
+
+    // Moderation queue: list cases
+    const queueRes = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/reports',
+      headers: modHeaders,
+    });
+    expect(queueRes.statusCode).toBe(200);
+    const queueData = queueRes.json();
+    expect(queueData.items.length).toBeGreaterThanOrEqual(1);
+
+    // Resolve case
+    const resolveRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/moderation/cases/VIDEO/${modVideoId}/resolution`,
+      headers: modHeaders,
+      payload: { status: 'ACTIONED', note: 'Case actioned' },
+    });
+    expect(resolveRes.statusCode).toBe(200);
+    expect(resolveRes.json().resolved_count).toBeGreaterThanOrEqual(1);
+
+    // Restore video: state: 'VISIBLE'
+    const restoreEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9994',
+      type: 'video.moderated',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: modVideoId,
+        owner_id: videoOwnerId,
+        state: 'VISIBLE',
+        moderator_id: moderatorId,
+      },
+    };
+    await js.publish('video.moderated', Buffer.from(JSON.stringify(restoreEvent)));
+
+    // Wait for projection to update social.videos hidden = false
+    let isVisible = false;
+    for (let i = 0; i < 20; i++) {
+      const v = await pool.query('SELECT hidden FROM social.videos WHERE id = $1', [modVideoId]);
+      if (v.rows.length === 1 && v.rows[0].hidden === false) {
+        isVisible = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(isVisible).toBe(true);
+
+    // Viewer can access restored video comments and likes again
+    const restoredCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(restoredCommentsRes.statusCode).toBe(200);
   });
 });

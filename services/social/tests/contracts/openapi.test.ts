@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import Ajv from 'ajv';
+import _Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+const Ajv = (_Ajv as any).default ?? _Ajv;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { createMockDb, createMockStore } from '../fixtures/mock-db.js';
@@ -16,13 +17,18 @@ const __dirname = path.dirname(__filename);
 
 describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml', () => {
   let app: FastifyInstance;
-  let ajv: Ajv;
+  let ajv: any;
   let validateComment: any;
   let validateCommentPage: any;
   let validateLikeState: any;
   let validateSubscriptionState: any;
   let validateSubscriptionPage: any;
   let validateProblem: any;
+  let validateReportReceipt: any;
+  let validateReport: any;
+  let validateModerationCase: any;
+  let validateModerationCasePage: any;
+  let validateResolveCaseResult: any;
 
   const mockStore = createMockStore();
 
@@ -68,6 +74,21 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateProblem = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+    )!;
+    validateReportReceipt = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReportReceipt',
+    )!;
+    validateReport = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Report',
+    )!;
+    validateModerationCase = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ModerationCase',
+    )!;
+    validateModerationCasePage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ModerationCasePage',
+    )!;
+    validateResolveCaseResult = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ResolveCaseResult',
     )!;
 
     // 3. Populate mock store
@@ -528,5 +549,125 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     });
     expect(invalidSubCursorRes.statusCode).toBe(400);
     expect(invalidSubCursorRes.json().code).toBe('INVALID_CURSOR');
+  });
+
+  it('Reports contract: createReport returns ReportReceipt (201 / 200) matching schema', async () => {
+    // 1. Create new report on video -> 201
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': authorId },
+      payload: {
+        target_type: 'VIDEO',
+        target_id: videoId,
+        reason: 'SPAM',
+        note: 'Spammy video content',
+      },
+    });
+    expect(res1.statusCode).toBe(201);
+    const body1 = res1.json();
+    const valid1 = validateReportReceipt(body1);
+    expect(valid1, JSON.stringify(validateReportReceipt.errors)).toBe(true);
+
+    // 2. Duplicate OPEN report by same user -> 200 with existing ReportReceipt
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': authorId },
+      payload: {
+        target_type: 'VIDEO',
+        target_id: videoId,
+        reason: 'SPAM',
+        note: 'Another spam report',
+      },
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = res2.json();
+    const valid2 = validateReportReceipt(body2);
+    expect(valid2, JSON.stringify(validateReportReceipt.errors)).toBe(true);
+    expect(body2.id).toBe(body1.id);
+
+    // 3. Self-report check
+    const selfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': ownerId },
+      payload: {
+        target_type: 'VIDEO',
+        target_id: videoId,
+        reason: 'SPAM',
+      },
+    });
+    expect(selfRes.statusCode).toBe(400);
+    expect(validateProblem(selfRes.json())).toBe(true);
+  });
+
+  it('Moderation queue contract: GET /v1/moderation/reports returns ModerationCasePage', async () => {
+    // 1. Non-moderator -> 403
+    const forbiddenRes = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/reports',
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(forbiddenRes.statusCode).toBe(403);
+    expect(validateProblem(forbiddenRes.json())).toBe(true);
+
+    // 2. Moderator -> 200 ModerationCasePage
+    const modRes = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/reports',
+      headers: {
+        'x-user-id': '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999',
+        'x-user-roles': 'moderator',
+      },
+    });
+    expect(modRes.statusCode).toBe(200);
+    const body = modRes.json();
+    const valid = validateModerationCasePage(body);
+    expect(valid, JSON.stringify(validateModerationCasePage.errors)).toBe(true);
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(validateModerationCase(body.items[0])).toBe(true);
+    expect(body.items[0].reports.length).toBeGreaterThan(0);
+    expect(validateReport(body.items[0].reports[0])).toBe(true);
+  });
+
+  it('Case resolution contract: PUT /v1/moderation/cases/:type/:id/resolution returns ResolveCaseResult', async () => {
+    const modHeaders = {
+      'x-user-id': '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999',
+      'x-user-roles': 'moderator',
+    };
+
+    // 1. Non-moderator -> 403
+    const forbiddenRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/moderation/cases/VIDEO/${videoId}/resolution`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      payload: { status: 'ACTIONED', note: 'Video violated rules' },
+    });
+    expect(forbiddenRes.statusCode).toBe(403);
+    expect(validateProblem(forbiddenRes.json())).toBe(true);
+
+    // 2. Moderator resolves case -> 200 ResolveCaseResult
+    const resolveRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/moderation/cases/VIDEO/${videoId}/resolution`,
+      headers: modHeaders,
+      payload: { status: 'ACTIONED', note: 'Video taken down' },
+    });
+    expect(resolveRes.statusCode).toBe(200);
+    const body = resolveRes.json();
+    const valid = validateResolveCaseResult(body);
+    expect(valid, JSON.stringify(validateResolveCaseResult.errors)).toBe(true);
+    expect(body.resolved_count).toBeGreaterThanOrEqual(1);
+
+    // 3. Resolving again with no OPEN reports -> 404
+    const notFoundRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/moderation/cases/VIDEO/${videoId}/resolution`,
+      headers: modHeaders,
+      payload: { status: 'DISMISSED' },
+    });
+    expect(notFoundRes.statusCode).toBe(404);
+    expect(validateProblem(notFoundRes.json())).toBe(true);
   });
 });

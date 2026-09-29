@@ -52,13 +52,54 @@ export const loginRoute: FastifyPluginAsync<{
       .where('email', '=', email.trim().toLowerCase())
       .executeTakeFirst();
 
-    if (!user || user.status !== 'ACTIVE' || !user.password_hash) {
+    if (!user || user.status === 'DELETED' || !user.password_hash) {
       throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
     // 4. Verify password
     const isValid = await verifyPassword(user.password_hash, password);
     if (!isValid) {
+      throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
+    }
+
+    // Check account suspension after password verification
+    if (user.status === 'SUSPENDED') {
+      const now = new Date();
+      if (user.suspended_until && new Date(user.suspended_until) <= now) {
+        // Auto-lift expired temporary suspension in a single transaction
+        await db.transaction().execute(async (trx) => {
+          await trx
+            .updateTable('auth.users')
+            .set({
+              status: 'ACTIVE',
+              suspended_until: null,
+              suspension_reason: null,
+              updated_at: now,
+            })
+            .where('id', '=', user.id)
+            .execute();
+
+          await trx
+            .insertInto('auth.audit_log')
+            .values({
+              id: uuidv7(),
+              actor_id: user.id,
+              action: 'USER_UNSUSPENDED',
+              target_user_id: user.id,
+              details: JSON.stringify({ expired: true }),
+            })
+            .execute();
+        });
+        user.status = 'ACTIVE';
+      } else {
+        const detail = user.suspended_until
+          ? `Account is suspended until ${new Date(user.suspended_until).toISOString()}`
+          : 'Account is suspended';
+        throw ProblemError.accountSuspended(detail);
+      }
+    }
+
+    if (user.status !== 'ACTIVE') {
       throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 

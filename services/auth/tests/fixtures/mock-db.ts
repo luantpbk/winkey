@@ -12,6 +12,8 @@ export interface MockStore {
     avatar_key: string | null;
     roles: Role[];
     status: UserStatus;
+    suspended_until: Date | null;
+    suspension_reason: string | null;
     created_at: Date;
     updated_at: Date;
   }>;
@@ -43,6 +45,14 @@ export interface MockStore {
     created_at: Date;
     published_at: Date | null;
   }>;
+  audit_log: Array<{
+    id: string;
+    actor_id: string;
+    action: string;
+    target_user_id: string | null;
+    details: any;
+    created_at: Date;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -51,6 +61,7 @@ export function createMockStore(): MockStore {
     refresh_tokens: [],
     oauth_identities: [],
     outbox: [],
+    audit_log: [],
   };
 }
 
@@ -104,6 +115,8 @@ export function createMockDb(store: MockStore = createMockStore()): {
           avatar_key: avatar_key ? String(avatar_key) : null,
           roles: Array.isArray(roles) ? roles : ['viewer', 'creator'],
           status: (status as UserStatus) || 'ACTIVE',
+          suspended_until: null,
+          suspension_reason: null,
           created_at: new Date(),
           updated_at: new Date(),
         };
@@ -166,9 +179,30 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [identity], rowCount: 1 };
       }
 
+      // 4b. INSERT INTO "auth"."audit_log"
+      if (
+        sql.includes('insert into "auth"."audit_log"') ||
+        sql.includes('INSERT INTO "auth"."audit_log"')
+      ) {
+        const [id, actor_id, action, target_user_id, details] = params;
+        const entry = {
+          id: String(id),
+          actor_id: String(actor_id),
+          action: String(action),
+          target_user_id: target_user_id ? String(target_user_id) : null,
+          details: typeof details === 'string' ? JSON.parse(details) : details,
+          created_at: new Date(),
+        };
+        store.audit_log.push(entry);
+        return { rows: [entry], rowCount: 1 };
+      }
+
       // 5. SELECT FROM "auth"."users"
       if (sql.includes('select') && sql.includes('"auth"."users"')) {
-        let matching = [...store.users];
+        let matching = store.users.map((u) => ({
+          ...u,
+          created_at_iso: u.created_at.toISOString(),
+        }));
         if (sql.includes('"email" = $1')) {
           matching = matching.filter((u) => u.email === String(params[0]).toLowerCase());
         }
@@ -177,6 +211,28 @@ export function createMockDb(store: MockStore = createMockStore()): {
         }
         if (sql.includes('"handle" = $1')) {
           matching = matching.filter((u) => u.handle === String(params[0]));
+        }
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      // 5b. SELECT FROM "auth"."audit_log"
+      if (sql.includes('select') && sql.includes('"auth"."audit_log"')) {
+        let matching = store.audit_log.map((a) => {
+          const actor = store.users.find((u) => u.id === a.actor_id);
+          return {
+            id: a.id,
+            actor_id: a.actor_id,
+            action: a.action,
+            target_user_id: a.target_user_id,
+            details: a.details,
+            created_at_iso: a.created_at.toISOString(),
+            actor_handle: actor?.handle || 'actor_handle',
+            actor_display_name: actor?.display_name || 'Actor Name',
+            actor_avatar_key: actor?.avatar_key || null,
+          };
+        });
+        if (sql.includes('"target_user_id" = $1')) {
+          matching = matching.filter((a) => a.target_user_id === String(params[0]));
         }
         return { rows: matching, rowCount: matching.length };
       }
@@ -228,10 +284,17 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
         // Family revocation: SET revoked_at = now() WHERE family_id = ...
         if (sql.includes('"revoked_at" =') && sql.includes('"family_id" =')) {
-          // Find parameter that matches family_id (typically params[1] or params[0])
           const familyId = String(params.length > 1 ? params[1] : params[0]);
           for (const token of store.refresh_tokens) {
             if (token.family_id === familyId && !token.revoked_at) {
+              token.revoked_at = new Date();
+              updatedCount++;
+            }
+          }
+        } else if (sql.includes('"revoked_at" =') && sql.includes('"user_id" =')) {
+          const userId = String(params.length > 1 ? params[1] : params[0]);
+          for (const token of store.refresh_tokens) {
+            if (token.user_id === userId && !token.revoked_at) {
               token.revoked_at = new Date();
               updatedCount++;
             }
@@ -262,6 +325,30 @@ export function createMockDb(store: MockStore = createMockStore()): {
           const user = store.users.find((u) => u.id === String(params[1]));
           if (user) {
             user.email_verified_at = new Date(params[0]);
+            updatedCount++;
+          }
+        }
+        if (sql.includes('"roles" =')) {
+          // Update roles
+          const userId = String(params[params.length - 1]);
+          const user = store.users.find((u) => u.id === userId);
+          if (user) {
+            user.roles = params[0];
+            updatedCount++;
+          }
+        }
+        if (sql.includes('"status" =')) {
+          const userId = String(params[params.length - 1]);
+          const user = store.users.find((u) => u.id === userId);
+          if (user) {
+            user.status = params[0];
+            if (sql.includes('"suspension_reason" =')) {
+              user.suspension_reason = params[1] || null;
+              user.suspended_until = params[2] ? new Date(params[2]) : null;
+            } else {
+              user.suspension_reason = null;
+              user.suspended_until = null;
+            }
             updatedCount++;
           }
         }

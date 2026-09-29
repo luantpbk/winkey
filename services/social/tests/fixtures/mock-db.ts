@@ -7,6 +7,7 @@ export interface MockStore {
     owner_id: string;
     like_count: number;
     comment_count: number;
+    hidden?: boolean;
     created_at: Date;
   }>;
   comments: Array<{
@@ -49,6 +50,19 @@ export interface MockStore {
     display_name: string;
     avatar_key: string | null;
   }>;
+  reports: Array<{
+    id: string;
+    reporter_id: string;
+    target_type: 'VIDEO' | 'COMMENT' | 'USER';
+    target_id: string;
+    reason: string;
+    note: string;
+    status: 'OPEN' | 'ACTIONED' | 'DISMISSED';
+    resolved_by: string | null;
+    resolution_note: string | null;
+    resolved_at: Date | null;
+    created_at: Date;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -60,6 +74,7 @@ export function createMockStore(): MockStore {
     subscriptions: [],
     outbox: [],
     public_profiles: [],
+    reports: [],
   };
 }
 
@@ -95,10 +110,21 @@ export function createMockDb(store: MockStore = createMockStore()): {
             owner_id,
             like_count: 0,
             comment_count: 0,
+            hidden: false,
             created_at: new Date(),
           };
           store.videos.push(newVideo);
           return { rows: [newVideo], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('update "social"."videos"') || sql.includes('update social.videos')) {
+        const [hidden, videoId] = params as [boolean, string];
+        const video = store.videos.find((v) => v.id === videoId);
+        if (video) {
+          video.hidden = hidden;
+          return { rows: [video], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }
@@ -320,12 +346,95 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [newOutbox], rowCount: 1 };
       }
 
+      // 5b. REPORTS INSERT AND UPDATE
+      if (
+        sql.includes('insert into "social"."reports"') ||
+        sql.includes('insert into social.reports')
+      ) {
+        const [id, reporter_id, target_type, target_id, reason, note] = params as [
+          string,
+          string,
+          'VIDEO' | 'COMMENT' | 'USER',
+          string,
+          string,
+          string,
+        ];
+        const existingOpen = store.reports.find(
+          (r) =>
+            r.reporter_id === reporter_id &&
+            r.target_type === target_type &&
+            r.target_id === target_id &&
+            r.status === 'OPEN',
+        );
+        if (existingOpen) {
+          return { rows: [], rowCount: 0 };
+        }
+        const now = new Date();
+        const newReport = {
+          id,
+          reporter_id,
+          target_type,
+          target_id,
+          reason,
+          note: note || '',
+          status: 'OPEN' as const,
+          resolved_by: null,
+          resolution_note: null,
+          resolved_at: null,
+          created_at: now,
+        };
+        store.reports.push(newReport);
+        return {
+          rows: [{ id: newReport.id, created_at_iso: now.toISOString() }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('update "social"."reports"') || sql.includes('update social.reports')) {
+        const [
+          status,
+          resolved_by,
+          resolution_note,
+          resolved_at,
+          target_type,
+          target_id,
+          whereStatus,
+        ] = params as [
+          'ACTIONED' | 'DISMISSED',
+          string,
+          string | null,
+          Date,
+          string,
+          string,
+          string,
+        ];
+
+        let count = 0;
+        for (const r of store.reports) {
+          if (
+            r.target_type === target_type &&
+            r.target_id === target_id &&
+            r.status === whereStatus
+          ) {
+            r.status = status;
+            r.resolved_by = resolved_by;
+            r.resolution_note = resolution_note;
+            r.resolved_at = resolved_at;
+            count++;
+          }
+        }
+        return { rows: [], rowCount: count, command: 'UPDATE' };
+      }
+
       // 6. SELECT QUERIES
       // Select single video
       if (sql.includes('from "social"."videos"') || sql.includes('from social.videos')) {
         const videoId = String(params[0]);
         const video = store.videos.find((v) => v.id === videoId);
-        return { rows: video ? [video] : [], rowCount: video ? 1 : 0 };
+        return {
+          rows: video ? [{ ...video, hidden: video.hidden ?? false }] : [],
+          rowCount: video ? 1 : 0,
+        };
       }
 
       // Select channel
@@ -390,6 +499,164 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: joined, rowCount: joined.length };
       }
 
+      // Reports: Select duplicate OPEN report
+      if (
+        (sql.includes('from "social"."reports"') || sql.includes('from social.reports')) &&
+        sql.includes('"reporter_id" = $1')
+      ) {
+        const [reporterId, targetType, targetId, status] = params as [
+          string,
+          string,
+          string,
+          string,
+        ];
+        const report = store.reports.find(
+          (r) =>
+            r.reporter_id === reporterId &&
+            r.target_type === targetType &&
+            r.target_id === targetId &&
+            r.status === status,
+        );
+        if (report) {
+          return {
+            rows: [{ id: report.id, created_at_iso: report.created_at.toISOString() }],
+            rowCount: 1,
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // Reports: Moderation queue grouped query
+      if (
+        (sql.includes('from "social"."reports"') || sql.includes('from social.reports')) &&
+        sql.includes('group by "target_type", "target_id", "status"')
+      ) {
+        const statusParam = (params.find((p) =>
+          ['OPEN', 'ACTIONED', 'DISMISSED'].includes(p as string),
+        ) ?? 'OPEN') as 'OPEN' | 'ACTIONED' | 'DISMISSED';
+        const targetTypeParam = params.find((p) =>
+          ['VIDEO', 'COMMENT', 'USER'].includes(p as string),
+        ) as 'VIDEO' | 'COMMENT' | 'USER' | undefined;
+
+        let filtered = store.reports.filter((r) => r.status === statusParam);
+        if (targetTypeParam) {
+          filtered = filtered.filter((r) => r.target_type === targetTypeParam);
+        }
+
+        const groupsMap = new Map<
+          string,
+          {
+            target_type: string;
+            target_id: string;
+            status: string;
+            open_count: number;
+            first_reported_at: Date;
+            resolved_at: Date | null;
+            resolved_by: string | null;
+            resolution_note: string | null;
+          }
+        >();
+
+        for (const r of filtered) {
+          const key = `${r.target_type}::${r.target_id}::${r.status}`;
+          let g = groupsMap.get(key);
+          if (!g) {
+            g = {
+              target_type: r.target_type,
+              target_id: r.target_id,
+              status: r.status,
+              open_count: 0,
+              first_reported_at: r.created_at,
+              resolved_at: r.resolved_at,
+              resolved_by: r.resolved_by,
+              resolution_note: r.resolution_note,
+            };
+            groupsMap.set(key, g);
+          }
+          if (r.status === 'OPEN') g.open_count++;
+          if (r.created_at < g.first_reported_at) g.first_reported_at = r.created_at;
+          if (r.resolved_at && (!g.resolved_at || r.resolved_at > g.resolved_at)) {
+            g.resolved_at = r.resolved_at;
+            g.resolved_by = r.resolved_by;
+            g.resolution_note = r.resolution_note;
+          }
+        }
+
+        const list = Array.from(groupsMap.values());
+        if (statusParam === 'OPEN') {
+          list.sort(
+            (a, b) =>
+              a.first_reported_at.getTime() - b.first_reported_at.getTime() ||
+              a.target_id.localeCompare(b.target_id),
+          );
+        } else {
+          list.sort(
+            (a, b) =>
+              (b.resolved_at?.getTime() ?? 0) - (a.resolved_at?.getTime() ?? 0) ||
+              b.target_id.localeCompare(a.target_id),
+          );
+        }
+
+        const rows = list.map((g) => ({
+          target_type: g.target_type,
+          target_id: g.target_id,
+          status: g.status,
+          open_count: g.open_count,
+          first_reported_at_iso: g.first_reported_at.toISOString(),
+          resolved_at_iso: g.resolved_at ? g.resolved_at.toISOString() : null,
+          resolved_by: g.resolved_by,
+          resolution_note: g.resolution_note,
+        }));
+        return { rows, rowCount: rows.length };
+      }
+
+      // Reports: Reasons histogram
+      if (
+        (sql.includes('from "social"."reports"') || sql.includes('from social.reports')) &&
+        sql.includes('group by "reason"')
+      ) {
+        const [targetType, targetId, status] = params as [string, string, string];
+        const reports = store.reports.filter(
+          (r) => r.target_type === targetType && r.target_id === targetId && r.status === status,
+        );
+        const countMap = new Map<string, number>();
+        for (const r of reports) {
+          countMap.set(r.reason, (countMap.get(r.reason) ?? 0) + 1);
+        }
+        const rows = Array.from(countMap.entries()).map(([reason, count]) => ({ reason, count }));
+        return { rows, rowCount: rows.length };
+      }
+
+      // Reports: Recent 5 reports with profile
+      if (
+        sql.includes('from "social"."reports" as "r"') &&
+        sql.includes('"auth"."public_profiles" as "p"')
+      ) {
+        const [targetType, targetId, status] = params as [string, string, string];
+        const matched = store.reports
+          .filter(
+            (r) => r.target_type === targetType && r.target_id === targetId && r.status === status,
+          )
+          .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+          .slice(0, 5);
+
+        const rows = matched.map((r) => {
+          const profile = store.public_profiles.find((p) => p.id === r.reporter_id);
+          return {
+            id: r.id,
+            reason: r.reason,
+            note: r.note,
+            status: r.status,
+            created_at_iso: r.created_at.toISOString(),
+            profile_id: profile?.id ?? null,
+            profile_handle: profile?.handle ?? null,
+            profile_display_name: profile?.display_name ?? null,
+            profile_avatar_key: profile?.avatar_key ?? null,
+          };
+        });
+        return { rows, rowCount: rows.length };
+      }
+
       // Select single comment (deep link / join)
       if (sql.includes('where "c"."id" = $1') || sql.includes('where "id" = $1')) {
         const commentId = String(params[0]);
@@ -403,6 +670,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           ...comment,
           created_at_cursor: comment.created_at.toISOString(),
           video_owner_id: video?.owner_id,
+          video_hidden: video?.hidden ?? false,
           profile_id: profile?.id,
           profile_handle: profile?.handle,
           profile_display_name: profile?.display_name,

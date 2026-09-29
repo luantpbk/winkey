@@ -20,8 +20,44 @@ import {
 } from '../crypto/refresh.js';
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
-import type { Database, Role } from '../db/types.js';
+import type { Database, Role, UserStatus } from '../db/types.js';
 import type { Kysely, Transaction } from 'kysely';
+
+class SuspendedOAuthError extends Error {}
+
+async function checkOrLiftSuspension(
+  trx: Transaction<Database>,
+  user: { id: string; status: UserStatus; suspended_until?: Date | string | null },
+): Promise<void> {
+  if (user.status === 'SUSPENDED') {
+    const now = new Date();
+    if (user.suspended_until && new Date(user.suspended_until) <= now) {
+      await trx
+        .updateTable('auth.users')
+        .set({
+          status: 'ACTIVE',
+          suspended_until: null,
+          suspension_reason: null,
+          updated_at: now,
+        })
+        .where('id', '=', user.id)
+        .execute();
+
+      await trx
+        .insertInto('auth.audit_log')
+        .values({
+          id: uuidv7(),
+          actor_id: user.id,
+          action: 'USER_UNSUSPENDED',
+          target_user_id: user.id,
+          details: JSON.stringify({ expired: true }),
+        })
+        .execute();
+    } else {
+      throw new SuspendedOAuthError();
+    }
+  }
+}
 
 const RETURN_TO_REGEX = /^(\/[^/].*|\/)$/;
 const HANDLE_REGEX = /^[A-Za-z0-9_.]{3,30}$/;
@@ -150,121 +186,131 @@ export const oauthRoute: FastifyPluginAsync<{
     const clientIp = request.ip || '127.0.0.1';
 
     // Database lookup & link in ONE transaction
-    await db.transaction().execute(async (trx) => {
-      // 1. Check if OAuth identity already exists
-      const existingIdentity = await trx
-        .selectFrom('auth.oauth_identities')
-        .selectAll()
-        .where('provider', '=', 'google')
-        .where('subject', '=', googleUser.sub)
-        .executeTakeFirst();
-
-      let targetUserId: string;
-
-      if (existingIdentity) {
-        targetUserId = existingIdentity.user_id;
-        const user = await trx
-          .selectFrom('auth.users')
-          .select('status')
-          .where('id', '=', targetUserId)
-          .executeTakeFirst();
-        if (!user || user.status !== 'ACTIVE') {
-          throw ProblemError.unauthorized('Account inactive');
-        }
-      } else {
-        // 2. Check if user with same email exists
-        const normEmail = googleUser.email.trim().toLowerCase();
-        const existingUser = await trx
-          .selectFrom('auth.users')
+    try {
+      await db.transaction().execute(async (trx) => {
+        // 1. Check if OAuth identity already exists
+        const existingIdentity = await trx
+          .selectFrom('auth.oauth_identities')
           .selectAll()
-          .where('email', '=', normEmail)
+          .where('provider', '=', 'google')
+          .where('subject', '=', googleUser.sub)
           .executeTakeFirst();
 
-        if (existingUser) {
-          targetUserId = existingUser.id;
-          if (existingUser.status !== 'ACTIVE') {
+        let targetUserId: string;
+
+        if (existingIdentity) {
+          targetUserId = existingIdentity.user_id;
+          const user = await trx
+            .selectFrom('auth.users')
+            .select(['id', 'status', 'suspended_until'])
+            .where('id', '=', targetUserId)
+            .executeTakeFirst();
+          if (!user || user.status === 'DELETED') {
             throw ProblemError.unauthorized('Account inactive');
           }
-          // Link identity
-          await trx
-            .insertInto('auth.oauth_identities')
-            .values({
-              provider: 'google',
-              subject: googleUser.sub,
-              user_id: targetUserId,
-              email: normEmail,
-            })
-            .execute();
-
-          if (!existingUser.email_verified_at) {
-            await trx
-              .updateTable('auth.users')
-              .set({ email_verified_at: new Date() })
-              .where('id', '=', targetUserId)
-              .execute();
-          }
+          await checkOrLiftSuspension(trx, user);
         } else {
-          // 3. Create new user
-          targetUserId = uuidv7();
-          const derivedHandle = await generateUniqueHandle(trx, googleUser.email);
-          const displayName = (googleUser.name || derivedHandle).slice(0, 50);
-          const defaultRoles: Role[] = ['viewer', 'creator'];
+          // 2. Check if user with same email exists
+          const normEmail = googleUser.email.trim().toLowerCase();
+          const existingUser = await trx
+            .selectFrom('auth.users')
+            .selectAll()
+            .where('email', '=', normEmail)
+            .executeTakeFirst();
 
-          await trx
-            .insertInto('auth.users')
-            .values({
-              id: targetUserId,
-              email: normEmail,
-              email_verified_at: new Date(),
-              password_hash: null, // OAuth-only account
-              handle: derivedHandle,
-              display_name: displayName,
-              avatar_key: null,
-              roles: defaultRoles,
-              status: 'ACTIVE',
-            })
-            .execute();
+          if (existingUser) {
+            targetUserId = existingUser.id;
+            if (existingUser.status === 'DELETED') {
+              throw ProblemError.unauthorized('Account inactive');
+            }
+            await checkOrLiftSuspension(trx, existingUser);
+            // Link identity
+            await trx
+              .insertInto('auth.oauth_identities')
+              .values({
+                provider: 'google',
+                subject: googleUser.sub,
+                user_id: targetUserId,
+                email: normEmail,
+              })
+              .execute();
 
-          await trx
-            .insertInto('auth.oauth_identities')
-            .values({
-              provider: 'google',
-              subject: googleUser.sub,
-              user_id: targetUserId,
-              email: normEmail,
-            })
-            .execute();
+            if (!existingUser.email_verified_at) {
+              await trx
+                .updateTable('auth.users')
+                .set({ email_verified_at: new Date() })
+                .where('id', '=', targetUserId)
+                .execute();
+            }
+          } else {
+            // 3. Create new user
+            targetUserId = uuidv7();
+            const derivedHandle = await generateUniqueHandle(trx, googleUser.email);
+            const displayName = (googleUser.name || derivedHandle).slice(0, 50);
+            const defaultRoles: Role[] = ['viewer', 'creator'];
 
-          // Enqueue user.registered domain event
-          await enqueue(
-            trx,
-            'auth',
-            'user.registered',
-            {
-              user_id: targetUserId,
-              handle: derivedHandle,
-              method: 'google',
-            },
-            { producer: 'auth-svc', version: 1 },
-          );
+            await trx
+              .insertInto('auth.users')
+              .values({
+                id: targetUserId,
+                email: normEmail,
+                email_verified_at: new Date(),
+                password_hash: null, // OAuth-only account
+                handle: derivedHandle,
+                display_name: displayName,
+                avatar_key: null,
+                roles: defaultRoles,
+                status: 'ACTIVE',
+              })
+              .execute();
+
+            await trx
+              .insertInto('auth.oauth_identities')
+              .values({
+                provider: 'google',
+                subject: googleUser.sub,
+                user_id: targetUserId,
+                email: normEmail,
+              })
+              .execute();
+
+            // Enqueue user.registered domain event
+            await enqueue(
+              trx,
+              'auth',
+              'user.registered',
+              {
+                user_id: targetUserId,
+                handle: derivedHandle,
+                method: 'google',
+              },
+              { producer: 'auth-svc', version: 1 },
+            );
+          }
         }
-      }
 
-      // Create refresh token
-      await trx
-        .insertInto('auth.refresh_tokens')
-        .values({
-          id: tokenId,
-          user_id: targetUserId,
-          family_id: familyId,
-          token_hash: tokenHash,
-          parent_id: null,
-          expires_at: expiresAt,
-          user_agent: request.headers['user-agent'] || null,
-          ip: clientIp,
-        })
-        .execute();
-    });
+        // Create refresh token
+        await trx
+          .insertInto('auth.refresh_tokens')
+          .values({
+            id: tokenId,
+            user_id: targetUserId,
+            family_id: familyId,
+            token_hash: tokenHash,
+            parent_id: null,
+            expires_at: expiresAt,
+            user_agent: request.headers['user-agent'] || null,
+            ip: clientIp,
+          })
+          .execute();
+      });
+    } catch (err) {
+      if (err instanceof SuspendedOAuthError) {
+        reply.setCookie(OAUTH_COOKIE_NAME, '', getClearOAuthCookieOptions(env));
+        return reply.redirect('/login?error=ACCOUNT_SUSPENDED', 302);
+      }
+      throw err;
+    }
 
     // Set wk_rt cookie
     reply.setCookie(REFRESH_COOKIE_NAME, opaqueRefreshToken, getRefreshCookieOptions(env));
