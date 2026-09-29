@@ -31,6 +31,12 @@ tags:
     description: Creator views of their own videos.
   - name: moderation
     description: Hide or restore a video (task A2).
+  - name: search
+    description: |
+      Video search (task SR1): PostgreSQL FTS on title and description with Vietnamese diacritics folded
+      (`Hà Nội` = `ha noi`), plus trigram similarity on the title for typos. Only videos that the public
+      feed would show are returned (PUBLIC, READY, not hidden, owner active), whoever calls.
+      Gateway: `/v1/search` and `/v1/search/suggest` go to video-svc.
 paths:
   /v1/videos:
     get:
@@ -236,6 +242,85 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/search:
+    get:
+      tags: [search]
+      operationId: searchVideos
+      summary: Search public videos by relevance. Optional auth (the result does not depend on it).
+      description: |
+        Matching: the query is folded (lower-case, diacritics removed) and matched against
+        `media.videos.search_vector` (`plainto_tsquery('simple', …)`; title weight A, description B).
+        When that finds nothing, fall back to trigram similarity on the folded title (`%`, threshold
+        0.3). Ranking: `ts_rank_cd` (or `similarity` for the fallback), then `published_at` DESC, then
+        `id` DESC. The `cursor` encodes the position in that order; at most 10 pages are served, after
+        which `next_cursor` is null. Rate limit per client IP: 60 requests per minute (`429`).
+        Responses may be cached publicly for 30 s (`Cache-Control: public, max-age=30`).
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Free text. Leading/trailing spaces are trimmed; empty after trimming → `400`.
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of results (possibly empty).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/search/suggest:
+    get:
+      tags: [search]
+      operationId: suggestSearch
+      summary: Up to 8 title suggestions for a search box. Optional auth.
+      description: |
+        Titles of public videos whose folded title starts with the folded query or is similar to it
+        (trigram), best match first, duplicates removed. Rate limit per client IP: 120 requests per
+        minute. `Cache-Control: public, max-age=60`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 50
+      responses:
+        '200':
+          description: Suggestions.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchSuggestions'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
 components:
   securitySchemes:
@@ -467,3 +552,13 @@ components:
           minLength: 1
           maxLength: 500
           description: Required when `state` is `HIDDEN` (missing → `400`); ignored for `VISIBLE`.
+
+    SearchSuggestions:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 8
+          items:
+            type: string

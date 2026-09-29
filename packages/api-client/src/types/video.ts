@@ -117,6 +117,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search public videos by relevance. Optional auth (the result does not depend on it).
+         * @description Matching: the query is folded (lower-case, diacritics removed) and matched against
+         *     `media.videos.search_vector` (`plainto_tsquery('simple', …)`; title weight A, description B).
+         *     When that finds nothing, fall back to trigram similarity on the folded title (`%`, threshold
+         *     0.3). Ranking: `ts_rank_cd` (or `similarity` for the fallback), then `published_at` DESC, then
+         *     `id` DESC. The `cursor` encodes the position in that order; at most 10 pages are served, after
+         *     which `next_cursor` is null. Rate limit per client IP: 60 requests per minute (`429`).
+         *     Responses may be cached publicly for 30 s (`Cache-Control: public, max-age=30`).
+         */
+        get: operations["searchVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Up to 8 title suggestions for a search box. Optional auth.
+         * @description Titles of public videos whose folded title starts with the folded query or is similar to it
+         *     (trigram), best match first, duplicates removed. Rate limit per client IP: 120 requests per
+         *     minute. `Cache-Control: public, max-age=60`.
+         */
+        get: operations["suggestSearch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -220,6 +268,9 @@ export interface components {
             state: "VISIBLE" | "HIDDEN";
             /** @description Required when `state` is `HIDDEN` (missing → `400`); ignored for `VISIBLE`. */
             reason?: string;
+        };
+        SearchSuggestions: {
+            items: string[];
         };
         /**
          * Format: uuid
@@ -511,6 +562,60 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    searchVideos: {
+        parameters: {
+            query: {
+                /** @description Free text. Leading/trailing spaces are trimmed; empty after trimming → `400`. */
+                q: string;
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results (possibly empty). */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    suggestSearch: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Suggestions. */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchSuggestions"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
 }
