@@ -33,6 +33,8 @@ Retryable, not last delivery: job `FAILED`, video stays `PROCESSING`, `NakWithDe
 
 **Max-deliveries watcher.** If every delivery of a message ends without an ack (worker crash, power loss, lost heartbeat, or a Nak on the last delivery), no code runs on the last delivery. JetStream then publishes a core-NATS advisory (`$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.VIDEO.transcoder`). The watcher loads the original message by `stream_seq`, and in one transaction closes the active job (or records a `FAILED` one if none ever ran), marks the video `FAILED` (`INTERNAL`, retryable, "Processing did not complete after several attempts.") and enqueues `video.failed`; it then copies the message to `dlq.video.uploaded` (same `Nats-Msg-Id` as the consumer path, so no duplicates). It is idempotent (READY/FAILED/deleted videos are left alone), so it can run in every worker. Limits: advisories are not persisted and JetStream emits one when a puller asks for messages after the last `ack_wait` expired, so it arrives once a worker is running; the watcher subscribes before the consumer starts pulling. An advisory published while no watcher is subscribed is missed and that video stays `PROCESSING` until an operator resets or replays it.
 
+**Heartbeat and stuck-job reconciler (V3b).** While a job runs, every 30 s the pipeline calls `msg.InProgress()` **and** sets `transcode_jobs.heartbeat_at = now()` for that job. Every worker also runs a reconciler (every `RECONCILE_INTERVAL`, default 60 s) that picks `RUNNING` jobs with `coalesce(heartbeat_at, started_at)` older than `STALE_JOB_AFTER` (default 10 min): the job is marked `FAILED` ("worker lost (no heartbeat)"); then, if the video is still `PROCESSING` and the job's attempt is below `MAX_JOB_ATTEMPTS` (3), a **new** `video.uploaded` (fresh `event_id`, same data) is enqueued through the outbox in the same transaction, otherwise the video is failed like the watcher does (`FAILED` + `video.failed`, reason `INTERNAL`). Unlike the watcher it does not depend on JetStream advisories, so it also covers a worker that died while no watcher was subscribed. Concurrency: each candidate is handled in its own transaction that locks the video row first with `FOR UPDATE SKIP LOCKED` (the same lock order as `BeginJob`, so no deadlock), then the job row with a re-check that it is still `RUNNING` and still stale, so several reconcilers never handle the same job twice. A job whose video already left `PROCESSING` is just closed. No DLQ copy is written for videos failed this way (the original message is not available to the reconciler); reset or re-upload by an operator.
+
 ## Media janitor (V3)
 
 - `video.deleted` (durable `media-janitor`): deletes everything under `media_prefix` plus `raw_key`. The event is **validated against the layout** first (`v/{video_id}/`, `{owner_id}/{video_id}/source`, configured buckets) so a malformed event can never delete anything else.
@@ -63,8 +65,11 @@ Messages keep their payload (same `event_id`; the transcoder is idempotent) and 
 | `UPLOAD_PARALLELISM` | `8` | parallel uploads per job |
 | `SCRATCH_DIR` | `<os temp>/winkey-scratch` | fast local disk (NVMe) |
 | `ARCHIVE_DIR` | unset | optional raw archive |
-| `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | |
+| `FFMPEG_PATH` / `FFPROBE_PATH` | **required** | absolute paths; production never relies on `PATH` (gpu-01: `/opt/ffmpeg-7.1/bin/ffmpeg`, `/opt/ffmpeg-7.1/bin/ffprobe`) |
 | `SHUTDOWN_GRACE` | `30s` | |
+| `RECONCILE_INTERVAL` | `60s` | how often each worker sweeps for lost jobs |
+| `STALE_JOB_AFTER` | `10m` | a `RUNNING` job with no heartbeat for this long is considered lost |
+| `MAX_JOB_ATTEMPTS` | `3` | lost job with fewer attempts is retried; otherwise the video is failed |
 | `HTTP_ADDR` | `:8081` | `/healthz`, `/readyz` (PostgreSQL, NATS, S3), `/metrics` |
 | `LOG_LEVEL` | `info` | JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | tracing is a no-op when unset |
@@ -104,4 +109,6 @@ scripts/e2e.sh                                  # against a running stack (see t
 docker build -f services/transcoder/Dockerfile.nvenc -t transcoder-nvenc .                               # amd64 only
 docker buildx build --platform linux/amd64,linux/arm64 -f services/transcoder/Dockerfile.cpu .          # ENCODER=x264
 ```
+**FFmpeg version (both images): n7.1.5-12-g1fdbca85aa**, BtbN FFmpeg-Builds release `autobuild-2026-07-31-14-10`, static GPL (`linux64-gpl-7.1` for amd64/nvenc, `linuxarm64-gpl-7.1` for arm64). Downloads are verified with `sha256sum -c` (`c1e6caf4…0e79` for linux64, `a9a50c57…a71b` for linuxarm64; both match the release's `checksums.sha256`). To upgrade, change the release, archive names and checksums in both Dockerfiles and this paragraph together.
+
 `transcoder-nvenc` needs `--gpus all` (NVIDIA Container Toolkit) and sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` (without `video`, NVENC is invisible in the container). Both run as non-root.
