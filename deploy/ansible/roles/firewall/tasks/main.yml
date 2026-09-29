@@ -1,0 +1,42 @@
+# Public: 80/443 (Traefik) and 41641/udp (Tailscale direct). Everything else only over tailscale0.
+- name: firewalld running
+  ansible.builtin.systemd:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Public services
+  ansible.posix.firewalld:
+    zone: public
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: [http, https]
+
+- name: Tailscale direct connections
+  ansible.posix.firewalld:
+    zone: public
+    port: 41641/udp
+    permanent: true
+    immediate: true
+    state: enabled
+
+- name: Tailnet traffic is trusted (Tailscale ACLs already filter it)
+  ansible.posix.firewalld:
+    zone: trusted
+    interface: tailscale0
+    permanent: true
+    immediate: true
+    state: enabled
+
+- name: Pod and service networks are trusted (k3s on firewalld)
+  ansible.posix.firewalld:
+    zone: trusted
+    source: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ k3s_cluster_cidr }}"
+    - "{{ k3s_service_cidr }}"
