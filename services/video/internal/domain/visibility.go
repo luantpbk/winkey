@@ -38,19 +38,24 @@ func (v Viewer) Owns(video Video) bool { return v.Authed && v.ID == video.OwnerI
 //   - the owner, moderators and admins see every video in every status;
 //   - everyone else sees only READY videos: PUBLIC and UNLISTED by id,
 //     PRIVATE never (the caller then gets 404, not 403);
-//   - videos of owners who are no longer ACTIVE are hidden from everyone else.
+//   - videos of owners who are no longer ACTIVE are hidden from everyone else;
+//   - a video a moderator HID is treated like PRIVATE for everyone else (A2).
 func CanView(video Video, viewer Viewer) bool {
 	if viewer.Owns(video) || viewer.Privileged() {
 		return true
 	}
-	if video.Status != StatusReady || video.Visibility == VisPrivate {
+	if video.Status != StatusReady || video.Visibility == VisPrivate || video.Hidden() {
 		return false
 	}
 	return !video.Owner.Missing
 }
 
-// IsPublicReady reports whether the video is PUBLIC and READY: the only case
-// in which the response may be cached publicly.
+// IsPublicReady reports whether the video is PUBLIC, READY and not hidden: the
+// only case in which the response may be cached publicly.
 func IsPublicReady(video Video) bool {
-	return video.Status == StatusReady && video.Visibility == VisPublic
+	return video.Status == StatusReady && video.Visibility == VisPublic && !video.Hidden()
 }
+
+// SeesModeration reports whether the viewer gets the `moderation` object of
+// the video: its owner, moderators and admins, nobody else.
+func (v Viewer) SeesModeration(video Video) bool { return v.Owns(video) || v.Privileged() }

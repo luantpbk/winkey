@@ -14,14 +14,15 @@ import (
 // memStore is an in-memory domain.Store with the same semantics as the
 // PostgreSQL one (filters, ordering, keyset comparison).
 type memStore struct {
-	mu       sync.Mutex
-	videos   map[uuid.UUID]domain.Video
-	progress map[uuid.UUID]float64
-	raw      map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
-	errs     map[uuid.UUID]string    // owner-safe failure messages
-	deleted  []domain.DeletedEvent
-	gets     int
-	lists    int
+	mu        sync.Mutex
+	videos    map[uuid.UUID]domain.Video
+	progress  map[uuid.UUID]float64
+	raw       map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
+	errs      map[uuid.UUID]string    // owner-safe failure messages
+	deleted   []domain.DeletedEvent
+	moderated []domain.ModeratedEvent // video.moderated events, in order
+	gets      int
+	lists     int
 }
 
 func newMemStore() *memStore {
@@ -60,7 +61,7 @@ func (s *memStore) ListFeed(_ context.Context, q domain.FeedQuery) ([]domain.Sum
 	s.lists++
 	var out []domain.Summary
 	for _, v := range s.videos {
-		if v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing {
+		if v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing || v.Hidden() {
 			continue
 		}
 		if q.OwnerID != nil && v.OwnerID != *q.OwnerID {
@@ -95,6 +96,7 @@ func (s *memStore) ListStudio(_ context.Context, q domain.StudioQuery) ([]domain
 		item := domain.StudioItem{
 			ID: v.ID, Title: v.Title, Visibility: v.Visibility, Status: v.Status, Progress: s.progress[v.ID],
 			DurationMs: v.DurationMs, CreatedAt: v.CreatedAt, ThumbnailKey: v.ThumbnailKey,
+			ModerationState: v.ModerationState, ModerationReason: v.ModerationReason, ModeratedAt: v.ModeratedAt,
 		}
 		if msg, ok := s.errs[v.ID]; ok {
 			item.Error = &msg
@@ -141,6 +143,29 @@ func (s *memStore) DeleteVideo(_ context.Context, id uuid.UUID, mediaBucket stri
 		MediaBucket: mediaBucket, MediaPrefix: "v/" + id.String() + "/",
 	})
 	return true, nil
+}
+
+func (s *memStore) ModerateVideo(_ context.Context, id, moderatorID uuid.UUID, state string, reason *string) (domain.Video, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.videos[id]
+	if !ok {
+		return domain.Video{}, false, domain.ErrNotFound
+	}
+	cur := v.ModerationState
+	if cur == "" {
+		cur = domain.ModVisible
+	}
+	if cur == state {
+		return v, false, nil
+	}
+	now := time.Now().UTC()
+	v.ModerationState, v.ModerationReason, v.ModeratedBy, v.ModeratedAt = state, reason, &moderatorID, &now
+	s.videos[id] = v
+	s.moderated = append(s.moderated, domain.ModeratedEvent{
+		VideoID: id.String(), OwnerID: v.OwnerID.String(), State: state, ModeratorID: moderatorID.String(),
+	})
+	return v, true, nil
 }
 
 // memCache counts hits and misses.

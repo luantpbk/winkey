@@ -17,6 +17,10 @@ const (
 	StatusReady      = "READY"
 	StatusFailed     = "FAILED"
 
+	// Moderation states (media.moderation_state, task A2).
+	ModVisible = "VISIBLE"
+	ModHidden  = "HIDDEN"
+
 	VisPublic   = "PUBLIC"
 	VisUnlisted = "UNLISTED"
 	VisPrivate  = "PRIVATE"
@@ -66,7 +70,17 @@ type Video struct {
 	ThumbnailKey *string     `json:"thumbnail_key"`
 	Owner        Profile     `json:"owner"`
 	Renditions   []Rendition `json:"renditions"`
+
+	// Moderation (A2). A HIDDEN video is PRIVATE for everyone but its owner,
+	// moderators and admins.
+	ModerationState  string     `json:"moderation_state"`
+	ModerationReason *string    `json:"moderation_reason"`
+	ModeratedBy      *uuid.UUID `json:"moderated_by"`
+	ModeratedAt      *time.Time `json:"moderated_at"`
 }
+
+// Hidden reports whether a moderator hid the video.
+func (v Video) Hidden() bool { return v.ModerationState == ModHidden }
 
 // Summary is one feed entry (READY + PUBLIC only).
 type Summary struct {
@@ -90,6 +104,10 @@ type StudioItem struct {
 	DurationMs   *int
 	CreatedAt    time.Time
 	ThumbnailKey *string
+
+	ModerationState  string
+	ModerationReason *string
+	ModeratedAt      *time.Time
 }
 
 // Position is a keyset position: the sort timestamp and id of the last item
@@ -132,6 +150,11 @@ type Store interface {
 	// DeleteVideo, in ONE transaction, deletes the row (cascading to renditions
 	// and jobs) and enqueues video.deleted. deleted is false when it no longer exists.
 	DeleteVideo(ctx context.Context, id uuid.UUID, mediaBucket string) (deleted bool, err error)
+	// ModerateVideo, in ONE transaction, sets the moderation state (row locked, so
+	// concurrent calls serialise) and, only when the state changed, enqueues
+	// video.moderated. changed is false for a no-op (same state again: nothing is
+	// written, no event). ErrNotFound if the video does not exist.
+	ModerateVideo(ctx context.Context, id, moderatorID uuid.UUID, state string, reason *string) (v Video, changed bool, err error)
 }
 
 // Cache is the optional read cache for GET /v1/videos/{id}.
@@ -139,6 +162,14 @@ type Cache interface {
 	Get(ctx context.Context, id uuid.UUID) (Video, bool)
 	Set(ctx context.Context, v Video)
 	Invalidate(ctx context.Context, id uuid.UUID)
+}
+
+// ModeratedEvent is the `data` of video.moderated.
+type ModeratedEvent struct {
+	VideoID     string `json:"video_id"`
+	OwnerID     string `json:"owner_id"`
+	State       string `json:"state"`
+	ModeratorID string `json:"moderator_id"`
 }
 
 // DeletedEvent is the `data` of video.deleted.
