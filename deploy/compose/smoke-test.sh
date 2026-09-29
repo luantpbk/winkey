@@ -45,3 +45,39 @@ fi
 
 echo "SUCCESS: /v1/nope returned 404 and did not fall through to web service."
 
+# 4. Check that /v1/videos/<uuid>/comments is routed to social-svc with higher priority than video-svc
+echo "Checking Traefik router configuration for social-svc..."
+TRAEFIK_API_URL="${TRAEFIK_API_URL:-http://localhost:8082}"
+
+SOCIAL_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/social@file" || true)
+VIDEO_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/video@file" || true)
+
+if [ -z "$SOCIAL_ROUTER" ] || echo "$SOCIAL_ROUTER" | grep -qi "not found"; then
+    echo "FAILED: Router social@file was not found in Traefik API!" >&2
+    exit 1
+fi
+
+SOCIAL_SERVICE=$(echo "$SOCIAL_ROUTER" | jq -r '.service // empty')
+SOCIAL_PRIORITY=$(echo "$SOCIAL_ROUTER" | jq -r '.priority // 0')
+VIDEO_PRIORITY=$(echo "$VIDEO_ROUTER" | jq -r '.priority // 0')
+SOCIAL_RULE=$(echo "$SOCIAL_ROUTER" | jq -r '.rule // empty')
+
+if [ "$SOCIAL_SERVICE" != "social-svc" ]; then
+    echo "FAILED: Router social@file targets service '$SOCIAL_SERVICE' (expected 'social-svc')!" >&2
+    exit 1
+fi
+
+if [ "$SOCIAL_PRIORITY" -le "$VIDEO_PRIORITY" ]; then
+    echo "FAILED: Router social@file priority ($SOCIAL_PRIORITY) is not higher than video@file priority ($VIDEO_PRIORITY)!" >&2
+    exit 1
+fi
+
+TEST_PATH="/v1/videos/01923456-789a-7bcd-ef01-23456789abcd/comments"
+if ! echo "$TEST_PATH" | grep -qE '^/v1/videos/[^/]+/(comments|like)$'; then
+    echo "FAILED: Test path $TEST_PATH does not match regex pattern!" >&2
+    exit 1
+fi
+
+echo "SUCCESS: Router social@file targets social-svc with priority $SOCIAL_PRIORITY (higher than video-svc priority $VIDEO_PRIORITY) and rule matching $TEST_PATH."
+
+

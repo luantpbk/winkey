@@ -52,6 +52,9 @@ create_or_update_stream "VIDEO" "video.>" 604800000000000
 # USER stream: user.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
 create_or_update_stream "USER" "user.>" 604800000000000
 
+# SOCIAL stream: social.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
+create_or_update_stream "SOCIAL" "social.>" 604800000000000
+
 # DLQ stream: dlq.> file storage, 1 replica, max age 30d (2592000s), dupe window 2m (120s)
 create_or_update_stream "DLQ" "dlq.>" 2592000000000000
 
