@@ -1,0 +1,87 @@
+http:
+  routers:
+    # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
+    # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
+    auth-public:
+      entryPoints: ["web"]
+      rule: "PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`)"
+      service: "auth-svc"
+      middlewares: ["strip-user-headers"]
+      priority: 100
+
+    # 2. Auth protected endpoints (users, profile management)
+    auth-protected:
+      entryPoints: ["web"]
+      rule: "(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`)"
+      service: "auth-svc"
+      middlewares: ["strip-user-headers", "auth-verify"]
+      priority: 90
+
+    # 3. Upload service routes
+    upload:
+      entryPoints: ["web"]
+      rule: "PathPrefix(`/v1/uploads`)"
+      service: "upload-svc"
+      middlewares: ["strip-user-headers", "auth-verify"]
+      priority: 80
+
+    # 4. Video & Studio routes
+    video:
+      entryPoints: ["web"]
+      rule: "PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`)"
+      service: "video-svc"
+      middlewares: ["strip-user-headers", "auth-verify"]
+      priority: 80
+
+    # 5. Smoke test route for header stripping verification
+    smoke-test:
+      entryPoints: ["web"]
+      rule: "PathPrefix(`/smoke/whoami`)"
+      service: "whoami-svc"
+      middlewares: ["strip-user-headers"]
+      priority: 80
+
+    # 6. Web Next.js fallback
+    web:
+      entryPoints: ["web"]
+      rule: "PathPrefix(`/`) && !PathPrefix(`/v1`)"
+      service: "web-svc"
+      priority: 10
+
+  middlewares:
+    # IMPORTANT: Strips spoofed client headers BEFORE any forwardAuth or upstream forwarding
+    strip-user-headers:
+      headers:
+        customRequestHeaders:
+          X-User-Id: ""
+          X-User-Roles: ""
+
+    # ForwardAuth to auth-svc GET /v1/auth/verify
+    auth-verify:
+      forwardAuth:
+        address: "http://auth-svc:3001/v1/auth/verify"
+        authResponseHeaders:
+          - "X-User-Id"
+          - "X-User-Roles"
+
+  services:
+    auth-svc:
+      loadBalancer:
+        servers:
+          - url: "http://auth-svc:3001"
+    upload-svc:
+      loadBalancer:
+        servers:
+          - url: "http://upload-svc:3002"
+    video-svc:
+      loadBalancer:
+        servers:
+          - url: "http://video-svc:3003"
+    whoami-svc:
+      loadBalancer:
+        servers:
+          - url: "http://whoami:80"
+    web-svc:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:3000"
