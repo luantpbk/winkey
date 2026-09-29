@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/realtime/client.schema.json",
+  "title": "realtime-gw client → server message",
+  "description": "Text frame sent by the browser on /v1/realtime. See contracts/realtime/README.md.",
+  "oneOf": [
+    { "$ref": "#/$defs/subscribe" },
+    { "$ref": "#/$defs/unsubscribe" },
+    { "$ref": "#/$defs/ping" }
+  ],
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Chosen by the client; echoed in ack/error/pong."
+    },
+    "room": {
+      "type": "string",
+      "description": "video:{video_id} or upload:{video_id}. user:* rooms are joined automatically and cannot be subscribed.",
+      "pattern": "^(video|upload):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "subscribe": {
+      "type": "object",
+      "required": ["type", "id", "room"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "subscribe" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "room": { "$ref": "#/$defs/room" }
+      }
+    },
+    "unsubscribe": {
+      "type": "object",
+      "required": ["type", "id", "room"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "unsubscribe" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "room": { "$ref": "#/$defs/room" }
+      }
+    },
+    "ping": {
+      "type": "object",
+      "required": ["type", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "ping" },
+        "id": { "$ref": "#/$defs/requestId" }
+      }
+    }
+  }
+}
