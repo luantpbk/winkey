@@ -1,0 +1,29 @@
+k3s_version: v1.36.4+k3s1
+k3s_cluster_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+k3s_flannel_iface: tailscale0
+# tailscale0 has MTU 1280 and VXLAN costs 50 bytes (INFRASTRUCTURE.md §4).
+k3s_flannel_mtu_max: 1230
+k3s_enable_traefik: true
+# The first server of the cluster sets this to true; servers that join set k3s_server_url.
+k3s_cluster_init: false
+
+# LoadBalancer: Traefik owns 80/443 (target design, ADR-002).
+# NodePort: a host nginx owns 80/443 and forwards Winkey hosts to Traefik (edge-1 today).
+traefik_service_type: LoadBalancer
+traefik_nodeport_web: 30080
+traefik_nodeport_websecure: 30443
+traefik_trusted_ips: []
+
+tailscale_tags: tag:edge
+# Optional non-interactive login, from the environment only (never commit a key).
+tailscale_authkey: "{{ lookup('ansible.builtin.env', 'TS_AUTHKEY') }}"
+
+# Stateful PVs (local-path) live on their own LV so a full Garage/Postgres cannot fill /.
+data_vg: ocivolume
+data_lv: data
+data_lv_size: 110g
+data_mountpoint: /var/lib/rancher/k3s/storage
+
+# Hosts where the existing host nginx fronts Winkey (see roles/nginx_front).
+nginx_front: {}

@@ -1,0 +1,44 @@
+# The host nginx is shared with non-Winkey sites: only /etc/nginx/conf.d/winkey.conf is managed here.
+- name: Is the certificate there yet?
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem"
+  register: front_cert
+
+- name: Winkey server blocks
+  ansible.builtin.template:
+    src: winkey.conf.j2
+    dest: /etc/nginx/conf.d/winkey.conf
+    mode: "0644"
+  vars:
+    with_tls: "{{ front_cert.stat.exists }}"
+  register: front_conf
+
+- name: Reload nginx for the HTTP-01 challenge
+  ansible.builtin.shell: nginx -t && systemctl reload nginx
+  when: front_conf.changed and not front_cert.stat.exists
+
+# Uses the Let's Encrypt account already registered on the host; certbot only answers the challenge
+# through nginx and never edits the config (certonly).
+- name: Certificate for the Winkey hosts
+  ansible.builtin.command: >-
+    certbot certonly --nginx --non-interactive --keep-until-expiring
+    --cert-name {{ nginx_front.cert_name }}
+    {% for h in nginx_front.hosts %}-d {{ h }} {% endfor %}
+  args:
+    creates: "/etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem"
+  register: front_certbot
+
+- name: Winkey server blocks with TLS
+  ansible.builtin.template:
+    src: winkey.conf.j2
+    dest: /etc/nginx/conf.d/winkey.conf
+    mode: "0644"
+  vars:
+    with_tls: true
+  notify: Reload nginx
+
+- name: Certbot renews on its timer
+  ansible.builtin.systemd:
+    name: certbot-renew.timer
+    enabled: true
+    state: started

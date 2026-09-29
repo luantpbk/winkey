@@ -1,0 +1,37 @@
+# transcoder-cpu: linux/amd64 + linux/arm64, x264 only. Build context: the repository root.
+#   docker buildx build --platform linux/amd64,linux/arm64 -f services/transcoder/Dockerfile.cpu .
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETOS TARGETARCH
+WORKDIR /src
+COPY libs/go/go.mod libs/go/go.sum libs/go/
+COPY services/transcoder/go.mod services/transcoder/go.sum services/transcoder/
+RUN cd services/transcoder && go mod download
+COPY libs/go libs/go
+COPY services/transcoder services/transcoder
+RUN cd services/transcoder && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/transcoder ./cmd/transcoder \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/replay-dlq ./cmd/replay-dlq
+
+# Static FFmpeg (johnvansickle.com builds, GPL, libx264) for both architectures.
+FROM debian:12-slim AS ffmpeg
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+RUN case "$TARGETARCH" in amd64) A=amd64;; arm64) A=arm64;; *) echo "unsupported $TARGETARCH" >&2; exit 1;; esac \
+ && curl -fsSL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${A}-static.tar.xz" -o /tmp/ff.tar.xz \
+ && mkdir /ffmpeg && tar -xJf /tmp/ff.tar.xz -C /ffmpeg --strip-components=1 --wildcards '*/ffmpeg' '*/ffprobe'
+
+FROM debian:12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --create-home --home-dir /home/transcoder transcoder \
+ && mkdir -p /scratch /archive && chown transcoder /scratch /archive
+COPY --from=ffmpeg /ffmpeg/ffmpeg /ffmpeg/ffprobe /usr/local/bin/
+COPY --from=build /out/transcoder /out/replay-dlq /usr/local/bin/
+ENV ENCODER=x264 \
+    SCRATCH_DIR=/scratch \
+    FFMPEG_PATH=/usr/local/bin/ffmpeg \
+    FFPROBE_PATH=/usr/local/bin/ffprobe
+USER transcoder
+EXPOSE 8081
+ENTRYPOINT ["/usr/local/bin/transcoder"]

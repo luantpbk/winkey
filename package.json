@@ -2,9 +2,30 @@
   "name": "winkey",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@12.6.0",
   "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint:root": "eslint .",
+    "lint:all": "pnpm format:check && pnpm lint:root && pnpm lint",
     "generate": "pnpm --filter @winkey/api-client run generate",
     "check:generated": "pnpm --filter @winkey/api-client run check:generated"
   },
-  "packageManager": "pnpm@12.6.0"
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "eslint": "^9.21.0",
+    "eslint-config-prettier": "^10.1.1",
+    "prettier": "^3.5.3",
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  }
 }

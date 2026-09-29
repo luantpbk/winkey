@@ -1,6 +1,9 @@
 packages:
-  - 'packages/*'
   - 'apps/*'
+  - 'packages/*'
+  - 'services/auth'
+  - 'services/social'
+  - 'services/realtime'
   - 'e2e'
 
 allowBuilds:
