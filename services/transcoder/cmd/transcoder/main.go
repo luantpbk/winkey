@@ -22,6 +22,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/httpx"
 	"github.com/luantpbk/winkey/libs/go/obs"
 	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/services/transcoder/internal/config"
 	"github.com/luantpbk/winkey/services/transcoder/internal/job"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
@@ -101,10 +102,14 @@ func run(cfg config.Config, log *slog.Logger) error {
 		return fmt.Errorf("jetstream: %w", err)
 	}
 
-	s3 := objects.New(objects.Config{
+	s3c, err := s3x.New(s3x.Config{
 		Endpoint: cfg.S3Endpoint, Region: cfg.S3Region,
-		AccessKeyID: cfg.S3AccessKeyID, SecretKey: cfg.S3SecretKey,
+		AccessKeyID: cfg.S3AccessKeyID, SecretAccessKey: cfg.S3SecretKey,
 	})
+	if err != nil {
+		return fmt.Errorf("s3: %w", err)
+	}
+	s3 := objects.New(s3c)
 
 	pipeline := &job.Pipeline{
 		Store: &store.Postgres{Pool: pool}, Objects: s3, Events: natsEvents{nc}, Tools: tools, Log: log,

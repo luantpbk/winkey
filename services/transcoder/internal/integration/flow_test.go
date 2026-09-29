@@ -21,6 +21,7 @@ import (
 
 	"github.com/luantpbk/winkey/libs/go/ids"
 	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/libs/go/testkit"
 	"github.com/luantpbk/winkey/services/transcoder/internal/job"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
@@ -56,7 +57,11 @@ func startStack(t *testing.T, encoder string, full bool) *stack {
 	}
 	if full {
 		s.g = testkit.StartGarage(t)
-		s.obj = objects.New(objects.Config{Endpoint: s.g.Endpoint, Region: s.g.Region, AccessKeyID: s.g.AccessKey, SecretKey: s.g.SecretKey})
+		s3c, err := s3x.New(s3x.Config{Endpoint: s.g.Endpoint, Region: s.g.Region, AccessKeyID: s.g.AccessKey, SecretAccessKey: s.g.SecretKey})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.obj = objects.New(s3c)
 	}
 	pipeline := &job.Pipeline{
 		Store: &store.Postgres{Pool: s.pg.Pool}, Objects: s.obj, Events: natsPub{s.nats}, Tools: tools, Log: s.log,

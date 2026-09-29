@@ -22,6 +22,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/httpx"
 	"github.com/luantpbk/winkey/libs/go/ids"
 	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/libs/go/testkit"
 	"github.com/luantpbk/winkey/services/upload/internal/api"
 	"github.com/luantpbk/winkey/services/upload/internal/domain"
@@ -48,10 +49,14 @@ func start(t *testing.T) *stack {
 
 	// Public endpoint == the endpoint the test reaches Garage on, so presigned
 	// URLs can be exercised for real.
-	stor := storage.New(storage.Config{
+	s3c, err := s3x.New(s3x.Config{
 		Endpoint: g.Endpoint, PublicEndpoint: g.Endpoint, Region: g.Region,
-		AccessKeyID: g.AccessKey, SecretKey: g.SecretKey,
+		AccessKeyID: g.AccessKey, SecretAccessKey: g.SecretKey,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stor := storage.New(s3c)
 	st := &store.Postgres{Pool: pg.Pool}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := &api.Handler{Store: st, Storage: stor, RawBucket: testkit.RawBucket, Log: log}

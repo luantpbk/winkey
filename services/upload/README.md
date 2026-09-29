@@ -16,7 +16,7 @@ Non-owners, unknown ids and malformed ids all get **404**, never 403. Identity c
 
 **Janitor**: every `JANITOR_INTERVAL`, uploads `UPLOADING` for longer than `UPLOAD_STALE_AFTER` are aborted on S3 and their rows deleted (uses index `media.videos_stale_uploads`).
 
-**Two S3 clients**: `S3_ENDPOINT` (internal) for server-side calls; `S3_PUBLIC_ENDPOINT` (e.g. `https://s3.winkey.vn`) only for presigning, because the signature is bound to the host. Both are path-style with `S3_REGION=garage`. SDK request checksums are disabled (`WhenRequired`) so presigned URLs carry no checksum headers a browser would not send.
+**Two S3 endpoints** (shared client `libs/go/s3x`): `S3_ENDPOINT` (internal) for server-side calls; `S3_PUBLIC_ENDPOINT` (e.g. `https://s3.winkey.vn`) only for presigning, because the signature is bound to the host. Both are path-style with `S3_REGION=garage`. SDK request checksums are disabled (`WhenRequired`) so presigned URLs carry no checksum headers a browser would not send.
 
 ## Configuration
 

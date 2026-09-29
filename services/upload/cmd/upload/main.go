@@ -20,6 +20,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/httpx"
 	"github.com/luantpbk/winkey/libs/go/obs"
 	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/services/upload/internal/api"
 	"github.com/luantpbk/winkey/services/upload/internal/config"
 	"github.com/luantpbk/winkey/services/upload/internal/janitor"
@@ -68,10 +69,14 @@ func run(cfg config.Config, log *slog.Logger) error {
 		return fmt.Errorf("jetstream: %w", err)
 	}
 
-	s3 := storage.New(storage.Config{
+	s3c, err := s3x.New(s3x.Config{
 		Endpoint: cfg.S3Endpoint, PublicEndpoint: cfg.S3PublicEndpoint, Region: cfg.S3Region,
-		AccessKeyID: cfg.S3AccessKeyID, SecretKey: cfg.S3SecretKey,
+		AccessKeyID: cfg.S3AccessKeyID, SecretAccessKey: cfg.S3SecretKey,
 	})
+	if err != nil {
+		return fmt.Errorf("s3: %w", err)
+	}
+	s3 := storage.New(s3c)
 	st := &store.Postgres{Pool: pool}
 
 	outbox.SetProducer(service)
