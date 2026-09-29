@@ -128,10 +128,14 @@ func TestMultipartErrorMapping(t *testing.T) {
 	if err := c.CompleteMultipart(ctx, "b", "k", "gone", parts); !errors.Is(err, ErrNoSuchUpload) {
 		t.Errorf("gone: %v", err)
 	}
-	for _, up := range []string{"badpart", "toosmall"} {
+	for _, up := range []string{"badpart", "toosmall", "nodata"} {
 		if err := c.CompleteMultipart(ctx, "b", "k", up, parts); !errors.Is(err, ErrInvalidPart) {
 			t.Errorf("%s: %v", up, err)
 		}
+	}
+	// Only Garage's "No data was uploaded" is an invalid part list; other InvalidRequest errors stay unmapped.
+	if err := c.CompleteMultipart(ctx, "b", "k", "othererror", parts); err == nil || errors.Is(err, ErrInvalidPart) {
+		t.Errorf("unrelated InvalidRequest was mapped: %v", err)
 	}
 	if err := c.AbortMultipart(ctx, "b", "k", id); err != nil {
 		t.Fatal(err)

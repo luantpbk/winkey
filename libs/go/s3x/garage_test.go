@@ -93,7 +93,23 @@ func TestGarageMultipartWithPresignedParts(t *testing.T) {
 	if err := c.AbortMultipart(ctx, testkit.RawBucket, key, id); !errors.Is(err, s3x.ErrNoSuchUpload) {
 		t.Errorf("abort after complete: %v", err)
 	}
+	// A complete for an upload that received no parts is an invalid part list (Garage: InvalidRequest "No data was uploaded").
+	empty, _ := c.CreateMultipart(ctx, testkit.RawBucket, "empty", "video/mp4")
+	if err := c.CompleteMultipart(ctx, testkit.RawBucket, "empty", empty, []s3x.Part{{Number: 1, ETag: `"deadbeef"`}}); !errors.Is(err, s3x.ErrInvalidPart) {
+		t.Errorf("no parts uploaded: %v", err)
+	}
+	_ = c.AbortMultipart(ctx, testkit.RawBucket, "empty", empty)
+
+	// A real part completed with the wrong ETag.
 	id2, _ := c.CreateMultipart(ctx, testkit.RawBucket, "other", "video/mp4")
+	u, _ := c.PresignUploadPart(ctx, testkit.RawBucket, "other", id2, 1, time.Hour)
+	req, _ := http.NewRequest(http.MethodPut, u, bytes.NewReader([]byte("small last part")))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 	if err := c.CompleteMultipart(ctx, testkit.RawBucket, "other", id2, []s3x.Part{{Number: 1, ETag: `"deadbeef"`}}); !errors.Is(err, s3x.ErrInvalidPart) {
 		t.Errorf("wrong etag: %v", err)
 	}

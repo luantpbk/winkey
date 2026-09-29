@@ -68,7 +68,6 @@ WINKEY_REQUIRE_DOCKER=1 go test -race ./...  # CI: PostgreSQL 17 via testkit
 ```
 
 - **Contract test**: every response of the handler tests and of the PostgreSQL integration test is validated against `contracts/openapi/video.v1.yaml` (`internal/contract`: body schema, documented status, media type), and the `video.deleted` event against `contracts/events/*.schema.json`. The checker has its own negative tests (bad bodies, undocumented statuses and media types are rejected).
-- **Known contract gap** ([#34](https://github.com/luantpbk/winkey/issues/34)): `GET /v1/studio/videos` takes `limit`/`status`/`cursor` but documents no 400. The service returns 400 problem+json; the tests carry one narrow, explicit exemption (`AllowUndocumentedProblem`) that still validates the body against `Problem`. Remove it when the contract is fixed.
 - Store tests (PostgreSQL 17, real migrations): visibility-relevant reads, feed filters and order, keyset pagination across equal timestamps with microsecond precision, studio progress from the latest job, `EXPLAIN` checks that the queries can use `videos_public_feed` / `videos_owner_created`, partial PATCH, delete cascade + exactly one outbox event, and delete atomicity (a failing event write leaves the video in place).
 
 ## Image

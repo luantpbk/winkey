@@ -76,10 +76,12 @@ func (f *fakeS3) callsMatching(sub string) int {
 	return n
 }
 
-func s3Error(w http.ResponseWriter, status int, code string) {
+func s3Error(w http.ResponseWriter, status int, code string) { s3ErrorMsg(w, status, code, code) }
+
+func s3ErrorMsg(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>%s</Code><Message>%s</Message><RequestId>1</RequestId></Error>`, code, code)
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>%s</Code><Message>%s</Message><RequestId>1</RequestId></Error>`, code, msg)
 }
 
 func (f *fakeS3) serve(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +116,10 @@ func (f *fakeS3) serve(w http.ResponseWriter, r *http.Request) {
 			s3Error(w, http.StatusBadRequest, "InvalidPart")
 		case "toosmall":
 			s3Error(w, http.StatusBadRequest, "EntityTooSmall")
+		case "nodata": // what Garage answers when no part was uploaded
+			s3ErrorMsg(w, http.StatusBadRequest, "InvalidRequest", "Bad request: No data was uploaded")
+		case "othererror":
+			s3ErrorMsg(w, http.StatusBadRequest, "InvalidRequest", "something else is wrong with the request")
 		default:
 			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult><Bucket>%s</Bucket><Key>%s</Key><ETag>"done"</ETag></CompleteMultipartUploadResult>`, bucket, key)
 		}

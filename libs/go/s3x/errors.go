@@ -3,6 +3,7 @@ package s3x
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -43,6 +44,13 @@ func mapErr(op string, err error) error {
 			return fmt.Errorf("%s: %w", op, ErrNoSuchUpload)
 		case "InvalidPart", "InvalidPartOrder", "EntityTooSmall":
 			return fmt.Errorf("%s: %w: %s", op, ErrInvalidPart, ae.ErrorCode())
+		case "InvalidRequest":
+			// Garage answers a complete for an upload that received no parts with a
+			// generic InvalidRequest ("No data was uploaded"). For the caller that is an
+			// invalid part list, not a server fault.
+			if strings.Contains(ae.ErrorMessage(), "No data was uploaded") {
+				return fmt.Errorf("%s: %w: %s", op, ErrInvalidPart, ae.ErrorMessage())
+			}
 		case "NoSuchKey", "NotFound", "NoSuchBucket":
 			return fmt.Errorf("%s: %w", op, ErrNotFound)
 		}
