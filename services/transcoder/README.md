@@ -86,7 +86,9 @@ cp .env.example .env    # edit and export
 go run ./cmd/transcoder
 ```
 
-**Windows (gpu-01)**: build `GOOS=windows go build -o transcoder.exe ./cmd/transcoder`, set the variables machine-wide or in the service wrapper (WinSW/NSSM), point `FFMPEG_PATH`/`FFPROBE_PATH` at an FFmpeg with NVENC and `SCRATCH_DIR` at the NVMe. ffmpeg's HLS muxer fails with "Permission denied" when its working directory is on another drive than the output; the worker runs it in the output directory, so any drive layout works.
+**gpu-01 (Ubuntu, systemd)**: the unit, env template, `install.sh` (install / upgrade / rollback / status) and the runbook are in [`deploy/gpu-01/`](deploy/gpu-01/README.md).
+
+**Windows**: build `GOOS=windows go build -o transcoder.exe ./cmd/transcoder`, set the variables machine-wide or in the service wrapper (WinSW/NSSM), point `FFMPEG_PATH`/`FFPROBE_PATH` at an FFmpeg with NVENC and `SCRATCH_DIR` at the NVMe. ffmpeg's HLS muxer fails with "Permission denied" when its working directory is on another drive than the output; the worker runs it in the output directory, so any drive layout works.
 **Linux**: a systemd unit with `EnvironmentFile=`, `User=transcoder`, `Restart=always`, `KillSignal=SIGTERM`, `TimeoutStopSec=60`.
 
 ## Test

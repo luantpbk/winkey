@@ -1,0 +1,90 @@
+# Winkey transcoder worker on gpu-01 (ADR-015): a standalone pull worker that only opens
+# outbound connections (NATS, PostgreSQL, Garage over Tailscale). It shares the machine
+# (and the GPU) with a miner and ComfyUI, so it runs at low priority.
+#
+# Install:  see README.md next to this file (install.sh prints the exact root commands).
+# Verify:   systemd-analyze verify winkey-transcoder.service
+[Unit]
+Description=Winkey transcoder worker (NATS pull, FFmpeg/NVENC)
+Documentation=https://github.com/luantpbk/winkey/blob/main/services/transcoder/deploy/gpu-01/README.md
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+# A worker that keeps crashing should stop retrying after a while instead of spinning.
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Type=simple
+# Dedicated user, created by the one-time setup (README): member of video and render
+# (GPU device nodes) and of winkey (group that owns SCRATCH_DIR / ARCHIVE_DIR).
+User=winkey-transcoder
+Group=winkey-transcoder
+# root:root 0600, read by systemd before it drops privileges; holds the credentials.
+EnvironmentFile=/etc/winkey/transcoder.env
+# `current` is a symlink flipped by install.sh (upgrade / rollback).
+ExecStart=/opt/winkey/transcoder/current/transcoder
+
+Restart=on-failure
+RestartSec=5
+# Exit status 2 is "invalid configuration" (missing or malformed variable): restarting
+# cannot fix it, so do not loop.
+RestartPreventExitStatus=2
+
+# Graceful stop. SIGTERM goes to the worker only (KillMode=mixed), which stops taking new
+# jobs, lets running ones finish for SHUTDOWN_GRACE (30 s), then cancels them and hands the
+# messages back to the queue; the ffmpeg children are killed by the worker when it cancels
+# a job. Whatever is still alive when the timeout expires is SIGKILLed with the whole
+# cgroup (that is what "mixed" adds over "process"). With control-group (the default)
+# ffmpeg would get SIGTERM at the same moment as the worker and the grace period would
+# be meaningless.
+# TimeoutStopSec = SHUTDOWN_GRACE + 30 s: grace, plus up to 10 s for ffmpeg to exit after
+# it is killed, plus the final database and NATS calls. Keep it in step with the env file
+# (a unit test checks the default).
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=60
+
+# Yield to the miner and ComfyUI. cgroup v2 weights only matter under contention, so an
+# idle machine still lets the transcoder use everything.
+Nice=10
+CPUWeight=50
+IOWeight=50
+MemoryHigh=20G
+MemoryMax=24G
+TasksMax=4096
+# If the box runs out of memory, this is the process to sacrifice first: its jobs are
+# retried by the queue, the miner and ComfyUI are not.
+OOMScoreAdjust=300
+
+# Hardening. Deliberately NOT set:
+#   PrivateDevices=yes           it hides /dev/nvidia*, so NVENC would not work at all;
+#   MemoryDenyWriteExecute=yes   CUDA / NVENC map executable memory;
+#   ProcSubset=pid               the NVIDIA libraries read /proc/driver/nvidia;
+#   SystemCallFilter=            the GPU driver uses many ioctls; not worth the risk.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# The only writable paths. They must match SCRATCH_DIR and ARCHIVE_DIR in the env file
+# (systemd cannot read them from there): change both together, or use a drop-in
+# (README). "-" = ignore when missing, for the optional archive.
+ReadWritePaths=/mnt/nvme_models/winkey/scratch
+ReadWritePaths=-/mnt/hdd_storage/winkey/archive
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
