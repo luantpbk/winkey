@@ -1,0 +1,90 @@
+- name: k3s directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/rancher/k3s
+    - /var/lib/rancher/k3s/server/manifests
+
+- name: k3s config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Traefik settings
+  ansible.builtin.template:
+    src: traefik-config.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+    mode: "0600"
+  when: k3s_enable_traefik | bool
+
+# Leftover from the TLS-passthrough attempt of 2026-09-29 (k3s does not delete objects of a removed manifest).
+- name: Remove legacy passthrough manifest
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests/legacy-nginx.yaml
+    state: absent
+  register: legacy_manifest
+
+- name: Installed k3s version
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: k3s_current
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /usr/local/lib/k3s-install.sh
+    mode: "0755"
+  when: k3s_version not in (k3s_current.stdout | default(''))
+
+# The installer also sets up k3s-selinux from the rancher RPM repo on EL9.
+- name: Install k3s {{ k3s_version }}
+  ansible.builtin.command: /usr/local/lib/k3s-install.sh server
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+  register: k3s_install
+  when: k3s_version not in (k3s_current.stdout | default(''))
+
+- name: Apply config changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Node is Ready
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=30s
+  register: node_ready
+  retries: 10
+  delay: 10
+  until: node_ready.rc == 0
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Remove legacy passthrough objects
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete namespace legacy --ignore-not-found --wait=true
+  when:
+    - legacy_manifest.changed
+    - not ansible_check_mode
+
+- name: Wait for flannel
+  ansible.builtin.wait_for:
+    path: /run/flannel/subnet.env
+    timeout: 120
+  when: not ansible_check_mode
+
+- name: Read flannel settings
+  ansible.builtin.slurp:
+    src: /run/flannel/subnet.env
+  register: flannel_env
+  when: not ansible_check_mode
+
+- name: Flannel MTU fits inside tailscale0
+  ansible.builtin.assert:
+    that: mtu | int <= k3s_flannel_mtu_max
+    fail_msg: "FLANNEL_MTU={{ mtu }} > {{ k3s_flannel_mtu_max }}: large pod-to-pod packets will hang."
+    success_msg: "FLANNEL_MTU={{ mtu }}"
+  when: not ansible_check_mode
+  vars:
+    mtu: "{{ flannel_env.content | b64decode | regex_search('FLANNEL_MTU=(\\d+)', '\\1') | first }}"
