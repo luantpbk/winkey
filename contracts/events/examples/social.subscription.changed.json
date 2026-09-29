@@ -1,0 +1,13 @@
+{
+  "event_id": "0192f5f0-7777-7000-8000-000000000008",
+  "type": "social.subscription.changed",
+  "version": 1,
+  "occurred_at": "2026-10-02T11:02:00Z",
+  "producer": "social-svc",
+  "data": {
+    "subscriber_id": "0192f5e0-0000-7000-8000-000000000002",
+    "channel_id": "0192f5e0-0000-7000-8000-000000000001",
+    "subscribed": true,
+    "subscriber_count": 1234
+  }
+}

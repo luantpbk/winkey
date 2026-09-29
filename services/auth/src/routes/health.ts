@@ -2,11 +2,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'kysely';
 import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
+import type { Redis } from 'ioredis';
+import type { NatsConnection } from 'nats';
 
 export interface HealthCheckDependencies {
   db?: Kysely<Database>;
-  redis?: any;
-  natsConnection?: any;
+  redis?: Redis | null;
+  natsConnection?: NatsConnection | null;
 }
 
 export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
