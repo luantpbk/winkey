@@ -1,9 +1,10 @@
 import { importPKCS8, importSPKI, exportJWK, SignJWT, jwtVerify, type JWK } from 'jose';
+import type { KeyObject } from 'node:crypto';
 import { v7 as uuidv7 } from 'uuid';
 import type { Env } from '../config/env.js';
 import type { Role } from '../db/types.js';
 
-export type KeyLike = any;
+export type KeyLike = Awaited<ReturnType<typeof importSPKI>> | KeyObject | Uint8Array;
 
 export interface AccessTokenPayload {
   sub: string;
@@ -89,7 +90,7 @@ export async function initializeKeys(env: Env): Promise<KeyCache> {
 async function jwkToSpki(jwk: JWK): Promise<string> {
   const { exportSPKI, importJWK } = await import('jose');
   const key = await importJWK(jwk, 'RS256');
-  return await exportSPKI(key as any);
+  return await exportSPKI(key as Parameters<typeof exportSPKI>[0]);
 }
 
 /**
@@ -146,16 +147,16 @@ export async function verifyAccessToken(token: string, env: Env): Promise<Access
     algorithms: ['RS256'],
   });
 
-  const payload = result.payload as any;
+  const payload = result.payload;
   return {
-    sub: payload.sub,
-    roles: payload.roles,
-    sid: payload.sid,
-    iss: payload.iss,
-    aud: payload.aud,
-    iat: payload.iat,
-    exp: payload.exp,
-    jti: payload.jti,
+    sub: payload.sub as string,
+    roles: (payload.roles as Role[]) ?? [],
+    sid: payload.sid as string,
+    iss: payload.iss as string,
+    aud: typeof payload.aud === 'string' ? payload.aud : (payload.aud?.[0] ?? ''),
+    iat: payload.iat as number,
+    exp: payload.exp as number,
+    jti: payload.jti as string,
   };
 }
 

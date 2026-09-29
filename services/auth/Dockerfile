@@ -21,10 +21,10 @@ RUN pnpm install --frozen-lockfile
 
 # Build outbox library and auth service
 RUN pnpm --filter @winkey/outbox run build
-RUN pnpm --filter auth-svc run build
+RUN pnpm --filter @winkey/auth run build
 
 # Deploy standalone production bundle
-RUN pnpm --filter=auth-svc --prod deploy /app/deployed
+RUN pnpm --filter=@winkey/auth --prod deploy /app/deployed
 RUN cp -r /app/services/auth/dist /app/deployed/dist && \
     mkdir -p /app/deployed/node_modules/@winkey/outbox && \
     cp -r /app/packages/outbox/dist /app/deployed/node_modules/@winkey/outbox/dist
