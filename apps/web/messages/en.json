@@ -123,6 +123,22 @@
     "share": "Share",
     "copiedLink": "Video link copied!",
     "cannotSubscribeSelf": "Cannot subscribe to your own channel.",
-    "charCount": "{current}/{max}"
+    "charCount": "{current}/{max}",
+    "unauthorized": "Please sign in to perform this action.",
+    "forbidden": "You do not have permission to perform this action.",
+    "notFound": "Content or comment not found.",
+    "conflict": "Data conflict. Please reload the page.",
+    "serverError": "Server error. Please try again later.",
+    "networkError": "Network error. Please check your connection and try again.",
+    "loadCommentsError": "Failed to load comments. Please reload the page.",
+    "loadCommentsNetworkError": "Network error while loading comments.",
+    "createError": "Failed to post comment. Please try again.",
+    "editError": "Failed to edit comment. Please try again.",
+    "deleteError": "Failed to delete comment. Please try again later.",
+    "deleteConfirm": "Are you sure you want to delete this comment?",
+    "replyError": "Failed to post reply. Please try again.",
+    "unknownError": "An error occurred. Please try again.",
+    "anonymousUser": "Anonymous user",
+    "commentOptions": "Comment options"
   }
 }

@@ -37,6 +37,22 @@ vi.mock('next-intl', () => ({
     if (key === 'replySubmit') return 'Phản hồi';
     if (key === 'addCommentPlaceholder') return 'Viết bình luận...';
     if (key === 'replyPlaceholder') return 'Viết câu trả lời...';
+    if (key === 'serverError') return 'Đã có lỗi xảy ra từ máy chủ. Vui lòng thử lại sau.';
+    if (key === 'unknownError') return 'Đã có lỗi xảy ra. Vui lòng thử lại.';
+    if (key === 'networkError') return 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng.';
+    if (key === 'unauthorized') return 'Bạn cần đăng nhập để thực hiện thao tác này.';
+    if (key === 'forbidden') return 'Bạn không có quyền thực hiện thao tác này.';
+    if (key === 'notFound') return 'Không tìm thấy nội dung yêu cầu.';
+    if (key === 'conflict') return 'Thao tác xung đột dữ liệu. Vui lòng làm mới lại trang.';
+    if (key === 'loadCommentsError') return 'Không thể tải bình luận. Vui lòng thử lại sau.';
+    if (key === 'loadCommentsNetworkError') return 'Lỗi kết nối khi tải danh sách bình luận.';
+    if (key === 'createError') return 'Không thể gửi bình luận.';
+    if (key === 'editError') return 'Không thể chỉnh sửa bình luận.';
+    if (key === 'deleteError') return 'Không thể xóa bình luận. Vui lòng thử lại sau.';
+    if (key === 'deleteConfirm') return 'Bạn có chắc chắn muốn xóa bình luận này không?';
+    if (key === 'replyError') return 'Không thể gửi câu trả lời.';
+    if (key === 'anonymousUser') return 'Người dùng ẩn danh';
+    if (key === 'commentOptions') return 'Tùy chọn bình luận';
     return key;
   },
 }));
@@ -200,11 +216,42 @@ describe('Social Features (Task U3)', () => {
       fireEvent.click(submitBtn);
 
       // Error message should appear and optimistic item must be rolled back
-      expect(await screen.findByText('Database connection failed')).toBeDefined();
+      expect(
+        await screen.findByText('Đã có lỗi xảy ra từ máy chủ. Vui lòng thử lại sau.'),
+      ).toBeDefined();
+      expect(screen.queryByText('Database connection failed')).toBeNull();
       // The comment text should not remain in the list
       const matching = screen.queryAllByText('Optimistic test comment');
       // Only the textarea might have it or none
       expect(matching.length).toBeLessThanOrEqual(1);
+    });
+
+    it('maps 401 error to localized unauthorized message without raw detail', async () => {
+      vi.spyOn(api.social, 'GET').mockResolvedValue({
+        data: { items: [], next_cursor: null },
+        response: new Response(null, { status: 200 }),
+      } as any);
+
+      vi.spyOn(api.social, 'POST').mockResolvedValue({
+        error: {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          detail: 'Raw backend sensitive message',
+        },
+        response: new Response(null, { status: 401 }),
+      } as any);
+
+      render(<CommentSection videoId="v-1" />);
+
+      const input = await screen.findByPlaceholderText('Viết bình luận...');
+      fireEvent.change(input, { target: { value: 'Test unauth' } });
+
+      const submitBtn = screen.getByRole('button', { name: 'Bình luận' });
+      fireEvent.click(submitBtn);
+
+      expect(await screen.findByText('Bạn cần đăng nhập để thực hiện thao tác này.')).toBeDefined();
+      expect(screen.queryByText('Raw backend sensitive message')).toBeNull();
     });
 
     it('enforces character limits (1-2000 chars) and disables submit when empty or too long', () => {
@@ -351,6 +398,19 @@ describe('Social Features (Task U3)', () => {
       expect(screen.getByText('Bình luận này đã bị xóa.')).toBeDefined();
       expect(screen.queryByText('Top-level comment body')).toBeNull();
       expect(screen.queryByRole('button', { name: /tùy chọn/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /phản hồi/i })).toBeNull();
+    });
+
+    it('redirects unauthenticated users to /login?returnTo=... when clicking reply', () => {
+      mockIsAuthenticated = false;
+      mockUser = null;
+
+      render(<CommentItem comment={topLevelComment} />);
+
+      const replyBtn = screen.getByRole('button', { name: /phản hồi/i });
+      fireEvent.click(replyBtn);
+
+      expect(mockPush).toHaveBeenCalledWith('/login?returnTo=%2Fwatch%2Fv-test-123');
     });
 
     it('tombstone: returns null when status is HIDDEN', () => {

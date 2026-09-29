@@ -3,10 +3,13 @@
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { MessageSquare, MoreVertical, Edit2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import type { Comment, Problem } from '@winkey/api-client';
+import type { Comment } from '@winkey/api-client';
 import { formatRelativeTime } from '../../lib/format';
 import { CommentComposer } from './comment-composer';
 import { api } from '../../lib/api-client';
+import { useRouter, usePathname } from '../../i18n/routing';
+import { useAuth } from '../../lib/auth/auth-context';
+import { mapSocialError } from './error-utils';
 
 export interface CommentItemProps {
   comment: Comment;
@@ -24,6 +27,9 @@ export function CommentItem({
   onReplyCreated,
 }: CommentItemProps) {
   const t = useTranslations('social');
+  const router = useRouter();
+  const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
 
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [showReplyComposer, setShowReplyComposer] = useState<boolean>(false);
@@ -85,7 +91,7 @@ export function CommentItem({
 
   const handleEditSubmit = async (newText: string) => {
     try {
-      const { data, error, response } = await api.social.PATCH('/v1/comments/{comment_id}', {
+      const { data, response } = await api.social.PATCH('/v1/comments/{comment_id}', {
         params: { path: { comment_id: comment.id } },
         body: { body: newText },
       });
@@ -96,22 +102,21 @@ export function CommentItem({
         return { success: true };
       }
 
-      const problem = error as Problem | undefined;
       return {
         success: false,
-        error: problem?.detail || problem?.title || 'Không thể chỉnh sửa bình luận',
+        error: mapSocialError(response.status, null, t, 'editError'),
       };
-    } catch (err: unknown) {
+    } catch {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Lỗi kết nối khi sửa bình luận',
+        error: t('networkError'),
       };
     }
   };
 
   const handleDelete = async () => {
     setShowMenu(false);
-    if (!confirm('Bạn có chắc chắn muốn xóa bình luận này không?')) return;
+    if (!confirm(t('deleteConfirm'))) return;
 
     try {
       const { response } = await api.social.DELETE('/v1/comments/{comment_id}', {
@@ -122,15 +127,17 @@ export function CommentItem({
         if (onCommentDeleted) {
           onCommentDeleted(comment.id);
         }
+      } else {
+        alert(mapSocialError(response.status, null, t, 'deleteError'));
       }
     } catch {
-      alert('Không thể xóa bình luận. Vui lòng thử lại sau.');
+      alert(t('networkError'));
     }
   };
 
   const handleReplySubmit = async (replyText: string) => {
     try {
-      const { data, error, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
+      const { data, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
         params: { path: { video_id: comment.video_id } },
         body: { body: replyText, parent_id: targetParentId },
       });
@@ -147,25 +154,25 @@ export function CommentItem({
         return { success: true };
       }
 
-      const problem = error as Problem | undefined;
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after') || '30';
-        return {
-          success: false,
-          error: t('rateLimited', { seconds: retryAfter }),
-        };
-      }
-
+      const retryAfter = response.headers.get('retry-after');
       return {
         success: false,
-        error: problem?.detail || problem?.title || 'Không thể gửi câu trả lời',
+        error: mapSocialError(response.status, retryAfter, t, 'replyError'),
       };
-    } catch (err: unknown) {
+    } catch {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Lỗi kết nối khi gửi câu trả lời',
+        error: t('networkError'),
       };
     }
+  };
+
+  const handleReplyClick = () => {
+    if (!isAuthenticated) {
+      router.push(`/login?returnTo=${encodeURIComponent(pathname)}`);
+      return;
+    }
+    setShowReplyComposer((prev) => !prev);
   };
 
   return (
@@ -201,7 +208,7 @@ export function CommentItem({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-xs text-gray-900 dark:text-white">
-                  {comment.author?.display_name || 'Người dùng ẩn danh'}
+                  {comment.author?.display_name || t('anonymousUser')}
                 </span>
                 {comment.author?.handle && (
                   <span className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -222,7 +229,7 @@ export function CommentItem({
                   <button
                     type="button"
                     onClick={() => setShowMenu(!showMenu)}
-                    aria-label="Tùy chọn bình luận"
+                    aria-label={t('commentOptions')}
                     className="p-1 rounded-full text-gray-400 hover:text-gray-200 hover:bg-[#333] transition"
                   >
                     <MoreVertical className="h-3.5 w-3.5" />
@@ -281,7 +288,7 @@ export function CommentItem({
               <div className="flex items-center gap-4 mt-2">
                 <button
                   type="button"
-                  onClick={() => setShowReplyComposer(!showReplyComposer)}
+                  onClick={handleReplyClick}
                   className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 hover:text-white transition"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
@@ -294,7 +301,7 @@ export function CommentItem({
       )}
 
       {/* Reply Composer */}
-      {showReplyComposer && (
+      {!isDeleted && showReplyComposer && (
         <div className="ml-10 mt-2 pl-3 border-l-2 border-red-600/40">
           <CommentComposer
             isReply

@@ -123,6 +123,22 @@
     "share": "Chia sẻ",
     "copiedLink": "Đã sao chép liên kết video!",
     "cannotSubscribeSelf": "Không thể tự đăng ký kênh của chính mình.",
-    "charCount": "{current}/{max}"
+    "charCount": "{current}/{max}",
+    "unauthorized": "Vui lòng đăng nhập để thực hiện thao tác này.",
+    "forbidden": "Bạn không có quyền thực hiện thao tác này.",
+    "notFound": "Nội dung hoặc bình luận không tồn tại.",
+    "conflict": "Dữ liệu bị xung đột. Vui lòng tải lại trang.",
+    "serverError": "Máy chủ gặp sự cố. Vui lòng thử lại sau.",
+    "networkError": "Lỗi kết nối mạng. Vui lòng thử lại.",
+    "loadCommentsError": "Không thể tải bình luận. Vui lòng tải lại trang.",
+    "loadCommentsNetworkError": "Lỗi mạng khi tải bình luận.",
+    "createError": "Không thể đăng bình luận. Vui lòng thử lại.",
+    "editError": "Không thể chỉnh sửa bình luận. Vui lòng thử lại.",
+    "deleteError": "Không thể xóa bình luận. Vui lòng thử lại sau.",
+    "deleteConfirm": "Bạn có chắc chắn muốn xóa bình luận này không?",
+    "replyError": "Không thể gửi câu trả lời. Vui lòng thử lại.",
+    "unknownError": "Đã có lỗi xảy ra. Vui lòng thử lại.",
+    "anonymousUser": "Người dùng ẩn danh",
+    "commentOptions": "Tùy chọn bình luận"
   }
 }

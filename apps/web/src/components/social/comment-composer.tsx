@@ -63,9 +63,8 @@ export function CommentComposer({
       } else if (res.error) {
         setErrorMessage(res.error);
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Đã có lỗi xảy ra. Vui lòng thử lại.';
-      setErrorMessage(msg);
+    } catch {
+      setErrorMessage(t('unknownError'));
     } finally {
       setIsPending(false);
     }

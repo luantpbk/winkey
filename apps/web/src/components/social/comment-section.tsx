@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import type { Comment, Problem } from '@winkey/api-client';
+import type { Comment } from '@winkey/api-client';
 import { CommentComposer } from './comment-composer';
 import { CommentItem } from './comment-item';
 import { api } from '../../lib/api-client';
+import { mapSocialError } from './error-utils';
 
 export interface CommentSectionProps {
   videoId: string;
@@ -13,6 +14,8 @@ export interface CommentSectionProps {
 
 export function CommentSection({ videoId }: CommentSectionProps) {
   const t = useTranslations('social');
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -42,10 +45,17 @@ export function CommentSection({ videoId }: CommentSectionProps) {
           }
           setNextCursor(data.next_cursor);
         } else {
-          setErrorNotice('Không thể tải bình luận. Vui lòng tải lại trang.');
+          setErrorNotice(
+            mapSocialError(
+              response.status,
+              response.headers?.get?.('retry-after'),
+              tRef.current,
+              'loadCommentsError',
+            ),
+          );
         }
       } catch {
-        setErrorNotice('Lỗi mạng khi tải bình luận.');
+        setErrorNotice(tRef.current('loadCommentsNetworkError'));
       } finally {
         setIsLoading(false);
         setIsLoadingMore(false);
@@ -79,7 +89,7 @@ export function CommentSection({ videoId }: CommentSectionProps) {
     setComments((prev) => [optimisticComment, ...prev]);
 
     try {
-      const { data, error, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
+      const { data, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
         params: { path: { video_id: videoId } },
         body: { body: text },
       });
@@ -95,25 +105,17 @@ export function CommentSection({ videoId }: CommentSectionProps) {
       // Rollback optimistic comment on failure
       setComments((prev) => prev.filter((c) => c.id !== tempId));
 
-      const problem = error as Problem | undefined;
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after') || '30';
-        return {
-          success: false,
-          error: t('rateLimited', { seconds: retryAfter }),
-        };
-      }
-
+      const retryAfter = response.headers?.get?.('retry-after');
       return {
         success: false,
-        error: problem?.detail || problem?.title || 'Không thể đăng bình luận',
+        error: mapSocialError(response.status, retryAfter, t, 'createError'),
       };
-    } catch (err: unknown) {
+    } catch {
       // Rollback on network failure
       setComments((prev) => prev.filter((c) => c.id !== tempId));
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Lỗi kết nối khi gửi bình luận',
+        error: t('networkError'),
       };
     }
   };
