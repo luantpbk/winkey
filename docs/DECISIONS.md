@@ -99,3 +99,14 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Mọi image build `linux/amd64` + `linux/arm64` (edge là arm64), đẩy lên GHCR.
 - `transcoder` có hai biến thể: `-nvenc` (chỉ amd64, base CUDA runtime) và `-cpu` (đa kiến trúc).
 - Dependency native phải được kiểm tra trên arm64 trong CI.
+
+### ADR-013 — Giai đoạn phát triển chỉ dùng 1 VPS
+**Bối cảnh.** Đang ở giai đoạn phát triển, chưa cần HA; vận hành 3 node tốn công và dễ phân tán sự chú ý.
+**Quyết định.**
+- Chỉ dùng **edge-1**. Mọi thành phần chạy 1 bản, nhưng cấu hình **giữ nguyên hình dạng đích**, để nâng lên 3 node chỉ là thao tác vận hành, không phải thiết kế lại:
+  - k3s khởi tạo bằng `--cluster-init`;
+  - manifest giữ anti-affinity dạng `preferred`;
+  - stream NATS và CNPG chỉnh số bản sao bằng tham số.
+- Garage RF 1 là ngoại lệ: không nâng RF tại chỗ được, nên dữ liệu staging coi như dùng một lần và sẽ migrate bằng rclone.
+- Stack dev chung chạy trên gpu-01.
+**Hệ quả.** Không có HA. edge-1 sập thì staging sập, nhưng dev trên gpu-01 vẫn chạy. Rủi ro này chấp nhận được cho tới trước P2 (Beta).
