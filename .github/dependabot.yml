@@ -24,6 +24,22 @@ updates:
     commit-message:
       prefix: 'deps(libs/go)'
 
+  # Maintain Go dependencies in services/upload
+  - package-ecosystem: 'gomod'
+    directory: '/services/upload'
+    schedule:
+      interval: 'weekly'
+    commit-message:
+      prefix: 'deps(upload)'
+
+  # Maintain Go dependencies in services/transcoder
+  - package-ecosystem: 'gomod'
+    directory: '/services/transcoder'
+    schedule:
+      interval: 'weekly'
+    commit-message:
+      prefix: 'deps(transcoder)'
+
   # Maintain Docker dependencies in deploy/compose
   - package-ecosystem: 'docker'
     directory: '/deploy/compose'

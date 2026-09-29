@@ -108,7 +108,6 @@ jobs:
   go-ci:
     name: go (${{ matrix.module }})
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs[matrix.filter_key] == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -126,39 +125,60 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Should run?
+        id: gate
+        env:
+          IS_PUSH: ${{ github.event_name == 'push' }}
+          OUTPUTS_JSON: ${{ toJSON(needs.changes.outputs) }}
+          KEY: ${{ matrix.filter_key }}
+        run: |
+          if [ "$IS_PUSH" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            VAL=$(echo "$OUTPUTS_JSON" | grep -o "\"$KEY\": *\"true\"" || true)
+            if [ -n "$VAL" ]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip: no changes in ${{ matrix.module }}"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Module present?
         id: present
+        if: steps.gate.outputs.run == 'true'
         run: |
           if [ -f "${{ matrix.module }}/go.mod" ]; then
             echo "yes=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip: ${{ matrix.module }} has no go.mod yet"
+            echo "yes=false" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/setup-go@v5
-        if: steps.present.outputs.yes == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
       - name: FFmpeg (transcoder real-media tests)
-        if: steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg && ffmpeg -version | head -1
 
       - name: vet
-        if: steps.present.outputs.yes == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
       - name: test (race, containers required)
-        if: steps.present.outputs.yes == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
         working-directory: ${{ matrix.module }}
         env:
           WINKEY_REQUIRE_DOCKER: '1'
         run: go test -race -count=1 -timeout 20m ./...
 
       - name: cross-build (linux/arm64, windows/amd64)
-        if: steps.present.outputs.yes == 'true'
+        if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true'
         working-directory: ${{ matrix.module }}
         run: |
           GOOS=linux GOARCH=arm64 go build ./...
