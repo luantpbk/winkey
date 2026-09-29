@@ -4,5 +4,5 @@ use (
 	./libs/go
 	./services/transcoder
 	./services/upload
-// ./services/video (to be added in S1 PR)
+	./services/video
 )

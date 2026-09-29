@@ -149,27 +149,12 @@ func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	// Heartbeat: tell JetStream we are alive while the job runs.
-	hbCtx, stopHB := context.WithCancel(ctx)
-	go func() {
-		t := time.NewTicker(HeartbeatEvery)
-		defer t.Stop()
-		for {
-			select {
-			case <-hbCtx.Done():
-				return
-			case <-t.C:
-				if err := msg.InProgress(); err != nil {
-					c.Log.Warn("heartbeat failed", "error", err)
-				}
-			}
-		}
-	}()
-
+	// The pipeline sends InProgress (and stamps heartbeat_at) every HeartbeatEvery
+	// while the job runs, so JetStream and the reconciler both see it is alive.
+	d.InProgress = msg.InProgress
 	jobsInFlight.Inc()
 	res := c.Pipeline.Process(ctx, ev, d)
 	jobsInFlight.Dec()
-	stopHB()
 
 	if res.Stats != nil && res.Stats.MediaSec > 0 {
 		realtimeRatio.WithLabelValues(res.Stats.Encoder).Observe(res.Stats.XRealtime())

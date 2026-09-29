@@ -1,0 +1,218 @@
+// Package store implements domain.Store on PostgreSQL (schemas media and, read
+// only through the auth.public_profiles view, auth).
+package store
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/services/video/internal/domain"
+)
+
+// Postgres implements domain.Store.
+type Postgres struct{ Pool *pgxpool.Pool }
+
+var _ domain.Store = (*Postgres)(nil)
+
+// videoCols joins the owner profile (LEFT: a suspended/deleted owner has no
+// row in the view) and reads everything GetVideo/UpdateVideo return.
+const videoSelect = `
+	SELECT v.id, v.owner_id, v.title, v.description, v.visibility::text, v.status::text,
+	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
+	       v.hls_master_key, v.thumbnail_key,
+	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key
+	FROM media.videos v
+	LEFT JOIN auth.public_profiles p ON p.id = v.owner_id`
+
+func scanVideo(row pgx.Row) (domain.Video, error) {
+	var v domain.Video
+	var ownerActive bool
+	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Visibility, &v.Status,
+		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
+		&v.HLSMasterKey, &v.ThumbnailKey,
+		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey)
+	v.Owner.ID = v.OwnerID
+	v.Owner.Missing = !ownerActive
+	return v, err
+}
+
+func (p *Postgres) GetVideo(ctx context.Context, id uuid.UUID) (domain.Video, error) {
+	v, err := scanVideo(p.Pool.QueryRow(ctx, videoSelect+` WHERE v.id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Video{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Video{}, fmt.Errorf("get video: %w", err)
+	}
+	if err := p.loadRenditions(ctx, &v); err != nil {
+		return domain.Video{}, err
+	}
+	return v, nil
+}
+
+func (p *Postgres) loadRenditions(ctx context.Context, v *domain.Video) error {
+	v.Renditions = []domain.Rendition{}
+	if v.Status != domain.StatusReady {
+		return nil
+	}
+	rows, err := p.Pool.Query(ctx, `
+		SELECT name, width, height, bitrate_kbps FROM media.video_renditions
+		WHERE video_id = $1 ORDER BY height DESC, width DESC, name`, v.ID)
+	if err != nil {
+		return fmt.Errorf("load renditions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r domain.Rendition
+		if err := rows.Scan(&r.Name, &r.Width, &r.Height, &r.BitrateKbps); err != nil {
+			return err
+		}
+		v.Renditions = append(v.Renditions, r)
+	}
+	return rows.Err()
+}
+
+// ListFeed reads one page of the public feed with keyset pagination on
+// (published_at DESC, id DESC), which is the order of the partial index
+// media.videos_public_feed (status = READY AND visibility = PUBLIC). Owner
+// profiles come from the same query (INNER JOIN: videos of owners who are not
+// ACTIVE are not listed).
+func (p *Postgres) ListFeed(ctx context.Context, q domain.FeedQuery) ([]domain.Summary, error) {
+	sql, args := feedSQL(q)
+	rows, err := p.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list feed: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Summary
+	for rows.Next() {
+		var s domain.Summary
+		if err := rows.Scan(&s.ID, &s.Title, &s.DurationMs, &s.ViewCount, &s.PublishedAt, &s.ThumbnailKey,
+			&s.Owner.ID, &s.Owner.Handle, &s.Owner.DisplayName, &s.Owner.AvatarKey); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func feedSQL(q domain.FeedQuery) (string, []any) {
+	var sb strings.Builder
+	sb.WriteString(`
+		SELECT v.id, v.title, v.duration_ms, v.view_count, v.published_at, v.thumbnail_key,
+		       p.id, p.handle, p.display_name, p.avatar_key
+		FROM media.videos v
+		JOIN auth.public_profiles p ON p.id = v.owner_id
+		WHERE v.status = 'READY' AND v.visibility = 'PUBLIC'`)
+	var args []any
+	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
+	if q.OwnerID != nil {
+		sb.WriteString(" AND v.owner_id = " + arg(*q.OwnerID))
+	}
+	if q.After != nil {
+		sb.WriteString(" AND (v.published_at, v.id) < (" + arg(q.After.T) + ", " + arg(q.After.ID) + ")")
+	}
+	sb.WriteString(" ORDER BY v.published_at DESC, v.id DESC LIMIT " + arg(q.Limit))
+	return sb.String(), args
+}
+
+// ListStudio reads one page of a user's own videos (every status), keyset on
+// (created_at DESC, id DESC) using media.videos_owner_created. Progress is the
+// latest transcode job's progress (READY is reported as 100 by the API).
+func (p *Postgres) ListStudio(ctx context.Context, q domain.StudioQuery) ([]domain.StudioItem, error) {
+	sql, args := studioSQL(q)
+	rows, err := p.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list studio: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.StudioItem
+	for rows.Next() {
+		var s domain.StudioItem
+		var progress float32
+		if err := rows.Scan(&s.ID, &s.Title, &s.Visibility, &s.Status, &progress, &s.Error,
+			&s.DurationMs, &s.CreatedAt, &s.ThumbnailKey); err != nil {
+			return nil, err
+		}
+		s.Progress = float64(progress)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func studioSQL(q domain.StudioQuery) (string, []any) {
+	var sb strings.Builder
+	sb.WriteString(`
+		SELECT v.id, v.title, v.visibility::text, v.status::text, coalesce(j.progress, 0), v.error,
+		       v.duration_ms, v.created_at, v.thumbnail_key
+		FROM media.videos v
+		LEFT JOIN LATERAL (
+		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
+		) j ON true
+		WHERE v.owner_id = `)
+	var args []any
+	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
+	sb.WriteString(arg(q.UserID))
+	if q.Status != "" {
+		sb.WriteString(" AND v.status = " + arg(q.Status) + "::media.video_status")
+	}
+	if q.After != nil {
+		sb.WriteString(" AND (v.created_at, v.id) < (" + arg(q.After.T) + ", " + arg(q.After.ID) + ")")
+	}
+	sb.WriteString(" ORDER BY v.created_at DESC, v.id DESC LIMIT " + arg(q.Limit))
+	return sb.String(), args
+}
+
+func (p *Postgres) UpdateVideo(ctx context.Context, id, ownerID uuid.UUID, u domain.Update) (domain.Video, error) {
+	tag, err := p.Pool.Exec(ctx, `
+		UPDATE media.videos SET
+			title       = coalesce($3, title),
+			description = coalesce($4, description),
+			visibility  = coalesce($5::media.visibility, visibility)
+		WHERE id = $1 AND owner_id = $2`, id, ownerID, u.Title, u.Description, u.Visibility)
+	if err != nil {
+		return domain.Video{}, fmt.Errorf("update video: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.Video{}, domain.ErrNotFound
+	}
+	return p.GetVideo(ctx, id)
+}
+
+func (p *Postgres) DeleteVideo(ctx context.Context, id uuid.UUID, mediaBucket string) (bool, error) {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var owner uuid.UUID
+	var rawBucket, rawKey string
+	// The cascade removes video_renditions and transcode_jobs.
+	err = tx.QueryRow(ctx, `DELETE FROM media.videos WHERE id = $1 RETURNING owner_id, raw_bucket, raw_key`, id).
+		Scan(&owner, &rawBucket, &rawKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("delete video: %w", err)
+	}
+	if err := outbox.Enqueue(ctx, tx, "media", "video.deleted", domain.DeletedEvent{
+		VideoID: id.String(), OwnerID: owner.String(), RawBucket: rawBucket, RawKey: rawKey,
+		MediaBucket: mediaBucket, MediaPrefix: "v/" + id.String() + "/",
+	}); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return true, nil
+}

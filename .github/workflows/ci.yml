@@ -66,8 +66,8 @@ jobs:
 
   root-lint:
     name: root lint & format
+    # Runs on every PR: prettier covers YAML/JSON/Markdown outside the TS workspaces too (~20s).
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.root_ts == 'true' || needs.changes.outputs.ts_workspaces == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

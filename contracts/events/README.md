@@ -19,6 +19,9 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `video.failed` | JetStream `VIDEO` | transcoder | realtime-gw | [video.failed](video.failed.schema.json) |
 | `video.deleted` | JetStream `VIDEO` | video-svc | media-janitor (transcoder), search | [video.deleted](video.deleted.schema.json) |
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
+| `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2), notify (P3) | [social.comment.created](social.comment.created.schema.json) |
+| `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`) | [social.video.like_changed](social.video.like_changed.schema.json) |
+| `social.subscription.changed` | JetStream `SOCIAL` | social-svc | notify, reco (P3) | [social.subscription.changed](social.subscription.changed.schema.json) |
 | `rt.video.{video_id}.progress` | core NATS | transcoder | realtime-gw, upload-svc (cache) | [video.progress](video.progress.schema.json) |
 | `dlq.video.uploaded` | JetStream `DLQ` | transcoder | con người (replay tool) | bản gốc của `video.uploaded` |
 
@@ -28,9 +31,18 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 |---|---|---|---|---|---|
 | `VIDEO` | `video.>` | file | 3 | 7d | 2m |
 | `USER` | `user.>` | file | 3 | 7d | 2m |
+| `SOCIAL` | `social.>` | file | 3 | 7d | 2m |
 | `DLQ` | `dlq.>` | file | 3 | 30d | 2m |
 
 Giai đoạn 1 VPS (ADR-013) dùng `replicas: 1`, nâng lên 3 khi có cluster NATS 3 node. Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject.
+
+## Consumer của social-svc
+
+social-svc giữ projection `social.videos` (video nào nhận được comment/like) từ stream `VIDEO`:
+
+- Durable `social-videos`, pull, `filter_subjects: [video.ready, video.deleted]`, `ack_policy: explicit`, `ack_wait: 30s`, `max_deliver: 5`.
+- `video.ready` → `INSERT … ON CONFLICT (id) DO NOTHING` (re-encode gửi lại event). `video.deleted` → `DELETE` (cascade comment + like). Cả hai idempotent.
+- Hạn chế đã biết: `video.ready` không mang `visibility`, nên social-svc chưa phân biệt được video PRIVATE. Khi SEC1 thêm event đổi visibility thì projection sẽ lưu thêm trường này.
 
 ## Consumer `transcoder`
 

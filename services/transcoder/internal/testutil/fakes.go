@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,11 +31,20 @@ type MemStore struct {
 	CompleteOK   *bool // nil = true
 	FailJobError error
 
+	Beats           []uuid.UUID // Heartbeat calls
+	Reconciles      int
+	ReconcileResult []job.Reconciled
+	ReconcileErr    error
+
 	Stuck      []job.FailRecord // FailStuck calls that took effect
 	StuckCalls int
 	StuckNoop  bool // FailStuck reports "nothing to do"
 	StuckErr   error
 }
+
+// Lock and Unlock let tests read the recorded calls while workers may still run.
+func (s *MemStore) Lock()   { s.mu.Lock() }
+func (s *MemStore) Unlock() { s.mu.Unlock() }
 
 func (s *MemStore) BeginJob(_ context.Context, id uuid.UUID, encoder, _ string) (job.BeginResult, error) {
 	s.mu.Lock()
@@ -96,6 +106,23 @@ func (s *MemStore) FailStuck(_ context.Context, id uuid.UUID, f job.Failure) (jo
 	rec := job.FailRecord{VideoID: id, OwnerID: s.Video.OwnerID, JobID: uuid.New(), Attempt: s.Attempts + 1, Failure: f, Terminal: true}
 	s.Stuck = append(s.Stuck, rec)
 	return rec, true, nil
+}
+
+func (s *MemStore) Heartbeat(_ context.Context, id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Beats = append(s.Beats, id)
+	return nil
+}
+
+func (s *MemStore) ReconcileStale(_ context.Context, _ time.Duration, _, _ int) ([]job.Reconciled, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Reconciles++
+	if s.ReconcileErr != nil {
+		return nil, s.ReconcileErr
+	}
+	return s.ReconcileResult, nil
 }
 
 // Object is one stored object.
