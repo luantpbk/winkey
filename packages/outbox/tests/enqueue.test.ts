@@ -53,9 +53,9 @@ describe('enqueue', () => {
     const mockPool = {
       connect: vi.fn().mockResolvedValue(mockClient),
     };
-    const db = new Kysely<any>({
+    const db = new Kysely<Record<string, unknown>>({
       dialect: new PostgresDialect({
-        pool: mockPool as any,
+        pool: mockPool as unknown as import('pg').Pool,
       }),
     });
 
@@ -69,6 +69,8 @@ describe('enqueue', () => {
   });
 
   it('rejects unsupported transaction objects', async () => {
-    await expect(enqueue({} as any, 'auth', 'user.registered', {})).rejects.toThrow(TypeError);
+    await expect(
+      enqueue({} as unknown as Parameters<typeof enqueue>[0], 'auth', 'user.registered', {}),
+    ).rejects.toThrow(TypeError);
   });
 });

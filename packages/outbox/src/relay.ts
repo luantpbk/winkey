@@ -1,6 +1,14 @@
-import { headers as natsHeaders, StringCodec } from 'nats';
-import { sql } from 'kysely';
-import type { OutboxRelayOptions, OutboxRow, Logger } from './types.js';
+import { headers as natsHeaders, StringCodec, type NatsConnection } from 'nats';
+import { sql, type QueryExecutorProvider } from 'kysely';
+import type {
+  OutboxRelayOptions,
+  OutboxRow,
+  Logger,
+  OutboxDatabaseClient,
+  PgClientLike,
+  PgPoolLike,
+  KyselyDatabaseLike,
+} from './types.js';
 
 const sc = StringCodec();
 const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
@@ -24,9 +32,40 @@ const defaultLogger: Logger = {
     ),
 };
 
+function isKyselyDatabase(db: unknown): db is KyselyDatabaseLike {
+  return (
+    typeof db === 'object' &&
+    db !== null &&
+    'transaction' in db &&
+    typeof (db as KyselyDatabaseLike).transaction === 'function'
+  );
+}
+
+function isPgPoolLike(db: unknown): db is PgPoolLike {
+  return (
+    typeof db === 'object' &&
+    db !== null &&
+    'connect' in db &&
+    typeof (db as PgPoolLike).connect === 'function'
+  );
+}
+
+function isPgClientLike(db: unknown): db is PgClientLike {
+  return (
+    typeof db === 'object' &&
+    db !== null &&
+    'query' in db &&
+    typeof (db as PgClientLike).query === 'function'
+  );
+}
+
+function isQueryExecutorProvider(val: unknown): val is QueryExecutorProvider {
+  return typeof val === 'object' && val !== null && ('getExecutor' in val || 'executeQuery' in val);
+}
+
 export class OutboxRelay {
-  private readonly db: any;
-  private readonly natsConnection: any;
+  private readonly db: OutboxDatabaseClient;
+  private readonly natsConnection: NatsConnection;
   private readonly schema: string;
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
@@ -118,12 +157,12 @@ export class OutboxRelay {
     this.isProcessing = true;
 
     try {
-      if (typeof this.db.transaction === 'function') {
+      if (isKyselyDatabase(this.db)) {
         // Kysely transaction
-        return await this.db.transaction().execute(async (trx: any) => {
+        return await this.db.transaction().execute(async (trx: QueryExecutorProvider) => {
           return await this.processBatchInternal(trx);
         });
-      } else if (typeof this.db.connect === 'function') {
+      } else if (isPgPoolLike(this.db)) {
         // pg.Pool
         const client = await this.db.connect();
         try {
@@ -135,9 +174,9 @@ export class OutboxRelay {
           await client.query('ROLLBACK').catch(() => {});
           throw err;
         } finally {
-          client.release();
+          client.release?.();
         }
-      } else if (typeof this.db.query === 'function') {
+      } else if (isPgClientLike(this.db)) {
         // Direct client
         await this.db.query('BEGIN');
         try {
@@ -156,7 +195,7 @@ export class OutboxRelay {
     }
   }
 
-  private async processBatchInternal(tx: any): Promise<number> {
+  private async processBatchInternal(tx: QueryExecutorProvider | PgClientLike): Promise<number> {
     const rows = await this.fetchPendingRows(tx);
     if (!rows || rows.length === 0) {
       return 0;
@@ -196,8 +235,8 @@ export class OutboxRelay {
     return publishedIds.length;
   }
 
-  private async fetchPendingRows(tx: any): Promise<OutboxRow[]> {
-    if (typeof tx.executeQuery === 'function' || typeof tx.getExecutor === 'function') {
+  private async fetchPendingRows(tx: QueryExecutorProvider | PgClientLike): Promise<OutboxRow[]> {
+    if (isQueryExecutorProvider(tx)) {
       const result = await sql<OutboxRow>`
         SELECT id, event_id, subject, payload, created_at, published_at
         FROM ${sql.table(`${this.schema}.outbox`)}
@@ -205,9 +244,9 @@ export class OutboxRelay {
         ORDER BY id ASC
         LIMIT ${this.batchSize}
         FOR UPDATE SKIP LOCKED
-      `.execute(tx);
+      `.execute(tx as QueryExecutorProvider);
       return result.rows;
-    } else {
+    } else if (isPgClientLike(tx)) {
       const query = `
         SELECT id, event_id, subject, payload, created_at, published_at
         FROM "${this.schema}"."outbox"
@@ -216,19 +255,23 @@ export class OutboxRelay {
         LIMIT $1
         FOR UPDATE SKIP LOCKED
       `;
-      const res = await tx.query(query, [this.batchSize]);
+      const res = await tx.query<OutboxRow>(query, [this.batchSize]);
       return res.rows;
     }
+    return [];
   }
 
-  private async markRowsPublished(tx: any, ids: (string | number)[]): Promise<void> {
-    if (typeof tx.executeQuery === 'function' || typeof tx.getExecutor === 'function') {
+  private async markRowsPublished(
+    tx: QueryExecutorProvider | PgClientLike,
+    ids: (string | number)[],
+  ): Promise<void> {
+    if (isQueryExecutorProvider(tx)) {
       await sql`
         UPDATE ${sql.table(`${this.schema}.outbox`)}
         SET published_at = now()
         WHERE id IN (${sql.join(ids)})
-      `.execute(tx);
-    } else {
+      `.execute(tx as QueryExecutorProvider);
+    } else if (isPgClientLike(tx)) {
       const query = `
         UPDATE "${this.schema}"."outbox"
         SET published_at = now()
@@ -243,14 +286,14 @@ export class OutboxRelay {
    */
   async cleanupOldPublishedRows(): Promise<number> {
     const days = Math.max(1, this.cleanupMaxAgeDays);
-    if (typeof this.db.executeQuery === 'function' || typeof this.db.getExecutor === 'function') {
+    if (isQueryExecutorProvider(this.db)) {
       const result = await sql`
         DELETE FROM ${sql.table(`${this.schema}.outbox`)}
         WHERE published_at IS NOT NULL
           AND published_at < now() - (${days} || ' days')::interval
-      `.execute(this.db);
+      `.execute(this.db as QueryExecutorProvider);
       return Number(result.numAffectedRows ?? 0);
-    } else if (typeof this.db.query === 'function') {
+    } else if (isPgClientLike(this.db) || isPgPoolLike(this.db)) {
       const query = `
         DELETE FROM "${this.schema}"."outbox"
         WHERE published_at IS NOT NULL

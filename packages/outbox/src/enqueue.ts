@@ -1,6 +1,6 @@
-import { sql } from 'kysely';
+import { sql, type QueryExecutorProvider } from 'kysely';
 import { buildEnvelope } from './envelope.js';
-import type { EventEnvelope, EnqueueOptions } from './types.js';
+import type { EventEnvelope, EnqueueOptions, PgClientLike } from './types.js';
 
 const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
 
@@ -15,7 +15,7 @@ const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
  * @param options - Optional envelope overrides (producer, version, eventId, traceparent).
  */
 export async function enqueue<T = Record<string, unknown>>(
-  trx: any,
+  trx: QueryExecutorProvider | PgClientLike | unknown,
   schema: string,
   subject: string,
   data: T,
@@ -29,15 +29,20 @@ export async function enqueue<T = Record<string, unknown>>(
   const payloadJson = JSON.stringify(envelope);
 
   // Kysely Transaction / QueryExecutor
-  if (trx && (typeof trx.executeQuery === 'function' || typeof trx.getExecutor === 'function')) {
+  if (
+    trx &&
+    typeof trx === 'object' &&
+    (typeof (trx as QueryExecutorProvider).getExecutor === 'function' ||
+      typeof (trx as { executeQuery?: unknown }).executeQuery === 'function')
+  ) {
     await sql`
       INSERT INTO ${sql.table(`${schema}.outbox`)} (event_id, subject, payload)
       VALUES (${envelope.event_id}, ${subject}, ${payloadJson}::jsonb)
-    `.execute(trx);
-  } else if (trx && typeof trx.query === 'function') {
+    `.execute(trx as QueryExecutorProvider);
+  } else if (trx && typeof trx === 'object' && typeof (trx as PgClientLike).query === 'function') {
     // Standard pg PoolClient / Pool
     const query = `INSERT INTO "${schema}"."outbox" (event_id, subject, payload) VALUES ($1, $2, $3::jsonb)`;
-    await trx.query(query, [envelope.event_id, subject, payloadJson]);
+    await (trx as PgClientLike).query(query, [envelope.event_id, subject, payloadJson]);
   } else {
     throw new TypeError(
       'Transaction object must be a Kysely transaction or a pg Client/Pool with a query method',
