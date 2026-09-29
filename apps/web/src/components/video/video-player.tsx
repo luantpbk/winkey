@@ -32,6 +32,7 @@ export function VideoPlayer({
 
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isUsingHls, setIsUsingHls] = useState<boolean>(false);
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([
     { index: -1, label: 'Tự động' },
   ]);
@@ -44,6 +45,8 @@ export function VideoPlayer({
   const rebufferCountRef = useRef<number>(0);
   const rebufferStartTimeRef = useRef<number | null>(null);
   const totalRebufferDurationRef = useRef<number>(0);
+  const recoverAttemptsRef = useRef<number>(0);
+  const lastSavedTimeRef = useRef<number>(0);
 
   // View counter hook
   const { onPlay, onTimeUpdate, onSeeking, onSeeked, onEnded } = useViewCounter({
@@ -58,9 +61,13 @@ export function VideoPlayer({
   }, [videoId]);
 
   const savePlaybackPosition = useCallback(
-    (currentTime: number) => {
+    (currentTime: number, force = false) => {
       const key = getStorageKey();
       if (!key || currentTime <= 0) return;
+      if (!force && Math.abs(currentTime - lastSavedTimeRef.current) < 5) {
+        return;
+      }
+      lastSavedTimeRef.current = currentTime;
       try {
         localStorage.setItem(key, currentTime.toString());
       } catch {
@@ -114,6 +121,7 @@ export function VideoPlayer({
     rebufferCountRef.current = 0;
     rebufferStartTimeRef.current = null;
     totalRebufferDurationRef.current = 0;
+    recoverAttemptsRef.current = 0;
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -121,9 +129,9 @@ export function VideoPlayer({
     }
 
     if (Hls.isSupported()) {
+      setIsUsingHls(true);
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
       });
       hlsRef.current = hls;
 
@@ -157,26 +165,30 @@ export function VideoPlayer({
 
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              console.warn('[HLS] Fatal network error encountered, attempting recovery...');
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.warn('[HLS] Fatal media error encountered, attempting recovery...');
-              hls.recoverMediaError();
-              break;
-            default:
-              console.error('[HLS] Unrecoverable fatal error:', data);
-              hls.destroy();
-              setHasError(true);
-              setErrorMessage('Không thể phát video do sự cố media. Vui lòng thử lại.');
-              break;
+          if (recoverAttemptsRef.current >= 3 || data.type === Hls.ErrorTypes.OTHER_ERROR) {
+            hls.destroy();
+            hlsRef.current = null;
+            setHasError(true);
+            setErrorMessage('Không thể phát video. Vui lòng thử lại.');
+            return;
+          }
+          recoverAttemptsRef.current += 1;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.warn(
+              `[HLS] Fatal network error (attempt ${recoverAttemptsRef.current}/3), attempting recovery...`,
+            );
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn(
+              `[HLS] Fatal media error (attempt ${recoverAttemptsRef.current}/3), attempting recovery...`,
+            );
+            hls.recoverMediaError();
           }
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS for Safari/iOS
+      setIsUsingHls(false);
       video.src = src;
 
       // Provide renditions from props if available
@@ -193,6 +205,7 @@ export function VideoPlayer({
         setQualityLevels(levels);
       }
     } else {
+      setIsUsingHls(false);
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
@@ -219,12 +232,16 @@ export function VideoPlayer({
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
       const activeEl = document.activeElement;
       if (
         activeEl &&
         (activeEl.tagName === 'INPUT' ||
           activeEl.tagName === 'TEXTAREA' ||
           activeEl.tagName === 'SELECT' ||
+          ((e.code === 'Space' || e.code === 'Enter') &&
+            (activeEl.tagName === 'BUTTON' || activeEl.tagName === 'A')) ||
           (activeEl as HTMLElement).isContentEditable)
       ) {
         return;
@@ -312,8 +329,14 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
 
-    savePlaybackPosition(video.currentTime);
+    savePlaybackPosition(video.currentTime, false);
     onTimeUpdate(video.currentTime);
+  };
+
+  const handlePauseEvent = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    savePlaybackPosition(video.currentTime, true);
   };
 
   const handleSeekingEvent = () => {
@@ -356,6 +379,7 @@ export function VideoPlayer({
         aria-label={title || 'Video Player'}
         onLoadedMetadata={resumePlaybackPosition}
         onPlay={handlePlayEvent}
+        onPause={handlePauseEvent}
         onTimeUpdate={handleTimeUpdateEvent}
         onSeeking={handleSeekingEvent}
         onSeeked={handleSeekedEvent}
@@ -366,7 +390,7 @@ export function VideoPlayer({
       />
 
       {/* Quality Menu Overlay (positioned at top right when video is hover/controls visible) */}
-      {!hasError && qualityLevels.length > 1 && (
+      {!hasError && isUsingHls && qualityLevels.length > 1 && (
         <div className="absolute top-3 right-3 z-30 transition-opacity duration-200">
           <QualityMenu
             levels={qualityLevels}

@@ -3,21 +3,35 @@ import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react';
 import { VideoPlayer } from '../src/components/video/video-player';
 
+let latestHlsInstance: any = null;
+
 // Mock Hls.js
 vi.mock('hls.js', () => {
   const isSupportedMock = vi.fn().mockReturnValue(true);
   const HlsMock = vi.fn().mockImplementation(() => {
-    return {
+    const handlers: Record<string, Function[]> = {};
+    const instance = {
+      handlers,
       loadSource: vi.fn(),
       attachMedia: vi.fn(),
-      on: vi.fn(),
+      on: vi.fn((event: string, cb: Function) => {
+        if (!handlers[event]) handlers[event] = [];
+        handlers[event].push(cb);
+      }),
+      emit: (event: string, data: any) => {
+        (handlers[event] || []).forEach((cb) => cb(event, data));
+      },
       destroy: vi.fn(),
+      startLoad: vi.fn(),
+      recoverMediaError: vi.fn(),
       currentLevel: -1,
       levels: [
         { height: 1080, bitrate: 5000000, name: '1080p' },
         { height: 720, bitrate: 2800000, name: '720p' },
       ],
     };
+    latestHlsInstance = instance;
+    return instance;
   });
   // attach static isSupported
   (HlsMock as any).isSupported = isSupportedMock;
@@ -29,6 +43,7 @@ vi.mock('hls.js', () => {
   (HlsMock as any).ErrorTypes = {
     NETWORK_ERROR: 'networkError',
     MEDIA_ERROR: 'mediaError',
+    OTHER_ERROR: 'otherError',
   };
   return { default: HlsMock };
 });
@@ -230,6 +245,67 @@ describe('VideoPlayer Component', () => {
       fireEvent.keyDown(input, { code: 'Space' });
       expect(playSpy).not.toHaveBeenCalled();
     });
+
+    it('does not trigger play/pause when focus is on a button or link', () => {
+      const { container } = render(
+        <div>
+          <button data-testid="test-btn">Subscribe</button>
+          <a data-testid="test-link" href="#comments">
+            Comments
+          </a>
+          <VideoPlayer
+            videoId="test-kbd"
+            src="https://media.winkey.vn/sample.m3u8"
+            title="Sample Video"
+          />
+        </div>,
+      );
+
+      const btn = container.querySelector('button') as HTMLButtonElement;
+      btn.focus();
+
+      const video = container.querySelector('video') as HTMLVideoElement;
+      const playSpy = vi.spyOn(video, 'play').mockImplementation(async () => {});
+      const pauseSpy = vi.spyOn(video, 'pause').mockImplementation(() => {});
+
+      fireEvent.keyDown(btn, { code: 'Space' });
+      expect(playSpy).not.toHaveBeenCalled();
+      expect(pauseSpy).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(btn, { code: 'Enter' });
+      expect(playSpy).not.toHaveBeenCalled();
+      expect(pauseSpy).not.toHaveBeenCalled();
+
+      const link = container.querySelector('a') as HTMLAnchorElement;
+      link.focus();
+
+      fireEvent.keyDown(link, { code: 'Space' });
+      expect(playSpy).not.toHaveBeenCalled();
+      expect(pauseSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not trigger fullscreen when Ctrl+F, Meta+F, or Alt+F is pressed', () => {
+      const { container } = render(
+        <VideoPlayer
+          videoId="test-kbd"
+          src="https://media.winkey.vn/sample.m3u8"
+          title="Sample Video"
+        />,
+      );
+
+      const fullscreenSpy = vi.fn();
+      const div = container.firstChild as HTMLElement;
+      div.requestFullscreen = fullscreenSpy;
+
+      fireEvent.keyDown(window, { code: 'KeyF', ctrlKey: true });
+      expect(fullscreenSpy).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { code: 'KeyF', metaKey: true });
+      expect(fullscreenSpy).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { code: 'KeyF', altKey: true });
+      expect(fullscreenSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('Error Handling and Retry', () => {
@@ -254,6 +330,63 @@ describe('VideoPlayer Component', () => {
         fireEvent.click(retryButton);
       });
       expect(container.querySelector('video')).toBeDefined();
+    });
+
+    it('recovers up to 3 times on fatal NETWORK_ERROR and shows error overlay on the 4th attempt', () => {
+      const { getByText, queryByText } = render(
+        <VideoPlayer
+          videoId="test-hls-retry"
+          src="https://media.winkey.vn/sample.m3u8"
+          title="Sample Video"
+        />,
+      );
+
+      expect(latestHlsInstance).not.toBeNull();
+
+      // Attempt 1
+      act(() => {
+        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+      });
+      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(1);
+      expect(queryByText('Không thể phát video')).toBeNull();
+
+      // Attempt 2
+      act(() => {
+        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+      });
+      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(2);
+      expect(queryByText('Không thể phát video')).toBeNull();
+
+      // Attempt 3
+      act(() => {
+        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+      });
+      expect(latestHlsInstance.startLoad).toHaveBeenCalledTimes(3);
+      expect(queryByText('Không thể phát video')).toBeNull();
+
+      // Attempt 4 (> 3 attempts) -> destroys instance and displays error overlay
+      act(() => {
+        latestHlsInstance.emit('hlsError', { fatal: true, type: 'networkError' });
+      });
+      expect(latestHlsInstance.destroy).toHaveBeenCalled();
+      expect(getByText('Không thể phát video')).toBeDefined();
+    });
+
+    it('immediately destroys and displays error overlay on OTHER_ERROR', () => {
+      const { getByText } = render(
+        <VideoPlayer
+          videoId="test-hls-other"
+          src="https://media.winkey.vn/sample.m3u8"
+          title="Sample Video"
+        />,
+      );
+
+      act(() => {
+        latestHlsInstance.emit('hlsError', { fatal: true, type: 'otherError' });
+      });
+
+      expect(latestHlsInstance.destroy).toHaveBeenCalled();
+      expect(getByText('Không thể phát video')).toBeDefined();
     });
   });
 });
