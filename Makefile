@@ -2,9 +2,9 @@ REDOCLY := npx -y @redocly/cli@2.55.0
 AJV     := npx -y -p ajv-cli@5.0.0 -p ajv-formats@3.0.1 ajv
 COMPOSE := docker compose -f deploy/compose/dev.yml
 
-.PHONY: contracts-lint openapi-lint events-lint db-test lint typecheck test build format dev dev-down dev-reset dev-logs dev-psql dev-nats
+.PHONY: contracts-lint openapi-lint events-lint realtime-lint db-test lint typecheck test build format dev dev-down dev-reset dev-logs dev-psql dev-nats
 
-contracts-lint: openapi-lint events-lint ## Lint every contract
+contracts-lint: openapi-lint events-lint realtime-lint ## Lint every contract
 
 openapi-lint:
 	$(REDOCLY) lint contracts/openapi/*.v1.yaml
@@ -14,6 +14,12 @@ events-lint:
 	@set -e; cd contracts/events; for s in *.schema.json; do \
 	  [ "$$s" = envelope.schema.json ] && continue; n=$${s%.schema.json}; \
 	  $(AJV) validate --spec=draft2020 -c ajv-formats --strict=true -s $$s -r envelope.schema.json -d examples/$$n.json; \
+	done
+
+# Compiles the WebSocket message schemas and validates contracts/realtime/examples/{client,server}/*.json.
+realtime-lint:
+	@set -e; cd contracts/realtime; for d in client server; do \
+	  $(AJV) validate --spec=draft2020 -c ajv-formats --strict=true -s $$d.schema.json -d "examples/$$d/*.json"; \
 	done
 
 db-test: ## Needs DATABASE_URL, psql and migrate

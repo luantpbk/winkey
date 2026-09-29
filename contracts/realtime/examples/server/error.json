@@ -1,0 +1,6 @@
+{
+  "type": "error",
+  "id": "1",
+  "code": "ROOM_FORBIDDEN",
+  "message": "You cannot join this room."
+}

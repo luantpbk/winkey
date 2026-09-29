@@ -20,7 +20,7 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `video.deleted` | JetStream `VIDEO` | video-svc | media-janitor (transcoder), search | [video.deleted](video.deleted.schema.json) |
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
 | `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2), notify (P3) | [social.comment.created](social.comment.created.schema.json) |
-| `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`) | [social.video.like_changed](social.video.like_changed.schema.json) |
+| `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |
 | `social.subscription.changed` | JetStream `SOCIAL` | social-svc | notify, reco (P3) | [social.subscription.changed](social.subscription.changed.schema.json) |
 | `rt.video.{video_id}.progress` | core NATS | transcoder | realtime-gw, upload-svc (cache) | [video.progress](video.progress.schema.json) |
 | `dlq.video.uploaded` | JetStream `DLQ` | transcoder | con người (replay tool) | bản gốc của `video.uploaded` |
@@ -35,6 +35,10 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `DLQ` | `dlq.>` | file | 3 | 30d | 2m |
 
 Giai đoạn 1 VPS (ADR-013) dùng `replicas: 1`, nâng lên 3 khi có cluster NATS 3 node. Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject.
+
+## Consumer của realtime-gw
+
+Mỗi pod realtime-gw cần mọi event nên dùng consumer JetStream **ephemeral, ordered**, `deliver_policy: new`, không dùng durable dùng chung. Chi tiết: [`../realtime/README.md`](../realtime/README.md).
 
 ## Consumer của social-svc
 

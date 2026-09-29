@@ -1,0 +1,11 @@
+{
+  "type": "event",
+  "room": "upload:0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+  "event": "video.progress",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "stage": "TRANSCODING",
+    "percent": 42.5
+  },
+  "ts": "2026-09-29T12:00:00.000Z"
+}
