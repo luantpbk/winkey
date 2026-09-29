@@ -8,16 +8,17 @@ describe('enqueue', () => {
     const invalidSchemas = [
       'auth; DROP TABLE users;',
       '123auth', // starts with digit
-      'Auth',    // uppercase
-      'AUTH',    // uppercase
+      'Auth', // uppercase
+      'AUTH', // uppercase
       'auth-svc', // hyphen
       'auth.svc', // dot
       '',
     ];
 
     for (const schema of invalidSchemas) {
-      await expect(enqueue(mockTx, schema, 'user.registered', {}))
-        .rejects.toThrow('Invalid schema identifier');
+      await expect(enqueue(mockTx, schema, 'user.registered', {})).rejects.toThrow(
+        'Invalid schema identifier',
+      );
     }
   });
 
@@ -26,9 +27,15 @@ describe('enqueue', () => {
       query: vi.fn().mockResolvedValue({ rowCount: 1 }),
     };
 
-    const envelope = await enqueue(mockTx, 'auth', 'user.registered', { user_id: '123' }, {
-      producer: 'auth-svc',
-    });
+    const envelope = await enqueue(
+      mockTx,
+      'auth',
+      'user.registered',
+      { user_id: '123' },
+      {
+        producer: 'auth-svc',
+      },
+    );
 
     expect(mockTx.query).toHaveBeenCalledTimes(1);
     const [query, params] = mockTx.query.mock.calls[0];
@@ -62,7 +69,6 @@ describe('enqueue', () => {
   });
 
   it('rejects unsupported transaction objects', async () => {
-    await expect(enqueue({} as any, 'auth', 'user.registered', {}))
-      .rejects.toThrow(TypeError);
+    await expect(enqueue({} as any, 'auth', 'user.registered', {})).rejects.toThrow(TypeError);
   });
 });

@@ -25,13 +25,16 @@ describe('OutboxRelay', () => {
         id: '2',
         event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
         subject: 'user.registered',
-        payload: JSON.stringify({ event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02', data: { user_id: 'u2' } }),
+        payload: JSON.stringify({
+          event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+          data: { user_id: 'u2' },
+        }),
       },
     ];
 
     const clientQueries: string[] = [];
     const mockClient = {
-      query: vi.fn().mockImplementation(async (sql, params) => {
+      query: vi.fn().mockImplementation(async (sql, _params) => {
         clientQueries.push(sql);
         if (sql.includes('SELECT')) {
           return { rows: mockRows };
@@ -68,8 +71,8 @@ describe('OutboxRelay', () => {
     expect(secondCallHeaders.get('Nats-Msg-Id')).toBe('0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02');
 
     // Verify markRowsPublished was called with IDs
-    const updateCall = mockClient.query.mock.calls.find((call) =>
-      typeof call[0] === 'string' && call[0].trim().startsWith('UPDATE')
+    const updateCall = mockClient.query.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].trim().startsWith('UPDATE'),
     );
     expect(updateCall).toBeDefined();
     expect(updateCall[1][0]).toEqual(['1', '2']);

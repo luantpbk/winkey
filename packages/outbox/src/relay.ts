@@ -6,10 +6,22 @@ const sc = StringCodec();
 const VALID_SCHEMA = /^[a-z_][a-z0-9_]*$/;
 
 const defaultLogger: Logger = {
-  info: (obj, msg) => console.log(JSON.stringify({ level: 'info', msg, ...(typeof obj === 'object' ? obj : { data: obj }) })),
-  warn: (obj, msg) => console.warn(JSON.stringify({ level: 'warn', msg, ...(typeof obj === 'object' ? obj : { data: obj }) })),
-  error: (obj, msg) => console.error(JSON.stringify({ level: 'error', msg, ...(typeof obj === 'object' ? obj : { data: obj }) })),
-  debug: (obj, msg) => console.debug(JSON.stringify({ level: 'debug', msg, ...(typeof obj === 'object' ? obj : { data: obj }) })),
+  info: (obj, msg) =>
+    console.log(
+      JSON.stringify({ level: 'info', msg, ...(typeof obj === 'object' ? obj : { data: obj }) }),
+    ),
+  warn: (obj, msg) =>
+    console.warn(
+      JSON.stringify({ level: 'warn', msg, ...(typeof obj === 'object' ? obj : { data: obj }) }),
+    ),
+  error: (obj, msg) =>
+    console.error(
+      JSON.stringify({ level: 'error', msg, ...(typeof obj === 'object' ? obj : { data: obj }) }),
+    ),
+  debug: (obj, msg) =>
+    console.debug(
+      JSON.stringify({ level: 'debug', msg, ...(typeof obj === 'object' ? obj : { data: obj }) }),
+    ),
 };
 
 export class OutboxRelay {
@@ -166,7 +178,7 @@ export class OutboxRelay {
       } catch (pubErr) {
         this.logger.error(
           { event_id: row.event_id, subject: row.subject, err: pubErr },
-          'Failed to publish outbox event to JetStream'
+          'Failed to publish outbox event to JetStream',
         );
         // Break out to let this message and remaining rows retry next time
         break;
@@ -177,7 +189,7 @@ export class OutboxRelay {
       await this.markRowsPublished(tx, publishedIds);
       this.logger.debug?.(
         { count: publishedIds.length, schema: this.schema },
-        'Published outbox batch'
+        'Published outbox batch',
       );
     }
 

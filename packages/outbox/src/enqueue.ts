@@ -19,7 +19,7 @@ export async function enqueue<T = Record<string, unknown>>(
   schema: string,
   subject: string,
   data: T,
-  options: EnqueueOptions = {}
+  options: EnqueueOptions = {},
 ): Promise<EventEnvelope<T>> {
   if (!VALID_SCHEMA.test(schema)) {
     throw new Error(`Invalid schema identifier: ${schema}`);
@@ -40,7 +40,7 @@ export async function enqueue<T = Record<string, unknown>>(
     await trx.query(query, [envelope.event_id, subject, payloadJson]);
   } else {
     throw new TypeError(
-      'Transaction object must be a Kysely transaction or a pg Client/Pool with a query method'
+      'Transaction object must be a Kysely transaction or a pg Client/Pool with a query method',
     );
   }
 
