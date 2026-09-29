@@ -1,4 +1,4 @@
-# Public: 80/443 (Traefik) and 41641/udp (Tailscale direct). Everything else only over tailscale0.
+# Public: 80/443 (host nginx on edge-1; Traefik on edge-2/3) and 41641/udp (Tailscale direct). Everything else only over tailscale0.
 - name: firewalld running
   ansible.builtin.systemd:
     name: firewalld

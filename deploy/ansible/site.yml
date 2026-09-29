@@ -9,3 +9,4 @@
     - k3s_server
     - role: nginx_front
       when: nginx_front.hosts | default([]) | length > 0
+    - role: edge_ingress

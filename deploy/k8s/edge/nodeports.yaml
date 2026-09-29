@@ -1,0 +1,59 @@
+# NodePorts from ADR-015 for internal tailnet access by tag:gpu (transcoder worker)
+# kube-proxy binds these ONLY to the Tailscale IP (100.113.240.3) via nodeport-addresses.
+# Public IP (138.2.93.173) is strictly blocked by kube-proxy DNAT scoping and firewalld.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-nodeport
+  namespace: default
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: NodePort
+  ports:
+    - name: nats
+      port: 4222
+      targetPort: 4222
+      nodePort: 30422
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: nats
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-nodeport
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: NodePort
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+      nodePort: 30432
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-s3-nodeport
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage
+    app.kubernetes.io/part-of: winkey
+spec:
+  type: NodePort
+  ports:
+    - name: s3-api
+      port: 3900
+      targetPort: 3900
+      nodePort: 30900
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: garage

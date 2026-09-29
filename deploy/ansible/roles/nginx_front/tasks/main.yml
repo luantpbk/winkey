@@ -1,4 +1,11 @@
-# The host nginx is shared with non-Winkey sites: only /etc/nginx/conf.d/winkey.conf is managed here.
+- name: Ensure nginx media cache directory exists
+  ansible.builtin.file:
+    path: /var/cache/nginx/winkey-media
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0700"
+
 - name: Is the certificate there yet?
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem"
