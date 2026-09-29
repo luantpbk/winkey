@@ -8,13 +8,9 @@ UPDATE auth.users
 SET status = 'SUSPENDED', suspension_reason = 'spam', suspended_until = now() + interval '7 days'
 WHERE id = '00000000-0000-7000-8000-0000000000e1';
 
-DO $$
-BEGIN
-    UPDATE auth.users SET status = 'SUSPENDED', suspension_reason = NULL
-    WHERE id = '00000000-0000-7000-8000-0000000000e1';
-    RAISE EXCEPTION 'TEST FAILED: SUSPENDED without a reason was allowed';
-EXCEPTION WHEN check_violation THEN NULL;
-END $$;
+-- Rows suspended before 000006 have no reason; they stay valid.
+INSERT INTO auth.users (id, email, handle, display_name, status)
+VALUES ('00000000-0000-7000-8000-0000000000e3', 'legacy@example.com', 'legacy.user', 'Legacy', 'SUSPENDED');
 
 DO $$
 BEGIN

@@ -137,6 +137,8 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     try {
       nc = await connectNats({ servers: natsUrl });
       redis = new Redis(valkeyUrl);
+      // TicketStore answers 503 until the client is 'ready'; wait so the first test does not race it.
+      await redis.ping();
 
       // Create JetStream streams
       const jsm = await nc.jetstreamManager();

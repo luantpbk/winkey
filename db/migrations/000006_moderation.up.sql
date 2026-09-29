@@ -8,13 +8,13 @@
 
 -- status = 'SUSPENDED' already exists (000002). A suspension is either temporary (suspended_until set)
 -- or indefinite (NULL); auth-svc treats a SUSPENDED user whose suspended_until has passed as ACTIVE and
--- flips the row back lazily on the next login/refresh.
+-- flips the row back lazily on the next login/refresh. The API always stores a reason; the column stays
+-- nullable for rows that were SUSPENDED before this migration.
 ALTER TABLE auth.users
     ADD COLUMN suspended_until   timestamptz,
     ADD COLUMN suspension_reason text,
     ADD CONSTRAINT users_suspension_consistent CHECK (
-        (status = 'SUSPENDED' AND suspension_reason IS NOT NULL)
-        OR (status <> 'SUSPENDED' AND suspended_until IS NULL AND suspension_reason IS NULL)),
+        status = 'SUSPENDED' OR (suspended_until IS NULL AND suspension_reason IS NULL)),
     ADD CONSTRAINT users_suspension_reason_len CHECK (
         suspension_reason IS NULL OR char_length(suspension_reason) BETWEEN 1 AND 500);
 
