@@ -86,11 +86,16 @@ RESP_LOG="${TMP_DIR}/rate_limit_codes.txt"
 
 # Concurrently fire requests (prefer curl -Z for true parallel burst)
 if curl -h all 2>&1 | grep -q -- '--parallel'; then
+    NULL_DEV="/dev/null"
+    if [[ "${OSTYPE:-}" =~ (msys|cygwin|win32) || "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        NULL_DEV="nul"
+    fi
     CONFIG_FILE="${TMP_DIR}/curl_config.txt"
     for i in $(seq 1 150); do
         echo "url = \"${BASE_URL}/smoke/whoami\"" >> "$CONFIG_FILE"
+        echo "output = \"${NULL_DEV}\"" >> "$CONFIG_FILE"
     done
-    curl -s -Z --parallel-max 100 -w "%{http_code}\n" -o /dev/null --config "$CONFIG_FILE" > "$RESP_LOG"
+    curl -s -Z --parallel-max 100 -w "%{http_code}\n" --config "$CONFIG_FILE" > "$RESP_LOG"
 else
     for i in $(seq 1 150); do
         curl -s -o /dev/null -w "%{http_code}\n" "${BASE_URL}/smoke/whoami" > "${TMP_DIR}/code_${i}.txt" &
@@ -101,9 +106,15 @@ fi
 
 COUNT_429=$(grep -c "^429$" "$RESP_LOG" || true)
 COUNT_200=$(grep -c "^200$" "$RESP_LOG" || true)
+COUNT_OTHER=$(grep -vE '^(200|429)$' "$RESP_LOG" | grep -c . || true)
+OTHER_CODES=$(grep -vE '^(200|429)$' "$RESP_LOG" | tr '\n' ' ' || true)
 rm -rf "$TMP_DIR"
 
-echo "  Results: $COUNT_200 OK (200), $COUNT_429 Rate Limited (429)"
+if [ "$COUNT_OTHER" -gt 0 ]; then
+    echo "  Results: $COUNT_200 OK (200), $COUNT_429 Rate Limited (429), $COUNT_OTHER Other ($OTHER_CODES)"
+else
+    echo "  Results: $COUNT_200 OK (200), $COUNT_429 Rate Limited (429), 0 Other"
+fi
 if [ "$COUNT_429" -le 0 ]; then
     echo "FAILED: Traefik rateLimit did NOT trigger HTTP 429 under 150 concurrent requests!" >&2
     exit 1

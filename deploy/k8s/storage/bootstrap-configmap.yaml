@@ -166,28 +166,23 @@ data:
     $GARAGE_CMD bucket website --allow winkey-media
     echo "  Website enabled on winkey-media."
 
+    # Split CORS rules for winkey-raw so Garage returns single matching origin per request
     cat <<'EOF' > /tmp/cors-raw.json
     {
       "CORSRules": [
         {
-          "AllowedOrigins": ["https://winkey.vn", "https://www.winkey.vn"],
+          "AllowedOrigins": ["https://winkey.vn"],
           "AllowedMethods": ["PUT", "GET", "HEAD"],
           "AllowedHeaders": ["*"],
           "ExposeHeaders": ["ETag"],
           "MaxAgeSeconds": 3600
-        }
-      ]
-    }
-    EOF
-
-    cat <<'EOF' > /tmp/cors-media.json
-    {
-      "CORSRules": [
+        },
         {
-          "AllowedOrigins": ["https://winkey.vn", "https://www.winkey.vn"],
-          "AllowedMethods": ["GET", "HEAD"],
-          "AllowedHeaders": ["Range"],
-          "ExposeHeaders": ["Content-Length", "Content-Range", "ETag"]
+          "AllowedOrigins": ["https://www.winkey.vn"],
+          "AllowedMethods": ["PUT", "GET", "HEAD"],
+          "AllowedHeaders": ["*"],
+          "ExposeHeaders": ["ETag"],
+          "MaxAgeSeconds": 3600
         }
       ]
     }
@@ -199,16 +194,17 @@ data:
 
     aws --endpoint-url="$S3_ENDPOINT" \
       s3api put-bucket-cors --bucket winkey-raw --cors-configuration file:///tmp/cors-raw.json
-    echo "  CORS applied to winkey-raw."
+    echo "  CORS applied to winkey-raw (split origins)."
 
+    # Remove bucket CORS on winkey-media so nginx vhost serves Access-Control-Allow-Origin: * exclusively
+    aws --endpoint-url="$S3_ENDPOINT" \
+      s3api delete-bucket-cors --bucket winkey-media 2>/dev/null || true
+    echo "  Cleaned bucket CORS on winkey-media (handled by nginx front proxy)."
+
+    # Upload smoke test object for media proxy_cache verification (using video-svc key)
     export AWS_ACCESS_KEY_ID="$VIDEO_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$VIDEO_SECRET_KEY"
 
-    aws --endpoint-url="$S3_ENDPOINT" \
-      s3api put-bucket-cors --bucket winkey-media --cors-configuration file:///tmp/cors-media.json
-    echo "  CORS applied to winkey-media."
-
-    # Upload smoke test object for media proxy_cache verification
     echo "Hello from Winkey Media Storage" > /tmp/hello.txt
     aws --endpoint-url="$S3_ENDPOINT" \
       s3 cp /tmp/hello.txt s3://winkey-media/v/smoke/hello.txt \
@@ -216,7 +212,10 @@ data:
       --cache-control "public, max-age=31536000, immutable"
     echo "  Uploaded v/smoke/hello.txt to winkey-media."
 
-    # Check S3 lifecycle configuration support on Garage
+    # Lifecycle configuration on winkey-raw (switch back to upload-svc owner key)
+    export AWS_ACCESS_KEY_ID="$UPLOAD_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$UPLOAD_SECRET_KEY"
+
     cat <<'EOF' > /tmp/lifecycle-raw.json
     {
       "Rules": [
@@ -234,6 +233,7 @@ data:
     echo "  Applying lifecycle configuration to winkey-raw..."
     if aws --endpoint-url="$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration --bucket winkey-raw --lifecycle-configuration file:///tmp/lifecycle-raw.json; then
         echo "  Lifecycle configuration applied to winkey-raw."
+        aws --endpoint-url="$S3_ENDPOINT" s3api get-bucket-lifecycle-configuration --bucket winkey-raw
     else
         echo "  Notice: Garage does not support S3 PutBucketLifecycleConfiguration (see error above)."
     fi

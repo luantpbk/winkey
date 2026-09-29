@@ -48,13 +48,20 @@
   failed_when: false
   check_mode: false
 
-- name: Recreate garage-bootstrap Job when manifests changed
+- name: Check for drift in Garage storage manifests
+  ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/storage-manifests/
+  register: storage_drift_check
+  changed_when: storage_drift_check.rc == 1
+  failed_when: storage_drift_check.rc > 1
+  check_mode: false
+
+- name: Recreate garage-bootstrap Job when manifests changed or drift detected
   ansible.builtin.command: /usr/local/bin/k3s kubectl delete job garage-bootstrap -n default --ignore-not-found
-  when: storage_manifests_sync.changed
+  when: storage_manifests_sync.changed or storage_drift_check.rc == 1
 
 - name: Apply Garage storage kustomization
   ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/storage-manifests/
-  when: storage_manifests_sync.changed or garage_sts_check.rc != 0
+  when: storage_manifests_sync.changed or garage_sts_check.rc != 0 or storage_drift_check.rc == 1
 
 - name: Wait for Garage StatefulSet rollout
   ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/garage -n default --timeout=120s

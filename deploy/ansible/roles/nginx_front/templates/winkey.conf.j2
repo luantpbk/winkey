@@ -147,6 +147,7 @@ server {
         proxy_set_header Range $http_range;
         proxy_set_header If-Range $http_if_range;
 
+        proxy_hide_header Access-Control-Allow-Origin;
         add_header X-Cache-Status $upstream_cache_status;
         add_header Access-Control-Allow-Origin * always;
 
