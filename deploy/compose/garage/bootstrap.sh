@@ -7,16 +7,19 @@ ENV_OUTPUT_DIR="/env"
 
 echo "Waiting for Garage RPC at ${GARAGE_HOST}:3901..."
 RPC_READY=0
+STATUS_OUT=""
 for i in $(seq 1 30); do
-    if /usr/local/bin/garage -c "$GARAGE_CONFIG" status >/dev/null 2>&1; then
+    STATUS_OUT=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" status 2>&1) && {
         RPC_READY=1
+        echo "$STATUS_OUT"
         break
-    fi
+    } || true
+    echo "Attempt $i: $STATUS_OUT"
     sleep 1
 done
 
 if [ "$RPC_READY" -ne 1 ]; then
-    echo "ERROR: Failed to connect to Garage RPC at ${GARAGE_HOST}:3901" >&2
+    echo "ERROR: Failed to connect to Garage RPC at ${GARAGE_HOST}:3901. Last output: $STATUS_OUT" >&2
     exit 1
 fi
 

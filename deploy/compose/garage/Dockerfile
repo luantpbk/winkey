@@ -6,7 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     awscli \
     jq \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/lib/garage/meta /var/lib/garage/data
 
 COPY --from=garage-bin /garage /usr/local/bin/garage
 COPY bootstrap.sh /bootstrap.sh
