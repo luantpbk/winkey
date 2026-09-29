@@ -1,0 +1,13 @@
+{
+  "event_id": "0192f5f0-4444-7000-8000-000000000009",
+  "type": "video.moderated",
+  "version": 1,
+  "occurred_at": "2026-10-02T11:00:00Z",
+  "producer": "video-svc",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "state": "HIDDEN",
+    "moderator_id": "0192f5e0-0000-7000-8000-000000000007"
+  }
+}

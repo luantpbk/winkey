@@ -143,3 +143,16 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - DB credential của transcoder nằm trên máy nhà, nên dùng role `media_svc` riêng với mật khẩu riêng và xoay vòng được.
 - ADR-001 và ADR-003 không đổi; phần "gpu-01 là k3s agent" trong ADR-002 bị thay thế.
 
+
+### ADR-016 — Moderation: mỗi service tự thực thi, social-svc giữ hàng đợi báo cáo
+**Bối cảnh.** Task A2 cần: đổi role và khóa tài khoản, cho người dùng báo cáo nội dung, cho moderator xử lý hàng đợi. Dữ liệu cần kiểm soát nằm ở ba schema (`auth`, `media`, `social`), và ADR-007 cấm FK chéo schema.
+**Quyết định.**
+- Mỗi service tự thực thi hành động trên dữ liệu của mình:
+  - auth-svc: role và khóa tài khoản (`/v1/admin/*`), ghi `auth.audit_log` trong cùng transaction;
+  - video-svc: ẩn/hiện video (`moderateVideo`), phát event `video.moderated`;
+  - social-svc: ẩn/hiện comment (`moderateComment`, đã có từ C1).
+- **social-svc giữ báo cáo và hàng đợi** (`social.reports`, `/v1/reports`, `/v1/moderation/*`). Đóng một case chỉ ghi quyết định; hành động thật gọi endpoint của service sở hữu. Không có saga hay lệnh phân tán: giao diện moderator gọi hai request nối tiếp (hành động, rồi đóng case).
+- Phân quyền chỉ dựa vào `X-User-Roles` từ gateway (ADR-009). `moderator` xử lý viewer/creator và nội dung; chỉ `admin` đổi role, khóa `moderator` và đọc audit log. Không ai khóa được `admin` hoặc chính mình.
+- Role và trạng thái khóa lan tới service khác qua access token, nên **có hiệu lực trong ≤ 15 phút** (TTL access token). Khóa tài khoản thu hồi mọi refresh token ngay lập tức. Không thêm lần kiểm tra DB vào `verify` (vẫn stateless).
+- Video bị ẩn được đối xử như `PRIVATE` với người ngoài; object media không bị xóa. Chặn tải media bằng signed cookie để dành cho SEC1.
+**Hệ quả.** Không có bảng tổng hợp chung, nên audit của video và comment nằm ở cột `moderated_by/at` của từng bảng thay vì `auth.audit_log`. Người dùng bị khóa vẫn gọi được API tối đa 15 phút. Chấp nhận được ở P2; nếu cần chặn tức thì thì thêm denylist `sid` trong Valkey cho `verify` (việc sau).
