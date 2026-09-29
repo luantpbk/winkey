@@ -44,30 +44,26 @@ echo "Garage Node ID: $NODE_ID"
 
 # 1. Assign and apply layout
 echo "Configuring layout..."
-CURRENT_LAYOUT=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" layout show 2>/dev/null || true)
-if echo "$CURRENT_LAYOUT" | grep -q "No layout role currently defined"; then
-    /usr/local/bin/garage -c "$GARAGE_CONFIG" layout assign -z dc1 -c 10G "$NODE_ID"
-    /usr/local/bin/garage -c "$GARAGE_CONFIG" layout apply --version 1
-elif echo "$CURRENT_LAYOUT" | grep -q "No changes to apply"; then
-    echo "Layout already applied."
-else
-    NEXT_VER=$(echo "$CURRENT_LAYOUT" | grep -o 'apply version: [0-9]*' | awk '{print $3}' || echo "1")
-    /usr/local/bin/garage -c "$GARAGE_CONFIG" layout apply --version "$NEXT_VER" 2>/dev/null || true
-fi
+/usr/local/bin/garage -c "$GARAGE_CONFIG" layout assign -z dc1 -c 10G "$NODE_ID" || true
+/usr/local/bin/garage -c "$GARAGE_CONFIG" layout apply --version 1 || true
+/usr/local/bin/garage -c "$GARAGE_CONFIG" layout show || true
 
 # 2. Create access key "winkey-dev"
 echo "Setting up access key 'winkey-dev'..."
 KEY_NAME="winkey-dev"
 KEY_INFO=""
 for i in $(seq 1 30); do
-    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info "$KEY_NAME" 2>/dev/null || true)
-    if [ -n "$KEY_INFO" ]; then
-        break
-    fi
-    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key create "$KEY_NAME" 2>/dev/null || true)
-    if [ -n "$KEY_INFO" ]; then
-        break
-    fi
+    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info "$KEY_NAME" 2>&1) && {
+        if echo "$KEY_INFO" | grep -q "Key ID:"; then
+            break
+        fi
+    } || true
+    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key create "$KEY_NAME" 2>&1) && {
+        if echo "$KEY_INFO" | grep -q "Key ID:"; then
+            break
+        fi
+    } || true
+    echo "Attempt $i creating key: $KEY_INFO"
     sleep 1
 done
 
