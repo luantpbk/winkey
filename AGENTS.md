@@ -21,6 +21,10 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 5. **No secrets in git.** Config comes from environment variables only. Commit a `.env.example` with dummy values.
 6. **Multi-arch.** Edge nodes are **arm64**. Every image must build for `linux/amd64,linux/arm64`, except `transcoder-nvenc` (amd64 only).
 7. **Never skip, disable or weaken a test to get CI green.**
+8. **One git worktree per agent — never share a working directory.** Two agents in one folder switch each
+   other's branches, and commits land on the wrong branch (this happened on 2026-09-29). Create yours once:
+   `git worktree add ../winkey-<agent> -b agent/<agent>/<task-id>-<slug> origin/main`.
+   Before every commit, run `git branch --show-current` and confirm it is your branch.
 
 ## Definition of Done (every PR)
 

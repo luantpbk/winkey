@@ -24,13 +24,13 @@ Trong giai đoạn phát triển chỉ dùng **edge-1** (`138.2.93.173`, user `o
 | Hạng mục | Thực tế | Ghi chú |
 |---|---|---|
 | Vai trò máy | **Dùng chung**: nginx host (4 site cũ), 7 app Node, PostgreSQL host, Cockpit | Winkey phải cùng tồn tại, không được làm sập site cũ (ADR-014) |
-| OS | Oracle Linux, **SELinux Permissive** | Kiến trúc CPU vẫn chưa báo (`uname -m`) |
+| OS / CPU | Oracle Linux, **SELinux Permissive**, **`aarch64`** (đã xác nhận) | ADR-012 giữ nguyên |
 | k3s | v1.36.4+k3s1, 1 server `--cluster-init`, secrets-encryption bật | Node IP = Tailscale `100.113.240.3`, flannel trên `tailscale0`, MTU 1230 |
 | Ingress | nginx host :80/:443 (Certbot HTTP-01) → Traefik v3.7 NodePort 30080/30443 (chỉ trên IP Tailscale) | ADR-014 |
 | Đĩa | 200 GB: `/` 70 GB, LV data 110 GB XFS cho `/var/lib/rancher/k3s/storage`, **VG còn ~3 GB** | Xem §5 (dung lượng giảm) |
 | Firewall public | 80, 443, 41641/udp của Winkey; **9090 (Cockpit) và 7890 cũng đang mở public** | ⚠️ Xem §8 |
 | Trusted zone | `tailscale0`, `10.42.0.0/16`, `10.43.0.0/16` | |
-| Code triển khai | `deploy/ansible/` trên branch `agent/claude/i1-k3s-edge-1` | Chưa có PR |
+| Code triển khai | `deploy/ansible/` (đã merge, PR #5) | Chủ sở hữu từ nay: Antigravity 2 |
 
 Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey giới hạn tổng **requests ≤ 2 vCPU / 10 GB**. Mọi pod phải đặt `resources.requests/limits`.
 
@@ -39,7 +39,7 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
 |---|---|---|---|---|
 | **gpu-01** (nhà) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
-| **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64 gần như chắc chắn** (Ampere A1: `lshw` không hiện model CPU, cấu hình trùng hạn mức A1) **[chốt: `uname -m`]** | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
+| **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
 Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
