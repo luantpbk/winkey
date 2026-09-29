@@ -1,0 +1,54 @@
+name: contracts
+
+on:
+  pull_request:
+    paths: ['contracts/**', 'db/**', 'scripts/db-test.sh', 'redocly.yaml', 'Makefile', '.github/workflows/contracts.yml']
+  push:
+    branches: [main]
+    paths: ['contracts/**', 'db/**', 'scripts/db-test.sh', 'redocly.yaml', 'Makefile', '.github/workflows/contracts.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: make contracts-lint
+
+  db:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: winkey
+          POSTGRES_PASSWORD: winkey
+          POSTGRES_DB: winkey
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U winkey"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://winkey:winkey@localhost:5432/winkey?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Install migrate
+        run: go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+      # The service container's POSTGRES_USER is a superuser; the test also runs as a plain owner role
+      # to prove migrations do not need superuser (docs: db/README.md).
+      - name: Create non-superuser owner
+        run: |
+          psql "$DATABASE_URL" -c "create role owner_test login password 'owner_test'" -c "create database winkey_owner owner owner_test"
+      - run: make db-test
+        env:
+          DATABASE_URL: postgres://owner_test:owner_test@localhost:5432/winkey_owner?sslmode=disable

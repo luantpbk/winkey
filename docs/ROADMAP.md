@@ -1,0 +1,66 @@
+# Roadmap & Task Board
+
+Mỗi task là một GitHub Issue có tiêu đề `[<ID>] <tên>`, ví dụ `[V2] Transcoding pipeline`. Branch đặt tên `agent/<agent>/<id>-<slug>`.
+Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ chưa bắt đầu.
+
+## Phases
+
+| Phase | Thời gian | Mục tiêu | Tiêu chí hoàn thành (phần cứng hiện tại) |
+|---|---|---|---|
+| **P0 Foundation** | Tuần 1 | Contracts, DB, docs, monorepo, dev env, kiểm chứng phần cứng | `make dev` chạy đủ stack local; CI xanh; checklist I0 có kết quả |
+| **P1 MVP** | Tuần 2–6 | Đăng ký/đăng nhập, upload → transcode NVENC → xem, trang chủ, cluster k3s thật | Video 10 phút 1080p **READY < 5 phút** (chưa tính thời gian upload); startup < 2s p75 trong nước; sống sót khi tắt 1 VPS hoặc tắt gpu-01 |
+| **P2 Beta** | Tuần 7–12 | Comment realtime, like/subscribe, trang kênh, search, RBAC + moderation, observability, video private | Load test **1.000 người xem đồng thời** với rebuffer < 1%; 50 beta user |
+| **P3 V1** | Tuần 13–20 | Recommendation v1, analytics, DASH, transcode song song, phụ đề, thumbnail sprite | Public launch; SLO 99.5% (giới hạn bởi hạ tầng tự vận hành) |
+| **P4 Scaling** | Tuần 21+ | R2/CDN, AV1 (av1_nvenc), per-title encoding, DRM, thêm worker GPU, multi-region | Theo tải thực tế |
+
+## Task board
+
+### P0
+| ID | Task | Owner | Phụ thuộc | Trạng thái |
+|---|---|---|---|---|
+| F2 | API + event contracts (`contracts/`) | Opus | — | ✅ |
+| F4 | Data model + migrations + SQL tests (`db/`) | Opus | — | ✅ |
+| DOC | Kiến trúc, hạ tầng, ADR, roadmap, AGENTS.md, prompts | Opus | — | ✅ |
+| I0 | Kiểm chứng phần cứng (checklist INFRASTRUCTURE §9); nâng OCI lên PAYG; Tailscale ACL + tag; chốt domain | Antigravity 2 + **bạn** | — | ⬜ |
+| F1 | Tooling monorepo: pnpm + Turborepo (TS), `go.work` (Go), lint/format, CI build + test + image đa kiến trúc lên GHCR | Antigravity 2 | — | ⬜ |
+| F3 | `deploy/compose/dev.yml`: PostgreSQL 17, Valkey, NATS (JetStream), Garage (+ tạo bucket/key/CORS), job migrate; `make dev` | Antigravity 2 | F4 | ⬜ |
+
+### P1 — MVP
+| ID | Task | Owner | Phụ thuộc | Độ phức tạp |
+|---|---|---|---|---|
+| LIB | `libs/go`: config, logger, OTel, outbox relay, problem+json, UUIDv7 | Sonnet 5.5 | F2 | TB |
+| V1 | upload-svc | Sonnet 5.5 | F2, F4, LIB | TB |
+| V2 | transcoder (NVENC + x264, CMAF HLS) | Sonnet 5.5 | V1 | **Cao** |
+| V3 | Điều phối job: heartbeat, retry, DLQ, janitor upload bỏ dở | Sonnet 5.5 | V2 | TB |
+| S1 | video-svc (feed, watch, studio, delete) | Sonnet 5.5 | V2 | TB |
+| A1 | auth-svc (password, Google OAuth, JWT RS256, refresh rotation, `/verify`) | Antigravity 3 | F2, F4 | TB |
+| PKG | `packages/api-client` sinh từ OpenAPI (openapi-typescript + openapi-fetch) | Antigravity 1 | F2 | Thấp |
+| PKG2 | `packages/outbox` (relay outbox cho service TS) | Antigravity 3 | F2 | Thấp |
+| U1 | Web: layout, trang chủ, trang xem SSR, đăng nhập/đăng ký, upload (multipart, resume) | Antigravity 1 | F2 (Prism mock) | TB |
+| PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE | Antigravity 1 | S1 | TB |
+| I1 | Ansible: hardening, Tailscale, k3s HA (MTU!), NVIDIA toolkit trên gpu-01 | Antigravity 2 | I0 | **Cao** |
+| STO | Garage cluster ×3, bucket + CORS (`ExposeHeaders: ETag`) + web endpoint | Antigravity 2 | I1 | TB |
+| DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey | Antigravity 2 | I1 | **Cao** |
+| EDGE | Traefik: routing, forwardAuth, **xóa header định danh**, rate limit, cert-manager DNS-01, media-cache DaemonSet | Antigravity 2 | I1, A1 | **Cao** |
+| I2 | Helm chart cho từng service + pipeline deploy (GitOps: Argo CD hoặc Flux) | Antigravity 2 | I1 | TB |
+| Q1 | E2E Playwright: đăng ký → upload → READY → xem; k6 smoke | Antigravity 1 | U1, V2, A1 | TB |
+
+### P2 — Beta
+| ID | Task | Owner | Phụ thuộc |
+|---|---|---|---|
+| A2 | RBAC + trang admin/moderation | Antigravity 3 (+ Antigravity 1 UI) | A1 |
+| C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe | Antigravity 3 | A1 |
+| C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out | Antigravity 3 | C1 |
+| C3 | View counter (Valkey → flush PG), chống view ảo | Sonnet 5.5 | S1 |
+| U2 | Creator Studio realtime | Antigravity 1 | C2 |
+| SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm` | Sonnet 5.5 (+ Opus migration) | S1 |
+| I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |
+| SEC1 | Video private: signed cookie ở media-cache; WAF/rate limit; hàng đợi moderation | Opus (thiết kế) → Antigravity 2 / Sonnet | EDGE, A2 |
+
+### P3 — V1
+| ID | Task | Owner |
+|---|---|---|
+| R1 | Analytics: heartbeat xem → JetStream → ClickHouse (gpu-01) | Antigravity 2 + Sonnet |
+| R2 | Recommendation v1: candidate (trending, co-view, subscription) + ranking; khung A/B | Opus (thiết kế) + Sonnet |
+| V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
+| V5 | Thumbnail sprite, phụ đề WebVTT, auto-caption (Whisper trên GPU) | Sonnet |

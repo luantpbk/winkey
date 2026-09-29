@@ -1,0 +1,29 @@
+# deps / builds
+node_modules/
+.pnpm-store/
+.next/
+dist/
+build/
+coverage/
+bin/
+*.test
+*.out
+.turbo/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# local data
+tmp/
+*.log
+/deploy/compose/data/
