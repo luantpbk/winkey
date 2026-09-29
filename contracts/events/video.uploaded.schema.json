@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/video.uploaded.schema.json",
+  "$id": "https://winkey.vn/contracts/events/video.uploaded.schema.json",
   "title": "video.uploaded v1",
   "description": "Source file fully uploaded; transcoding may start. Producer: upload-svc. Consumer: transcoder.",
   "type": "object",

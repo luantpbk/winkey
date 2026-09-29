@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/user.registered.schema.json",
+  "$id": "https://winkey.vn/contracts/events/user.registered.schema.json",
   "title": "user.registered v1",
   "description": "New account created. No email or other PII in the payload. Producer: auth-svc.",
   "type": "object",

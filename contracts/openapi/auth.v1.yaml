@@ -17,8 +17,10 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
 servers:
-  - url: https://winkey.local
-    description: Same origin as the web app; the gateway routes `/v1/auth/*`, `/v1/users/*` and `/.well-known/*` to auth-svc.
+  - url: https://winkey.vn
+    description: Production. Same origin as the web app; the gateway routes `/v1/auth/*`, `/v1/users/*` and `/.well-known/*` to auth-svc.
+  - url: http://localhost:8080
+    description: Local dev stack (Traefik from deploy/compose).
 tags:
   - name: auth
     description: Registration, sign-in and session management.

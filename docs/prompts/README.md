@@ -1,11 +1,11 @@
 # Prompt khởi động cho các agent
 
-Mỗi agent làm việc trong phạm vi được định nghĩa ở [`AGENTS.md`](../../AGENTS.md). Gửi prompt theo thứ tự dưới đây; 4 agent chạy **song song** được, vì contract và schema DB đã chốt.
+Mỗi agent làm việc trong phạm vi được định nghĩa ở [`AGENTS.md`](../../AGENTS.md). Tất cả agent chạy trên máy cùng LAN với gpu-01 và SSH được vào đó; riêng Sonnet chạy test GPU (build tag `gpu`) trực tiếp trên gpu-01 qua SSH. Gửi prompt theo thứ tự dưới đây; 4 agent chạy **song song** được, vì contract và schema DB đã chốt.
 
 | # | Agent | Prompt | Task | Chặn ai |
 |---|---|---|---|---|
 | 1 | Antigravity 2 | [antigravity-2_I0-F1-F3_platform.md](antigravity-2_I0-F1-F3_platform.md) | I0 → F1 → F3 | F3 giúp mọi người chạy local (không bắt buộc: các agent khác test bằng testcontainers/MSW) |
-| 2 | Sonnet 5.5 (trên gpu-01) | [sonnet-5.5_LIB-V1-V3_media-pipeline.md](sonnet-5.5_LIB-V1-V3_media-pipeline.md) | LIB → V1 → V2+V3 | **Critical path** của MVP |
+| 2 | Sonnet 5.5 (LAN, SSH vào gpu-01) | [sonnet-5.5_LIB-V1-V3_media-pipeline.md](sonnet-5.5_LIB-V1-V3_media-pipeline.md) | LIB → V1 → V2+V3 | **Critical path** của MVP |
 | 3 | Antigravity 3 | [antigravity-3_A1_auth.md](antigravity-3_A1_auth.md) | PKG2 → A1 | EDGE (forwardAuth), Q1 |
 | 4 | Antigravity 1 | [antigravity-1_PKG-U1_web.md](antigravity-1_PKG-U1_web.md) | PKG → U1 | PL1, Q1 |
 

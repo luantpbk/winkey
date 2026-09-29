@@ -15,7 +15,7 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 ### ADR-002 — Orchestration: k3s
 **Bối cảnh.** Kế hoạch gốc dùng EKS. Ở quy mô thử nghiệm cần thứ gì nhẹ nhưng vẫn dùng lại được Helm/manifest khi lên cloud.
 **Quyết định.**
-- **k3s**, HA với embedded etcd trên 3 VPS (nếu RTT giữa chúng < 15 ms). Mạng qua Tailscale.
+- **k3s**, HA với embedded etcd trên 3 VPS (đã xác nhận cùng region). Mạng qua Tailscale.
 - `gpu-01` là agent có taint. Ingress dùng Traefik (có sẵn trong k3s).
 - Cấu hình node bằng **Ansible**. Terraform chỉ dùng cho DNS/OCI nếu cần.
 **Hệ quả.** Chart Helm dùng lại được trên EKS/GKE sau này. Phải xử lý MTU flannel qua Tailscale (xem INFRASTRUCTURE §4).
@@ -38,7 +38,7 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 ### ADR-005 — Phát video: media-cache tự vận hành, không proxy video qua Cloudflare
 **Bối cảnh.** Không có CloudFront. Điều khoản CDN của Cloudflare (gói thường) không cho phép phục vụ video tỷ trọng lớn, trừ khi video nằm trên R2/Stream.
 **Quyết định.**
-- `media.<domain>` trỏ DNS round-robin vào 3 VPS (DNS-only).
+- `media.winkey.vn` trỏ DNS round-robin vào 3 VPS (DNS-only).
 - Mỗi VPS chạy **nginx `proxy_cache`** trên đĩa local, trước Garage web endpoint.
 - Object key có version (`a{attempt}`), nên mọi file đều `Cache-Control: public, max-age=31536000, immutable`.
 **Hệ quả.** Chi phí 0 trong hạn mức egress Oracle. Không có PoP toàn cầu, nhưng đủ cho người xem ở Việt Nam và khu vực. Hướng nâng cấp: chuyển origin sang **R2 + Cloudflare CDN**.

@@ -1,6 +1,6 @@
 # Kickoff — Sonnet 5.5 · Tasks LIB, V1, V2, V3 (media pipeline)
 
-> Nên chạy agent này **trên gpu-01**, hoặc trên một máy SSH được vào gpu-01, để test NVENC thật.
+> Agent này chạy trên máy cùng LAN với gpu-01 và SSH được vào gpu-01 để chạy test NVENC thật.
 > Copy toàn bộ khối bên dưới.
 
 ````text
@@ -10,6 +10,8 @@ The architect (Claude Opus) owns contracts and the DB schema, and reviews your P
 
 # REPO & SETUP
 - git clone https://github.com/luantpbk/winkey && cd winkey
+- You run on a machine on the same LAN as gpu-01 and can `ssh gpu-01`. Run the GPU tests (build tag `gpu`) there:
+  sync the repo, then `go test -tags gpu ./services/transcoder/...` on gpu-01.
 - READ FIRST, in this order: AGENTS.md, docs/ARCHITECTURE.md, docs/DECISIONS.md (ADR-003/004/006/008 matter most),
   docs/INFRASTRUCTURE.md §5–6, contracts/openapi/upload.v1.yaml, contracts/events/README.md + *.schema.json,
   db/migrations/000003_media.up.sql, db/README.md.
@@ -44,7 +46,7 @@ The architect (Claude Opus) owns contracts and the DB schema, and reviews your P
   Create the media.videos row (status UPLOADING, raw_bucket, raw_key = {owner_id}/{video_id}/source) and call
   CreateMultipartUpload.
 - **Two S3 clients**: S3_ENDPOINT (internal, used for server-side calls) and S3_PUBLIC_ENDPOINT (e.g.
-  https://s3.<domain>, used ONLY for presigning). The signature is bound to the host, so presigning with the internal
+  https://s3.winkey.vn, used ONLY for presigning). The signature is bound to the host, so presigning with the internal
   endpoint breaks uploads. Both use path-style addressing and S3_REGION=garage.
 - Parts: presign UploadPart URLs with a 1h TTL. Every call re-checks ownership and status UPLOADING.
 - Complete: validate the part list (1..part_count, no gaps), call CompleteMultipartUpload, HeadObject and check

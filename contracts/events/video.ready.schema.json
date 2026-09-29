@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/video.ready.schema.json",
+  "$id": "https://winkey.vn/contracts/events/video.ready.schema.json",
   "title": "video.ready v1",
   "description": "HLS output published and the video row switched to READY. Producer: transcoder.",
   "type": "object",

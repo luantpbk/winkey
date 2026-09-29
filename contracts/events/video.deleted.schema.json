@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://winkey.local/contracts/events/video.deleted.schema.json",
+  "$id": "https://winkey.vn/contracts/events/video.deleted.schema.json",
   "title": "video.deleted v1",
   "description": "Video row deleted. Consumers purge objects, caches and search documents. Producer: video-svc.",
   "type": "object",
