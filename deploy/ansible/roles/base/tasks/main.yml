@@ -1,0 +1,43 @@
+- name: Hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+    use: systemd
+
+- name: Check for the OCI hostname hook config
+  ansible.builtin.stat:
+    path: /etc/oci-hostname.conf
+  register: oci_hostname_conf
+
+# 0 (the OCI default) makes oci-dhclient.sh reset the hostname to the VCN name on every DHCP event.
+- name: Keep the hostname when OCI's dhclient hook runs
+  ansible.builtin.lineinfile:
+    path: /etc/oci-hostname.conf
+    regexp: "^PRESERVE_HOSTINFO="
+    line: PRESERVE_HOSTINFO=1
+  when: oci_hostname_conf.stat.exists
+
+- name: Keep the hostname across reboots (cloud-init)
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99_zz_winkey_preserve_hostname.cfg
+    content: "preserve_hostname: true\n"
+    mode: "0644"
+
+- name: Kernel settings for k3s
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-winkey-k3s.conf
+    reload: true
+  loop:
+    - { name: net.ipv4.ip_forward, value: "1" }
+    - { name: fs.inotify.max_user_instances, value: "8192" }
+    - { name: fs.inotify.max_user_watches, value: "524288" }
+
+- name: Keep NetworkManager away from CNI interfaces
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/90-k3s-unmanaged.conf
+    content: |
+      [keyfile]
+      unmanaged-devices=interface-name:cni0;interface-name:flannel*;interface-name:veth*
+    mode: "0644"
+  notify: Reload NetworkManager
