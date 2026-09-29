@@ -21,7 +21,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm --filter @winkey/web run dev -p 3000',
+    command: 'pnpm --filter @winkey/web run dev',
     url: 'http://localhost:3000/healthz',
     reuseExistingServer: false,
     timeout: 120 * 1000,
