@@ -1,0 +1,109 @@
+name: images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'services/**'
+      - 'packages/**'
+      - 'libs/**'
+      - 'deploy/**'
+      - '.github/workflows/images.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: build (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: upload
+            context: .
+            file: services/upload/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: transcoder
+            context: .
+            file: services/transcoder/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: transcoder-nvenc
+            context: .
+            file: services/transcoder/Dockerfile.nvenc
+            platforms: linux/amd64
+          - name: video
+            context: .
+            file: services/video/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: auth
+            context: .
+            file: services/auth/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: social
+            context: .
+            file: services/social/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: realtime
+            context: .
+            file: services/realtime/Dockerfile
+            platforms: linux/amd64,linux/arm64
+          - name: web
+            context: .
+            file: apps/web/Dockerfile
+            platforms: linux/amd64,linux/arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if Dockerfile exists
+        id: check_file
+        run: |
+          if [ -f "${{ matrix.file }}" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip: ${{ matrix.file }} does not exist yet"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up QEMU
+        if: steps.check_file.outputs.exists == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.check_file.outputs.exists == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.check_file.outputs.exists == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: steps.check_file.outputs.exists == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/luantpbk/winkey-${{ matrix.name }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+
+      - name: Build and push
+        if: steps.check_file.outputs.exists == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,9 @@
+go 1.26.0
+
+use (
+	./libs/go
+	// Add Go services as they land:
+	// ./services/upload
+	// ./services/transcoder
+	// ./services/video
+)
