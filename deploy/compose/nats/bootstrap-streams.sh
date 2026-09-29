@@ -18,67 +18,42 @@ if [ "$READY" -ne 1 ]; then
     exit 1
 fi
 
-echo "NATS connected. Creating JetStream streams (replicas 1 in dev)..."
+create_or_update_stream() {
+    NAME="$1"
+    SUBJECT="$2"
+    AGE="$3"
+    cat <<EOF > "/tmp/${NAME}.json"
+{
+  "name": "${NAME}",
+  "subjects": ["${SUBJECT}"],
+  "retention": "limits",
+  "max_consumers": -1,
+  "max_msgs": -1,
+  "max_bytes": -1,
+  "discard": "old",
+  "max_age": ${AGE},
+  "storage": "file",
+  "num_replicas": 1,
+  "duplicate_window": 120000000000
+}
+EOF
+    if nats stream info "$NAME" --server="$NATS_SERVER" >/dev/null 2>&1; then
+        echo "Stream $NAME exists, updating..."
+        nats stream edit "$NAME" --server="$NATS_SERVER" --config="/tmp/${NAME}.json" -f
+    else
+        echo "Creating stream $NAME..."
+        nats stream add "$NAME" --server="$NATS_SERVER" --config="/tmp/${NAME}.json"
+    fi
+}
 
-# VIDEO stream: video.> file storage, 1 replica, max age 7d, dupe window 2m
-nats stream add VIDEO \
-    --server="$NATS_SERVER" \
-    --subjects="video.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=7d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old 2>/dev/null || \
-nats stream edit VIDEO \
-    --server="$NATS_SERVER" \
-    --subjects="video.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=7d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old -f
+# VIDEO stream: video.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
+create_or_update_stream "VIDEO" "video.>" 604800000000000
 
-# USER stream: user.> file storage, 1 replica, max age 7d, dupe window 2m
-nats stream add USER \
-    --server="$NATS_SERVER" \
-    --subjects="user.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=7d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old 2>/dev/null || \
-nats stream edit USER \
-    --server="$NATS_SERVER" \
-    --subjects="user.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=7d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old -f
+# USER stream: user.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
+create_or_update_stream "USER" "user.>" 604800000000000
 
-# DLQ stream: dlq.> file storage, 1 replica, max age 30d, dupe window 2m
-nats stream add DLQ \
-    --server="$NATS_SERVER" \
-    --subjects="dlq.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=30d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old 2>/dev/null || \
-nats stream edit DLQ \
-    --server="$NATS_SERVER" \
-    --subjects="dlq.>" \
-    --storage=file \
-    --replicas=1 \
-    --max-age=30d \
-    --dupe-window=2m \
-    --retention=limits \
-    --discard=old -f
+# DLQ stream: dlq.> file storage, 1 replica, max age 30d (2592000s), dupe window 2m (120s)
+create_or_update_stream "DLQ" "dlq.>" 2592000000000000
 
 echo "NATS streams configured successfully:"
 nats stream ls --server="$NATS_SERVER"
