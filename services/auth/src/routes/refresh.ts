@@ -68,18 +68,12 @@ export const refreshRoute: FastifyPluginAsync<{
           .where('revoked_at', 'is', null)
           .execute();
 
-        request.log.warn(
-          {
-            family_id: token.family_id,
-            user_id: token.user_id,
-            token_id: token.id,
-            ip: request.ip,
-          },
-          'SECURITY ALERT: Refresh token reuse detected! Revoking entire family.'
-        );
-
-        reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
-        throw ProblemError.unauthorized('Refresh token reuse detected');
+        return {
+          kind: 'reuse' as const,
+          familyId: token.family_id,
+          userId: token.user_id,
+          tokenId: token.id,
+        };
       }
 
       // Mark current token rotated
@@ -121,11 +115,27 @@ export const refreshRoute: FastifyPluginAsync<{
       }
 
       return {
+        kind: 'ok' as const,
         user,
         familyId: token.family_id,
         newOpaqueToken,
       };
     });
+
+    if (result.kind === 'reuse') {
+      request.log.warn(
+        {
+          family_id: result.familyId,
+          user_id: result.userId,
+          token_id: result.tokenId,
+          ip: request.ip,
+        },
+        'refresh token reuse: family revoked'
+      );
+
+      reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
+      throw ProblemError.unauthorized('Refresh token reuse detected');
+    }
 
     // 4. Issue new access token
     const { token: accessToken, expiresIn } = await issueAccessToken(

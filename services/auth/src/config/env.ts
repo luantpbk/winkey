@@ -24,6 +24,9 @@ export const envSchema = z.object({
 
   // Internal secret for signing temporary OAuth state cookies
   COOKIE_SECRET: z.string().default('winkey-dev-cookie-secret-min-32-chars-long!'),
+
+  // Trusted proxy CIDRs for Fastify (e.g. Traefik/k8s pod CIDR 10.42.0.0/16, loopback 127.0.0.1)
+  TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
 });
 
 export type Env = z.infer<typeof envSchema>;

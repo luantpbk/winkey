@@ -32,6 +32,7 @@ Owner: **Antigravity 3** (Tasks A1, A2).
 | `GOOGLE_CLIENT_SECRET`| Google OAuth Client Secret | (optional for local dev) |
 | `GOOGLE_REDIRECT_URI` | Google OAuth Redirect Callback URI | `https://winkey.vn/v1/auth/oauth/google/callback` |
 | `COOKIE_SECRET` | Secret key used to sign temporary OAuth session state cookies | (minimum 32 characters) |
+| `TRUST_PROXY_CIDRS` | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution | `10.42.0.0/16,127.0.0.1` |
 
 ---
 

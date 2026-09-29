@@ -30,8 +30,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const env = options.env || getEnv();
   const db = options.db || getDb(env.DATABASE_URL).db;
   const rateLimiter = options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis);
+  const trustProxyConfig = env.TRUST_PROXY_CIDRS
+    ? env.TRUST_PROXY_CIDRS.split(',').map((s) => s.trim()).filter(Boolean)
+    : false;
 
   const app = fastify({
+    trustProxy: trustProxyConfig,
     logger: {
       level: env.NODE_ENV === 'test' ? 'silent' : 'info',
       redact: {
