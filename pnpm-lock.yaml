@@ -396,6 +396,55 @@ importers:
         specifier: ^2.7.0
         version: 2.9.1
 
+  services/realtime:
+    dependencies:
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.5
+      ioredis:
+        specifier: ^5.6.0
+        version: 5.11.1(supports-color@10.2.2)
+      nats:
+        specifier: ^2.29.3
+        version: 2.29.3
+      pino:
+        specifier: ^9.6.0
+        version: 9.14.0
+      uuid:
+        specifier: ^11.1.0
+        version: 11.1.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.22.0
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.10
+        version: 22.20.4
+      '@types/ws':
+        specifier: ^8.5.14
+        version: 8.18.1
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
+      testcontainers:
+        specifier: ^10.18.0
+        version: 10.28.0(supports-color@10.2.2)
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.8
+        version: 3.2.7(@types/node@22.20.4)(jiti@2.7.0)(jsdom@26.1.0(supports-color@10.2.2))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.4)(typescript@5.9.3))(supports-color@10.2.2)(tsx@4.23.15)(yaml@2.9.1)
+      yaml:
+        specifier: ^2.7.0
+        version: 2.9.1
+
   services/social:
     dependencies:
       '@fastify/cors':
@@ -1583,6 +1632,9 @@ packages:
 
   '@types/uuid@10.0.0':
     resolution: {integrity: sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.70.1':
     resolution: {integrity: sha512-nDNrUQ/4ruSNYbu749TRY7cfrzPtoLHEXSNBI8aaNY32LlZCajixqRf3FqcKC4p5Cam4VOHYx/t+i5+nKXvrqA==}
@@ -4264,6 +4316,10 @@ snapshots:
 
   '@types/uuid@10.0.0': {}
 
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.20.4
+
   '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3)':
     dependencies:
       '@eslint-community/regexpp': 4.12.2
@@ -4690,12 +4746,33 @@ snapshots:
     dependencies:
       yaml: 2.9.1
 
+  docker-modem@5.0.7(supports-color@10.2.2):
+    dependencies:
+      debug: 4.4.3(supports-color@10.2.2)
+      readable-stream: 3.6.2
+      split-ca: 1.0.1
+      ssh2: 1.17.0
+    transitivePeerDependencies:
+      - supports-color
+
   docker-modem@5.0.7(supports-color@7.2.0):
     dependencies:
       debug: 4.4.3(supports-color@7.2.0)
       readable-stream: 3.6.2
       split-ca: 1.0.1
       ssh2: 1.17.0
+    transitivePeerDependencies:
+      - supports-color
+
+  dockerode@4.0.12(supports-color@10.2.2):
+    dependencies:
+      '@balena/dockerignore': 1.0.2
+      '@grpc/grpc-js': 1.14.5
+      '@grpc/proto-loader': 0.7.15
+      docker-modem: 5.0.7(supports-color@10.2.2)
+      protobufjs: 7.6.6
+      tar-fs: 2.1.5
+      uuid: 10.0.0
     transitivePeerDependencies:
       - supports-color
 
@@ -5049,6 +5126,18 @@ snapshots:
       '@formatjs/fast-memoize': 2.2.7
       '@formatjs/icu-messageformat-parser': 2.11.4
       tslib: 2.8.1
+
+  ioredis@5.11.1(supports-color@10.2.2):
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3(supports-color@10.2.2)
+      denque: 2.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
 
   ioredis@5.11.1(supports-color@7.2.0):
     dependencies:
@@ -5897,6 +5986,29 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
+
+  testcontainers@10.28.0(supports-color@10.2.2):
+    dependencies:
+      '@balena/dockerignore': 1.0.2
+      '@types/dockerode': 3.3.47
+      archiver: 7.0.1
+      async-lock: 1.4.1
+      byline: 5.0.0
+      debug: 4.4.3(supports-color@10.2.2)
+      docker-compose: 0.24.8
+      dockerode: 4.0.12(supports-color@10.2.2)
+      get-port: 7.2.0
+      proper-lockfile: 4.1.2
+      properties-reader: 2.3.0
+      ssh-remote-port-forward: 1.0.4
+      tar-fs: 3.1.3
+      tmp: 0.2.7
+      undici: 5.29.0
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+      - supports-color
 
   testcontainers@10.28.0(supports-color@7.2.0):
     dependencies:
