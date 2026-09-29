@@ -58,9 +58,22 @@ fi
 # 2. Create access key "winkey-dev"
 echo "Setting up access key 'winkey-dev'..."
 KEY_NAME="winkey-dev"
-KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info "$KEY_NAME" 2>/dev/null || true)
+KEY_INFO=""
+for i in $(seq 1 30); do
+    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info "$KEY_NAME" 2>/dev/null || true)
+    if [ -n "$KEY_INFO" ]; then
+        break
+    fi
+    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key create "$KEY_NAME" 2>/dev/null || true)
+    if [ -n "$KEY_INFO" ]; then
+        break
+    fi
+    sleep 1
+done
+
 if [ -z "$KEY_INFO" ]; then
-    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key create "$KEY_NAME")
+    echo "ERROR: Failed to create or retrieve access key $KEY_NAME" >&2
+    exit 1
 fi
 
 ACCESS_KEY=$(echo "$KEY_INFO" | grep -i "Key ID:" | awk '{print $NF}' | tr -d '[:space:]')
@@ -81,15 +94,26 @@ EOF
 # 3. Create buckets: winkey-raw, winkey-media, winkey-backups
 for BUCKET in winkey-raw winkey-media winkey-backups; do
     echo "Ensuring bucket: $BUCKET..."
-    /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket info "$BUCKET" >/dev/null 2>&1 || \
-        /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket create "$BUCKET"
+    for i in $(seq 1 30); do
+        if /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket info "$BUCKET" >/dev/null 2>&1; then
+            break
+        fi
+        if /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket create "$BUCKET" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
     /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket allow --read --write --owner "$BUCKET" --key "$ACCESS_KEY"
 done
 
 # 4. Enable website hosting on winkey-media
 echo "Enabling website hosting on winkey-media..."
-/usr/local/bin/garage -c "$GARAGE_CONFIG" bucket website --allow winkey-media 2>/dev/null || \
-/usr/local/bin/garage -c "$GARAGE_CONFIG" bucket website winkey-media --allow
+for i in $(seq 1 30); do
+    if /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket website --allow winkey-media 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
 
 # 5. Put CORS on winkey-raw: AllowedOrigins http://localhost:3000, AllowedMethods PUT/GET/HEAD, AllowedHeaders *, ExposeHeaders ETag, MaxAge 3600
 echo "Configuring CORS on winkey-raw..."
