@@ -2,11 +2,15 @@ import createClient, { type ClientOptions, type Middleware } from 'openapi-fetch
 import type { paths as AuthPaths, components as AuthComponents } from './types/auth.js';
 import type { paths as UploadPaths, components as UploadComponents } from './types/upload.js';
 import type { paths as VideoPaths, components as VideoComponents } from './types/video.js';
+import type { paths as SocialPaths } from './types/social.js';
+import type { paths as RealtimePaths } from './types/realtime.js';
 
 // Export raw generated paths and components
 export type { paths as AuthPaths, components as AuthComponents } from './types/auth.js';
 export type { paths as UploadPaths, components as UploadComponents } from './types/upload.js';
 export type { paths as VideoPaths, components as VideoComponents } from './types/video.js';
+export type { paths as SocialPaths, components as SocialComponents } from './types/social.js';
+export type { paths as RealtimePaths, components as RealtimeComponents } from './types/realtime.js';
 
 // Convenient domain type shortcuts
 export type User = AuthComponents['schemas']['User'];
@@ -58,6 +62,8 @@ export function createAuthInterceptor(
 export type AuthClient = ReturnType<typeof createAuthClient>;
 export type UploadClient = ReturnType<typeof createUploadClient>;
 export type VideoClient = ReturnType<typeof createVideoClient>;
+export type SocialClient = ReturnType<typeof createSocialClient>;
+export type RealtimeClient = ReturnType<typeof createRealtimeClient>;
 
 export function createAuthClient(options: WinkeyClientOptions = {}) {
   const { baseUrl = '', getAccessToken, ...clientOptions } = options;
@@ -86,10 +92,30 @@ export function createVideoClient(options: WinkeyClientOptions = {}) {
   return client;
 }
 
+export function createSocialClient(options: WinkeyClientOptions = {}) {
+  const { baseUrl = '', getAccessToken, ...clientOptions } = options;
+  const client = createClient<SocialPaths>({ baseUrl, ...clientOptions });
+  if (getAccessToken) {
+    client.use(createAuthInterceptor(getAccessToken));
+  }
+  return client;
+}
+
+export function createRealtimeClient(options: WinkeyClientOptions = {}) {
+  const { baseUrl = '', getAccessToken, ...clientOptions } = options;
+  const client = createClient<RealtimePaths>({ baseUrl, ...clientOptions });
+  if (getAccessToken) {
+    client.use(createAuthInterceptor(getAccessToken));
+  }
+  return client;
+}
+
 export function createWinkeyClient(options: WinkeyClientOptions = {}) {
   return {
     auth: createAuthClient(options),
     upload: createUploadClient(options),
     video: createVideoClient(options),
+    social: createSocialClient(options),
+    realtime: createRealtimeClient(options),
   };
 }

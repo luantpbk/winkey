@@ -286,6 +286,34 @@ export const handlers = [
     return HttpResponse.json(video);
   }),
 
+  http.post('*/v1/videos/:id/views', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const body = (await request.json()) as { playback_id?: string; watched_ms?: number };
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+
+    if (videoIndex !== -1) {
+      currentVideos[videoIndex] = {
+        ...currentVideos[videoIndex],
+        view_count: (currentVideos[videoIndex].view_count || 0) + 1,
+      };
+      setDynamicVideos(currentVideos);
+    }
+
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const historyStr = window.sessionStorage.getItem('wk_mock_views') || '[]';
+        const history = JSON.parse(historyStr);
+        history.push({ videoId, ...body });
+        window.sessionStorage.setItem('wk_mock_views', JSON.stringify(history));
+      } catch {
+        // ignore
+      }
+    }
+
+    return HttpResponse.json({ counted: true }, { status: 202 });
+  }),
+
   http.patch('*/v1/videos/:id', async ({ params, request }) => {
     const videoId = params.id as string;
     const body = (await request.json()) as any;
