@@ -1,8 +1,6 @@
 name: verify-compose
 
 on:
-  push:
-    branches: [agent/ag2/f3-dev-compose]
   workflow_dispatch:
 
 jobs:
