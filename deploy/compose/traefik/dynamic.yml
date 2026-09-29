@@ -4,7 +4,7 @@ http:
     # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
     auth-public:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/v1/auth/register`, `/v1/auth/login`, `/v1/auth/refresh`, `/.well-known`)"
+      rule: "PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`)"
       service: "auth-svc"
       middlewares: ["strip-user-headers"]
       priority: 100
@@ -12,7 +12,7 @@ http:
     # 2. Auth protected endpoints (users, profile management)
     auth-protected:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/v1/auth`, `/v1/users`)"
+      rule: "PathPrefix(`/v1/auth`) || PathPrefix(`/v1/users`)"
       service: "auth-svc"
       middlewares: ["strip-user-headers", "auth-verify"]
       priority: 90
@@ -28,7 +28,7 @@ http:
     # 4. Video & Studio routes
     video:
       entryPoints: ["web"]
-      rule: "PathPrefix(`/v1/videos`, `/v1/studio`)"
+      rule: "PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`)"
       service: "video-svc"
       middlewares: ["strip-user-headers", "auth-verify"]
       priority: 80

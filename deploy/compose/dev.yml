@@ -248,7 +248,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - whoami
+      whoami:
+        condition: service_started
+      db-grants:
+        condition: service_completed_successfully
+      nats-bootstrap:
+        condition: service_completed_successfully
+      garage-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 5s
