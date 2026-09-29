@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/social.subscription.changed.schema.json",
+  "title": "social.subscription.changed v1",
+  "description": "A user subscribed to or unsubscribed from a channel. `subscriber_count` is absolute after the change. Consumers: notify (P3), recommendation (P3). Producer: social-svc.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "social.subscription.changed"
+    },
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "subscriber_id",
+        "channel_id",
+        "subscribed",
+        "subscriber_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "subscriber_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "channel_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "subscribed": {
+          "type": "boolean"
+        },
+        "subscriber_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

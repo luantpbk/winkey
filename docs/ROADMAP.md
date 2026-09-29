@@ -57,7 +57,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | ID | Task | Owner | Phụ thuộc |
 |---|---|---|---|
 | A2 | RBAC + trang admin/moderation | Antigravity 3 (+ Antigravity 1 UI) | A1 |
-| C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe | Antigravity 3 | A1 |
+| C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) | Antigravity 3 | A1 ✅ |
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out | Antigravity 3 | C1 |
 | C3 | View counter (Valkey → flush PG), chống view ảo | Sonnet 5.5 | S1 |
 | U2 | Creator Studio realtime | Antigravity 1 | C2 |

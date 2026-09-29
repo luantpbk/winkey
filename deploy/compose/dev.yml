@@ -17,12 +17,12 @@ services:
       MEDIA_SVC_USER: ${MEDIA_SVC_USER:-media_svc}
       MEDIA_SVC_PASSWORD: ${MEDIA_SVC_PASSWORD:-media_svc}
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+      - '${DEV_BIND_IP:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/01-init-roles.sh:/docker-entrypoint-initdb.d/01-init-roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d winkey"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d winkey']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -44,13 +44,13 @@ services:
       - ../../db/migrations:/migrations:ro
     command:
       [
-        "-path",
-        "/migrations",
-        "-database",
-        "postgres://${MIGRATOR_USER:-winkey_migrator}:${MIGRATOR_PASSWORD:-winkey_migrator}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable",
-        "up"
+        '-path',
+        '/migrations',
+        '-database',
+        'postgres://${MIGRATOR_USER:-winkey_migrator}:${MIGRATOR_PASSWORD:-winkey_migrator}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable',
+        'up',
       ]
-    restart: "no"
+    restart: 'no'
     deploy:
       resources:
         limits:
@@ -71,19 +71,19 @@ services:
       PGPASSWORD: ${MIGRATOR_PASSWORD:-winkey_migrator}
     command:
       [
-        "psql",
-        "-h",
-        "postgres",
-        "-U",
-        "${MIGRATOR_USER:-winkey_migrator}",
-        "-d",
-        "${POSTGRES_DB:-winkey}",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-f",
-        "/grants.sql"
+        'psql',
+        '-h',
+        'postgres',
+        '-U',
+        '${MIGRATOR_USER:-winkey_migrator}',
+        '-d',
+        '${POSTGRES_DB:-winkey}',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-f',
+        '/grants.sql',
       ]
-    restart: "no"
+    restart: 'no'
     deploy:
       resources:
         limits:
@@ -97,11 +97,11 @@ services:
     container_name: winkey-valkey
     command: valkey-server --save "" --appendonly no
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${VALKEY_PORT:-6379}:6379"
+      - '${DEV_BIND_IP:-127.0.0.1}:${VALKEY_PORT:-6379}:6379'
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ['CMD', 'valkey-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -116,14 +116,18 @@ services:
   nats:
     image: nats:2.10.26-alpine
     container_name: winkey-nats
-    command: ["-js", "-m", "8222"]
+    command: ['-js', '-m', '8222']
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${NATS_PORT:-4222}:4222"
-      - "${DEV_BIND_IP:-127.0.0.1}:${NATS_MONITOR_PORT:-8222}:8222"
+      - '${DEV_BIND_IP:-127.0.0.1}:${NATS_PORT:-4222}:4222'
+      - '${DEV_BIND_IP:-127.0.0.1}:${NATS_MONITOR_PORT:-8222}:8222'
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8222/healthz || wget -q -O - http://127.0.0.1:8222/varz | grep -q 'server_id' || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          "wget -q -O /dev/null http://127.0.0.1:8222/healthz || wget -q -O - http://127.0.0.1:8222/varz | grep -q 'server_id' || exit 1",
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -143,10 +147,10 @@ services:
         condition: service_healthy
     volumes:
       - ./nats/bootstrap-streams.sh:/bootstrap-streams.sh:ro
-    entrypoint: ["/bin/sh", "/bootstrap-streams.sh"]
+    entrypoint: ['/bin/sh', '/bootstrap-streams.sh']
     environment:
       NATS_SERVER: nats:4222
-    restart: "no"
+    restart: 'no'
     deploy:
       resources:
         limits:
@@ -158,16 +162,16 @@ services:
   garage:
     image: dxflrs/garage:v1.0.1
     container_name: winkey-garage
-    command: ["/garage", "-c", "/etc/garage.toml", "server"]
+    command: ['/garage', '-c', '/etc/garage.toml', 'server']
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${GARAGE_S3_PORT:-3900}:3900"
-      - "${DEV_BIND_IP:-127.0.0.1}:${GARAGE_WEB_PORT:-3902}:3902"
+      - '${DEV_BIND_IP:-127.0.0.1}:${GARAGE_S3_PORT:-3900}:3900'
+      - '${DEV_BIND_IP:-127.0.0.1}:${GARAGE_WEB_PORT:-3902}:3902'
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
     healthcheck:
-      test: ["CMD", "/garage", "-c", "/etc/garage.toml", "status"]
+      test: ['CMD', '/garage', '-c', '/etc/garage.toml', 'status']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -187,14 +191,14 @@ services:
     depends_on:
       garage:
         condition: service_healthy
-    network_mode: "service:garage"
+    network_mode: 'service:garage'
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta:ro
       - .:/env
     environment:
       GARAGE_HOST: 127.0.0.1
-    restart: "no"
+    restart: 'no'
     deploy:
       resources:
         limits:
@@ -209,12 +213,12 @@ services:
     depends_on:
       - garage
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${MEDIA_CACHE_PORT:-8081}:8081"
+      - '${DEV_BIND_IP:-127.0.0.1}:${MEDIA_CACHE_PORT:-8081}:8081'
     volumes:
       - ./media-cache/nginx.conf:/etc/nginx/nginx.conf:ro
       - media_cache_data:/var/cache/nginx/media
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8081/healthz | grep -q 'OK' || exit 1"]
+      test: ['CMD-SHELL', "wget -q -O - http://127.0.0.1:8081/healthz | grep -q 'OK' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -241,13 +245,13 @@ services:
     image: traefik:v3.7
     container_name: winkey-traefik
     ports:
-      - "${DEV_BIND_IP:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
-      - "127.0.0.1:8082:8082"
+      - '${DEV_BIND_IP:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080'
+      - '127.0.0.1:8082:8082'
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - 'host.docker.internal:host-gateway'
     depends_on:
       whoami:
         condition: service_started
@@ -258,7 +262,7 @@ services:
       garage-bootstrap:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      test: ['CMD', 'traefik', 'healthcheck', '--ping']
       interval: 5s
       timeout: 3s
       retries: 5
