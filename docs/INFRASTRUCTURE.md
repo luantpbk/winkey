@@ -19,6 +19,21 @@ Trong giai đoạn phát triển chỉ dùng **edge-1** (`138.2.93.173`, user `o
 - **Truy cập**: SSH vào edge-1 bằng key của bạn (không lưu trong repo); vào gpu-01 qua LAN. Sau bootstrap thì dùng Tailscale SSH (`ssh opc@edge-1`).
 - Runbook bootstrap edge-1: [runbooks/edge-1-bootstrap.md](runbooks/edge-1-bootstrap.md).
 
+### 0.1 Thực tế edge-1 sau task I1 (báo cáo 2026-09-29)
+
+| Hạng mục | Thực tế | Ghi chú |
+|---|---|---|
+| Vai trò máy | **Dùng chung**: nginx host (4 site cũ), 7 app Node, PostgreSQL host, Cockpit | Winkey phải cùng tồn tại, không được làm sập site cũ (ADR-014) |
+| OS | Oracle Linux, **SELinux Permissive** | Kiến trúc CPU vẫn chưa báo (`uname -m`) |
+| k3s | v1.36.4+k3s1, 1 server `--cluster-init`, secrets-encryption bật | Node IP = Tailscale `100.113.240.3`, flannel trên `tailscale0`, MTU 1230 |
+| Ingress | nginx host :80/:443 (Certbot HTTP-01) → Traefik v3.7 NodePort 30080/30443 (chỉ trên IP Tailscale) | ADR-014 |
+| Đĩa | 200 GB: `/` 70 GB, LV data 110 GB XFS cho `/var/lib/rancher/k3s/storage`, **VG còn ~3 GB** | Xem §5 (dung lượng giảm) |
+| Firewall public | 80, 443, 41641/udp của Winkey; **9090 (Cockpit) và 7890 cũng đang mở public** | ⚠️ Xem §8 |
+| Trusted zone | `tailscale0`, `10.42.0.0/16`, `10.43.0.0/16` | |
+| Code triển khai | `deploy/ansible/` trên branch `agent/claude/i1-k3s-edge-1` | Chưa có PR |
+
+Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey giới hạn tổng **requests ≤ 2 vCPU / 10 GB**. Mọi pod phải đặt `resources.requests/limits`.
+
 ## 1. Kiểm kê phần cứng
 
 | Node | Phần cứng | Kiến trúc | Mạng | Nhận xét quan trọng |
@@ -50,15 +65,15 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 
 | Workload | edge-1 | edge-2 | edge-3 | gpu-01 | Ghi chú |
 |---|:-:|:-:|:-:|:-:|---|
-| k3s server (embedded etcd) | ● | ● | ● | | gpu-01 là **agent**, có taint `winkey.io/gpu=true:NoSchedule` |
-| Traefik ingress (80/443) | ● | ● | ● | | DNS round-robin vào 3 IP |
-| **media-cache** (nginx, DaemonSet) | ● | ● | ● | | Cache trên đĩa local 30 GB/node, `internalTrafficPolicy: Local` |
+| k3s server (embedded etcd) | ● | ● | ● | | gpu-01 **không** tham gia k3s (ADR-015) |
+| Traefik ingress | ● | ● | ● | | edge-1: NodePort 30080/30443 sau nginx host (ADR-014); edge-2/3: 80/443 trực tiếp |
+| **media-cache** | ● | ● | ● | | edge-1: `proxy_cache` của nginx host (ADR-014); edge-2/3: DaemonSet, cache local 30 GB/node |
 | **Garage** (S3) | ● | ● | ● | | `replication_factor = 2`, ~120 GB/node dành cho dữ liệu |
 | **NATS JetStream** | ● | ● | ● | | Cluster 3 node, stream R3 |
 | **PostgreSQL** (CloudNativePG) | primary | replica | | | Backup (barman) vào bucket `winkey-backups`; hằng đêm rclone về gpu-01 |
 | Valkey (Redis-compatible) | | ● | | | Cache/rate-limit; mất thì chỉ chậm hơn, không mất dữ liệu |
 | web, auth-svc, upload-svc, video-svc, social-svc, realtime-gw | ○ | ○ | ○ | | Stateless, 2 replica, anti-affinity |
-| **transcoder** (NVENC) | | | | ● | Concurrency 2 (xem §6) |
+| **transcoder** (NVENC) | | | | ● | Worker ngoài k3s (ADR-015), concurrency 2 (xem §6) |
 | transcoder (x264, overflow) | | | | ● | Concurrency 1 |
 | Raw archive, observability (VictoriaMetrics, Loki, Grafana), CI runner amd64 | | | | ● | Nội bộ, chỉ vào qua Tailscale |
 | CI runner arm64 | | | ● | | Build image arm64 native |
@@ -72,7 +87,7 @@ Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN vớ
 - **gpu-01**: không port-forward bất kỳ cổng nào trên router.
 - **Tailscale**: tag và policy ở §4.2. Phân quyền giữa các pod dùng **Kubernetes NetworkPolicy** (k3s có sẵn controller), không dùng Tailscale ACL: traffic pod-to-pod đi trong VXLAN nên ACL theo cổng không nhìn thấy.
 - **k3s qua Tailscale**: `--node-ip=<IP tailscale>`, `--flannel-iface=tailscale0`. **MTU của flannel ≤ 1230**, vì tailscale0 có MTU 1280 và VXLAN tốn thêm 50 byte. Nếu không chỉnh, pod-to-pod sẽ treo ngẫu nhiên với gói lớn.
-- **TLS**: cert-manager + Let's Encrypt **DNS-01** (Cloudflare API), để cả 3 node dùng chung cert.
+- **TLS**: trên edge-1, Certbot HTTP-01 trên host, gia hạn bằng `certbot-renew.timer` (ADR-014). Khi có edge-2/3 riêng thì dùng cert-manager + Let's Encrypt **DNS-01** (Cloudflare API).
 
 ### 4.1 DNS — `winkey.vn`
 
@@ -97,7 +112,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
 - Tên máy (MagicDNS): `gpu-01`, `edge-1`, `edge-2`, `edge-3`.
 - Đăng ký node bằng `tailscale up --ssh --advertise-tags=tag:edge` (hoặc `tag:gpu`). Node có tag thì key không hết hạn.
-- Dán policy dưới đây vào *Admin console → Access controls*:
+- Dán policy dưới đây vào *Admin console → Access controls*, **thay thế toàn bộ nội dung**. Không để lại khối `grants` mặc định `{"src":["*"],"dst":["*"]}`, vì nó mở toàn bộ tailnet và vô hiệu hóa mọi luật bên dưới.
+- **Mọi thiết bị (edge-1, gpu-01, máy admin) phải cùng một tailnet.** Máy nào đang ở tailnet khác thì `tailscale logout` rồi đăng nhập lại bằng tài khoản sở hữu tailnet của edge-1.
 
 ```hujson
 {
@@ -110,14 +126,18 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
     {"action": "accept", "src": ["autogroup:admin"], "dst": ["*:*"]},
     // Edge ↔ edge: etcd, k3s, flannel, Garage RPC, NATS cluster, Postgres replication.
     {"action": "accept", "src": ["tag:edge"], "dst": ["tag:edge:*"]},
-    // gpu-01 (k3s agent) → edge: k3s API, flannel VXLAN, kubelet, node-exporter.
-    {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:6443,8472,10250,9100"]},
-    // edge → gpu-01: flannel VXLAN, kubelet (logs/exec), node-exporter.
-    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:8472,10250,9100"]},
+    // gpu-01 (transcoder worker, ADR-015) → edge: NATS, PostgreSQL (Winkey), Garage S3.
+    {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:4222,5432,3900"]},
+    // edge → gpu-01: node-exporter / metrics của transcoder.
+    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:9100,9464"]},
   ],
   "ssh": [
     {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:edge", "tag:gpu"],
      "users": ["autogroup:nonroot", "root"]},
+  ],
+  "tests": [
+    {"src": "tag:gpu",  "accept": ["tag:edge:4222", "tag:edge:5432", "tag:edge:3900"], "deny": ["tag:edge:22", "tag:edge:6443", "tag:edge:30080"]},
+    {"src": "tag:edge", "accept": ["tag:gpu:9100"], "deny": ["tag:gpu:22"]},
   ],
 }
 ```
@@ -130,7 +150,15 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 | `winkey-media` | HLS + thumbnail, key `v/{video_id}/a{attempt}/…` | Vĩnh viễn; attempt cũ bị xóa bởi janitor |
 | `winkey-backups` | Backup PostgreSQL | 14 ngày; bản sao hằng đêm ở gpu-01 |
 
-- **Dung lượng dùng được** ≈ 3 × 120 GB / RF 2 ≈ **180 GB**.
+- **Dung lượng dùng được**:
+  - Mục tiêu 3 node: ≈ 3 × 120 GB / RF 2 ≈ **180 GB**.
+  - **Hiện tại trên edge-1**: LV data 110 GB dùng chung cho mọi PVC (local-path). Phân bổ:
+    - Garage ≈ **70 GB**, tức khoảng 15 giờ video 1080p đủ ladder;
+    - PostgreSQL 15 GB;
+    - NATS 5 GB;
+    - dự phòng 20 GB.
+
+    Cache media của nginx host đặt trên `/`, giới hạn `max_size=10g`. VG chỉ còn khoảng 3 GB nên **không mở rộng LV được**. Cần thêm dung lượng thì mua block volume, hoặc chuyển `winkey-media` sang R2 sớm hơn.
 - 1 giờ video 1080p với đủ ladder (5.0 + 2.8 + 1.4 Mbps video + 3 × 128 kbps audio) ≈ **4.3 GB**, nên chứa được khoảng **35–40 giờ nội dung**. Đủ cho thử nghiệm.
 - **Khi vượt ~70%**: chuyển origin `winkey-media` sang **Cloudflare R2** (không phí egress, được phép phục vụ video qua CDN của Cloudflare) hoặc Backblaze B2. Nhờ ADR-004 chỉ cần đổi endpoint.
 - **Khuyến nghị cho gpu-01**: gắn thêm 1 HDD SATA 4–8 TB cho raw archive và bản sao backup. Đặt NVMe Kingmax (PCIe 3.0) làm **scratch cho transcode**, Samsung (PCIe 2.0) cho OS và log.
@@ -154,6 +182,9 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
 | Rủi ro | Ảnh hưởng | Biện pháp |
 |---|---|---|
+| **edge-1 dùng chung: thay đổi Winkey làm sập site cũ** (đã xảy ra 2 lần, ~8 phút) | Site của khách khác sập | ADR-014; mọi thay đổi nginx/firewall/k3s chạy `--check --diff` trước, có rollback, làm theo khung giờ báo trước; smoke test 4 site cũ sau mỗi lần deploy |
+| **Cockpit :9090 và :7890 mở public trên edge-1** | Bị dò mật khẩu / lạm dụng proxy (7890 thường là cổng proxy HTTP/SOCKS) | Đóng khỏi zone public, chỉ cho phép qua `tailscale0` (task SEC0) |
+| Tranh chấp CPU/RAM với 7 app Node + PostgreSQL host | Winkey hoặc site cũ chậm | Requests/limits bắt buộc; ngân sách Winkey ≤ 2 vCPU / 10 GB (§0.1) |
 | gpu-01 mất điện/mạng | Video mới không được xử lý | Queue giữ job (max age 7d); Uptime Kuma cảnh báo; worker x264 có thể tạm chạy trên edge nếu cần (image amd64 → **cần build arm64 cho transcoder-x264**, để dành cho P2) |
 | Oracle thu hồi instance Always Free "nhàn rỗi" | Mất node | ✅ Đã nâng Pay-As-You-Go. Vẫn backup ra ngoài OCI (gpu-01) |
 | Tailscale rơi về DERP relay (sau khi đổi mạng/router) | Throughput gpu-01 ↔ edge rất thấp | ✅ Hiện đang direct. Giữ UDP 41641 mở; Uptime Kuma kiểm tra định kỳ `tailscale ping` |

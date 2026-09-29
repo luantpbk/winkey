@@ -27,6 +27,12 @@ Branches: agent/ag2/i0-hardware-report, agent/ag2/f1-monorepo-ci, agent/ag2/f3-d
 - The shared dev stack (task F3) must be deployable on gpu-01 as well as on a laptop: bind ports on all interfaces
   so every agent on the LAN can use it.
 
+# STATUS UPDATE (read docs/DECISIONS.md ADR-014 and ADR-015 and docs/INFRASTRUCTURE.md §0.1)
+- BOOT and k3s on edge-1 are DONE by another agent (branch agent/claude/i1-k3s-edge-1, deploy/ansible/).
+  Do NOT re-run them. edge-1 is a SHARED host: nginx on the host owns 80/443 for other people's sites. Never
+  touch host nginx, the firewall or k3s on edge-1 without `--check --diff` first and the human's go-ahead.
+- gpu-01 does not join k3s (ADR-015).
+
 # TASK I0 — verify the hardware (report only, no code)
 First make sure docs/runbooks/edge-1-bootstrap.md has been applied (Tailscale on edge-1); if it has not, apply it.
 Then run the remaining checklist in docs/INFRASTRUCTURE.md §9 on edge-1 and gpu-01. Post the raw outputs plus a summary table in a

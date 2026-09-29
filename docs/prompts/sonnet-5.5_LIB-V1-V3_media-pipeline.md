@@ -10,6 +10,9 @@ The architect (Claude Opus) owns contracts and the DB schema, and reviews your P
 
 # REPO & SETUP
 - git clone https://github.com/luantpbk/winkey && cd winkey
+- ADR-015: the transcoder runs OUTSIDE k3s as a standalone pull worker on gpu-01 (systemd service on Linux or a
+  Windows service). The OS of gpu-01 is being verified. Keep it portable: FFMPEG_PATH/FFPROBE_PATH env vars,
+  filepath-based paths, no /tmp hard-coding, and a Windows build in CI (GOOS=windows).
 - You run on a machine on the same LAN as gpu-01 and can `ssh gpu-01`. Run the GPU tests (build tag `gpu`) there:
   sync the repo, then `go test -tags gpu ./services/transcoder/...` on gpu-01.
 - READ FIRST, in this order: AGENTS.md, docs/ARCHITECTURE.md, docs/DECISIONS.md (ADR-003/004/006/008 matter most),
