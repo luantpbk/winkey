@@ -205,18 +205,26 @@ func (c *Consumer) apply(ctx context.Context, msg jetstream.Msg, env outbox.Enve
 
 // toDLQ copies the original message to dlq.video.uploaded for the replay tool.
 func (c *Consumer) toDLQ(ctx context.Context, msg jetstream.Msg, env outbox.Envelope) {
-	out := &nats.Msg{Subject: SubjectDLQ, Data: msg.Data(), Header: nats.Header{}}
+	publishDLQ(ctx, c.JS, c.Log, msg.Data(), env.EventID)
+}
+
+// publishDLQ publishes data to dlq.video.uploaded. The Nats-Msg-Id is derived
+// from the event id, so the consumer path and the max-deliveries watcher
+// cannot create two copies within JetStream's duplicate window.
+func publishDLQ(ctx context.Context, js jetstream.JetStream, log *slog.Logger, data []byte, eventID string) bool {
+	out := &nats.Msg{Subject: SubjectDLQ, Data: data, Header: nats.Header{}}
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		_, err = c.JS.PublishMsg(pctx, out, jetstream.WithMsgID(env.EventID+":dlq"))
+		_, err = js.PublishMsg(pctx, out, jetstream.WithMsgID(eventID+":dlq"))
 		cancel()
 		if err == nil {
-			return
+			return true
 		}
 		time.Sleep(time.Second)
 	}
-	c.Log.Error("DLQ copy failed; message will be lost", "event_id", env.EventID, "error", err)
+	log.Error("DLQ copy failed; message will be lost", "event_id", eventID, "error", err)
+	return false
 }
 
 func sleep(ctx context.Context, d time.Duration) {

@@ -29,6 +29,11 @@ type MemStore struct {
 
 	CompleteOK   *bool // nil = true
 	FailJobError error
+
+	Stuck      []job.FailRecord // FailStuck calls that took effect
+	StuckCalls int
+	StuckNoop  bool // FailStuck reports "nothing to do"
+	StuckErr   error
 }
 
 func (s *MemStore) BeginJob(_ context.Context, id uuid.UUID, encoder, _ string) (job.BeginResult, error) {
@@ -76,6 +81,21 @@ func (s *MemStore) FailJob(_ context.Context, f job.FailRecord) error {
 	}
 	s.Fails = append(s.Fails, f)
 	return nil
+}
+
+func (s *MemStore) FailStuck(_ context.Context, id uuid.UUID, f job.Failure) (job.FailRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StuckCalls++
+	if s.StuckErr != nil {
+		return job.FailRecord{}, false, s.StuckErr
+	}
+	if s.StuckNoop {
+		return job.FailRecord{}, false, nil
+	}
+	rec := job.FailRecord{VideoID: id, OwnerID: s.Video.OwnerID, JobID: uuid.New(), Attempt: s.Attempts + 1, Failure: f, Terminal: true}
+	s.Stuck = append(s.Stuck, rec)
+	return rec, true, nil
 }
 
 // Object is one stored object.

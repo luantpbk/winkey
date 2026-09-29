@@ -131,10 +131,17 @@ func run(cfg config.Config, log *slog.Logger) error {
 	outbox.SetProducer(service)
 	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true}
 	consumer := &worker.Consumer{JS: js, Pipeline: pipeline, Concurrency: concurrency, Grace: cfg.ShutdownGrace, Log: log}
+	watcher := &worker.Watcher{NC: nc, JS: js, Store: pipeline.Store, Log: log}
 	janitor := &worker.Janitor{JS: js, Objects: s3, MediaBucket: cfg.S3MediaBucket, RawBucket: cfg.S3RawBucket, Log: log}
 
+	// The watcher must be subscribed before the consumer starts pulling: the
+	// max-deliveries advisory is emitted when a puller asks for messages.
+	if err := watcher.Start(ctx); err != nil {
+		return err
+	}
+
 	var wg sync.WaitGroup
-	errs := make(chan error, 4)
+	errs := make(chan error, 5)
 	start := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
@@ -154,6 +161,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	start("outbox relay", func() error { return relay.Run(ctx) })
 	start("consumer", func() error { return consumer.Run(ctx) })
 	start("media janitor", func() error { return janitor.Run(ctx) })
+	start("max-deliveries watcher", func() error { return watcher.Run(ctx) })
 
 	<-ctx.Done()
 	log.Info("shutting down")

@@ -203,3 +203,70 @@ func (p *Postgres) FailJob(ctx context.Context, f job.FailRecord) error {
 	}
 	return tx.Commit(ctx)
 }
+
+func (p *Postgres) FailStuck(ctx context.Context, videoID uuid.UUID, f job.Failure) (job.FailRecord, bool, error) {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return job.FailRecord{}, false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var owner uuid.UUID
+	var status string
+	err = tx.QueryRow(ctx, `SELECT owner_id, status::text FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
+		Scan(&owner, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return job.FailRecord{}, false, nil
+	}
+	if err != nil {
+		return job.FailRecord{}, false, fmt.Errorf("load video: %w", err)
+	}
+	if status != "PROCESSING" && status != "UPLOADED" {
+		return job.FailRecord{}, false, nil // READY / FAILED / UPLOADING: nothing to give up on
+	}
+
+	text := f.Reason + ": " + f.Message
+	var jobID uuid.UUID
+	var attempt int
+	var jobStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT id, attempt, status::text FROM media.transcode_jobs
+		WHERE video_id = $1 ORDER BY attempt DESC LIMIT 1`, videoID).Scan(&jobID, &attempt, &jobStatus)
+	switch {
+	case err == nil && (jobStatus == "RUNNING" || jobStatus == "QUEUED"):
+		if _, err := tx.Exec(ctx, `
+			UPDATE media.transcode_jobs SET status = 'FAILED', error = $2, finished_at = now() WHERE id = $1`,
+			jobID, text); err != nil {
+			return job.FailRecord{}, false, fmt.Errorf("close job: %w", err)
+		}
+	case err == nil && jobStatus == "FAILED":
+		// The last attempt already failed; report against it.
+	case err == nil || errors.Is(err, pgx.ErrNoRows):
+		// No job ever ran (or the last one succeeded): record one so the event has a job_id.
+		attempt++
+		jobID = ids.New()
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO media.transcode_jobs (id, video_id, attempt, status, error, finished_at)
+			VALUES ($1, $2, $3, 'FAILED', $4, now())`, jobID, videoID, attempt, text); err != nil {
+			return job.FailRecord{}, false, fmt.Errorf("record job: %w", err)
+		}
+	default:
+		return job.FailRecord{}, false, fmt.Errorf("latest job: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE media.videos SET status = 'FAILED', error = $2 WHERE id = $1`,
+		videoID, f.Message); err != nil {
+		return job.FailRecord{}, false, fmt.Errorf("fail video: %w", err)
+	}
+	rec := job.FailRecord{VideoID: videoID, OwnerID: owner, JobID: jobID, Attempt: attempt, Failure: f, Terminal: true}
+	if err := outbox.Enqueue(ctx, tx, "media", "video.failed", failedEvent{
+		VideoID: videoID.String(), OwnerID: owner.String(), JobID: jobID.String(), Attempt: attempt,
+		Reason: f.Reason, Message: f.Message, Retryable: f.Retryable,
+	}); err != nil {
+		return job.FailRecord{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return job.FailRecord{}, false, fmt.Errorf("commit: %w", err)
+	}
+	return rec, true, nil
+}

@@ -175,3 +175,76 @@ func TestStoreTerminalFailure(t *testing.T) {
 		t.Fatal("UPLOADING video must produce an error so the message is retried")
 	}
 }
+
+func TestStoreFailStuck(t *testing.T) {
+	pg := testkit.StartPostgres(t)
+	ctx := context.Background()
+	st := &store.Postgres{Pool: pg.Pool}
+	f := job.Failure{Reason: job.ReasonInternal, Retryable: true, Message: "Processing did not complete after several attempts."}
+	events := func() int {
+		var n int
+		_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE subject='video.failed'`).Scan(&n)
+		return n
+	}
+
+	// PROCESSING with a RUNNING job (the worker died): job closed, video FAILED, one event.
+	vid, owner := seed(t, pg, "UPLOADED")
+	b, _ := st.BeginJob(ctx, vid, "nvenc", "gpu-01")
+	rec, ok, err := st.FailStuck(ctx, vid, f)
+	if err != nil || !ok || rec.JobID != b.JobID || rec.Attempt != 1 || rec.OwnerID != owner || !rec.Terminal {
+		t.Fatalf("stuck: %+v %v %v", rec, ok, err)
+	}
+	var vstatus, jstatus, verr string
+	_ = pg.Pool.QueryRow(ctx, `SELECT status::text, error FROM media.videos WHERE id=$1`, vid).Scan(&vstatus, &verr)
+	_ = pg.Pool.QueryRow(ctx, `SELECT status::text FROM media.transcode_jobs WHERE id=$1`, b.JobID).Scan(&jstatus)
+	if vstatus != "FAILED" || verr != f.Message || jstatus != "FAILED" || events() != 1 {
+		t.Fatalf("video=%s job=%s err=%q events=%d", vstatus, jstatus, verr, events())
+	}
+	var payload []byte
+	_ = pg.Pool.QueryRow(ctx, `SELECT payload FROM media.outbox WHERE subject='video.failed'`).Scan(&payload)
+	var env struct {
+		Data map[string]any `json:"data"`
+	}
+	_ = json.Unmarshal(payload, &env)
+	if env.Data["reason"] != "INTERNAL" || env.Data["retryable"] != true || env.Data["job_id"] != b.JobID.String() || env.Data["attempt"] != float64(1) {
+		t.Fatalf("event: %s", payload)
+	}
+
+	// Idempotent: a repeated advisory does nothing and emits nothing.
+	if _, ok, err := st.FailStuck(ctx, vid, f); err != nil || ok || events() != 1 {
+		t.Fatalf("repeat: ok=%v err=%v events=%d", ok, err, events())
+	}
+
+	// UPLOADED and never started (BeginJob kept failing): a FAILED job is recorded for the event.
+	vid2, _ := seed(t, pg, "UPLOADED")
+	rec2, ok, err := st.FailStuck(ctx, vid2, f)
+	if err != nil || !ok || rec2.Attempt != 1 {
+		t.Fatalf("never started: %+v %v %v", rec2, ok, err)
+	}
+	var nJobs int
+	_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.transcode_jobs WHERE video_id=$1 AND status='FAILED'`, vid2).Scan(&nJobs)
+	if nJobs != 1 || events() != 2 {
+		t.Fatalf("jobs=%d events=%d", nJobs, events())
+	}
+
+	// READY, UPLOADING and unknown videos are left alone.
+	ready, _ := seed(t, pg, "UPLOADED")
+	b3, _ := st.BeginJob(ctx, ready, "x264", "w")
+	rs := media.Select(1280, 720)
+	res := job.ReadyResult{VideoID: ready, JobID: b3.JobID, Attempt: 1, Encoder: "x264", DurationMs: 1000, Width: 1280, Height: 720,
+		MasterKey: "m", ThumbKey: "t", Renditions: rs, PlaylistKeys: []string{"a", "b"}}
+	res.OwnerID = b3.Video.OwnerID
+	if ok, err := st.Complete(ctx, res); err != nil || !ok {
+		t.Fatalf("complete: %v %v", ok, err)
+	}
+	uploading, _ := seed(t, pg, "UPLOADING")
+	for name, id := range map[string]uuid.UUID{"ready": ready, "uploading": uploading, "unknown": ids.New()} {
+		if _, ok, err := st.FailStuck(ctx, id, f); err != nil || ok {
+			t.Errorf("%s: ok=%v err=%v", name, ok, err)
+		}
+	}
+	_ = pg.Pool.QueryRow(ctx, `SELECT status::text FROM media.videos WHERE id=$1`, ready).Scan(&vstatus)
+	if vstatus != "READY" {
+		t.Fatalf("READY video was touched: %s", vstatus)
+	}
+}

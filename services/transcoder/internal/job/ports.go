@@ -82,6 +82,13 @@ type Store interface {
 	Complete(ctx context.Context, r ReadyResult) (ok bool, err error)
 	// FailJob records the failure; see FailRecord.Terminal.
 	FailJob(ctx context.Context, f FailRecord) error
+	// FailStuck is used when JetStream gave up on a message (max_deliver
+	// reached without an ack, typically because workers died mid-job). In one
+	// transaction, if the video is still PROCESSING or UPLOADED: closes its
+	// active job (or records a FAILED one if none ever ran), marks the video
+	// FAILED and writes video.failed to the outbox. ok is false when there was
+	// nothing to do (already READY/FAILED, deleted): the call is idempotent.
+	FailStuck(ctx context.Context, videoID uuid.UUID, f Failure) (rec FailRecord, ok bool, err error)
 }
 
 // Objects is the object-storage port.

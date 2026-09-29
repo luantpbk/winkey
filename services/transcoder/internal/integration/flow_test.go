@@ -40,14 +40,24 @@ type stack struct {
 	obj   *objects.S3
 }
 
-func start(t *testing.T, encoder string) *stack {
+func start(t *testing.T, encoder string) *stack { return startStack(t, encoder, true) }
+
+// startStack boots PostgreSQL, NATS and the outbox relay. With full=true it
+// also starts Garage and the transcoder consumer.
+func startStack(t *testing.T, encoder string, full bool) *stack {
 	t.Helper()
-	tools := testutil.ToolsFromEnv(t)
-	s := &stack{
-		pg: testkit.StartPostgres(t), nats: testkit.StartNATS(t), g: testkit.StartGarage(t), tools: tools,
-		log: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+	var tools job.Tools // ffmpeg is only needed when the transcoder consumer runs
+	if full {
+		tools = testutil.ToolsFromEnv(t)
 	}
-	s.obj = objects.New(objects.Config{Endpoint: s.g.Endpoint, Region: s.g.Region, AccessKeyID: s.g.AccessKey, SecretKey: s.g.SecretKey})
+	s := &stack{
+		pg: testkit.StartPostgres(t), nats: testkit.StartNATS(t), tools: tools,
+		log: testLogger(),
+	}
+	if full {
+		s.g = testkit.StartGarage(t)
+		s.obj = objects.New(objects.Config{Endpoint: s.g.Endpoint, Region: s.g.Region, AccessKeyID: s.g.AccessKey, SecretKey: s.g.SecretKey})
+	}
 	pipeline := &job.Pipeline{
 		Store: &store.Postgres{Pool: s.pg.Pool}, Objects: s.obj, Events: natsPub{s.nats}, Tools: tools, Log: s.log,
 		Cfg: job.Config{
@@ -63,7 +73,9 @@ func start(t *testing.T, encoder string) *stack {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() { _ = relay.Run(ctx) }()
-	go func() { _ = s.cons.Run(ctx) }()
+	if full {
+		go func() { _ = s.cons.Run(ctx) }()
+	}
 	return s
 }
 
@@ -85,10 +97,12 @@ func (s *stack) seed(t *testing.T, path string) (videoID, ownerID uuid.UUID) {
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	if _, err := s.g.S3Client().PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(testkit.RawBucket), Key: &rawKey, Body: f, ContentLength: aws.Int64(st.Size()),
-	}); err != nil {
-		t.Fatal(err)
+	if s.g != nil { // without Garage the row and event are enough
+		if _, err := s.g.S3Client().PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(testkit.RawBucket), Key: &rawKey, Body: f, ContentLength: aws.Int64(st.Size()),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	tx, err := s.pg.Pool.Begin(ctx)
@@ -344,7 +358,7 @@ func TestDeletedVideoIsPurged(t *testing.T) {
 }
 
 func TestReplayDLQ(t *testing.T) {
-	s := start(t, media.EncoderX264)
+	s := startStack(t, media.EncoderX264, false)
 	ctx := context.Background()
 	id := ids.New()
 	_, payload, _ := outbox.BuildEnvelope(ctx, "video.uploaded", job.UploadedEvent{
@@ -369,4 +383,107 @@ func TestReplayDLQ(t *testing.T) {
 	if rep, _ = worker.ReplayDLQ(ctx, s.nats.JS, worker.ReplayOptions{}); rep.Matched != 0 {
 		t.Fatalf("message replayed twice: %+v", rep)
 	}
+}
+
+// A message whose deliveries all end without an ack (worker died repeatedly)
+// makes JetStream publish a max-deliveries advisory; the watcher must fail the
+// video, emit video.failed and copy the message to the DLQ.
+func TestMaxDeliveriesAdvisoryFailsVideo(t *testing.T) {
+	s := startStack(t, media.EncoderX264, false)
+	ctx := context.Background()
+	junk := filepath.Join(t.TempDir(), "raw.bin")
+	_ = os.WriteFile(junk, []byte("x"), 0o644)
+
+	// Stop the real consumer from competing: this test uses its own consumer,
+	// with a short ack_wait and max_deliver 2, and a video the worker "crashed" on.
+	id, owner := s.seedProcessing(t, junk)
+	cons, err := s.nats.JS.CreateOrUpdateConsumer(ctx, "VIDEO", jetstream.ConsumerConfig{
+		Durable: "advisory-test", FilterSubject: "video.uploaded", AckPolicy: jetstream.AckExplicitPolicy,
+		AckWait: time.Second, MaxDeliver: 2, DeliverPolicy: jetstream.DeliverAllPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &worker.Watcher{NC: s.nats.NC, JS: s.nats.JS, Store: &store.Postgres{Pool: s.pg.Pool}, Consumer: "advisory-test", Log: s.log}
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if err := w.Start(wctx); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = w.Run(wctx) }()
+
+	// Receive the message max_deliver times and never ack it.
+	for i := 0; i < 2; i++ {
+		batch, err := cons.Fetch(1, jetstream.FetchMaxWait(10*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for range batch.Messages() {
+			n++
+		}
+		if n != 1 {
+			t.Fatalf("delivery %d: got %d messages", i+1, n)
+		}
+	}
+
+	// JetStream announces the exhausted message when a puller asks for more
+	// after the last ack_wait expired; a running worker always has a pull open.
+	go func() {
+		for wctx.Err() == nil {
+			b, err := cons.Fetch(1, jetstream.FetchMaxWait(3*time.Second))
+			if err == nil {
+				for range b.Messages() {
+				}
+			}
+		}
+	}()
+	s.waitStatus(t, id, "FAILED", 30*time.Second)
+	failed := s.events(t, "video.failed", 1)
+	if len(failed) != 1 {
+		t.Fatal("video.failed not published")
+	}
+	var d struct {
+		VideoID   string `json:"video_id"`
+		OwnerID   string `json:"owner_id"`
+		Reason    string `json:"reason"`
+		Retryable bool   `json:"retryable"`
+	}
+	_ = json.Unmarshal(failed[0].Data, &d)
+	if d.VideoID != id.String() || d.OwnerID != owner.String() || d.Reason != "INTERNAL" || !d.Retryable {
+		t.Fatalf("video.failed: %+v", d)
+	}
+	dlq, err := s.nats.JS.Stream(ctx, "DLQ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		si, _ := dlq.Info(ctx)
+		if si != nil && si.State.Msgs == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("DLQ copy missing")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// seedProcessing is seed plus a RUNNING job, as left by a worker that died.
+func (s *stack) seedProcessing(t *testing.T, path string) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	id, owner := s.seed(t, path)
+	if _, err := (&store.Postgres{Pool: s.pg.Pool}).BeginJob(context.Background(), id, "x264", "dead-worker"); err != nil {
+		t.Fatal(err)
+	}
+	return id, owner
+}
+
+// testLogger discards logs unless WINKEY_TEST_LOG is set (debugging aid).
+func testLogger() *slog.Logger {
+	if os.Getenv("WINKEY_TEST_LOG") != "" {
+		return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
+	return slog.New(slog.NewJSONHandler(io.Discard, nil))
 }
