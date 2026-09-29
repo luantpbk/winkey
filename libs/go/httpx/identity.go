@@ -52,19 +52,48 @@ func IdentityFrom(ctx context.Context) (Identity, bool) {
 // gateway).
 func Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		uid, err := uuid.Parse(r.Header.Get("X-User-Id"))
-		if err != nil || uid == uuid.Nil {
+		id, ok := identityFromHeaders(r)
+		if !ok {
 			Unauthorized(w, r)
 			return
 		}
-		var roles []string
-		for _, p := range strings.Split(r.Header.Get("X-User-Roles"), ",") {
-			if p = strings.TrimSpace(p); p != "" {
-				roles = append(roles, p)
-			}
-		}
-		next.ServeHTTP(w, r.WithContext(WithIdentity(r.Context(), Identity{UserID: uid, Roles: roles})))
+		next.ServeHTTP(w, r.WithContext(WithIdentity(r.Context(), id)))
 	})
+}
+
+// OptionalAuthenticate is Authenticate for routes that serve anonymous callers
+// too (e.g. public GETs whose result depends on who is asking). No X-User-Id
+// means an anonymous request: the handler runs without an identity in the
+// context (IdentityFrom reports false). An X-User-Id that is present but
+// malformed is still a 401: the gateway never produces one, so it signals a
+// misrouted or forged request rather than an anonymous user.
+func OptionalAuthenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-User-Id") == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		id, ok := identityFromHeaders(r)
+		if !ok {
+			Unauthorized(w, r)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(WithIdentity(r.Context(), id)))
+	})
+}
+
+func identityFromHeaders(r *http.Request) (Identity, bool) {
+	uid, err := uuid.Parse(r.Header.Get("X-User-Id"))
+	if err != nil || uid == uuid.Nil {
+		return Identity{}, false
+	}
+	var roles []string
+	for _, p := range strings.Split(r.Header.Get("X-User-Roles"), ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			roles = append(roles, p)
+		}
+	}
+	return Identity{UserID: uid, Roles: roles}, true
 }
 
 // RequireRole allows the request only when the caller has the role

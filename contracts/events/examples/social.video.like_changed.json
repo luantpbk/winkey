@@ -1,0 +1,13 @@
+{
+  "event_id": "0192f5f0-6666-7000-8000-000000000007",
+  "type": "social.video.like_changed",
+  "version": 1,
+  "occurred_at": "2026-10-02T11:01:00Z",
+  "producer": "social-svc",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "user_id": "0192f5e0-0000-7000-8000-000000000002",
+    "liked": true,
+    "like_count": 42
+  }
+}
