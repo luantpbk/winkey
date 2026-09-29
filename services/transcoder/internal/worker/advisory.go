@@ -31,11 +31,7 @@ type Advisory struct {
 }
 
 // GaveUpFailure is recorded for videos whose message JetStream gave up on.
-var GaveUpFailure = job.Failure{
-	Reason:    job.ReasonInternal,
-	Retryable: true, // a human can replay it from the DLQ once the cause is fixed
-	Message:   "Processing did not complete after several attempts.",
-}
+var GaveUpFailure = job.GaveUpFailure
 
 // Watcher closes the gap left by the consumer: when every delivery of a
 // message ends without an ack (worker crash, power loss, lost heartbeat),

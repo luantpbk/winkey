@@ -132,6 +132,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true}
 	consumer := &worker.Consumer{JS: js, Pipeline: pipeline, Concurrency: concurrency, Grace: cfg.ShutdownGrace, Log: log}
 	watcher := &worker.Watcher{NC: nc, JS: js, Store: pipeline.Store, Log: log}
+	reconciler := &worker.Reconciler{Store: pipeline.Store, Interval: cfg.ReconcileInterval, StaleAfter: cfg.StaleJobAfter, MaxAttempts: cfg.MaxJobAttempts, Log: log}
 	janitor := &worker.Janitor{JS: js, Objects: s3, MediaBucket: cfg.S3MediaBucket, RawBucket: cfg.S3RawBucket, Log: log}
 
 	// The watcher must be subscribed before the consumer starts pulling: the
@@ -141,7 +142,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	var wg sync.WaitGroup
-	errs := make(chan error, 5)
+	errs := make(chan error, 6)
 	start := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
@@ -162,6 +163,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	start("consumer", func() error { return consumer.Run(ctx) })
 	start("media janitor", func() error { return janitor.Run(ctx) })
 	start("max-deliveries watcher", func() error { return watcher.Run(ctx) })
+	start("stuck-job reconciler", func() error { return reconciler.Run(ctx) })
 
 	<-ctx.Done()
 	log.Info("shutting down")

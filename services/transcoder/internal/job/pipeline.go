@@ -30,9 +30,11 @@ type Config struct {
 	MediaBucket       string
 	Encoder           string // resolved: media.EncoderNVENC or media.EncoderX264
 	X264Preset        string
-	UploadParallelism int // default 8
+	NoHWDecode        bool // NVENC with CPU decode instead of -hwaccel cuda (benchmarks; possible HWACCEL_DECODE=false)
+	UploadParallelism int  // default 8
 	WorkerID          string
 	ProgressInterval  time.Duration // default 5s
+	HeartbeatEvery    time.Duration // InProgress + heartbeat_at interval; default 30s
 }
 
 // Pipeline processes one video.uploaded message.
@@ -49,6 +51,10 @@ type Pipeline struct {
 type Delivery struct {
 	Num int // NumDelivered, starting at 1
 	Max int // consumer max_deliver
+	// InProgress extends the message's ack deadline (msg.InProgress). The
+	// pipeline calls it every Config.HeartbeatEvery while a job runs, and
+	// records the same tick in transcode_jobs.heartbeat_at. May be nil.
+	InProgress func() error
 }
 
 // Last reports whether no further delivery will follow.
@@ -131,7 +137,9 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 	}
 	log = log.With("job_id", begin.JobID, "attempt", begin.Attempt)
 
+	stopHeartbeat := p.startHeartbeat(ctx, d, begin.JobID, log)
 	stats, runErr := p.run(ctx, begin, log)
+	stopHeartbeat()
 	if runErr == nil {
 		stats.TotalWall = time.Since(start)
 		log.InfoContext(ctx, "transcode succeeded", "encoder", stats.Encoder,
@@ -170,6 +178,40 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 	default:
 		return Result{Action: ActionNak, Delay: retryDelay(d), Err: runErr}
 	}
+}
+
+// startHeartbeat, every HeartbeatEvery, extends the message's ack deadline
+// (InProgress) and stamps transcode_jobs.heartbeat_at, which the stuck-job
+// reconciler reads to tell a live job from one whose worker died. It returns
+// a function that stops the loop and waits for it.
+func (p *Pipeline) startHeartbeat(ctx context.Context, d Delivery, jobID uuid.UUID, log *slog.Logger) (stop func()) {
+	every := p.Cfg.HeartbeatEvery
+	if every <= 0 {
+		every = 30 * time.Second
+	}
+	hbCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				if d.InProgress != nil {
+					if err := d.InProgress(); err != nil {
+						log.WarnContext(hbCtx, "InProgress failed", "error", err)
+					}
+				}
+				if err := p.Store.Heartbeat(hbCtx, jobID); err != nil && hbCtx.Err() == nil {
+					log.WarnContext(hbCtx, "heartbeat write failed", "error", err)
+				}
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 // retryOrGiveUp handles failures before a job exists (e.g. database down).
@@ -231,7 +273,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		}
 		return p.Tools.RunHLS(ctx, media.HLSPlan{
 			Input: source, OutDir: hlsDir, Encoder: enc, X264Preset: p.Cfg.X264Preset,
-			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: p.Cfg.NoHWDecode,
 		}, info.DurationSec, func(pct float64) {
 			rep.report(ctx, StageTranscoding, progressTranscode+(progressUpload-progressTranscode)*pct/100)
 		})

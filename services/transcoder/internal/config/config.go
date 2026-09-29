@@ -30,13 +30,20 @@ type Config struct {
 	Encoder           string `env:"ENCODER" default:"auto"` // auto | nvenc | x264
 	X264Preset        string `env:"X264_PRESET" default:"veryfast"`
 
-	ScratchDir  string `env:"SCRATCH_DIR"` // default: <os temp dir>/winkey-scratch
-	ArchiveDir  string `env:"ARCHIVE_DIR"` // optional raw archive
-	FFmpegPath  string `env:"FFMPEG_PATH" default:"ffmpeg"`
-	FFprobePath string `env:"FFPROBE_PATH" default:"ffprobe"`
+	ScratchDir string `env:"SCRATCH_DIR"` // default: <os temp dir>/winkey-scratch
+	ArchiveDir string `env:"ARCHIVE_DIR"` // optional raw archive
+	// Required: production never relies on ffmpeg being on PATH.
+	FFmpegPath  string `env:"FFMPEG_PATH,required"`
+	FFprobePath string `env:"FFPROBE_PATH,required"`
 
 	UploadParallelism int           `env:"UPLOAD_PARALLELISM" default:"8"`
 	ShutdownGrace     time.Duration `env:"SHUTDOWN_GRACE" default:"30s"`
+
+	// Stuck-job reconciler (V3b): every worker sweeps RUNNING jobs whose
+	// heartbeat is older than StaleJobAfter.
+	ReconcileInterval time.Duration `env:"RECONCILE_INTERVAL" default:"60s"`
+	StaleJobAfter     time.Duration `env:"STALE_JOB_AFTER" default:"10m"`
+	MaxJobAttempts    int           `env:"MAX_JOB_ATTEMPTS" default:"3"`
 }
 
 // Load reads and validates the environment and fills path defaults.

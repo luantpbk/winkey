@@ -68,8 +68,8 @@ func (p *Postgres) BeginJob(ctx context.Context, videoID uuid.UUID, encoder, wor
 	}
 	jobID := ids.New()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO media.transcode_jobs (id, video_id, attempt, status, encoder, worker_id, started_at)
-		VALUES ($1, $2, $3, 'RUNNING', $4, $5, now())`, jobID, videoID, attempt, encoder, workerID); err != nil {
+		INSERT INTO media.transcode_jobs (id, video_id, attempt, status, encoder, worker_id, started_at, heartbeat_at)
+		VALUES ($1, $2, $3, 'RUNNING', $4, $5, now(), now())`, jobID, videoID, attempt, encoder, workerID); err != nil {
 		return job.BeginResult{}, fmt.Errorf("insert job: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -211,9 +211,23 @@ func (p *Postgres) FailStuck(ctx context.Context, videoID uuid.UUID, f job.Failu
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	rec, ok, err := failStuck(ctx, tx, videoID, f)
+	if err != nil || !ok {
+		return job.FailRecord{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return job.FailRecord{}, false, fmt.Errorf("commit: %w", err)
+	}
+	return rec, true, nil
+}
+
+// failStuck is FailStuck inside the caller's transaction: if the video is
+// PROCESSING or UPLOADED, close/record its job, mark the video FAILED and
+// enqueue video.failed. It does not commit.
+func failStuck(ctx context.Context, tx pgx.Tx, videoID uuid.UUID, f job.Failure) (job.FailRecord, bool, error) {
 	var owner uuid.UUID
 	var status string
-	err = tx.QueryRow(ctx, `SELECT owner_id, status::text FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
+	err := tx.QueryRow(ctx, `SELECT owner_id, status::text FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
 		Scan(&owner, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return job.FailRecord{}, false, nil
@@ -264,9 +278,6 @@ func (p *Postgres) FailStuck(ctx context.Context, videoID uuid.UUID, f job.Failu
 		Reason: f.Reason, Message: f.Message, Retryable: f.Retryable,
 	}); err != nil {
 		return job.FailRecord{}, false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return job.FailRecord{}, false, fmt.Errorf("commit: %w", err)
 	}
 	return rec, true, nil
 }
