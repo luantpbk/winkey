@@ -137,7 +137,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
         expect.fail('Failed initializing PG or NATS: ' + err);
       }
     }
-  });
+  }, 120_000);
 
   afterAll(async () => {
     if (nc) {
@@ -153,7 +153,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
     if (stopNatsContainer) {
       await stopNatsContainer();
     }
-  });
+  }, 60_000);
 
   it('an enqueue in a rolled-back transaction publishes nothing', async () => {
     if (!pool || !nc) return;
@@ -190,7 +190,7 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
       "SELECT count(*) as count FROM auth.outbox WHERE subject = 'user.rollback_test'",
     );
     expect(Number(res.rows[0].count)).toBe(0);
-  });
+  }, 60_000);
 
   it('a committed transaction is delivered exactly once with Nats-Msg-Id set and semantic payload matches', async () => {
     if (!pool || !nc) return;
@@ -261,5 +261,5 @@ describe('Outbox Integration (Real PostgreSQL 17 + NATS JetStream)', () => {
     expect(sub.getProcessed()).toBe(1);
 
     sub.unsubscribe();
-  });
+  }, 60_000);
 });
