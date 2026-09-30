@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "nats": "^2.29.3",
-    "uuid": "^11.1.0"
+    "uuid": "^14.0.2"
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.0.0",
