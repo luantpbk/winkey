@@ -104,6 +104,41 @@ Rate limiting is enforced via Valkey (sliding window counter):
 
 ---
 
+## Immediate Token Revocation (ADR-019 / Task A4)
+
+`auth-svc` enables immediate invalidation of stateless access tokens (RS256 JWTs) without querying PostgreSQL on `/v1/auth/verify`, combining in-memory JWT cryptographic verification with Valkey denylist checks:
+
+### Valkey Revocation Keys & TTLs
+
+Both key types use a TTL of **960 seconds** (15-minute access token lifespan + 60-second clock skew window):
+
+| Key Pattern | Value | Trigger Actions | Semantics |
+|---|---|---|---|
+| `auth:revoked:sid:{sid}` | `"1"` | `POST /v1/auth/logout`<br>`POST /v1/auth/refresh` (reuse detected)<br>`PUT /v1/auth/me/password` (other families) | Invalidate all access tokens issued under this refresh-token family (`sid`). |
+| `auth:revoked:user:{userId}` | Unix timestamp (seconds) | `PUT /v1/admin/users/:id/suspension`<br>`PUT /v1/admin/users/:id/roles` (when changed)<br>`DELETE /v1/auth/me` | Invalidate all access tokens for this user where `iat <= cutoff`. Updated atomically via Lua script to guarantee the cutoff is never lowered. |
+
+### Post-Commit Execution & Reliability
+
+- Revocation writes are dispatched **strictly after** the database transaction has committed.
+- Valkey write failures log a `warn` entry containing only the identifier (`sid` or `userId`, never tokens, passwords, or emails) and increment `auth_revocation_write_total{result="error"}`.
+- A Valkey write failure **never fails the HTTP request**, maintaining PostgreSQL as the ultimate source of truth.
+
+### Fail-Open Verification (`GET /v1/auth/verify`)
+
+- **Anonymous Requests:** Requests without an `Authorization` header return `204 No Content` immediately without querying Valkey.
+- **Revocation Check:** Authenticated requests execute a single Valkey `MGET` for both `auth:revoked:sid:{sid}` and `auth:revoked:user:{userId}` with a strict **50 ms timeout**.
+- **Fail-Open Policy:** If Valkey is down, unreachable, or takes longer than 50 ms to respond, `verify` allows valid cryptographic tokens to proceed (fail-open) and increments `auth_verify_revocation_check_total{result="error"}`. This prevents Valkey hiccups from taking down authenticated traffic across the cluster.
+- **Revoked Detection:** If `auth:revoked:sid:{sid}` exists or `iat <= cutoff`, `verify` returns `401 Unauthorized` (`Invalid or expired token`) and increments `auth_verify_revocation_check_total{result="revoked"}`.
+
+### OpenTelemetry Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `auth_revocation_write_total` | Counter | `result="ok"`, `result="error"` | Tracks revocation key write attempts to Valkey. |
+| `auth_verify_revocation_check_total` | Counter | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`. |
+
+---
+
 ## Running & Testing
 
 ```bash
@@ -122,4 +157,5 @@ pnpm --dir services/auth build
 # Start production server
 pnpm --dir services/auth start
 ```
+
 

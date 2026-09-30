@@ -17,6 +17,7 @@ import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role } from '../db/types.js';
 import type { Kysely } from 'kysely';
+import type { RevocationService } from '../revocation/revocation.js';
 
 const updateMeSchema = z
   .object({
@@ -91,7 +92,8 @@ export const meRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
   rateLimiter: RateLimiter;
-}> = async (fastify, { db, env, rateLimiter }) => {
+  revocationService: RevocationService;
+}> = async (fastify, { db, env, rateLimiter, revocationService }) => {
   // 1. GET /v1/auth/me
   fastify.get('/v1/auth/me', async (request, reply) => {
     const userId = await extractBearerUserId(request, env);
@@ -224,7 +226,7 @@ export const meRoute: FastifyPluginAsync<{
 
     const newHash = await hashPassword(new_password);
 
-    await db.transaction().execute(async (trx) => {
+    const revokedFamilyIds = await db.transaction().execute(async (trx) => {
       // Find current refresh token family from wk_rt cookie if present
       let currentFamilyId: string | null = null;
       const rawCookie = request.cookies[REFRESH_COOKIE_NAME];
@@ -240,6 +242,19 @@ export const meRoute: FastifyPluginAsync<{
           currentFamilyId = currentToken.family_id;
         }
       }
+
+      // Collect all active other families that will be revoked
+      let otherFamiliesQuery = trx
+        .selectFrom('auth.refresh_tokens')
+        .select('family_id')
+        .distinct()
+        .where('user_id', '=', userId)
+        .where('revoked_at', 'is', null);
+
+      if (currentFamilyId) {
+        otherFamiliesQuery = otherFamiliesQuery.where('family_id', '!=', currentFamilyId);
+      }
+      const otherFamilies = await otherFamiliesQuery.execute();
 
       const now = new Date();
       await trx
@@ -263,7 +278,14 @@ export const meRoute: FastifyPluginAsync<{
       }
 
       await revokeQuery.execute();
+
+      return otherFamilies.map((f) => f.family_id);
     });
+
+    // Revoke sessions in Valkey AFTER DB commit (fail-safe)
+    for (const famId of revokedFamilyIds) {
+      await revocationService.revokeSession(famId);
+    }
 
     request.log.info({ userId, op: 'changePassword' }, 'User changed password');
     return reply.status(204).send();
@@ -370,6 +392,9 @@ export const meRoute: FastifyPluginAsync<{
         .where('revoked_at', 'is', null)
         .execute();
     });
+
+    // Revoke user in Valkey AFTER DB commit (fail-safe)
+    await revocationService.revokeUser(userId);
 
     // Clear refresh cookie
     reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));

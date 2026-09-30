@@ -12,6 +12,7 @@ import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
+import type { RevocationService } from '../revocation/revocation.js';
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '').toLowerCase();
@@ -20,7 +21,8 @@ function normalizeOrigin(origin: string): string {
 export const refreshRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
-}> = async (fastify, { db, env }) => {
+  revocationService: RevocationService;
+}> = async (fastify, { db, env, revocationService }) => {
   fastify.post('/v1/auth/refresh', async (request, reply) => {
     // 1. Reject if Origin header is present and != PUBLIC_ORIGIN
     const origin = request.headers.origin;
@@ -154,6 +156,9 @@ export const refreshRoute: FastifyPluginAsync<{
     });
 
     if (result.kind === 'reuse') {
+      // Valkey revocation AFTER DB commit
+      await revocationService.revokeSession(result.familyId);
+
       request.log.warn(
         {
           family_id: result.familyId,

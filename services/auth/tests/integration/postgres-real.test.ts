@@ -13,6 +13,8 @@ import { v7 as uuidv7, version as uuidVersion } from 'uuid';
 import { issueAccessToken } from '../../src/crypto/jwt.js';
 import { hashPassword } from '../../src/crypto/passwords.js';
 import type { FastifyInstance } from 'fastify';
+import { Redis } from 'ioredis';
+import { getRevocationMetricCount } from '../../src/revocation/revocation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +51,8 @@ async function applyMigrations(pool: pg.Pool, migrationsDir: string) {
 describe('Real PostgreSQL 17 Integration Tests', () => {
   let pool: pg.Pool | null = null;
   let stopContainer: (() => Promise<void>) | null = null;
+  let valkeyContainerStop: (() => Promise<void>) | null = null;
+  let redisClient: Redis | null = null;
   let app: FastifyInstance | null = null;
   let dbUrl: string | null = null;
   let isReady = false;
@@ -106,13 +110,41 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       }
     }
 
+    // 2b. Start Valkey / Redis container if available
+    let valkeyUrl = process.env.TEST_VALKEY_URL || process.env.VALKEY_URL || null;
+    if (!valkeyUrl || valkeyUrl.includes('localhost:6379')) {
+      try {
+        const { GenericContainer } = await import('testcontainers');
+        const valkeyContainer = await new GenericContainer('redis:7-alpine')
+          .withExposedPorts(6379)
+          .start();
+        const mappedPort = valkeyContainer.getMappedPort(6379);
+        const host = valkeyContainer.getHost();
+        valkeyUrl = `redis://${host}:${mappedPort}`;
+        valkeyContainerStop = async () => {
+          await valkeyContainer.stop();
+        };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[postgres-real.test.ts] valkey testcontainer failed to start: ${msg}`);
+      }
+    }
+
+    if (valkeyUrl) {
+      redisClient = new Redis(valkeyUrl, {
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+      });
+    }
+
     // 3. Docker requirement gating (like libs/go/testkit)
-    if (!isReady || !pool || !dbUrl) {
+    if (!isReady || !pool || !dbUrl || !redisClient) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
         expect.fail(
-          'Real PostgreSQL 17 / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
+          'Real PostgreSQL 17 / Valkey / Docker required by WINKEY_REQUIRE_DOCKER=1 but unavailable',
         );
       }
+      isReady = false;
       return;
     }
 
@@ -123,11 +155,12 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     // 4b. Register custom enum array parsers so auth.role[] is parsed as string[]
     await registerArrayParsers(pool);
 
-    // 5. Initialize Fastify app with real DB
+    // 5. Initialize Fastify app with real DB and real Valkey
     const keys = getTestKeys();
     const env = getEnv({
       JWT_PRIVATE_KEY: keys.privateKey,
       DATABASE_URL: dbUrl,
+      VALKEY_URL: valkeyUrl ?? undefined,
       NODE_ENV: 'test',
       TRUST_PROXY_CIDRS: '10.42.0.0/16,127.0.0.1',
     });
@@ -143,6 +176,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       env,
       db,
       rateLimiter,
+      redis: redisClient,
     });
   }, 120_000);
 
@@ -150,11 +184,17 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     if (app) {
       await app.close();
     }
+    if (redisClient) {
+      await redisClient.quit().catch(() => {});
+    }
     if (pool) {
       await pool.end();
     }
     if (stopContainer) {
       await stopContainer();
+    }
+    if (valkeyContainerStop) {
+      await valkeyContainerStop();
     }
   }, 60_000);
 
@@ -1024,5 +1064,426 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
     expect(lastAdminRes.statusCode).toBe(409);
     expect(lastAdminRes.json().code).toBe('LAST_ADMIN');
+  });
+
+  describe('Task A4: Immediate Session & User Revocation (ADR-019)', () => {
+    // 1. login -> verify 204 -> logout -> verify with the SAME access token 401
+    it('login -> verify 204 -> logout -> verify with the SAME access token returns 401', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'a4_logout_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'a4_logout_user',
+          display_name: 'Logout User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const accessToken = regRes.json().access_token;
+      const rtCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+      // Verify token is valid before logout
+      const v1 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(v1.statusCode).toBe(204);
+      expect(v1.headers['x-user-id']).toBe(regRes.json().user.id);
+
+      // Logout
+      const logoutRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/logout',
+        cookies: { [REFRESH_COOKIE_NAME]: rtCookie },
+      });
+      expect(logoutRes.statusCode).toBe(204);
+
+      // Verify with the SAME access token -> immediate 401
+      const v2 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(v2.statusCode).toBe(401);
+      expect(v2.json().code).toBe('UNAUTHORIZED');
+    });
+
+    // 2. admin suspends user -> the user's still-valid access token gets 401 on verify immediately
+    it('admin suspends user -> still-valid access token gets 401 on verify immediately', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, 'admin_suspender@winkey.vn', 'hash', 'admin_suspender', 'Admin Suspender', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
+         ON CONFLICT (id) DO NOTHING`,
+        [adminId],
+      );
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'to_suspend@winkey.vn',
+          password: 'Password123!',
+          handle: 'to_suspend',
+          display_name: 'To Suspend',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const userToken = regRes.json().access_token;
+      const userId = regRes.json().user.id;
+
+      // Verify user's token works initially
+      const v1 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      expect(v1.statusCode).toBe(204);
+
+      // Admin suspends user
+      const suspendRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${userId}/suspension`,
+        headers: {
+          'x-user-id': adminId,
+          'x-user-roles': 'admin,viewer',
+        },
+        payload: {
+          reason: 'Terms of service violation',
+        },
+      });
+      expect(suspendRes.statusCode).toBe(200);
+
+      // User's still-valid access token gets 401 immediately
+      const v2 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${userToken}` },
+      });
+      expect(v2.statusCode).toBe(401);
+      expect(v2.json().code).toBe('UNAUTHORIZED');
+    });
+
+    // 3. admin changes roles -> old token 401 -> refresh -> new token 204 with the NEW X-User-Roles
+    it('admin changes roles -> old token 401 -> refresh -> new token 204 with the new roles', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, 'admin_role_changer@winkey.vn', 'hash', 'admin_role_changer', 'Admin Roles', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
+         ON CONFLICT (id) DO NOTHING`,
+        [adminId],
+      );
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'role_change_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'role_change_user',
+          display_name: 'Role Change User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const oldToken = regRes.json().access_token;
+      const rtCookie1 = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const userId = regRes.json().user.id;
+
+      // Old token verified with initial role
+      const v1 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${oldToken}` },
+      });
+      expect(v1.statusCode).toBe(204);
+      expect(v1.headers['x-user-roles']).toBe('viewer');
+
+      // Admin changes roles to viewer,creator
+      const roleRes = await app.inject({
+        method: 'PUT',
+        url: `/v1/admin/users/${userId}/roles`,
+        headers: {
+          'x-user-id': adminId,
+          'x-user-roles': 'admin,viewer',
+        },
+        payload: {
+          roles: ['viewer', 'creator'],
+        },
+      });
+      expect(roleRes.statusCode).toBe(200);
+
+      // Old token gets 401 immediately
+      const vOld = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${oldToken}` },
+      });
+      expect(vOld.statusCode).toBe(401);
+
+      // User calls refresh to get new access token
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rtCookie1 },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const newToken = refreshRes.json().access_token;
+      expect(refreshRes.json().user.roles).toContain('creator');
+
+      // New token gets 204 with updated roles
+      const vNew = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${newToken}` },
+      });
+      expect(vNew.statusCode).toBe(204);
+      expect(vNew.headers['x-user-roles']).toContain('creator');
+      expect(vNew.headers['x-user-roles']).toContain('viewer');
+    });
+
+    // 4. changePassword -> the other device's access token 401, the current device's token still 204
+    it('changePassword -> other device access token gets 401, current device token returns 204', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'multi_device@winkey.vn',
+          password: 'OldPassword123!',
+          handle: 'multi_device',
+          display_name: 'Multi Device',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+
+      // Device 1 login
+      const dev1Login = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'multi_device@winkey.vn',
+          password: 'OldPassword123!',
+        },
+      });
+      expect(dev1Login.statusCode).toBe(200);
+      const tokenDev1 = dev1Login.json().access_token;
+      const rtDev1 = dev1Login.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+      // Device 2 login
+      const dev2Login = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'multi_device@winkey.vn',
+          password: 'OldPassword123!',
+        },
+      });
+      expect(dev2Login.statusCode).toBe(200);
+      const tokenDev2 = dev2Login.json().access_token;
+
+      // Both tokens are valid before changePassword
+      const vDev1Before = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenDev1}` },
+      });
+      expect(vDev1Before.statusCode).toBe(204);
+
+      const vDev2Before = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenDev2}` },
+      });
+      expect(vDev2Before.statusCode).toBe(204);
+
+      // Device 1 changes password
+      const changeRes = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${tokenDev1}` },
+        cookies: { [REFRESH_COOKIE_NAME]: rtDev1 },
+        payload: {
+          current_password: 'OldPassword123!',
+          new_password: 'NewPassword123!',
+        },
+      });
+      expect(changeRes.statusCode).toBe(204);
+
+      // Device 2 (other device) token gets 401 immediately
+      const vDev2After = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenDev2}` },
+      });
+      expect(vDev2After.statusCode).toBe(401);
+
+      // Device 1 (current device) token remains valid (204)
+      const vDev1After = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenDev1}` },
+      });
+      expect(vDev1After.statusCode).toBe(204);
+    });
+
+    // 5. deleteMe -> token 401; refresh reuse -> the family's access token 401
+    it('deleteMe -> token 401; refresh reuse -> the entire family access token 401', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      // Part A: deleteMe -> token 401
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'del_me_revoked@winkey.vn',
+          password: 'Password123!',
+          handle: 'del_me_revoked',
+          display_name: 'Del Me Revoked',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const delToken = regRes.json().access_token;
+
+      const vBefore = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${delToken}` },
+      });
+      expect(vBefore.statusCode).toBe(204);
+
+      const delRes = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${delToken}` },
+        payload: {
+          confirm_handle: 'del_me_revoked',
+          password: 'Password123!',
+        },
+      });
+      expect(delRes.statusCode).toBe(204);
+
+      const vAfter = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${delToken}` },
+      });
+      expect(vAfter.statusCode).toBe(401);
+
+      // Part B: refresh reuse -> the family's access token 401
+      const regRes2 = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'reuse_victim@winkey.vn',
+          password: 'Password123!',
+          handle: 'reuse_victim',
+          display_name: 'Reuse Victim',
+        },
+      });
+      expect(regRes2.statusCode).toBe(201);
+      const rt1 = regRes2.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+      // Legitimate refresh rotates rt1 -> rt2
+      const refreshLegit = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rt1 },
+      });
+      expect(refreshLegit.statusCode).toBe(200);
+      const tokenLegit = refreshLegit.json().access_token;
+
+      // Verify tokenLegit is valid before reuse attack
+      const vLegitBefore = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenLegit}` },
+      });
+      expect(vLegitBefore.statusCode).toBe(204);
+
+      // Attacker uses old rt1 -> triggers reuse detection
+      const reuseAttack = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rt1 },
+      });
+      expect(reuseAttack.statusCode).toBe(401);
+
+      // Entire family is now revoked -> tokenLegit gets 401 immediately
+      const vLegitAfter = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${tokenLegit}` },
+      });
+      expect(vLegitAfter.statusCode).toBe(401);
+    });
+
+    // 6. Valkey stopped (or client pointed at a closed port) -> verify still 204 for a valid token and the error metric increments
+    it('Valkey unreachable -> verify still 204 (fail-open) and error metric increments', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'fail_open_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'fail_open_user',
+          display_name: 'Fail Open User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const validToken = regRes.json().access_token;
+      const validUserId = regRes.json().user.id;
+
+      // Create an app instance pointing to an unreachable Valkey port
+      const brokenRedis = new Redis('redis://127.0.0.1:63799', {
+        maxRetriesPerRequest: 0,
+        enableOfflineQueue: false,
+        connectTimeout: 50,
+        retryStrategy: () => null,
+      });
+      brokenRedis.on('error', () => {}); // swallow connection error events
+
+      const failOpenApp = await buildApp({
+        env: testEnv,
+        db: getDb(dbUrl!, pool).db,
+        rateLimiter: { consume: async () => {}, close: async () => {} },
+        redis: brokenRedis,
+      });
+
+      try {
+        const initialErrorCount = getRevocationMetricCount('auth_verify_revocation_check_total', {
+          result: 'error',
+        });
+
+        const verifyRes = await failOpenApp.inject({
+          method: 'GET',
+          url: '/v1/auth/verify',
+          headers: { authorization: `Bearer ${validToken}` },
+        });
+
+        // 204 No Content with identity headers (fail-open)
+        expect(verifyRes.statusCode).toBe(204);
+        expect(verifyRes.headers['x-user-id']).toBe(validUserId);
+        expect(verifyRes.headers['x-user-roles']).toBe('viewer');
+
+        const afterErrorCount = getRevocationMetricCount('auth_verify_revocation_check_total', {
+          result: 'error',
+        });
+        expect(afterErrorCount).toBeGreaterThan(initialErrorCount);
+      } finally {
+        await failOpenApp.close();
+        await brokenRedis.quit().catch(() => {});
+      }
+    });
   });
 });

@@ -8,6 +8,7 @@ import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { enforceRbac } from '../utils/rbac.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role, UserStatus } from '../db/types.js';
+import type { RevocationService } from '../revocation/revocation.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(id: unknown): id is string {
@@ -110,7 +111,8 @@ const suspendUserSchema = z.object({
 export const adminRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
-}> = async (fastify, { db, env }) => {
+  revocationService: RevocationService;
+}> = async (fastify, { db, env, revocationService }) => {
   // 1. List users (moderator or admin)
   fastify.get<{
     Querystring: {
@@ -299,7 +301,7 @@ export const adminRoute: FastifyPluginAsync<{
 
       if (isSame) {
         // Idempotent: return without audit row
-        return lockedTarget;
+        return { user: lockedTarget, changed: false };
       }
 
       // Safeguard: cannot remove the last admin
@@ -340,14 +342,21 @@ export const adminRoute: FastifyPluginAsync<{
         })
         .execute();
 
-      return await trx
+      const updated = await trx
         .selectFrom('auth.users')
         .selectAll()
         .where('id', '=', user_id)
         .executeTakeFirstOrThrow();
+
+      return { user: updated, changed: true };
     });
 
-    return reply.status(200).send(formatAdminUser(result, env));
+    if (result.changed) {
+      // Revoke user in Valkey AFTER DB commit (fail-safe)
+      await revocationService.revokeUser(user_id);
+    }
+
+    return reply.status(200).send(formatAdminUser(result.user, env));
   });
 
   // 4. Suspend user (moderator or admin)
@@ -447,6 +456,9 @@ export const adminRoute: FastifyPluginAsync<{
         .where('id', '=', user_id)
         .executeTakeFirstOrThrow();
     });
+
+    // Revoke user in Valkey AFTER DB commit (fail-safe)
+    await revocationService.revokeUser(user_id);
 
     return reply.status(200).send(formatAdminUser(result, env));
   });
