@@ -27,6 +27,8 @@ info:
     - Task A2: `/v1/reports` and `/v1/moderation/*` also go to social-svc (gateway: `PathPrefix`).
     - Task N1 (ADR-023): in-app notifications live in social-svc; `/v1/notifications` goes to social-svc
       (gateway: `PathPrefix`).
+    - Task PL1 (ADR-024): playlists and watch-later live in social-svc; `/v1/playlists` and `/v1/me/watch-later`
+      go to social-svc (gateway: `PathPrefix`).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -56,6 +58,14 @@ tags:
       on its existing `social-videos` consumer. Kept 90 days. A notification whose video or comment is gone,
       hidden or PRIVATE, or whose actor has no active profile, is not returned. No push/e-mail in N1: clients
       poll `getUnreadNotificationCount`.
+  - name: playlists
+    description: |
+      Playlists and the watch-later list (task PL1, ADR-024), owned by social-svc. A playlist stores video ids
+      only; clients fetch titles and thumbnails with video-svc `batchGetVideos`. Items reference the
+      `social.videos` projection: a deleted video disappears from every playlist, a hidden or `PRIVATE` one is
+      filtered at read time (still shown to the video's owner). Gateway: `/v1/playlists` and `/v1/me/watch-later`
+      go to social-svc (`PathPrefix`), as does `/v1/videos/{id}/playlist-membership` (add it to the videos regex);
+      `/v1/channels/{id}/playlists` already goes there.
 paths:
   /v1/videos/{video_id}/comments:
     parameters:
@@ -459,6 +469,293 @@ paths:
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 
+  /v1/playlists:
+    post:
+      tags: [playlists]
+      operationId: createPlaylist
+      summary: Create a playlist owned by the caller (task PL1).
+      description: |
+        At most 200 playlists per user (the watch-later list included) → `409` `PLAYLIST_LIMIT`. Rate limit
+        30/min per user → `429`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlaylistRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/playlists/{playlist_id}:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+    get:
+      tags: [playlists]
+      operationId: getPlaylist
+      summary: One playlist. Optional auth.
+      description: |
+        `PRIVATE` playlists (and the watch-later list, always private) → `404` for everyone but the owner.
+        `PUBLIC` and `UNLISTED` → anyone with the id. `Cache-Control: private, no-store`.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The playlist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [playlists]
+      operationId: updatePlaylist
+      summary: Rename, re-describe or change the visibility of an own playlist.
+      description: |
+        Owner only (others → `404`). The watch-later list cannot be changed → `409` `WATCH_LATER_IMMUTABLE`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlaylistRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [playlists]
+      operationId: deletePlaylist
+      summary: Delete an own playlist and its items. The watch-later list cannot be deleted (`409`).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/playlists/{playlist_id}/items:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+    get:
+      tags: [playlists]
+      operationId: listPlaylistItems
+      summary: Items in playlist order. Optional auth; same visibility rule as getPlaylist.
+      description: |
+        Ordered by `position` ascending. Items whose video is hidden, deleted, or `PRIVATE` (unless the caller
+        owns that video) are not returned; `item_count` on the playlist counts all rows, so a page can hold fewer
+        visible items than stored ones. Titles and thumbnails come from video-svc `batchGetVideos` (one call per
+        page), never from social-svc.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistItemPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    post:
+      tags: [playlists]
+      operationId: addPlaylistItem
+      summary: Append a video to an own playlist. Idempotent.
+      description: |
+        The video must be one the caller can currently read (known to social-svc, not hidden, not `PRIVATE` unless
+        the caller owns it) → otherwise `404` `VIDEO_NOT_FOUND`. Already in the playlist → `200` with the existing
+        item (position unchanged); new → `201`. At most 5 000 items per playlist → `409` `PLAYLIST_FULL`.
+        Rate limit 120/min per user → `429`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPlaylistItemRequest'
+      responses:
+        '200':
+          description: Already present.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistItem'
+        '201':
+          description: Added at the end.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistItem'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/playlists/{playlist_id}/items/{video_id}:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    delete:
+      tags: [playlists]
+      operationId: removePlaylistItem
+      summary: Remove a video from an own playlist. Idempotent (`204` also when it was not there).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/playlists/{playlist_id}/items/{video_id}/move:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    post:
+      tags: [playlists]
+      operationId: movePlaylistItem
+      summary: Move an item before another one, or to the end (`before_video_id` null).
+      description: |
+        Owner only. Item or `before_video_id` not in the playlist → `404`. Moving before itself is a no-op.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovePlaylistItemRequest'
+      responses:
+        '200':
+          description: The moved item with its new position.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistItem'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/channels/{channel_id}/playlists:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [playlists]
+      operationId: listChannelPlaylists
+      summary: Playlists of a channel, most recently updated first. Optional auth.
+      description: |
+        Others see only `PUBLIC` playlists (never `UNLISTED`, `PRIVATE` or watch-later). The owner sees all of
+        theirs, the watch-later list first.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of playlists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/videos/{video_id}/playlist-membership:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [playlists]
+      operationId: getPlaylistMembership
+      summary: Which of the caller's playlists contain this video (for the "Save" dialog).
+      description: |
+        Ids of the caller's own playlists (watch-later included) that contain `video_id`; empty when none or when
+        the video is unknown. `Cache-Control: private, no-store`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Playlist ids.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistMembership'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/watch-later:
+    get:
+      tags: [playlists]
+      operationId: getWatchLater
+      summary: The caller's watch-later playlist, created on first use.
+      description: |
+        Returns the `WATCH_LATER` playlist (always `PRIVATE`, one per user), creating it if needed. Add and remove
+        videos with the normal item endpoints using its `id`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The watch-later playlist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Playlist'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
   /v1/reports:
     post:
       tags: [moderation]
@@ -597,6 +894,12 @@ components:
       in: path
       required: true
       description: User id of the channel owner.
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+    PlaylistId:
+      name: playlist_id
+      in: path
+      required: true
       schema:
         $ref: './common.yaml#/components/schemas/Uuid'
 
@@ -811,6 +1114,143 @@ components:
         up_to:
           type: string
           format: date-time
+
+    PlaylistKind:
+      type: string
+      enum: [REGULAR, WATCH_LATER]
+
+    Playlist:
+      type: object
+      additionalProperties: false
+      required: [id, owner, kind, title, description, visibility, item_count, created_at, updated_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        owner:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        kind:
+          $ref: '#/components/schemas/PlaylistKind'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: '"Xem sau" for the watch-later list (the client localises by `kind`).'
+        description:
+          type: string
+          maxLength: 5000
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+        item_count:
+          type: integer
+          minimum: 0
+          maximum: 5000
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          description: Last change to the playlist or its items.
+
+    PlaylistPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Playlist'
+        next_cursor:
+          type: [string, 'null']
+
+    CreatePlaylistRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 5000
+          default: ''
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+          description: Defaults to `PRIVATE`.
+
+    UpdatePlaylistRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 5000
+        visibility:
+          $ref: './common.yaml#/components/schemas/Visibility'
+
+    PlaylistItem:
+      type: object
+      additionalProperties: false
+      required: [video_id, position, added_at]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        position:
+          type: integer
+          description: Opaque sort key (ascending). Not contiguous; do not show it to users.
+        added_at:
+          type: string
+          format: date-time
+
+    PlaylistItemPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaylistItem'
+        next_cursor:
+          type: [string, 'null']
+
+    AddPlaylistItemRequest:
+      type: object
+      additionalProperties: false
+      required: [video_id]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+
+    MovePlaylistItemRequest:
+      type: object
+      additionalProperties: false
+      required: [before_video_id]
+      properties:
+        before_video_id:
+          type: [string, 'null']
+          format: uuid
+          description: Place the item right before this one; `null` moves it to the end.
+
+    PlaylistMembership:
+      type: object
+      additionalProperties: false
+      required: [playlist_ids]
+      properties:
+        playlist_ids:
+          type: array
+          maxItems: 200
+          uniqueItems: true
+          items:
+            $ref: './common.yaml#/components/schemas/Uuid'
 
     ReportTargetType:
       type: string

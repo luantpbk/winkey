@@ -23,6 +23,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/videos/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summaries of up to 50 videos by id, in request order (task PL1). Optional auth.
+         * @description For playlist pages and other lists stored outside video-svc (ADR-024). Returns only the videos the caller
+         *     could open with `getVideo` right now (READY, not hidden, `PRIVATE` only for the owner); unknown or unreadable
+         *     ids are silently left out, so `items` can be shorter than `ids`. Duplicates in `ids` → `400`. Reuses the
+         *     video cache. `Cache-Control: private, no-store` when authenticated, otherwise `public, max-age=30`.
+         *     Static route: it must be matched before `/v1/videos/{video_id}`.
+         */
+        get: operations["batchGetVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/videos/{video_id}": {
         parameters: {
             query?: never;
@@ -370,6 +394,9 @@ export interface components {
             /** Format: uri */
             thumbnail_url: string;
         };
+        VideoBatch: {
+            items: components["schemas"]["VideoSummary"][];
+        };
         VideoPage: {
             items: components["schemas"]["VideoSummary"][];
             next_cursor: string | null;
@@ -621,6 +648,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    batchGetVideos: {
+        parameters: {
+            query: {
+                /** @description Comma-separated video ids, 1 to 50, no duplicates. */
+                ids: components["schemas"]["Uuid"][];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The readable videos, in the order of `ids`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoBatch"];
                 };
             };
             400: components["responses"]["BadRequest"];

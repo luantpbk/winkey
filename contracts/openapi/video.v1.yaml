@@ -96,6 +96,44 @@ paths:
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
 
+  /v1/videos/batch:
+    get:
+      tags: [videos]
+      operationId: batchGetVideos
+      summary: Summaries of up to 50 videos by id, in request order (task PL1). Optional auth.
+      description: |
+        For playlist pages and other lists stored outside video-svc (ADR-024). Returns only the videos the caller
+        could open with `getVideo` right now (READY, not hidden, `PRIVATE` only for the owner); unknown or unreadable
+        ids are silently left out, so `items` can be shorter than `ids`. Duplicates in `ids` → `400`. Reuses the
+        video cache. `Cache-Control: private, no-store` when authenticated, otherwise `public, max-age=30`.
+        Static route: it must be matched before `/v1/videos/{video_id}`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: Comma-separated video ids, 1 to 50, no duplicates.
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            uniqueItems: true
+            items:
+              $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The readable videos, in the order of `ids`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoBatch'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
   /v1/videos/{video_id}:
     parameters:
       - $ref: './common.yaml#/components/parameters/VideoId'
@@ -680,6 +718,17 @@ components:
         thumbnail_url:
           type: string
           format: uri
+
+    VideoBatch:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/VideoSummary'
 
     VideoPage:
       type: object
