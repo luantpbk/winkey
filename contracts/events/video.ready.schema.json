@@ -24,6 +24,10 @@
           "type": ["string", "null"],
           "description": "Key of storyboard.vtt (seek preview, task V5a). Null or absent when generation failed; the job still succeeds."
         },
+        "visibility": {
+          "enum": ["PUBLIC", "UNLISTED", "PRIVATE"],
+          "description": "Visibility when the video became READY (task C4). Absent in events produced before C4: consumers treat it as PUBLIC."
+        },
         "duration_ms": { "type": "integer", "minimum": 1 },
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 },

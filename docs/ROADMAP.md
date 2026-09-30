@@ -58,12 +58,13 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | ID | Task | Owner | Phụ thuộc |
 |---|---|---|---|
 | A2 | RBAC + moderation backend: `/v1/admin/*` (auth-svc), báo cáo + hàng đợi `/v1/reports`, `/v1/moderation/*` (social-svc). Contract + migration 000006, ADR-016, [brief](prompts/antigravity-3_A2_moderation.md) · ✅ (#72) | Antigravity 3 | A1 ✅, C1 ✅ |
-| A3 | auth-svc: tự quản lý tài khoản — sửa tên hiển thị/handle, đặt/đổi mật khẩu (đăng xuất thiết bị khác), xóa tài khoản (ẩn danh hóa, giải phóng email/handle). Contract `updateMe`/`changePassword`/`deleteMe`, [brief](prompts/antigravity-3_A3_account-self-service.md) | Antigravity 3 | A2 ✅ |
+| A3 | auth-svc: tự quản lý tài khoản — sửa tên hiển thị/handle, đặt/đổi mật khẩu (đăng xuất thiết bị khác), xóa tài khoản (ẩn danh hóa, giải phóng email/handle). Contract `updateMe`/`changePassword`/`deleteMe`, [brief](prompts/antigravity-3_A3_account-self-service.md) · ✅ (#80) | Antigravity 3 | A2 ✅ |
 | S4 | video-svc: `moderateVideo` + event `video.moderated`, ẩn video HIDDEN với người ngoài. [Brief](prompts/sonnet_S4_video-moderation.md)  · ✅ (#71) | Sonnet 5.5 | S1 ✅ |
 | U4 | Web admin/moderation UI (danh sách user, đổi role, khóa, hàng đợi báo cáo, nút báo cáo) | Antigravity 1 | A2 ✅, S4 ✅ |
 | C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) · ✅ (#48) | Antigravity 3 | A1 ✅ |
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) · ✅ (#57) | Antigravity 3 | C1 ✅ |
 | C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) · ✅ (#52) | Sonnet 5.5 | S1 ✅ |
+| C4 | social-svc biết visibility của video: video `PRIVATE` trả 404 comment/like cho người ngoài. Migration 000009, event `video.visibility_changed`, `video.ready.visibility`. C4-a social-svc (Antigravity 3), C4-b producer (Sonnet, sau V5a). [Brief](prompts/antigravity-3_C4_social-visibility.md) | Antigravity 3 + Sonnet | C1 ✅, SEC1-a ✅ |
 | U2 | Creator Studio realtime + like/comment realtime trên trang xem. [Brief](prompts/antigravity-1_U2_studio-realtime.md) | Antigravity 1 | C2 ✅ |
 | SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm`. Contract `searchVideos`/`suggestSearch`, migration 000007, [brief](prompts/sonnet_SR1_search.md) · ✅ (#75, #78) | Sonnet 5.5 | S1 ✅ |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |

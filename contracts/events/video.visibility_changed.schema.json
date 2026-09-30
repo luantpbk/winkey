@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/video.visibility_changed.schema.json",
+  "title": "video.visibility_changed v1",
+  "description": "The owner changed a video's visibility (task C4). Producer: video-svc (outbox, same transaction as the update). Not emitted when the value does not change.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "video.visibility_changed"
+    },
+    "version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "video_id",
+        "owner_id",
+        "visibility"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "owner_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "visibility": {
+          "enum": [
+            "PUBLIC",
+            "UNLISTED",
+            "PRIVATE"
+          ]
+        }
+      }
+    }
+  }
+}

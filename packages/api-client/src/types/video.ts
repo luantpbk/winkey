@@ -33,7 +33,11 @@ export interface paths {
         delete: operations["deleteVideo"];
         options?: never;
         head?: never;
-        /** Edit metadata (owner only). */
+        /**
+         * Edit metadata (owner only).
+         * @description Task C4: when `visibility` actually changes, `video.visibility_changed` is written to the outbox in the
+         *     same transaction (not emitted for a no-op or for other fields).
+         */
         patch: operations["updateVideo"];
         trace?: never;
     };

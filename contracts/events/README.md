@@ -19,6 +19,7 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `video.failed` | JetStream `VIDEO` | transcoder | realtime-gw | [video.failed](video.failed.schema.json) |
 | `video.deleted` | JetStream `VIDEO` | video-svc | media-janitor (transcoder), search | [video.deleted](video.deleted.schema.json) |
 | `video.moderated` | JetStream `VIDEO` | video-svc (A2) | social-svc (projection `social.videos.hidden`), search (P2) | [video.moderated](video.moderated.schema.json) |
+| `video.visibility_changed` | JetStream `VIDEO` | video-svc (C4) | social-svc (projection `social.videos.visibility`) | [video.visibility_changed](video.visibility_changed.schema.json) |
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
 | `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2), notify (P3) | [social.comment.created](social.comment.created.schema.json) |
 | `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |
@@ -45,10 +46,10 @@ Mỗi pod realtime-gw cần mọi event nên dùng consumer JetStream **ephemera
 
 social-svc giữ projection `social.videos` (video nào nhận được comment/like) từ stream `VIDEO`:
 
-- Durable `social-videos`, pull, `filter_subjects: [video.ready, video.deleted, video.moderated]`, `ack_policy: explicit`, `ack_wait: 30s`, `max_deliver: 5`. (A2 thêm `video.moderated`: sửa `filter_subjects` của durable đang có bằng `consumers.update`, không tạo durable mới.)
+- Durable `social-videos`, pull, `filter_subjects: [video.ready, video.deleted, video.moderated, video.visibility_changed]`, `ack_policy: explicit`, `ack_wait: 30s`, `max_deliver: 5`. (A2 thêm `video.moderated`: sửa `filter_subjects` của durable đang có bằng `consumers.update`, không tạo durable mới.)
 - `video.ready` → `INSERT … ON CONFLICT (id) DO NOTHING` (re-encode gửi lại event). `video.deleted` → `DELETE` (cascade comment + like). Cả hai idempotent.
 - `video.moderated` → `UPDATE social.videos SET hidden = (state = 'HIDDEN') WHERE id = video_id` (idempotent). Video chưa có trong projection thì bỏ qua và ack. Vì consumer xử lý tuần tự theo thứ tự stream, trạng thái cuối luôn khớp với video-svc.
-- Hạn chế đã biết: `video.ready` không mang `visibility`, nên social-svc chưa phân biệt được video PRIVATE. Khi SEC1 thêm event đổi visibility thì projection sẽ lưu thêm trường này.
+- `video.visibility_changed` (C4) → `UPDATE social.videos SET visibility = $visibility WHERE id = video_id` (idempotent; video chưa có trong projection thì bỏ qua và ack). `video.ready` mang `visibility` từ C4: upsert ghi cả `visibility` (event cũ không có trường này → giữ giá trị hiện có, mặc định `PUBLIC`).
 
 ## Consumer `transcoder`
 
