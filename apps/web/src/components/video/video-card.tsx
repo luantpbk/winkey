@@ -5,7 +5,12 @@ import type { VideoSummary, Video } from '@winkey/api-client';
 import { Link } from '../../i18n/routing';
 import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
 
-export function VideoCard({ video }: { video: VideoSummary | Video }) {
+export interface VideoCardProps {
+  video: VideoSummary | Video;
+  rank?: number;
+}
+
+export function VideoCard({ video, rank }: VideoCardProps) {
   const thumbnailUrl =
     'thumbnail_url' in video && video.thumbnail_url
       ? video.thumbnail_url
@@ -22,7 +27,7 @@ export function VideoCard({ video }: { video: VideoSummary | Video }) {
 
   return (
     <div className="group flex flex-col gap-3">
-      {/* Thumbnail + Duration */}
+      {/* Thumbnail + Duration + Rank */}
       <Link
         href={`/watch/${video.id}`}
         className="relative aspect-video w-full overflow-hidden rounded-xl bg-[#222222] focus:outline-none focus:ring-2 focus:ring-red-600"
@@ -33,6 +38,15 @@ export function VideoCard({ video }: { video: VideoSummary | Video }) {
           className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
           loading="lazy"
         />
+        {rank !== undefined && (
+          <div
+            data-testid={`rank-badge-${rank}`}
+            aria-label={`Rank ${rank}`}
+            className="absolute top-2 left-2 z-10 flex h-7 min-w-[28px] items-center justify-center rounded-lg bg-red-600 px-2 text-xs font-black text-white shadow-md"
+          >
+            {rank}
+          </div>
+        )}
         <div className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold text-white">
           {formatDuration(video.duration_ms)}
         </div>

@@ -84,9 +84,9 @@ describe('useSafeTimeout hook', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
-  it('supports destructured { safeTimeout } and early cancellation', () => {
-    function DestructuredComponent({ onExecute }: { onExecute: () => void }) {
-      const { safeTimeout } = useSafeTimeout();
+  it('supports manual early cancellation via returned cleanup function', () => {
+    function CancellableComponent({ onExecute }: { onExecute: () => void }) {
+      const safeTimeout = useSafeTimeout();
       const cancelRef = React.useRef<(() => void) | null>(null);
 
       return (
@@ -110,7 +110,7 @@ describe('useSafeTimeout hook', () => {
     }
 
     const onExecute = vi.fn();
-    render(<DestructuredComponent onExecute={onExecute} />);
+    render(<CancellableComponent onExecute={onExecute} />);
 
     act(() => {
       screen.getByText('Start').click();

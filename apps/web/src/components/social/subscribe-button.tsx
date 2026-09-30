@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, usePathname } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
 import { api } from '../../lib/api-client';
@@ -23,6 +24,12 @@ export function SubscribeButton({
   const router = useRouter();
   const pathname = usePathname();
   const { user, isAuthenticated } = useAuth();
+  let queryClient: ReturnType<typeof useQueryClient> | null = null;
+  try {
+    queryClient = useQueryClient();
+  } catch {
+    queryClient = null;
+  }
 
   const [subscribed, setSubscribed] = useState<boolean>(false);
   const [subscriberCount, setSubscriberCount] = useState<number>(initialSubscriberCount);
@@ -97,6 +104,7 @@ export function SubscribeButton({
           setSubscribed(data.subscribed);
           setSubscriberCount(data.subscriber_count);
           if (onSubscriberCountChange) onSubscriberCountChange(data.subscriber_count);
+          queryClient?.invalidateQueries({ queryKey: ['feed', 'subscriptions'] });
         }
       } else {
         const { data, response } = await api.social.DELETE(
@@ -114,6 +122,7 @@ export function SubscribeButton({
           setSubscribed(data.subscribed);
           setSubscriberCount(data.subscriber_count);
           if (onSubscriberCountChange) onSubscriberCountChange(data.subscriber_count);
+          queryClient?.invalidateQueries({ queryKey: ['feed', 'subscriptions'] });
         }
       }
     } catch {

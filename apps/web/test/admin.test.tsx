@@ -908,7 +908,7 @@ describe('Admin & Moderation UI (Task U4)', () => {
     });
 
     it('unmounts cleanly right after successful action with fake timers: no error, no state update', async () => {
-      vi.spyOn(api.auth, 'GET').mockResolvedValue({
+      const getSpy = vi.spyOn(api.auth, 'GET').mockResolvedValue({
         data: { items: [mockTargetUser], next_cursor: null },
         error: undefined,
         response: { status: 200 } as Response,
@@ -934,6 +934,8 @@ describe('Admin & Moderation UI (Task U4)', () => {
         expect(screen.getByText('Target Creator')).toBeDefined();
       });
 
+      expect(getSpy).toHaveBeenCalledTimes(1);
+
       // Open Edit Roles modal
       fireEvent.click(screen.getByText('Edit Roles'));
 
@@ -958,7 +960,8 @@ describe('Admin & Moderation UI (Task U4)', () => {
       // Advance time past the 1200ms close/fetch timer
       await vi.advanceTimersByTimeAsync(2000);
 
-      // Teardown succeeds with zero unhandled rejection or ReferenceError: window is not defined
+      // GET call count remains unchanged (fetchUsers was aborted on unmount)
+      expect(getSpy).toHaveBeenCalledTimes(1);
     });
   });
 

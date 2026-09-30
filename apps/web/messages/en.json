@@ -4,6 +4,7 @@
     "studio": "Winkey Studio",
     "upload": "Upload Video",
     "subscriptions": "Subscriptions",
+    "trending": "Trending",
     "library": "Library",
     "history": "History",
     "settings": "Settings",
@@ -363,5 +364,20 @@
         "generic": "An unexpected error occurred. Please try again."
       }
     }
+  },
+  "trending": {
+    "title": "Trending",
+    "emptyNotice": "No trending videos yet — check out the newest videos",
+    "loadMore": "Load more videos",
+    "noVideos": "No videos found.",
+    "error": "Failed to load video feed: {error}"
+  },
+  "subscriptions": {
+    "title": "Subscriptions",
+    "emptyTitle": "You haven't subscribed to any channels yet",
+    "emptyDescription": "Subscribe to your favorite channels to see their latest videos here.",
+    "exploreTrending": "Explore Trending",
+    "loadMore": "Load more videos",
+    "error": "Failed to load video feed: {error}"
   }
 }

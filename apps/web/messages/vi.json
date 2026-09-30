@@ -4,6 +4,7 @@
     "studio": "Winkey Studio",
     "upload": "Tải video lên",
     "subscriptions": "Kênh đăng ký",
+    "trending": "Thịnh hành",
     "library": "Thư viện",
     "history": "Lịch sử xem",
     "settings": "Cài đặt",
@@ -363,5 +364,20 @@
         "generic": "Đã xảy ra lỗi không mong muốn. Vui lòng thử lại."
       }
     }
+  },
+  "trending": {
+    "title": "Thịnh hành",
+    "emptyNotice": "Chưa có video thịnh hành — xem video mới nhất",
+    "loadMore": "Tải thêm video",
+    "noVideos": "Không tìm thấy video nào.",
+    "error": "Lỗi khi tải danh sách video: {error}"
+  },
+  "subscriptions": {
+    "title": "Kênh đăng ký",
+    "emptyTitle": "Bạn chưa theo dõi kênh nào",
+    "emptyDescription": "Đăng ký các kênh yêu thích của bạn để xem video mới nhất tại đây.",
+    "exploreTrending": "Xem thịnh hành",
+    "loadMore": "Tải thêm video",
+    "error": "Lỗi khi tải danh sách video: {error}"
   }
 }
