@@ -86,6 +86,27 @@ export function setDynamicAuditEntries(entries: AuditEntry[]) {
 export function getDynamicAuditEntries(): AuditEntry[] {
   return dynamicAuditEntries;
 }
+let mockTrendingEmpty = false;
+export function setMockTrendingEmpty(val: boolean) {
+  mockTrendingEmpty = val;
+}
+export function getMockTrendingEmpty(): boolean {
+  return mockTrendingEmpty;
+}
+
+let mockSubscriptionEmpty = false;
+export function setMockSubscriptionEmpty(val: boolean) {
+  mockSubscriptionEmpty = val;
+}
+export function getMockSubscriptionEmpty(): boolean {
+  return mockSubscriptionEmpty;
+}
+
+let mockSubscriptionVideosOverride: VideoSummary[] | null = null;
+export function setMockSubscriptionVideosOverride(videos: VideoSummary[] | null) {
+  mockSubscriptionVideosOverride = videos;
+}
+
 export function resetModerationMocks() {
   currentUser = mockUsers.creator;
   dynamicVideos = [...mockVideos];
@@ -93,6 +114,9 @@ export function resetModerationMocks() {
   dynamicAdminUsers = [...mockAdminUsers];
   dynamicModerationCases = [...mockModerationCases];
   dynamicAuditEntries = [...mockAuditEntries];
+  mockTrendingEmpty = false;
+  mockSubscriptionEmpty = false;
+  mockSubscriptionVideosOverride = null;
 }
 
 const initialMockComments: Comment[] = [
@@ -740,8 +764,76 @@ export const handlers = [
   http.get('*/v1/videos', async ({ request }) => {
     const url = new URL(request.url);
     const ownerId = url.searchParams.get('owner_id');
+    const sort = url.searchParams.get('sort');
     const cursor = url.searchParams.get('cursor');
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    if (ownerId && sort === 'trending') {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Invalid Sort',
+          status: 400,
+          code: 'INVALID_SORT',
+          detail: 'owner_id cannot be combined with sort=trending',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (sort === 'trending') {
+      const isTrendingEmpty =
+        mockTrendingEmpty ||
+        url.searchParams.get('mock_empty') === 'true' ||
+        (typeof window !== 'undefined' &&
+          window.sessionStorage?.getItem('wk_mock_trending_empty') === 'true');
+
+      if (isTrendingEmpty) {
+        return HttpResponse.json({ items: [], next_cursor: null } satisfies VideoPage, {
+          headers: {
+            'Cache-Control': 'public, max-age=60',
+          },
+        });
+      }
+
+      const allVideos = getDynamicVideos();
+      const publicVideos = allVideos.filter(
+        (v) => v.status === 'READY' && v.visibility === 'PUBLIC',
+      );
+      // Sort by view_count DESC, max 200 items total
+      const trendingVideos = [...publicVideos]
+        .sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+        .slice(0, 200);
+
+      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const items: VideoSummary[] = trendingVideos
+        .slice(startIndex, startIndex + limit)
+        .map((v) => ({
+          id: v.id,
+          title: v.title,
+          owner: v.owner,
+          duration_ms: v.duration_ms || 0,
+          view_count: v.view_count,
+          published_at: v.published_at || v.created_at,
+          thumbnail_url:
+            v.playback?.thumbnail_url ||
+            'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+        }));
+
+      const nextIndex = startIndex + limit;
+      const nextCursor = nextIndex < trendingVideos.length ? nextIndex.toString() : null;
+
+      const page: VideoPage = {
+        items,
+        next_cursor: nextCursor,
+      };
+
+      return HttpResponse.json(page, {
+        headers: {
+          'Cache-Control': 'public, max-age=60',
+        },
+      });
+    }
 
     const allVideos = getDynamicVideos();
     let filtered = allVideos.filter((v) => v.status === 'READY' && v.visibility === 'PUBLIC');
@@ -770,6 +862,105 @@ export const handlers = [
       next_cursor: nextCursor,
     };
     return HttpResponse.json(page);
+  }),
+
+  http.get('*/v1/feed/subscriptions', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+          detail: 'Authentication required to access subscription feed',
+        },
+        { status: 401 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    const isSubEmpty =
+      mockSubscriptionEmpty ||
+      url.searchParams.get('mock_empty') === 'true' ||
+      (typeof window !== 'undefined' &&
+        window.sessionStorage?.getItem('wk_mock_subscriptions_empty') === 'true');
+
+    if (isSubEmpty) {
+      return HttpResponse.json({ items: [], next_cursor: null } satisfies VideoPage, {
+        headers: {
+          'Cache-Control': 'private, no-store',
+        },
+      });
+    }
+
+    if (mockSubscriptionVideosOverride !== null) {
+      const startIndex = cursor ? parseInt(cursor, 10) : 0;
+      const items = mockSubscriptionVideosOverride.slice(startIndex, startIndex + limit);
+      const nextIndex = startIndex + limit;
+      const nextCursor =
+        nextIndex < mockSubscriptionVideosOverride.length ? nextIndex.toString() : null;
+      return HttpResponse.json({ items, next_cursor: nextCursor } satisfies VideoPage, {
+        headers: {
+          'Cache-Control': 'private, no-store',
+        },
+      });
+    }
+
+    const subs = getDynamicSubscriptions();
+    const subscribedChannelIds = new Set<string>();
+    for (const [chId, st] of subs.entries()) {
+      if (st.subscribed) {
+        subscribedChannelIds.add(chId);
+      }
+    }
+
+    const allVideos = getDynamicVideos();
+    let feedVideos: Video[] = [];
+    if (subscribedChannelIds.size > 0) {
+      feedVideos = allVideos.filter(
+        (v) =>
+          v.status === 'READY' && v.visibility === 'PUBLIC' && subscribedChannelIds.has(v.owner.id),
+      );
+    }
+
+    // Sort newest first: published_at DESC, id DESC
+    feedVideos.sort((a, b) => {
+      const timeA = new Date(a.published_at || a.created_at).getTime();
+      const timeB = new Date(b.published_at || b.created_at).getTime();
+      if (timeB !== timeA) return timeB - timeA;
+      return b.id.localeCompare(a.id);
+    });
+
+    const startIndex = cursor ? parseInt(cursor, 10) : 0;
+    const items: VideoSummary[] = feedVideos.slice(startIndex, startIndex + limit).map((v) => ({
+      id: v.id,
+      title: v.title,
+      owner: v.owner,
+      duration_ms: v.duration_ms || 0,
+      view_count: v.view_count,
+      published_at: v.published_at || v.created_at,
+      thumbnail_url:
+        v.playback?.thumbnail_url ||
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+    }));
+
+    const nextIndex = startIndex + limit;
+    const nextCursor = nextIndex < feedVideos.length ? nextIndex.toString() : null;
+
+    const page: VideoPage = {
+      items,
+      next_cursor: nextCursor,
+    };
+
+    return HttpResponse.json(page, {
+      headers: {
+        'Cache-Control': 'private, no-store',
+      },
+    });
   }),
 
   http.get('*/v1/videos/:id', async ({ params }) => {

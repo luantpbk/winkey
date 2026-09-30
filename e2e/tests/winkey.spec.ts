@@ -545,8 +545,52 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(page.locator('header')).toContainText(/Sign In|Đăng nhập/i);
   });
 
+  test('U6: Browse sidebar -> Trending -> click video; signed-in -> Subscriptions feed', async ({
+    page,
+  }) => {
+    // 1. Visit home page
+    await page.goto('/vi');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. Click Trending link in sidebar
+    const trendingLink = page.locator('aside a[href*="/trending"]').first();
+    await expect(trendingLink).toBeVisible({ timeout: 10000 });
+    await trendingLink.click();
+
+    // 3. Verify on Trending page
+    await page.waitForURL(/\/trending/);
+    await expect(page.locator('h1')).toContainText(/Thịnh hành|Trending/);
+
+    // Verify video cards and rank badges are displayed
+    const firstRankBadge = page.locator('[data-testid^="rank-badge-"]').first();
+    await expect(firstRankBadge).toBeVisible({ timeout: 15000 });
+
+    // 4. Click first video card to open watch page
+    const firstVideoCard = page.locator('main a[href*="/watch/"]').first();
+    await firstVideoCard.click();
+    await page.waitForURL(/\/watch\/.+/);
+    await expect(page.locator('video')).toBeVisible({ timeout: 15000 });
+
+    // 5. Sign in as creator and navigate to Subscriptions feed
+    await page.goto('/login?return_to=/feed/subscriptions');
+    await page.waitForLoadState('domcontentloaded');
+
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    // Wait for redirect to /feed/subscriptions
+    await page.waitForURL(/\/feed\/subscriptions/);
+    await expect(page.locator('h1')).toContainText(/Kênh đăng ký|Subscriptions/);
+
+    // 6. Subscriptions link is now visible in sidebar
+    const subsSidebarLink = page.locator('aside a[href*="/feed/subscriptions"]').first();
+    await expect(subsSidebarLink).toBeVisible({ timeout: 10000 });
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
-    test.setTimeout(180000);
+    test.setTimeout(240000);
 
     const viewports = [
       { name: '375', width: 375, height: 667 },
@@ -564,6 +608,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       { path: '/studio', slug: 'studio' },
       { path: '/admin', slug: 'admin' },
       { path: '/settings/account', slug: 'account-settings' },
+      { path: '/trending', slug: 'trending' },
+      { path: '/feed/subscriptions', slug: 'subscriptions' },
     ];
 
     const screenshotDir = path.join(process.cwd(), 'screenshots');
@@ -587,6 +633,39 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
         const screenshotPath = path.join(vpDir, `${route.slug}.png`);
         await page.screenshot({ path: screenshotPath, fullPage: false });
       }
+    }
+
+    // Capture light & dark screenshots for Trending and Subscriptions (vi)
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const u6Pages = [
+      { path: '/vi/trending', slug: 'trending' },
+      { path: '/vi/feed/subscriptions', slug: 'subscriptions' },
+    ];
+
+    for (const p of u6Pages) {
+      // Light mode
+      await page.goto(p.path);
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate(() => {
+        localStorage.setItem('winkey-theme', 'light');
+        document.documentElement.classList.remove('dark');
+      });
+      await page.waitForTimeout(500);
+      await page.screenshot({
+        path: path.join(screenshotDir, `${p.slug}-light-vi.png`),
+        fullPage: false,
+      });
+
+      // Dark mode
+      await page.evaluate(() => {
+        localStorage.setItem('winkey-theme', 'dark');
+        document.documentElement.classList.add('dark');
+      });
+      await page.waitForTimeout(500);
+      await page.screenshot({
+        path: path.join(screenshotDir, `${p.slug}-dark-vi.png`),
+        fullPage: false,
+      });
     }
   });
 });
