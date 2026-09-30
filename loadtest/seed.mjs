@@ -81,6 +81,8 @@ async function main() {
       users.push({
         id: loginData.user.id,
         handle: loginData.user.handle,
+        email,
+        password,
         token: loginData.access_token,
       });
       console.log(`[seed] User ${handle} logged in successfully.`);
@@ -95,10 +97,7 @@ async function main() {
         `${GATEWAY_URL}/v1/auth/register`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Forwarded-For': `10.0.0.${i + 1}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email,
             password,
@@ -112,6 +111,8 @@ async function main() {
       users.push({
         id: regRes.json.user.id,
         handle: regRes.json.user.handle,
+        email,
+        password,
         token: regRes.json.access_token,
       });
       console.log(`[seed] User ${handle} registered successfully.`);
@@ -127,6 +128,8 @@ async function main() {
           users.push({
             id: lData.user.id,
             handle: lData.user.handle,
+            email,
+            password,
             token: lData.access_token,
           });
           console.log(`[seed] User ${handle} recovered via login after 409.`);

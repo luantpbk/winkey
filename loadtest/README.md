@@ -37,6 +37,9 @@ This populates `loadtest/seed.json`, `loadtest/videos.json`, and `loadtest/users
 
 Simulates viewer behavior (Adaptive Bitrate streaming, ~10 s buffer maintenance, stall/rebuffer ratio calculation, 20% hot video selection, 10% random seeking).
 
+> [!NOTE]
+> A random seek flushes the active playback buffer (`currentBuffer = 0.0`), which counts as a rebuffer event, matching U8 E2E test specifications.
+
 **50 Viewers:**
 ```bash
 docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \

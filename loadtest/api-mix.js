@@ -51,28 +51,28 @@ export function setup() {
 
     for (let i = 0; i < seedUsers.length; i++) {
       const u = seedUsers[i];
-      const email = `${u.handle}@example.com`;
-      const password = 'Password123!';
+      const email = u.email || `${u.handle}@example.com`;
+      const password = u.password || 'Password123!';
       const res = http.post(`${TARGET_URL}/v1/auth/login`, JSON.stringify({ email, password }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Forwarded-For': `10.0.0.${i + 1}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
       });
       if (res.status === 200) {
         const body = JSON.parse(res.body);
         freshUsers.push({
           id: body.user.id,
           handle: body.user.handle,
+          email,
+          password,
           token: body.access_token,
         });
       } else {
         freshUsers.push(u);
       }
+      sleep(0.1);
     }
     return { users: freshUsers };
   } catch (err) {
-    console.log(`[setup err] ${err}`);
+    void err;
     return { users: [] };
   }
 }

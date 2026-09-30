@@ -244,17 +244,13 @@ export default function () {
 
     currentBuffer += segDuration;
 
-    // Real-time playback pacing: simulate player consuming buffer while playing segments
+    // Real-time playback pacing: only sleep when buffer exceeds TARGET_BUFFER (10s)
+    // hls.js fetches immediately when buffer is below target to build buffer depth.
     if (currentBuffer > TARGET_BUFFER) {
       const sleepSec = currentBuffer - TARGET_BUFFER;
       sleep(sleepSec);
       currentBuffer -= sleepSec;
       totalWatchTime += sleepSec;
-    } else if (currentBuffer >= segDuration) {
-      const paceSleep = Math.min(segDuration, currentBuffer);
-      sleep(paceSleep);
-      currentBuffer -= paceSleep;
-      totalWatchTime += paceSleep;
     }
 
     segIdx++;
