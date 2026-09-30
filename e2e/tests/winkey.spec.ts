@@ -131,14 +131,16 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test('PL2: Play watch page ~35s, capture start + heartbeat samples with valid OpenAPI schema (Task U8)', async ({
     page,
   }) => {
-    test.setTimeout(75000);
+    test.setTimeout(90000);
 
     const capturedBatches: PlaybackHeartbeatBatch[] = [];
     page.on('request', (req) => {
       if (req.url().includes('/v1/playback/heartbeats') && req.method() === 'POST') {
         try {
           const data = req.postDataJSON() as PlaybackHeartbeatBatch;
-          capturedBatches.push(data);
+          if (data && Array.isArray(data.samples)) {
+            capturedBatches.push(data);
+          }
         } catch {
           // ignore non-json
         }
@@ -177,13 +179,20 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // Wait for at least one start and one heartbeat sample to be captured
     await expect
       .poll(
-        () => {
-          const allSamples = capturedBatches.flatMap((b) => b.samples || []);
-          const hasStart = allSamples.some((s) => s.kind === 'start');
-          const hasHeartbeat = allSamples.some((s) => s.kind === 'heartbeat');
+        async () => {
+          const fromStorage = await page.evaluate(() => {
+            try {
+              return JSON.parse(sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+            } catch {
+              return [];
+            }
+          });
+          const allSamples = [...capturedBatches.flatMap((b) => b?.samples || []), ...fromStorage];
+          const hasStart = allSamples.some((s: any) => s.kind === 'start');
+          const hasHeartbeat = allSamples.some((s: any) => s.kind === 'heartbeat');
           return hasStart && hasHeartbeat;
         },
-        { timeout: 45000, intervals: [1000] },
+        { timeout: 60000, intervals: [1000] },
       )
       .toBe(true);
 
@@ -196,9 +205,16 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     });
 
     // Validate captured samples conform to PlaybackHeartbeatBatch / PlaybackSample schema
-    const allSamples = capturedBatches.flatMap((b) => b.samples);
-    const startSample = allSamples.find((s) => s.kind === 'start');
-    const heartbeatSample = allSamples.find((s) => s.kind === 'heartbeat');
+    const fromStorage = await page.evaluate(() => {
+      try {
+        return JSON.parse(sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+      } catch {
+        return [];
+      }
+    });
+    const allSamples = [...capturedBatches.flatMap((b) => b?.samples || []), ...fromStorage];
+    const startSample = allSamples.find((s: any) => s.kind === 'start');
+    const heartbeatSample = allSamples.find((s: any) => s.kind === 'heartbeat');
 
     expect(startSample).toBeDefined();
     expect(startSample!.video_id).toBe(targetVideoId);

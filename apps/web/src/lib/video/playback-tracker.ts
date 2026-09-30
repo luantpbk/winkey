@@ -1,4 +1,6 @@
 import type { PlaybackSample, PlaybackHeartbeatBatch } from '@winkey/api-client';
+import { api } from '../api-client';
+import { tokenStore } from '../auth/token-store';
 
 export interface PlaybackTrackerOptions {
   videoId: string;
@@ -6,6 +8,8 @@ export interface PlaybackTrackerOptions {
   enabled?: boolean;
   endpoint?: string;
   heartbeatIntervalMs?: number;
+  apiClient?: typeof api;
+  getAccessToken?: () => string | null;
   transport?: (batch: PlaybackHeartbeatBatch, sync?: boolean) => Promise<boolean | number>;
 }
 
@@ -15,6 +19,8 @@ export class PlaybackTracker {
   public readonly enabled: boolean;
   private readonly endpoint: string;
   private readonly heartbeatIntervalMs: number;
+  private readonly apiClient: typeof api;
+  private readonly getAccessToken: () => string | null;
   private readonly customTransport?: (
     batch: PlaybackHeartbeatBatch,
     sync?: boolean,
@@ -52,25 +58,39 @@ export class PlaybackTracker {
     this.videoId = options.videoId;
     this.playbackId = options.playbackId;
 
-    const envEnabled =
-      typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_ANALYTICS_ENABLED === 'false'
-        ? false
-        : true;
+    // Use literal process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false' so Next.js inlines it
+    const envEnabled = process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false';
     this.enabled = options.enabled !== undefined ? options.enabled : envEnabled;
 
     this.endpoint = options.endpoint || '/v1/playback/heartbeats';
     this.heartbeatIntervalMs = options.heartbeatIntervalMs || 30000;
+    this.apiClient = options.apiClient ?? api;
+    this.getAccessToken = options.getAccessToken ?? (() => tokenStore.get());
     this.customTransport = options.transport;
 
     if (this.enabled && typeof window !== 'undefined' && typeof document !== 'undefined') {
       this.boundVisibilityHandler = () => {
         if (document.visibilityState === 'hidden') {
-          this.handlePageHide();
+          // On tab hidden: emit heartbeat + flushSync, stop timer, but keep hasEnded = false
+          // so tracking resumes when the user returns (Item 1, PR #128)
+          if (this.enabled && this.hasStarted && !this.hasEnded) {
+            this.emitSample('heartbeat', this.lastPositionSec ?? 0);
+            this.flushSync();
+            this.stopHeartbeatTimer();
+          }
+        } else if (document.visibilityState === 'visible') {
+          // On tab visible: restart the periodic heartbeat timer
+          if (this.enabled && this.hasStarted && !this.hasEnded) {
+            this.startHeartbeatTimer();
+          }
         }
       };
+
       this.boundPageHideHandler = () => {
+        // pagehide indicates actual page unload / navigation -> end playback
         this.handlePageHide();
       };
+
       document.addEventListener('visibilitychange', this.boundVisibilityHandler);
       window.addEventListener('pagehide', this.boundPageHideHandler);
     }
@@ -157,6 +177,8 @@ export class PlaybackTracker {
 
   /**
    * Called when seeking finishes.
+   * If buffering occurs after 'seeked' before 'playing' fires, recordWaiting()
+   * will correctly identify it as a stall and track rebuffer metrics.
    */
   public recordSeeked(currentTimeSec: number): void {
     if (!this.enabled || this.hasEnded) return;
@@ -166,7 +188,12 @@ export class PlaybackTracker {
 
   /**
    * Called when player enters waiting/buffering state.
-   * Note: Initial load before first frame is NOT a stall.
+   * Notes:
+   * 1. Initial load before first frame is NOT a stall.
+   * 2. Buffering while actively seeking (isSeeking = true) is part of seek latency,
+   *    not a playback stall.
+   * 3. Buffering after seek completion (isSeeking = false) while waiting for media
+   *    pipeline to resume is tracked as a stall until recordPlaying() fires.
    */
   public recordWaiting(): void {
     if (!this.enabled || !this.hasStarted || this.hasEnded) return;
@@ -241,7 +268,7 @@ export class PlaybackTracker {
   }
 
   /**
-   * Handles page hide / unload / visibilitychange to hidden.
+   * Handles page hide / unload / terminal exit.
    */
   public handlePageHide(): void {
     if (!this.enabled || this.hasEnded) {
@@ -330,6 +357,11 @@ export class PlaybackTracker {
 
     this.queue.push(sample);
 
+    // Cap queue at 100 during extended back-off / failure (drop oldest to avoid memory leaks)
+    while (this.queue.length > 100) {
+      this.queue.shift();
+    }
+
     // If 20 samples queued, flush immediately
     if (this.queue.length >= 20) {
       void this.flush();
@@ -341,6 +373,15 @@ export class PlaybackTracker {
     this.heartbeatTimer = setInterval(() => {
       if (this.hasEnded || !this.enabled) {
         this.stopHeartbeatTimer();
+        return;
+      }
+      // Skip empty heartbeats while paused / idle when all deltas are 0 and not currently stalled
+      if (
+        this.deltaWatchedMs === 0 &&
+        this.deltaRebufferMs === 0 &&
+        this.deltaRebufferCount === 0 &&
+        !this.isStalled
+      ) {
         return;
       }
       this.emitSample('heartbeat', this.lastPositionSec ?? 0);
@@ -397,7 +438,7 @@ export class PlaybackTracker {
   }
 
   /**
-   * Asynchronously flushes the batch.
+   * Asynchronously flushes the batch using api.video.POST to include Authorization.
    */
   public async flush(): Promise<void> {
     if (!this.enabled || this.isFlushing || this.queue.length === 0) return;
@@ -407,7 +448,7 @@ export class PlaybackTracker {
     if (!prepared) return;
 
     this.isFlushing = true;
-    const { samples, payload } = prepared;
+    const { samples } = prepared;
     this.inflightBatch = samples;
 
     try {
@@ -426,19 +467,16 @@ export class PlaybackTracker {
           this.handleFlushFailure();
         }
       } else {
-        const url = this.getResolvedEndpoint();
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload,
+        const { response } = await this.apiClient.video.POST('/v1/playback/heartbeats', {
+          body: { samples },
         });
 
-        if (res.status === 429) {
+        if (response?.status === 429) {
           // 429 -> drop and back off 60 s
           this.inflightBatch = null;
           this.backoffUntil = Date.now() + 60000;
           this.retryCount = 0;
-        } else if (res.ok) {
+        } else if (response?.ok) {
           this.inflightBatch = null;
           this.retryCount = 0;
         } else {
@@ -460,6 +498,9 @@ export class PlaybackTracker {
       // Keep in queue to retry once
       this.queue.unshift(...this.inflightBatch);
       this.retryCount = 1;
+      while (this.queue.length > 100) {
+        this.queue.shift();
+      }
     } else {
       // Already retried once, drop to avoid blocking or memory leak
       this.retryCount = 0;
@@ -468,7 +509,11 @@ export class PlaybackTracker {
   }
 
   /**
-   * Synchronous flush for pagehide / visibilitychange using navigator.sendBeacon or fetch keepalive.
+   * Synchronous flush for pagehide / visibilitychange.
+   * Per ADR-022 / PR #128:
+   * - If a user token is present, sendBeacon CANNOT include custom Authorization headers.
+   *   We use fetch with keepalive: true and the Authorization header so the viewer_key is attributed properly.
+   * - sendBeacon is used only when there is no token (anonymous viewer).
    */
   public flushSync(): void {
     if (!this.enabled || this.queue.length === 0) return;
@@ -485,7 +530,29 @@ export class PlaybackTracker {
     }
 
     const url = this.getResolvedEndpoint();
+    const token = this.getAccessToken();
 
+    // Authenticated viewer: use keepalive fetch with Authorization header
+    if (token) {
+      if (typeof fetch === 'function') {
+        try {
+          fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        } catch {
+          // Ignored in synchronous unload path
+        }
+      }
+      return;
+    }
+
+    // Anonymous viewer (no token): sendBeacon is supported and preferred
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
       try {
         const blob = new Blob([payload], { type: 'application/json' });
@@ -498,7 +565,7 @@ export class PlaybackTracker {
       }
     }
 
-    // Fallback: fetch with keepalive: true
+    // Fallback: fetch with keepalive: true without token
     if (typeof fetch === 'function') {
       try {
         fetch(url, {
