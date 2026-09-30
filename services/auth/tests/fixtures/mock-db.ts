@@ -81,9 +81,31 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
       // 1. INSERT INTO "auth"."users"
       if (sql.includes('insert into "auth"."users"')) {
-        // Find values
-        // Parameters: id, email, password_hash, handle, display_name, avatar_key, roles, status
-        const [id, email, password_hash, handle, display_name, avatar_key, roles, status] = params;
+        const colMatch = sql.match(/insert into "auth"."users"\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+
+        const id = colMap['id'] ?? params[0];
+        const email = colMap['email'] ?? params[1];
+        const password_hash =
+          colMap['password_hash'] !== undefined ? colMap['password_hash'] : params[2];
+        const handle = colMap['handle'] ?? params[3];
+        const display_name = colMap['display_name'] ?? params[4];
+        const avatar_key = colMap['avatar_key'] ? String(colMap['avatar_key']) : null;
+        const email_verified_at = colMap['email_verified_at']
+          ? new Date(colMap['email_verified_at'])
+          : null;
+        const roles = Array.isArray(colMap['roles'])
+          ? colMap['roles']
+          : Array.isArray(params[6])
+            ? params[6]
+            : ['viewer', 'creator'];
+        const status = (colMap['status'] as UserStatus) || (params[7] as UserStatus) || 'ACTIVE';
 
         // Check unique constraint on email
         if (store.users.some((u) => u.email.toLowerCase() === String(email).toLowerCase())) {
@@ -108,7 +130,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
         const newUser = {
           id: String(id),
           email: String(email).toLowerCase(),
-          email_verified_at: null,
+          email_verified_at,
           password_hash: password_hash ? String(password_hash) : null,
           handle: String(handle),
           display_name: String(display_name),
@@ -290,12 +312,24 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: matching, rowCount: matching.length };
       }
 
+      // 8b. DELETE FROM "auth"."oauth_identities"
+      if (sql.includes('delete from "auth"."oauth_identities"')) {
+        const userId = String(params[0]);
+        const before = store.oauth_identities.length;
+        store.oauth_identities = store.oauth_identities.filter((o) => o.user_id !== userId);
+        return { rows: [], rowCount: before - store.oauth_identities.length };
+      }
+
       // 9. UPDATE "auth"."refresh_tokens"
       if (sql.includes('update "auth"."refresh_tokens"')) {
         let updatedCount = 0;
 
         // Family revocation: SET revoked_at = now() WHERE family_id = ...
-        if (sql.includes('"revoked_at" =') && sql.includes('"family_id" =')) {
+        if (
+          sql.includes('"revoked_at" =') &&
+          sql.includes('"family_id" =') &&
+          !sql.includes('"family_id" !=')
+        ) {
           const familyId = String(params.length > 1 ? params[1] : params[0]);
           for (const token of store.refresh_tokens) {
             if (token.family_id === familyId && !token.revoked_at) {
@@ -304,9 +338,16 @@ export function createMockDb(store: MockStore = createMockStore()): {
             }
           }
         } else if (sql.includes('"revoked_at" =') && sql.includes('"user_id" =')) {
-          const userId = String(params.length > 1 ? params[1] : params[0]);
+          const userId = String(params[1]);
+          let exceptFamily: string | null = null;
+          if (sql.includes('"family_id" !=') || sql.includes('"family_id" <>')) {
+            exceptFamily = String(params[2]);
+          }
           for (const token of store.refresh_tokens) {
             if (token.user_id === userId && !token.revoked_at) {
+              if (exceptFamily && token.family_id === exceptFamily) {
+                continue;
+              }
               token.revoked_at = new Date();
               updatedCount++;
             }
@@ -326,43 +367,79 @@ export function createMockDb(store: MockStore = createMockStore()): {
       // 10. UPDATE "auth"."users"
       if (sql.includes('update "auth"."users"')) {
         let updatedCount = 0;
-        if (sql.includes('"password_hash" = $1') && sql.includes('"id" = $2')) {
-          const user = store.users.find((u) => u.id === String(params[1]));
-          if (user) {
-            user.password_hash = String(params[0]);
-            updatedCount++;
-          }
-        }
-        if (sql.includes('"email_verified_at" = $1') && sql.includes('"id" = $2')) {
-          const user = store.users.find((u) => u.id === String(params[1]));
-          if (user) {
-            user.email_verified_at = new Date(params[0]);
-            updatedCount++;
-          }
-        }
-        if (sql.includes('"roles" =')) {
-          // Update roles
-          const userId = String(params[params.length - 1]);
-          const user = store.users.find((u) => u.id === userId);
-          if (user) {
-            user.roles = params[0];
-            updatedCount++;
-          }
-        }
-        if (sql.includes('"status" =')) {
-          const userId = String(params[params.length - 1]);
-          const user = store.users.find((u) => u.id === userId);
-          if (user) {
-            user.status = params[0];
-            if (sql.includes('"suspension_reason" =')) {
-              user.suspension_reason = params[1] || null;
-              user.suspended_until = params[2] ? new Date(params[2]) : null;
-            } else {
-              user.suspension_reason = null;
-              user.suspended_until = null;
+        const userId = String(params[params.length - 1]);
+        const user = store.users.find((u) => u.id === userId);
+        if (user) {
+          const matchHandle = sql.match(/"handle"\s*=\s*\$(\d+)/);
+          if (matchHandle) {
+            const handleVal = String(params[parseInt(matchHandle[1], 10) - 1]);
+            if (
+              store.users.some(
+                (u) => u.id !== user.id && u.handle.toLowerCase() === handleVal.toLowerCase(),
+              )
+            ) {
+              const err: any = new Error(
+                'duplicate key value violates unique constraint "users_handle_key"',
+              );
+              err.code = '23505';
+              err.constraint = 'users_handle_key';
+              throw err;
             }
-            updatedCount++;
+            user.handle = handleVal;
           }
+
+          const matchDisplayName = sql.match(/"display_name"\s*=\s*\$(\d+)/);
+          if (matchDisplayName) {
+            user.display_name = String(params[parseInt(matchDisplayName[1], 10) - 1]);
+          }
+
+          const matchPasswordHash = sql.match(/"password_hash"\s*=\s*\$(\d+)/);
+          if (matchPasswordHash) {
+            const pIdx = parseInt(matchPasswordHash[1], 10) - 1;
+            user.password_hash = params[pIdx] ? String(params[pIdx]) : null;
+          }
+
+          const matchEmail = sql.match(/"email"\s*=\s*\$(\d+)/);
+          if (matchEmail) {
+            user.email = String(params[parseInt(matchEmail[1], 10) - 1]);
+          }
+
+          const matchAvatarKey = sql.match(/"avatar_key"\s*=\s*\$(\d+)/);
+          if (matchAvatarKey) {
+            const aIdx = parseInt(matchAvatarKey[1], 10) - 1;
+            user.avatar_key = params[aIdx] ? String(params[aIdx]) : null;
+          }
+
+          const matchEmailVerified = sql.match(/"email_verified_at"\s*=\s*\$(\d+)/);
+          if (matchEmailVerified) {
+            const eIdx = parseInt(matchEmailVerified[1], 10) - 1;
+            user.email_verified_at = params[eIdx] ? new Date(params[eIdx]) : null;
+          }
+
+          const matchStatus = sql.match(/"status"\s*=\s*\$(\d+)/);
+          if (matchStatus) {
+            user.status = params[parseInt(matchStatus[1], 10) - 1];
+          }
+
+          const matchSuspendedUntil = sql.match(/"suspended_until"\s*=\s*\$(\d+)/);
+          if (matchSuspendedUntil) {
+            const sIdx = parseInt(matchSuspendedUntil[1], 10) - 1;
+            user.suspended_until = params[sIdx] ? new Date(params[sIdx]) : null;
+          }
+
+          const matchSuspensionReason = sql.match(/"suspension_reason"\s*=\s*\$(\d+)/);
+          if (matchSuspensionReason) {
+            const rIdx = parseInt(matchSuspensionReason[1], 10) - 1;
+            user.suspension_reason = params[rIdx] ? String(params[rIdx]) : null;
+          }
+
+          const matchRoles = sql.match(/"roles"\s*=\s*\$(\d+)/);
+          if (matchRoles) {
+            user.roles = params[parseInt(matchRoles[1], 10) - 1];
+          }
+
+          user.updated_at = new Date();
+          updatedCount++;
         }
         return { rows: [], rowCount: updatedCount };
       }

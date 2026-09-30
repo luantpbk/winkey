@@ -9,7 +9,8 @@ import { getTestKeys } from '../fixtures/keys.js';
 import { getDb, registerArrayParsers } from '../../src/db/client.js';
 import type { RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
-import { version as uuidVersion } from 'uuid';
+import { v7 as uuidv7, version as uuidVersion } from 'uuid';
+import { issueAccessToken } from '../../src/crypto/jwt.js';
 import type { FastifyInstance } from 'fastify';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +51,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
   let app: FastifyInstance | null = null;
   let dbUrl: string | null = null;
   let isReady = false;
+  let testEnv: ReturnType<typeof getEnv> | null = null;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -128,6 +130,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       NODE_ENV: 'test',
       TRUST_PROXY_CIDRS: '10.42.0.0/16,127.0.0.1',
     });
+    testEnv = env;
 
     const { db } = getDb(dbUrl, pool);
     const rateLimiter: RateLimiter = {
@@ -675,5 +678,334 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       headers: adminHeaders,
     });
     expect(searchRes3.statusCode).toBe(200);
+  });
+
+  it('Task A3: updateMe reflects handle change in auth.public_profiles and rejects case-variant collision with 409', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register User A and User B
+    const regA = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'user_pga@winkey.vn',
+        password: 'Password123!',
+        handle: 'user_pga',
+        display_name: 'User PG A',
+      },
+    });
+    expect(regA.statusCode).toBe(201);
+    const tokenA = regA.json().access_token;
+    const userIdA = regA.json().user.id;
+
+    const regB = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'user_pgb@winkey.vn',
+        password: 'Password123!',
+        handle: 'user_pgb',
+        display_name: 'User PG B',
+      },
+    });
+    expect(regB.statusCode).toBe(201);
+    const tokenB = regB.json().access_token;
+
+    // 2. User A updates handle and display name
+    const updateRes = await app.inject({
+      method: 'PATCH',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${tokenA}` },
+      payload: {
+        handle: 'user_pga_renamed',
+        display_name: 'User PG A Renamed',
+      },
+    });
+    expect(updateRes.statusCode).toBe(200);
+    expect(updateRes.json().handle).toBe('user_pga_renamed');
+    expect(updateRes.json().display_name).toBe('User PG A Renamed');
+    expect(updateRes.json().has_password).toBe(true);
+
+    // 3. Verify handle change is immediately visible in auth.public_profiles view
+    const viewRes = await pool.query(
+      'SELECT handle, display_name FROM auth.public_profiles WHERE id = $1',
+      [userIdA],
+    );
+    expect(viewRes.rows.length).toBe(1);
+    expect(viewRes.rows[0].handle).toBe('user_pga_renamed');
+    expect(viewRes.rows[0].display_name).toBe('User PG A Renamed');
+
+    // Old handle no longer resolves
+    const oldViewRes = await pool.query('SELECT id FROM auth.public_profiles WHERE handle = $1', [
+      'user_pga',
+    ]);
+    expect(oldViewRes.rows.length).toBe(0);
+
+    // 4. User B tries to change handle to case-variant of User A's new handle
+    const conflictRes = await app.inject({
+      method: 'PATCH',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${tokenB}` },
+      payload: {
+        handle: 'USER_PGA_RENAMED',
+      },
+    });
+    expect(conflictRes.statusCode).toBe(409);
+    expect(conflictRes.json().code).toBe('HANDLE_TAKEN');
+  });
+
+  it('Task A3: changePassword updates credentials, revokes other device sessions, and sets first password for OAuth account', async () => {
+    if (!app || !pool || !testEnv) return;
+
+    // 1. Register user (Device 1)
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'chgpwd_real@winkey.vn',
+        password: 'InitialPassword123!',
+        handle: 'chgpwd_real',
+        display_name: 'Change Pwd Real',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const dev1Cookie = regRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const dev1Token = regRes.json().access_token;
+
+    // 2. Login on Device 2
+    const loginDev2 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'chgpwd_real@winkey.vn',
+        password: 'InitialPassword123!',
+      },
+    });
+    expect(loginDev2.statusCode).toBe(200);
+    const dev2Cookie = loginDev2.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // 3. Change password from Device 1 with current cookie
+    const chgRes = await app.inject({
+      method: 'PUT',
+      url: '/v1/auth/me/password',
+      headers: { authorization: `Bearer ${dev1Token}` },
+      cookies: { [REFRESH_COOKIE_NAME]: dev1Cookie },
+      payload: {
+        current_password: 'InitialPassword123!',
+        new_password: 'NewSuperPassword123!',
+      },
+    });
+    expect(chgRes.statusCode).toBe(204);
+
+    // 4. Old password fails login, new password works
+    const oldLogin = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'chgpwd_real@winkey.vn', password: 'InitialPassword123!' },
+    });
+    expect(oldLogin.statusCode).toBe(401);
+
+    const newLogin = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'chgpwd_real@winkey.vn', password: 'NewSuperPassword123!' },
+    });
+    expect(newLogin.statusCode).toBe(200);
+
+    // 5. Device 2 refresh token is revoked (401), Device 1 refresh token stays valid (200)
+    const dev2Refresh = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: dev2Cookie },
+    });
+    expect(dev2Refresh.statusCode).toBe(401);
+
+    const dev1Refresh = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: dev1Cookie },
+    });
+    expect(dev1Refresh.statusCode).toBe(200);
+
+    // 6. OAuth-only user (insert user with password_hash NULL and oauth_identities row)
+    const oauthUserId = uuidv7();
+    await pool.query(
+      `INSERT INTO auth.users (id, email, handle, display_name, password_hash, status)
+       VALUES ($1, $2, $3, $4, NULL, 'ACTIVE')`,
+      [oauthUserId, 'oauth_only_real@winkey.vn', 'oauth_only_real', 'OAuth Only Real'],
+    );
+    await pool.query(
+      `INSERT INTO auth.oauth_identities (provider, subject, user_id, email)
+       VALUES ('google', 'goog-sub-99999', $1, 'oauth_only_real@winkey.vn')`,
+      [oauthUserId],
+    );
+
+    const { token: oauthAccessToken } = await issueAccessToken(
+      { id: oauthUserId, roles: ['viewer', 'creator'] },
+      uuidv7(),
+      testEnv,
+    );
+
+    const meBefore = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${oauthAccessToken}` },
+    });
+    expect(meBefore.statusCode).toBe(200);
+    expect(meBefore.json().has_password).toBe(false);
+
+    // Set first password
+    const setPwdRes = await app.inject({
+      method: 'PUT',
+      url: '/v1/auth/me/password',
+      headers: { authorization: `Bearer ${oauthAccessToken}` },
+      payload: {
+        new_password: 'OAuthUserPassword123!',
+      },
+    });
+    expect(setPwdRes.statusCode).toBe(204);
+
+    // Can now log in with email and new password
+    const oauthLoginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'oauth_only_real@winkey.vn',
+        password: 'OAuthUserPassword123!',
+      },
+    });
+    expect(oauthLoginRes.statusCode).toBe(200);
+  });
+
+  it('Task A3: deleteMe scrubs row, deletes oauth_identities, revokes tokens, clears cookie, allows re-registration, and enforces LAST_ADMIN', async () => {
+    if (!app || !pool || !testEnv) return;
+
+    // 1. Register a user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'to_be_deleted@winkey.vn',
+        password: 'Password123!',
+        handle: 'to_be_deleted',
+        display_name: 'To Be Deleted',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const delCookie = regRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const delToken = regRes.json().access_token;
+    const delUserId = regRes.json().user.id;
+
+    // Link an oauth identity for this user
+    await pool.query(
+      `INSERT INTO auth.oauth_identities (provider, subject, user_id, email)
+       VALUES ('google', 'goog-del-target', $1, 'to_be_deleted@winkey.vn')`,
+      [delUserId],
+    );
+
+    // 2. Delete account with case-insensitive confirmation handle
+    const delRes = await app.inject({
+      method: 'DELETE',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${delToken}` },
+      payload: {
+        confirm_handle: 'TO_BE_DELETED',
+        password: 'Password123!',
+      },
+    });
+    expect(delRes.statusCode).toBe(204);
+    expect(delRes.headers['set-cookie'] as string).toContain('Max-Age=0');
+
+    // 3. Verify PostgreSQL row in auth.users
+    const userDbRes = await pool.query('SELECT * FROM auth.users WHERE id = $1', [delUserId]);
+    expect(userDbRes.rows.length).toBe(1);
+    const row = userDbRes.rows[0];
+    expect(row.status).toBe('DELETED');
+    expect(row.email).toBe(`deleted+${delUserId}@invalid.winkey.vn`);
+    const hex = delUserId.replace(/-/g, '');
+    expect(row.handle).toBe(`d_${hex.slice(0, 28)}`);
+    expect(row.handle.length).toBe(30);
+    expect(row.display_name).toBe('Deleted user');
+    expect(row.password_hash).toBeNull();
+    expect(row.email_verified_at).toBeNull();
+    expect(row.avatar_key).toBeNull();
+    expect(row.suspended_until).toBeNull();
+    expect(row.suspension_reason).toBeNull();
+
+    // 4. Verify auth.public_profiles does NOT include deleted user
+    const viewCheck = await pool.query('SELECT id FROM auth.public_profiles WHERE id = $1', [
+      delUserId,
+    ]);
+    expect(viewCheck.rows.length).toBe(0);
+
+    // 5. Verify auth.oauth_identities row was removed
+    const oauthCheck = await pool.query(
+      'SELECT user_id FROM auth.oauth_identities WHERE user_id = $1',
+      [delUserId],
+    );
+    expect(oauthCheck.rows.length).toBe(0);
+
+    // 6. Refresh token is revoked
+    const refreshCheck = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: delCookie },
+    });
+    expect(refreshCheck.statusCode).toBe(401);
+
+    // 7. Login with old email fails
+    const oldLogin = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: {
+        email: 'to_be_deleted@winkey.vn',
+        password: 'Password123!',
+      },
+    });
+    expect(oldLogin.statusCode).toBe(401);
+
+    // 8. Re-registration with the same email and handle succeeds
+    const reReg = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'to_be_deleted@winkey.vn',
+        password: 'BrandNewPassword123!',
+        handle: 'to_be_deleted',
+        display_name: 'Re-registered User',
+      },
+    });
+    expect(reReg.statusCode).toBe(201);
+    expect(reReg.json().user.handle).toBe('to_be_deleted');
+
+    // 9. LAST_ADMIN safeguard: sole admin cannot delete self
+    const soleAdminId = uuidv7();
+    // Demote or delete any existing active admin accounts first so this is the only admin
+    await pool.query(
+      "UPDATE auth.users SET roles = ARRAY['viewer']::auth.role[] WHERE 'admin' = ANY(roles) AND id != $1",
+      [soleAdminId],
+    );
+    await pool.query(
+      `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+       VALUES ($1, 'sole_admin_pg@winkey.vn', 'hash', 'sole_admin_pg', 'Sole Admin', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
+       ON CONFLICT (id) DO UPDATE SET roles = ARRAY['admin', 'viewer']::auth.role[], status = 'ACTIVE'`,
+      [soleAdminId],
+    );
+    const { token: soleAdminToken } = await issueAccessToken(
+      { id: soleAdminId, roles: ['admin', 'viewer'] },
+      uuidv7(),
+      testEnv,
+    );
+
+    const lastAdminRes = await app.inject({
+      method: 'DELETE',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${soleAdminToken}` },
+      payload: {
+        confirm_handle: 'sole_admin_pg',
+      },
+    });
+    expect(lastAdminRes.statusCode).toBe(409);
+    expect(lastAdminRes.json().code).toBe('LAST_ADMIN');
   });
 });
