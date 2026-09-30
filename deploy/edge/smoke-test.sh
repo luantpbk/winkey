@@ -290,7 +290,11 @@ if [ "$PARTS_CODE" != "200" ]; then
     echo "$PARTS_RESP"
     exit 1
 fi
-PART_URL=$(echo "$PARTS_RESP" | grep -o '"url":"[^"]*"' | head -n1 | cut -d'"' -f4)
+if command -v jq >/dev/null 2>&1; then
+    PART_URL=$(echo "$PARTS_RESP" | grep '^{"parts"' | jq -r '.parts[0].url')
+else
+    PART_URL=$(echo "$PARTS_RESP" | grep -o '"url":"[^"]*"' | head -n1 | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
+fi
 
 echo "  Uploading 1024 bytes of dummy payload to presigned URL on Garage..."
 TMP_PAYLOAD=$(mktemp)
