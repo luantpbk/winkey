@@ -65,7 +65,7 @@ spec:
         maxParallel: 1
       data:
         compression: gzip
-    retentionPolicy: "7d"
+    retentionPolicy: '7d'
 
   resources:
     requests:
@@ -77,10 +77,10 @@ spec:
 
   postgresql:
     parameters:
-      shared_buffers: "256MB"
-      work_mem: "16MB"
-      maintenance_work_mem: "64MB"
-      max_connections: "100"
+      shared_buffers: '256MB'
+      work_mem: '16MB'
+      maintenance_work_mem: '64MB'
+      max_connections: '100'
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
@@ -91,7 +91,7 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/part-of: winkey
 spec:
-  schedule: "0 0 3 * * *"
+  schedule: '0 0 3 * * *'
   cluster:
     name: winkey-pg
   backupOwnerReference: self
