@@ -156,6 +156,112 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+    patch:
+      tags: [auth]
+      operationId: updateMe
+      summary: Edit your own display name and/or handle (task A3).
+      description: |
+        At least one field. A handle that another account uses (case-insensitive) → `409` `HANDLE_TAKEN`.
+        Sending the current value again is a no-op (`200`). Rate limited per user: 10 changes / hour → `429`.
+        The new handle takes effect immediately in `auth.public_profiles`; old `/@handle` URLs stop resolving.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: The user after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [auth]
+      operationId: deleteMe
+      summary: Delete your own account (task A3).
+      description: |
+        Confirmation: `confirm_handle` must equal your current handle (case-insensitive), and accounts with a
+        password must also send the correct `password`; otherwise `400` (`CONFIRMATION_MISMATCH`) or `403`
+        (`INVALID_CREDENTIALS`). Rate limited like `login` → `429`.
+
+        In one transaction: `status = DELETED`; `email` → `deleted+<id>@invalid.winkey.vn`; `handle` →
+        `d_` + the first 28 hex digits of the id without dashes; `display_name` → `Deleted user`;
+        `password_hash`, `email_verified_at`, `avatar_key` → NULL; every `oauth_identities` row and every
+        refresh-token family of the user is removed / revoked. The email and handle become free for new
+        accounts. The response clears `wk_rt`. Already-issued access tokens keep working until they expire
+        (≤ 15 min), exactly as for suspension; every service already hides content of non-ACTIVE owners
+        through `auth.public_profiles`. Admins cannot delete themselves while they are the last admin
+        (`409` `LAST_ADMIN`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteMeRequest'
+      responses:
+        '204':
+          description: Account deleted; `wk_rt` cleared.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/me/password:
+    put:
+      tags: [auth]
+      operationId: changePassword
+      summary: Set or change your password (task A3).
+      description: |
+        - Account with a password: `current_password` is required and must match, else `403`
+          `INVALID_CREDENTIALS`.
+        - OAuth-only account (`has_password = false`): `current_password` must be omitted; this sets a first
+          password so the account can also sign in with email + password.
+
+        On success every refresh-token family of the user is revoked **except** the one in the request's
+        `wk_rt` cookie (other devices are signed out; this one stays). Rate limited like `login` → `429`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/auth/oauth/google:
     get:
@@ -544,9 +650,54 @@ components:
           type: array
           items:
             $ref: './common.yaml#/components/schemas/Role'
+        has_password:
+          type: boolean
+          description: |
+            Whether the account can sign in with email + password. Returned by `getMe` and `updateMe`
+            (task A3) so the settings page knows whether `changePassword` and `deleteMe` need the current
+            password.
         created_at:
           type: string
           format: date-time
+
+    UpdateMeRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        handle:
+          type: string
+          pattern: '^[A-Za-z0-9_.]{3,30}$'
+
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [new_password]
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+
+    DeleteMeRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm_handle]
+      properties:
+        confirm_handle:
+          type: string
+        password:
+          type: string
+          writeOnly: true
+          description: Required when the account has a password.
 
     TokenResponse:
       type: object

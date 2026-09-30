@@ -81,6 +81,53 @@ export interface paths {
         get: operations["getMe"];
         put?: never;
         post?: never;
+        /**
+         * Delete your own account (task A3).
+         * @description Confirmation: `confirm_handle` must equal your current handle (case-insensitive), and accounts with a
+         *     password must also send the correct `password`; otherwise `400` (`CONFIRMATION_MISMATCH`) or `403`
+         *     (`INVALID_CREDENTIALS`). Rate limited like `login` → `429`.
+         *
+         *     In one transaction: `status = DELETED`; `email` → `deleted+<id>@invalid.winkey.vn`; `handle` →
+         *     `d_` + the first 28 hex digits of the id without dashes; `display_name` → `Deleted user`;
+         *     `password_hash`, `email_verified_at`, `avatar_key` → NULL; every `oauth_identities` row and every
+         *     refresh-token family of the user is removed / revoked. The email and handle become free for new
+         *     accounts. The response clears `wk_rt`. Already-issued access tokens keep working until they expire
+         *     (≤ 15 min), exactly as for suspension; every service already hides content of non-ACTIVE owners
+         *     through `auth.public_profiles`. Admins cannot delete themselves while they are the last admin
+         *     (`409` `LAST_ADMIN`).
+         */
+        delete: operations["deleteMe"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit your own display name and/or handle (task A3).
+         * @description At least one field. A handle that another account uses (case-insensitive) → `409` `HANDLE_TAKEN`.
+         *     Sending the current value again is a no-op (`200`). Rate limited per user: 10 changes / hour → `429`.
+         *     The new handle takes effect immediately in `auth.public_profiles`; old `/@handle` URLs stop resolving.
+         */
+        patch: operations["updateMe"];
+        trace?: never;
+    };
+    "/v1/auth/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or change your password (task A3).
+         * @description - Account with a password: `current_password` is required and must match, else `403`
+         *       `INVALID_CREDENTIALS`.
+         *     - OAuth-only account (`has_password = false`): `current_password` must be omitted; this sets a first
+         *       password so the account can also sign in with email + password.
+         *
+         *     On success every refresh-token family of the user is revoked **except** the one in the request's
+         *     `wk_rt` cookie (other devices are signed out; this one stays). Rate limited like `login` → `429`.
+         */
+        put: operations["changePassword"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -315,8 +362,27 @@ export interface components {
             /** Format: uri */
             avatar_url: string | null;
             roles: components["schemas"]["Role"][];
+            /**
+             * @description Whether the account can sign in with email + password. Returned by `getMe` and `updateMe`
+             *     (task A3) so the settings page knows whether `changePassword` and `deleteMe` need the current
+             *     password.
+             */
+            has_password?: boolean;
             /** Format: date-time */
             created_at: string;
+        };
+        UpdateMeRequest: {
+            display_name?: string;
+            handle?: string;
+        };
+        ChangePasswordRequest: {
+            current_password?: string;
+            new_password: string;
+        };
+        DeleteMeRequest: {
+            confirm_handle: string;
+            /** @description Required when the account has a password. */
+            password?: string;
         };
         TokenResponse: {
             access_token: string;
@@ -457,8 +523,8 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Resource does not exist or is not visible to the caller. */
-        NotFound: {
+        /** @description Authenticated but not allowed. */
+        Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
@@ -466,8 +532,8 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Authenticated but not allowed. */
-        Forbidden: {
+        /** @description Resource does not exist or is not visible to the caller. */
+        NotFound: {
             headers: {
                 [name: string]: unknown;
             };
@@ -616,6 +682,88 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    deleteMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteMeRequest"];
+            };
+        };
+        responses: {
+            /** @description Account deleted; `wk_rt` cleared. */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMeRequest"];
+            };
+        };
+        responses: {
+            /** @description The user after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     googleStart: {
