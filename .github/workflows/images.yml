@@ -36,6 +36,7 @@ jobs:
       social: ${{ steps.filter.outputs.social }}
       realtime: ${{ steps.filter.outputs.realtime }}
       web: ${{ steps.filter.outputs.web }}
+      analytics_worker: ${{ steps.filter.outputs.analytics_worker }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -73,6 +74,11 @@ jobs:
             web:
               - 'apps/web/**'
               - 'packages/**'
+              - '.github/workflows/images.yml'
+            analytics_worker:
+              - 'services/analytics/**'
+              - 'libs/**'
+              - 'db/clickhouse/**'
               - '.github/workflows/images.yml'
 
   build:
@@ -124,6 +130,11 @@ jobs:
             file: apps/web/Dockerfile
             platforms: linux/amd64,linux/arm64
             filter_key: web
+          - name: analytics-worker
+            context: .
+            file: services/analytics/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            filter_key: analytics_worker
     steps:
       - uses: actions/checkout@v4
 

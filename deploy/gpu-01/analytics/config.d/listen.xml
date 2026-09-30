@@ -1,0 +1,7 @@
+<clickhouse>
+    <!-- Listen on all interfaces inside container; docker port mapping restricts to 127.0.0.1 on the host -->
+    <listen_host>::</listen_host>
+    <listen_host>0.0.0.0</listen_host>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+</clickhouse>

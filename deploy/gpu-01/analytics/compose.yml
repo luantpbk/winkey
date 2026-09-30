@@ -1,0 +1,53 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.1.8.25@sha256:a2f096fd8d01972a91d2a08d9653d822b0ffba7a9144bc9ea0149594aa084e1b
+    container_name: winkey-analytics-clickhouse
+    restart: unless-stopped
+    ports:
+      # Bound strictly to 127.0.0.1 only (ADR-022, unreachable over LAN/Tailscale)
+      - '127.0.0.1:8123:8123'
+      - '127.0.0.1:9000:9000'
+    environment:
+      CLICKHOUSE_PASSWORD: '${CLICKHOUSE_PASSWORD}'
+    volumes:
+      - /srv/winkey-analytics/clickhouse:/var/lib/clickhouse
+      - ./config.d:/etc/clickhouse-server/config.d:ro
+      - ./users.d:/etc/clickhouse-server/users.d:ro
+    cpus: 8
+    mem_limit: 14g
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '50m'
+        max-file: '5'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8123/ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  analytics-worker:
+    image: ghcr.io/luantpbk/winkey-analytics-worker:latest
+    container_name: winkey-analytics-worker
+    restart: unless-stopped
+    network_mode: 'host'
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_DSN: '${CLICKHOUSE_DSN:-clickhouse://winkey:${CLICKHOUSE_PASSWORD}@127.0.0.1:9000/winkey}'
+      CLICKHOUSE_MIGRATIONS_DIR: '/migrations'
+      NATS_URL: '${NATS_URL:-nats://analytics:${NATS_ANALYTICS_PASSWORD}@100.113.240.3:30422}'
+      PORT: '8004'
+    volumes:
+      - '${MIGRATIONS_PATH:-../../../db/clickhouse}:/migrations:ro'
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '50m'
+        max-file: '5'

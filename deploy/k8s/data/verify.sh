@@ -138,6 +138,11 @@ spec:
         secretKeyRef:
           name: nats-auth
           key: realtime_password
+    - name: ANALYTICS_PWD
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth
+          key: analytics_password
 EOF
 
 kubectl wait --for=condition=Ready pod/nats-verifier -n "$NAMESPACE" --timeout=60s
@@ -145,11 +150,11 @@ kubectl wait --for=condition=Ready pod/nats-verifier -n "$NAMESPACE" --timeout=6
 echo "Listing JetStream streams:"
 kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats stream ls --server="nats://admin:${ADMIN_PWD}@nats:4222"'
 
-for s in VIDEO USER SOCIAL DLQ; do
+for s in VIDEO USER SOCIAL DLQ ANALYTICS; do
     echo "Checking stream $s..."
     kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c "nats stream info \"$s\" --server=\"nats://admin:\${ADMIN_PWD}@nats:4222\"" >/dev/null
 done
-echo "SUCCESS: Streams VIDEO, USER, SOCIAL, DLQ exist and are healthy."
+echo "SUCCESS: Streams VIDEO, USER, SOCIAL, DLQ, ANALYTICS exist and are healthy."
 
 echo ""
 echo "=========================================================================="
@@ -242,6 +247,35 @@ if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "vide
     exit 1
 fi
 echo "  PASS: social user blocked from video.uploaded (Permissions Violation)."
+
+echo "Test 5.14: video user publishes to analytics.playback (R1 telemetry)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "analytics.playback" "test-playback" --server="nats://video:${VIDEO_PWD}@nats:4222"' >/dev/null
+echo "  PASS: video user published to analytics.playback."
+
+echo "Test 5.15: analytics user can inspect stream ANALYTICS..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats stream info "ANALYTICS" --server="nats://analytics:${ANALYTICS_PWD}@nats:4222"' >/dev/null
+echo "  PASS: analytics user inspected stream ANALYTICS."
+
+echo "Test 5.16: analytics user CANNOT publish to video.uploaded (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "video.uploaded" "test-exploit" --server="nats://analytics:${ANALYTICS_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: analytics user was able to publish to video.uploaded!" >&2
+    exit 1
+fi
+echo "  PASS: analytics user blocked from video.uploaded (Permissions Violation)."
+
+echo "Test 5.17: analytics user CANNOT publish to user.registered (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "user.registered" "test-exploit" --server="nats://analytics:${ANALYTICS_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: analytics user was able to publish to user.registered!" >&2
+    exit 1
+fi
+echo "  PASS: analytics user blocked from user.registered (Permissions Violation)."
+
+echo "Test 5.18: analytics user CANNOT subscribe to video.ready (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "video.ready" --server="nats://analytics:${ANALYTICS_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: analytics user was able to subscribe to video.ready!" >&2
+    exit 1
+fi
+echo "  PASS: analytics user blocked from video.ready (Permissions Violation)."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
