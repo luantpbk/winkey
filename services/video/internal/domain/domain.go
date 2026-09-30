@@ -132,6 +132,45 @@ type StudioQuery struct {
 	Limit  int
 }
 
+// Search modes (task SR1): full text first, trigram similarity on the title as
+// the fallback of an empty first page.
+const (
+	SearchFTS  = "fts"
+	SearchTrgm = "trgm"
+)
+
+// SearchAfter is the keyset position of a search page, in the order
+// (rank DESC, published_at DESC, id DESC). Rank is a float4 so it survives a
+// cursor round trip bit for bit.
+type SearchAfter struct {
+	Rank float32
+	T    time.Time
+	ID   uuid.UUID
+}
+
+// SearchQuery asks for one page of READY + PUBLIC + VISIBLE videos matching Q.
+// Q is the trimmed user text: the store folds it in SQL. Mode "" (first page)
+// lets the store fall back to trigrams when full text finds nothing; a cursor
+// pins the mode.
+type SearchQuery struct {
+	Q     string
+	Mode  string
+	After *SearchAfter
+	Limit int // the store returns up to Limit rows; callers pass pageSize+1
+}
+
+// SearchHit is one result with the rank it was ordered by.
+type SearchHit struct {
+	Summary
+	Rank float32
+}
+
+// SearchResult is one page and the mode that produced it.
+type SearchResult struct {
+	Mode string
+	Hits []SearchHit
+}
+
 // Update holds the fields of a PATCH; nil means "leave unchanged".
 type Update struct {
 	Title       *string
@@ -155,6 +194,10 @@ type Store interface {
 	// video.moderated. changed is false for a no-op (same state again: nothing is
 	// written, no event). ErrNotFound if the video does not exist.
 	ModerateVideo(ctx context.Context, id, moderatorID uuid.UUID, state string, reason *string) (v Video, changed bool, err error)
+	// SearchVideos runs one page of the public video search (task SR1).
+	SearchVideos(ctx context.Context, q SearchQuery) (SearchResult, error)
+	// SuggestTitles returns up to limit distinct titles of public videos for a search box.
+	SuggestTitles(ctx context.Context, q string, limit int) ([]string, error)
 }
 
 // Cache is the optional read cache for GET /v1/videos/{id}.

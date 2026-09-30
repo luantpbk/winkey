@@ -28,6 +28,7 @@ const (
 const (
 	cursorFeed   = "feed"
 	cursorStudio = "studio"
+	cursorSearch = "search"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -49,6 +50,11 @@ type Handler struct {
 	Views          ViewCounter
 	TrustedProxies []netip.Prefix // TRUST_PROXY_CIDRS
 	ViewRateLimit  int            // reports per client IP per minute; default 60
+
+	// Search rate limits (task SR1), per client IP. Limiter nil disables them.
+	Limiter          Limiter
+	SearchRateLimit  int // per minute; default 60
+	SuggestRateLimit int // per minute; default 120
 }
 
 // Routes mounts the API on r.
@@ -58,6 +64,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/v1/videos", h.listVideos)
 		r.Get("/v1/videos/{video_id}", h.getVideo)
 		r.Post("/v1/videos/{video_id}/views", h.recordView)
+		r.Get("/v1/search", h.searchVideos)
+		r.Get("/v1/search/suggest", h.suggestSearch)
 	})
 	r.Group(func(r chi.Router) { // identity required
 		r.Use(httpx.Authenticate)

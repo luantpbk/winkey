@@ -77,10 +77,20 @@ return {n, ttl}
 // Allow counts one report for the client IP in the current window and reports
 // whether it is within the limit. retryAfter is the time until the window ends.
 func (v *Valkey) Allow(ctx context.Context, ip string, limit int, window time.Duration) (ok bool, retryAfter time.Duration, err error) {
+	return v.allow(ctx, ratePrefix+ip, limit, window)
+}
+
+// AllowScoped is Allow with its own counter per scope (an endpoint name), so
+// one client IP has an independent limit on each endpoint.
+func (v *Valkey) AllowScoped(ctx context.Context, scope, ip string, limit int, window time.Duration) (ok bool, retryAfter time.Duration, err error) {
+	return v.allow(ctx, ratePrefix+scope+":"+ip, limit, window)
+}
+
+func (v *Valkey) allow(ctx context.Context, key string, limit int, window time.Duration) (ok bool, retryAfter time.Duration, err error) {
 	if v.open() {
 		return false, 0, ErrUnavailable
 	}
-	res, err := rateScript.Run(ctx, v.client, []string{ratePrefix + ip}, window.Milliseconds()).Int64Slice()
+	res, err := rateScript.Run(ctx, v.client, []string{key}, window.Milliseconds()).Int64Slice()
 	if err != nil || len(res) != 2 {
 		return false, 0, v.trip(fmt.Errorf("rate limit: %v", err))
 	}

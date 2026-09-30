@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -53,17 +54,9 @@ func Encode(secret []byte, kind, scope string, p domain.Position) string {
 // Decode verifies and decodes a token issued by Encode with the same secret,
 // kind and scope.
 func Decode(secret []byte, kind, scope, token string) (domain.Position, error) {
-	if len(token) == 0 || len(token) > MaxLen {
-		return domain.Position{}, ErrInvalid
-	}
-	bodyPart, macPart, ok := strings.Cut(token, ".")
-	if !ok {
-		return domain.Position{}, ErrInvalid
-	}
-	body, err1 := enc.DecodeString(bodyPart)
-	got, err2 := enc.DecodeString(macPart)
-	if err1 != nil || err2 != nil || !hmac.Equal(got, mac(secret, kind, scope, body)) {
-		return domain.Position{}, ErrInvalid
+	body, err := verify(secret, kind, scope, token)
+	if err != nil {
+		return domain.Position{}, err
 	}
 	var p payload
 	if json.Unmarshal(body, &p) != nil {
@@ -74,4 +67,61 @@ func Decode(secret []byte, kind, scope, token string) (domain.Position, error) {
 		return domain.Position{}, ErrInvalid
 	}
 	return domain.Position{T: time.UnixMicro(p.T).UTC(), ID: id}, nil
+}
+
+// SearchPosition is the position of a search cursor: the mode that produced the
+// page, the number of the page it leads to (1-based) and the keyset position.
+type SearchPosition struct {
+	Mode string
+	Page int
+	domain.SearchAfter
+}
+
+type searchPayload struct {
+	M string `json:"m"` // fts | trgm
+	P int    `json:"p"`
+	R uint32 `json:"r"` // float32 bits of the rank: exact, unlike a decimal
+	T int64  `json:"t"`
+	I string `json:"i"`
+}
+
+// EncodeSearch returns the token for the position after the last item of a search page.
+func EncodeSearch(secret []byte, kind, scope string, p SearchPosition) string {
+	body, _ := json.Marshal(searchPayload{M: p.Mode, P: p.Page, R: math.Float32bits(p.Rank), T: p.T.UnixMicro(), I: p.ID.String()})
+	return enc.EncodeToString(body) + "." + enc.EncodeToString(mac(secret, kind, scope, body))
+}
+
+// DecodeSearch verifies and decodes a token issued by EncodeSearch.
+func DecodeSearch(secret []byte, kind, scope, token string) (SearchPosition, error) {
+	body, err := verify(secret, kind, scope, token)
+	if err != nil {
+		return SearchPosition{}, err
+	}
+	var p searchPayload
+	if json.Unmarshal(body, &p) != nil || (p.M != domain.SearchFTS && p.M != domain.SearchTrgm) || p.P < 2 {
+		return SearchPosition{}, ErrInvalid
+	}
+	id, err := uuid.Parse(p.I)
+	if err != nil {
+		return SearchPosition{}, ErrInvalid
+	}
+	return SearchPosition{Mode: p.M, Page: p.P, SearchAfter: domain.SearchAfter{
+		Rank: math.Float32frombits(p.R), T: time.UnixMicro(p.T).UTC(), ID: id}}, nil
+}
+
+// verify checks length, shape and MAC and returns the payload bytes.
+func verify(secret []byte, kind, scope, token string) ([]byte, error) {
+	if len(token) == 0 || len(token) > MaxLen {
+		return nil, ErrInvalid
+	}
+	bodyPart, macPart, ok := strings.Cut(token, ".")
+	if !ok {
+		return nil, ErrInvalid
+	}
+	body, err1 := enc.DecodeString(bodyPart)
+	got, err2 := enc.DecodeString(macPart)
+	if err1 != nil || err2 != nil || !hmac.Equal(got, mac(secret, kind, scope, body)) {
+		return nil, ErrInvalid
+	}
+	return body, nil
 }
