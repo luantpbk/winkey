@@ -68,7 +68,9 @@ describe('@winkey/metrics', () => {
     expect(videoRouteItem).toBeDefined();
     expect(videoRouteItem?.value).toBe(2);
 
-    const histogram = registry.getSingleMetric('http_request_duration_seconds') as Histogram<string>;
+    const histogram = registry.getSingleMetric(
+      'http_request_duration_seconds',
+    ) as Histogram<string>;
     const histData = await histogram.get();
     const histItem = histData.values.find(
       (v) => v.labels.route === '/v1/videos/:id' && v.labels.status === '200',

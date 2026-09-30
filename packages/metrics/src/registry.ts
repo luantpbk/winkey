@@ -20,12 +20,4 @@ export function createRegistry(service: string): Registry {
   return registry;
 }
 
-export {
-  Registry,
-  collectDefaultMetrics,
-  Counter,
-  Histogram,
-  Gauge,
-  Summary,
-  type Metric,
-};
+export { Registry, collectDefaultMetrics, Counter, Histogram, Gauge, Summary, type Metric };

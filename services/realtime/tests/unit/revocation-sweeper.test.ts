@@ -1,10 +1,7 @@
 import type { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Redis } from 'ioredis';
-import {
-  RevocationSweeper,
-  realtimeRegistry,
-} from '../../src/revocation/revocation-sweeper.js';
+import { RevocationSweeper, realtimeRegistry } from '../../src/revocation/revocation-sweeper.js';
 import type { Counter } from '@winkey/metrics';
 import { ConnectionManager } from '../../src/websocket/connection-manager.js';
 import { VideoClient } from '../../src/video/video-client.js';

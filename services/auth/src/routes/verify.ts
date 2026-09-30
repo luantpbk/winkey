@@ -2,10 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { verifyAccessToken, type AccessTokenClaims } from '../crypto/jwt.js';
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
-import {
-  RevocationService,
-  verifyRevocationCheckCounter,
-} from '../revocation/revocation.js';
+import { RevocationService, verifyRevocationCheckCounter } from '../revocation/revocation.js';
 
 export const verifyRoute: FastifyPluginAsync<{
   env: Env;

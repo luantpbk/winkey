@@ -6,10 +6,7 @@ import { getEnv } from '../../src/config/env.js';
 import { TicketStore } from '../../src/tickets/ticket-store.js';
 import { VideoClient } from '../../src/video/video-client.js';
 import { ConnectionManager } from '../../src/websocket/connection-manager.js';
-import {
-  RevocationSweeper,
-  realtimeRegistry,
-} from '../../src/revocation/revocation-sweeper.js';
+import { RevocationSweeper, realtimeRegistry } from '../../src/revocation/revocation-sweeper.js';
 import type { Counter } from '@winkey/metrics';
 
 async function getMetricCount(name: string): Promise<number> {

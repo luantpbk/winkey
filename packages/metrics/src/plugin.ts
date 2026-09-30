@@ -68,9 +68,7 @@ const rawMetricsPlugin: FastifyPluginAsync<MetricsPluginOptions> = async (
     }
 
     const startTime = (request as unknown as Record<symbol, bigint | undefined>)[kStartTime];
-    const durationSeconds = startTime
-      ? Number(process.hrtime.bigint() - startTime) / 1e9
-      : 0;
+    const durationSeconds = startTime ? Number(process.hrtime.bigint() - startTime) / 1e9 : 0;
 
     const status = String(reply.statusCode);
     const method = request.method;
