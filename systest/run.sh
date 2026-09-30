@@ -76,9 +76,9 @@ fi
 echo "[systest] Building and starting all services..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --wait
 
-# 3b. Poll /readyz for services without internal healthcheck (3002, 3003, 8081)
+# 3b. Poll /readyz for services without internal healthcheck (3002, 3003, 8084)
 echo "[systest] Polling /readyz endpoints for upload-svc, video-svc, transcoder..."
-for port in 3002 3003 8081; do
+for port in 3002 3003 8084; do
   READY=0
   for _ in $(seq 1 120); do
     if curl -s "http://127.0.0.1:${port}/readyz" | grep -q '"status":"ok"' || curl -s "http://127.0.0.1:${port}/readyz" | grep -q '"status":"UP"'; then

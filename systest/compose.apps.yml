@@ -172,7 +172,7 @@ services:
       dockerfile: services/transcoder/Dockerfile.cpu
     container_name: transcoder
     ports:
-      - '127.0.0.1:8081:8081'
+      - '127.0.0.1:8084:8081'
     environment:
       HTTP_ADDR: ':8081'
       LOG_LEVEL: info
