@@ -160,3 +160,17 @@ spec:
         - name: garage-web
           port: 3902
           namespace: default
+
+    # 11. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)
+    - match: 'Host(`media-auth.internal`) && PathPrefix(`/internal/media-access/`)'
+      kind: Rule
+      priority: 95
+      middlewares:
+        - name: internal-media-allowlist
+          namespace: default
+        - name: strip-user-headers
+          namespace: default
+      services:
+        - name: video-svc
+          port: 3003
+          namespace: default

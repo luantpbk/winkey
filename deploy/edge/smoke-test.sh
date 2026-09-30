@@ -14,7 +14,7 @@ echo " Running Winkey Edge Smoke Tests against ${BASE_URL}"
 echo "=========================================================="
 
 # 1. Check that /v1/auth/verify returns HTTP 404 (not publicly routed)
-echo "[1/10] Checking that /v1/auth/verify is not publicly accessible..."
+echo "[1/11] Checking that /v1/auth/verify is not publicly accessible..."
 VERIFY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/auth/verify")
 if [ "$VERIFY_STATUS" != "404" ]; then
     echo "FAILED: ${BASE_URL}/v1/auth/verify returned HTTP $VERIFY_STATUS (expected strictly 404)!" >&2
@@ -23,7 +23,7 @@ fi
 echo "SUCCESS: ${BASE_URL}/v1/auth/verify returned HTTP 404 (router excluded)."
 
 # 2. Check that unknown /v1 route returns HTTP 404 (does not bleed into web router)
-echo "[2/10] Checking that unknown /v1/nope returns HTTP 404..."
+echo "[2/11] Checking that unknown /v1/nope returns HTTP 404..."
 NOPE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/nope")
 if [ "$NOPE_STATUS" != "404" ]; then
     echo "FAILED: ${BASE_URL}/v1/nope returned HTTP $NOPE_STATUS (expected strictly 404)!" >&2
@@ -32,7 +32,7 @@ fi
 echo "SUCCESS: ${BASE_URL}/v1/nope returned HTTP 404 (not handled by web router)."
 
 # 3. Check gateway header spoofing protection and client IP assertion via /smoke/whoami
-echo "[3/10] Checking header stripping and client IP assertion via /smoke/whoami..."
+echo "[3/11] Checking header stripping and client IP assertion via /smoke/whoami..."
 CLIENT_IP=$(curl -sS https://api.ipify.org 2>/dev/null || curl -sS https://ifconfig.me 2>/dev/null || true)
 if [ -z "$CLIENT_IP" ]; then
     echo "FAILED: Could not detect client public IP to verify X-Forwarded-For!" >&2
@@ -78,7 +78,7 @@ fi
 echo "SUCCESS: whoami returned 200; identity headers stripped; upstream sees real client IP ($CLIENT_IP)."
 
 # 4. Check Traefik rate limit behavior (ipStrategy depth: 1)
-echo "[4/10] Checking Traefik rate limiting on ${BASE_URL}/smoke/whoami..."
+echo "[4/11] Checking Traefik rate limiting on ${BASE_URL}/smoke/whoami..."
 echo "  Firing 150 concurrent requests (threshold: average 100/s, burst 50)..."
 
 TMP_DIR=$(mktemp -d)
@@ -121,16 +121,17 @@ if [ "$COUNT_429" -le 0 ]; then
 fi
 echo "SUCCESS: Traefik rateLimit engaged ($COUNT_429 requests received HTTP 429 Too Many Requests)."
 
-# 5. Check media proxy_cache on media.winkey.vn (MISS/HIT -> HIT)
-echo "[5/10] Checking media proxy_cache on ${MEDIA_URL}..."
+# 5. Check media delivery & proxy_cache on media.winkey.vn (ADR-005, ADR-014, ADR-018)
+echo "[5/11] Checking media delivery & proxy_cache on ${MEDIA_URL}..."
 if [ "${SKIP_MEDIA}" = "1" ]; then
-    echo "SKIP: Media proxy_cache test skipped via SKIP_MEDIA=1 (pending task STO)."
+    echo "SKIP: Media proxy_cache test skipped via SKIP_MEDIA=1."
 else
-    MEDIA_RESP1=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
+    PUBLIC_VID="${PUBLIC_VIDEO_ID:-01a0f0dd-7b6c-79f6-b75a-c89121e474cf}"
+    MEDIA_RESP1=$(curl -sS -i "${MEDIA_URL}/v/${PUBLIC_VID}/a1/hls/master.m3u8" || true)
     CACHE_STATUS1=$(echo "$MEDIA_RESP1" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
     CODE1=$(echo "$MEDIA_RESP1" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
 
-    MEDIA_RESP2=$(curl -sS -i "${MEDIA_URL}/v/smoke/hello.txt" || true)
+    MEDIA_RESP2=$(curl -sS -i "${MEDIA_URL}/v/${PUBLIC_VID}/a1/hls/master.m3u8" || true)
     CACHE_STATUS2=$(echo "$MEDIA_RESP2" | grep -i '^X-Cache-Status:' | awk '{print $2}' | tr -d '\r\n')
     CODE2=$(echo "$MEDIA_RESP2" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
 
@@ -138,7 +139,7 @@ else
     echo "  Fetch 2: HTTP $CODE2, X-Cache-Status: ${CACHE_STATUS2:-NONE}"
 
     if [ "$CODE1" != "200" ] || [ "$CODE2" != "200" ]; then
-        echo "FAILED: Expected HTTP 200 from ${MEDIA_URL}/v/smoke/hello.txt, got $CODE1 / $CODE2 (set SKIP_MEDIA=1 if STO not yet deployed)!" >&2
+        echo "FAILED: Expected HTTP 200 from ${MEDIA_URL}/v/${PUBLIC_VID}/a1/hls/master.m3u8, got $CODE1 / $CODE2!" >&2
         exit 1
     fi
 
@@ -150,11 +151,25 @@ else
         echo "FAILED: Expected cache status HIT on second fetch, got '$CACHE_STATUS2'!" >&2
         exit 1
     fi
-    echo "SUCCESS: media object cached correctly: ${CACHE_STATUS1} then ${CACHE_STATUS2}."
+
+    # Assert ADR-018: X-Content-Type-Options: nosniff
+    if ! echo "$MEDIA_RESP2" | grep -qi '^X-Content-Type-Options:.*nosniff'; then
+        echo "FAILED: Expected X-Content-Type-Options: nosniff on media response!" >&2
+        exit 1
+    fi
+
+    # Assert ADR-017: Unmatched path returns 404
+    UNMATCHED_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${MEDIA_URL}/v/smoke/hello.txt" || true)
+    if [ "$UNMATCHED_CODE" != "404" ]; then
+        echo "FAILED: Expected HTTP 404 for non-video path on media.winkey.vn, got $UNMATCHED_CODE!" >&2
+        exit 1
+    fi
+
+    echo "SUCCESS: media object delivered (200), cached (HIT), nosniff present, unmatched path 404."
 fi
 
 # 6. Check that internal NodePorts are strictly unreachable from public IP
-echo "[6/10] Checking that internal NodePorts are strictly unreachable from public IP (${PUBLIC_IP})..."
+echo "[6/11] Checking that internal NodePorts are strictly unreachable from public IP (${PUBLIC_IP})..."
 for port in 30422 30432 30900; do
     echo "  Testing public port $port (must timeout / fail)..."
     if timeout 3 bash -c "exec 3<>/dev/tcp/${PUBLIC_IP}/${port}" 2>/dev/null; then
@@ -166,7 +181,7 @@ done
 echo "SUCCESS: NodePorts 30422, 30432, 30900 are unreachable from the public IP."
 
 # 7. Check user lifecycle: register -> login -> GET /v1/auth/me (200)
-echo "[7/10] Checking user authentication lifecycle (register -> login -> /v1/auth/me)..."
+echo "[7/11] Checking user authentication lifecycle (register -> login -> /v1/auth/me)..."
 TEST_ID="$(date +%s)_$RANDOM"
 TEST_EMAIL="smoke_${TEST_ID}@winkey.vn"
 TEST_PASS="P@ssw0rd123_${TEST_ID}"
@@ -215,7 +230,7 @@ fi
 echo "SUCCESS: User registered, logged in, and /v1/auth/me returned HTTP 200."
 
 # 8. Check video listing and search
-echo "[8/10] Checking video listing and search APIs..."
+echo "[8/11] Checking video listing and search APIs..."
 echo "  Calling GET /v1/videos..."
 VIDEOS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/videos")
 if [ "$VIDEOS_CODE" != "200" ]; then
@@ -232,7 +247,7 @@ fi
 echo "SUCCESS: /v1/videos and /v1/search returned HTTP 200."
 
 # 9. Check realtime ticket issuance & WebSocket upgrade (101)
-echo "[9/10] Checking realtime ticket issuance and WebSocket upgrade..."
+echo "[9/11] Checking realtime ticket issuance and WebSocket upgrade..."
 TICKET_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/realtime/ticket" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}")
 TICKET_CODE=$(echo "$TICKET_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
@@ -265,7 +280,7 @@ fi
 echo "SUCCESS: Realtime ticket issued and WebSocket upgraded to HTTP 101."
 
 # 10. Check multipart upload initiation, presigned PUT to Garage, and completion
-echo "[10/10] Checking direct-to-storage multipart upload..."
+echo "[10/11] Checking direct-to-storage multipart upload..."
 INIT_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/uploads" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
@@ -322,6 +337,152 @@ if [ "$COMP_CODE" != "202" ]; then
     exit 1
 fi
 echo "SUCCESS: Multipart upload completed (HTTP 202 Accepted); raw file saved to Garage S3."
+
+# 11. Check SEC1 media access control (ADR-017, ADR-018)
+echo "[11/11] Checking SEC1 media access control and signed URLs..."
+SEC1_VID="${SEC1_VIDEO_ID:-01a0f0dd-7b6c-79f6-b75a-c89121e474cf}"
+
+echo "  [11a] Verifying internal media access is strictly not accessible from public host..."
+# Test 1: Spoofed Host header via public domain (must return 404, 444, or closed connection)
+HOST_RESP=$(curl -sS -i -H 'Host: media-auth.internal' "${BASE_URL}/internal/media-access/${SEC1_VID}" 2>&1 || true)
+HOST_CODE=$(echo "$HOST_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+if [ "$HOST_CODE" = "200" ] || [ "$HOST_CODE" = "204" ]; then
+    echo "FAILED: Spoofed Host header returned HTTP $HOST_CODE (must be 404, 444, or closed)!" >&2
+    exit 1
+fi
+if [ -n "$HOST_CODE" ] && [ "$HOST_CODE" != "404" ] && [ "$HOST_CODE" != "444" ]; then
+    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $HOST_CODE!" >&2
+    exit 1
+fi
+echo "  Spoofed Host test OK: returned '${HOST_CODE:-closed}' (allowed: 404/444/closed)."
+
+# Test 2: Direct SNI resolve to public IP with media-auth.internal (must fail TLS handshake or return 404/444/closed)
+RESOLVE_RESP=$(curl -sS -i -k --resolve "media-auth.internal:443:${PUBLIC_IP}" "https://media-auth.internal/internal/media-access/${SEC1_VID}" 2>&1 || true)
+RESOLVE_CODE=$(echo "$RESOLVE_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+if [ "$RESOLVE_CODE" = "200" ] || [ "$RESOLVE_CODE" = "204" ]; then
+    echo "FAILED: --resolve media-auth.internal returned HTTP $RESOLVE_CODE (must be 404, 444, or closed)!" >&2
+    exit 1
+fi
+if [ -n "$RESOLVE_CODE" ] && [ "$RESOLVE_CODE" != "404" ] && [ "$RESOLVE_CODE" != "444" ]; then
+    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $RESOLVE_CODE!" >&2
+    exit 1
+fi
+echo "  TLS SNI resolve test OK: returned '${RESOLVE_CODE:-handshake rejected/closed}' (allowed: 404/444/closed)."
+
+# Test 3: Direct internal path on public host (must return 404)
+INT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/internal/media-access/${SEC1_VID}" || true)
+if [ "$INT_CODE" != "404" ]; then
+    echo "FAILED: Direct internal path returned HTTP $INT_CODE (expected 404)!" >&2
+    exit 1
+fi
+echo "  Direct path test OK: returned HTTP 404."
+
+echo "  [11b] Authenticating as video owner (sec1-tester@winkey.vn)..."
+OWNER_LOGIN_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "sec1-tester@winkey.vn", "password": "P@ssw0rd123_sec1"}' || true)
+OWNER_TOKEN=$(echo "$OWNER_LOGIN_RESP" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$OWNER_TOKEN" ]; then
+    OWNER_TOKEN="$ACCESS_TOKEN"
+fi
+
+echo "  [11c] Setting video to PUBLIC and testing plain URL (HTTP 200)..."
+curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility": "PUBLIC"}' > /dev/null
+
+PUB_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${MEDIA_URL}/v/${SEC1_VID}/a1/hls/master.m3u8")
+if [ "$PUB_CODE" != "200" ]; then
+    echo "FAILED: Expected HTTP 200 for PUBLIC video on plain URL, got $PUB_CODE!" >&2
+    exit 1
+fi
+echo "  PUBLIC READY video returned HTTP 200 on plain URL."
+
+echo "  [11d] Setting video to PRIVATE and asserting plain URL turns 403 within 30s..."
+curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility": "PRIVATE"}' > /dev/null
+
+BLOCKED=0
+START_TIME=$(date +%s)
+for i in $(seq 1 35); do
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${MEDIA_URL}/v/${SEC1_VID}/a1/hls/master.m3u8" || true)
+    if [ "$STATUS" = "403" ]; then
+        ELAPSED=$(( $(date +%s) - START_TIME ))
+        echo "  Video blocked (HTTP 403) after ${ELAPSED}s (within 30s TTL limit)."
+        BLOCKED=1
+        break
+    fi
+    sleep 1
+done
+
+if [ "$BLOCKED" -ne 1 ]; then
+    echo "FAILED: PRIVATE video plain URL did not return HTTP 403 within 35s!" >&2
+    exit 1
+fi
+
+echo "  [11e] Fetching signed URL from getVideo as owner (HTTP 200)..."
+VIDEO_RESP=$(curl -sS "${BASE_URL}/v1/videos/${SEC1_VID}" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}")
+SIGNED_URL=$(echo "$VIDEO_RESP" | grep -o '"hls_url":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$SIGNED_URL" ] || ! echo "$SIGNED_URL" | grep -q '/s/'; then
+    echo "FAILED: Owner did not receive signed URL with /s/ prefix: $SIGNED_URL" >&2
+    exit 1
+fi
+echo "  Received signed URL: $SIGNED_URL"
+
+SIGNED_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SIGNED_URL")
+if [ "$SIGNED_CODE" != "200" ]; then
+    echo "FAILED: Expected HTTP 200 from valid signed URL, got $SIGNED_CODE!" >&2
+    exit 1
+fi
+echo "  Valid signed URL returned HTTP 200."
+
+echo "  [11f] Testing tampered signature (HTTP 403)..."
+TAMPERED_URL=$(echo "$SIGNED_URL" | sed -E 's#/s/([0-9]+)/[A-Za-z0-9_-]{2}([^/]+)/#/s/\1/XX\2/#')
+TAMPERED_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$TAMPERED_URL")
+if [ "$TAMPERED_CODE" != "403" ]; then
+    echo "FAILED: Expected HTTP 403 for tampered signature, got $TAMPERED_CODE!" >&2
+    exit 1
+fi
+echo "  Tampered signature returned HTTP 403."
+
+echo "  [11g] Testing expired signed URL (HTTP 410)..."
+EXPIRED_SIG=""
+if [ -z "${MEDIA_LINK_SECRET:-}" ] && [ -f /etc/nginx/winkey-media-link-secret ]; then
+    MEDIA_LINK_SECRET=$(sudo cat /etc/nginx/winkey-media-link-secret 2>/dev/null || true)
+fi
+if [ -n "${MEDIA_LINK_SECRET:-}" ]; then
+    EXP_TIME=$(( $(date +%s) - 3600 ))
+    if command -v python3 >/dev/null 2>&1; then
+        EXPIRED_SIG=$(python3 -c "
+import hashlib, base64
+raw = f'${EXP_TIME}/v/${SEC1_VID}/ ${MEDIA_LINK_SECRET}'
+print(base64.urlsafe_b64encode(hashlib.md5(raw.encode()).digest()).decode().rstrip('='))
+")
+    fi
+fi
+if [ -n "$EXPIRED_SIG" ]; then
+    EXPIRED_URL="${MEDIA_URL}/s/${EXP_TIME}/${EXPIRED_SIG}/v/${SEC1_VID}/a1/hls/master.m3u8"
+    EXPIRED_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$EXPIRED_URL")
+    if [ "$EXPIRED_CODE" != "410" ]; then
+        echo "FAILED: Expected HTTP 410 for expired signed URL, got $EXPIRED_CODE!" >&2
+        exit 1
+    fi
+    echo "  Expired signed URL returned HTTP 410."
+else
+    echo "  Notice: MEDIA_LINK_SECRET not available, skipping expired 410 synthetic URL test."
+fi
+
+# Reset video back to PUBLIC
+curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
+  -H "Authorization: Bearer ${OWNER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"visibility": "PUBLIC"}' > /dev/null
+echo "  Reset video back to PUBLIC."
+echo "SUCCESS: SEC1 media access control verified across all conditions."
 
 echo "=========================================================="
 echo " All Winkey Edge & Application Plane Smoke Tests PASSED!"
