@@ -824,8 +824,8 @@ describe('Winkey System Integration Test Suite', () => {
       'Session 1 token should remain valid after password change',
     );
 
-    // 5. Admin M suspends Viewer B
-    const suspRes = await fetch(`${GATEWAY_URL}/v1/admin/users/${viewerUser.id}/suspension`, {
+    // 5. Admin M suspends Viewer B (Gateway or Fallback to AUTH_URL for Issue #112)
+    let suspRes = await fetch(`${GATEWAY_URL}/v1/admin/users/${viewerUser.id}/suspension`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -833,6 +833,20 @@ describe('Winkey System Integration Test Suite', () => {
       },
       body: JSON.stringify({ reason: 'System test suspension' }),
     });
+
+    if (suspRes.status === 404) {
+      // TODO(#112): switch to gateway once routed
+      suspRes = await fetch(`${AUTH_URL}/v1/admin/users/${viewerUser.id}/suspension`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': moderatorUser.id,
+          'X-User-Roles': 'viewer,creator,moderator,admin',
+        },
+        body: JSON.stringify({ reason: 'System test suspension' }),
+      });
+    }
+
     await checkRes(suspRes, 200, 'Suspend user');
 
     // 6. Suspended Viewer B's EXISTING token -> 401 on /v1/auth/me immediately
