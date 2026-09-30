@@ -249,6 +249,7 @@ fi
 
 echo "  Attempting WebSocket upgrade on /v1/realtime?ticket=..."
 WS_RESP=$(curl -sS -i -N \
+  --http1.1 \
   --max-time 3 \
   -H "Connection: Upgrade" \
   -H "Upgrade: websocket" \
