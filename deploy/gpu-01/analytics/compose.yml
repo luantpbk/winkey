@@ -1,16 +1,14 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:25.1.8.25@sha256:a2f096fd8d01972a91d2a08d9653d822b0ffba7a9144bc9ea0149594aa084e1b
+    image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
     container_name: winkey-analytics-clickhouse
     restart: unless-stopped
-    ports:
-      # Bound strictly to 127.0.0.1 only (ADR-022, unreachable over LAN/Tailscale)
-      - '127.0.0.1:8123:8123'
-      - '127.0.0.1:9000:9000'
+    network_mode: 'host'
     environment:
       CLICKHOUSE_PASSWORD: '${CLICKHOUSE_PASSWORD}'
     volumes:
       - /srv/winkey-analytics/clickhouse:/var/lib/clickhouse
+      - /srv/winkey-analytics/backup:/var/lib/clickhouse/backup
       - ./config.d:/etc/clickhouse-server/config.d:ro
       - ./users.d:/etc/clickhouse-server/users.d:ro
     cpus: 8
@@ -32,7 +30,7 @@ services:
       start_period: 15s
 
   analytics-worker:
-    image: ghcr.io/luantpbk/winkey-analytics-worker:latest
+    image: ghcr.io/luantpbk/winkey-analytics-worker:0.1.0@sha256:bafeea74c2fae69e7cf3475c74eb734b41940989b5a452ef29b87c7423bfca80
     container_name: winkey-analytics-worker
     restart: unless-stopped
     network_mode: 'host'

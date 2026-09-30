@@ -1,0 +1,11 @@
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <default>
+                <!-- Disk guard: keep at least 20 GB free on the shared NVMe volume (/srv/winkey-analytics) -->
+                <!-- Prevents ClickHouse from filling up space shared with ComfyUI models (ADR-022) -->
+                <keep_free_space_bytes>21474836480</keep_free_space_bytes>
+            </default>
+        </disks>
+    </storage_configuration>
+</clickhouse>
