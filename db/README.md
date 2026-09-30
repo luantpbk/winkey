@@ -8,7 +8,7 @@ PostgreSQL ≥ 16 (production target: 17, chạy bằng CloudNativePG). Migratio
 |---|---|---|---|
 | `auth` | auth-svc | mọi service: **chỉ** view `auth.public_profiles` | Không bao giờ để service khác đọc `auth.users` |
 | `media` | upload-svc, transcoder, video-svc | video-svc | Chung một domain media |
-| `social` | social-svc | — | Comment 2 cấp, like video, subscription; projection `social.videos` từ `video.ready`/`video.deleted` (migration 000005) |
+| `social` | social-svc | — | Comment 2 cấp, like video, subscription; projection `social.videos` từ `video.ready`/`video.deleted` (migration 000005); thông báo trong app `social.notifications` (migration 000013, ADR-023) |
 
 - Không tạo FK chéo schema (ví dụ `media.videos.owner_id` → `auth.users.id`). Tính nhất quán được giữ bằng event (ADR-007).
 - ID là **UUIDv7 do ứng dụng sinh ra**, nên cột ID không có default.
