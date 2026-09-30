@@ -36,6 +36,7 @@ describe('RevocationSweeper Unit Tests', () => {
   let mockLogger: {
     warn: ReturnType<typeof vi.fn>;
     info: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -49,6 +50,7 @@ describe('RevocationSweeper Unit Tests', () => {
     mockLogger = {
       warn: vi.fn(),
       info: vi.fn(),
+      error: vi.fn(),
     };
 
     const mockVideoClient = {

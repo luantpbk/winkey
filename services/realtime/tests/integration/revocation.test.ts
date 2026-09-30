@@ -29,8 +29,9 @@ function waitForOpen(ws: WebSocket, timeoutMs = 5000): Promise<void> {
 
 function waitForClose(ws: WebSocket, timeoutMs = 5000): Promise<{ code: number; reason: string }> {
   return new Promise((resolve, reject) => {
-    if (ws.readyState === WebSocket.CLOSED)
-      return resolve({ code: ws.closeCode || 1000, reason: '' });
+    if (ws.readyState === WebSocket.CLOSED) {
+      return resolve({ code: 1000, reason: '' });
+    }
     const timer = setTimeout(() => reject(new Error('WebSocket close timeout')), timeoutMs);
     ws.once('close', (code, reasonBuf) => {
       clearTimeout(timer);
