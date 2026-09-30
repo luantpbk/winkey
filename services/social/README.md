@@ -31,7 +31,7 @@ Part of **Task C1**, owned by **Antigravity 3**.
   - Durable pull consumer `social-videos` on JetStream stream `VIDEO` listening to `video.ready`, `video.deleted`, `video.moderated`, and `video.visibility_changed`.
   - Ingests `video.moderated` events, setting `social.videos.hidden = (state === 'HIDDEN')`.
   - Ingests `video.ready` (upserting optional `visibility`: `PUBLIC`, `UNLISTED`, `PRIVATE`) and `video.visibility_changed` (`UPDATE social.videos SET visibility WHERE id`, acking unknown videos).
-  - Unified access control rule: A video is "closed" when `(hidden OR visibility = 'PRIVATE') AND caller is neither the video owner (social.videos.owner_id) nor a moderator/admin (X-User-Roles)`.
+  - Unified access control rule: Moderator/admin always has access; hidden video is closed to all callers (including owner); PRIVATE video is open to owner and closed to outsiders; UNLISTED behaves like PUBLIC.
   - Closed videos answer `404` (`VIDEO_NOT_FOUND`) on every comment and like endpoint; `UNLISTED` behaves like `PUBLIC`.
 - **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.

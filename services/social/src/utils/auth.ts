@@ -71,13 +71,14 @@ export interface VideoAccessTarget {
 
 /**
  * Task C4 & A2: A video is "closed" for a caller when:
- * (hidden OR visibility = 'PRIVATE') AND caller is neither the video owner nor a moderator/admin.
- * Closed -> 404 on every comment/like endpoint of that video.
- * UNLISTED behaves like PUBLIC.
+ * - Moderator or admin: always open (false).
+ * - Video is hidden by moderation: closed to everyone else including owner (true).
+ * - Video is PRIVATE: open only to video owner.
+ * - UNLISTED behaves like PUBLIC.
  */
 export function isVideoClosedForCaller(video: VideoAccessTarget, caller: CallerIdentity): boolean {
+  if (caller.isModeratorOrAdmin) return false;
+  if (video.hidden) return true;
   const isOwner = caller.userId !== null && caller.userId === video.owner_id;
-  const isPrivileged = isOwner || caller.isModeratorOrAdmin;
-  const isRestricted = video.hidden || video.visibility === 'PRIVATE';
-  return isRestricted && !isPrivileged;
+  return video.visibility === 'PRIVATE' && !isOwner;
 }

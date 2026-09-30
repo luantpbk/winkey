@@ -991,6 +991,14 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(viewerLikeRes.statusCode).toBe(404);
 
+    // Hidden video returns 404 for video owner as well (only moderator and admin can access hidden videos)
+    const ownerHiddenRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${modVideoId}/comments`,
+      headers: { 'x-user-id': videoOwnerId, 'x-user-roles': 'creator' },
+    });
+    expect(ownerHiddenRes.statusCode).toBe(404);
+
     // Hidden video allows moderator access
     const modCommentsRes = await app.inject({
       method: 'GET',

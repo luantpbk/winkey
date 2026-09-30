@@ -157,13 +157,13 @@ describe('isVideoClosedForCaller - Access Rule Matrix (Task C4 & A2)', () => {
       description: 'PRIVATE video: anonymous user is closed (404)',
     },
 
-    // 4. HIDDEN (moderated), PUBLIC visibility: Closed to outsiders, open to owner / moderator / admin
+    // 4. HIDDEN (moderated), PUBLIC visibility: Closed to all except moderator / admin
     {
       hidden: true,
       visibility: 'PUBLIC',
       callerType: 'owner',
-      expectedClosed: false,
-      description: 'HIDDEN video (PUBLIC): owner can access',
+      expectedClosed: true,
+      description: 'HIDDEN video (PUBLIC): owner is closed (404)',
     },
     {
       hidden: true,
@@ -194,13 +194,13 @@ describe('isVideoClosedForCaller - Access Rule Matrix (Task C4 & A2)', () => {
       description: 'HIDDEN video (PUBLIC): anonymous user is closed (404)',
     },
 
-    // 5. HIDDEN (moderated), UNLISTED visibility: Closed to outsiders
+    // 5. HIDDEN (moderated), UNLISTED visibility: Closed to all except moderator / admin
     {
       hidden: true,
       visibility: 'UNLISTED',
       callerType: 'owner',
-      expectedClosed: false,
-      description: 'HIDDEN video (UNLISTED): owner can access',
+      expectedClosed: true,
+      description: 'HIDDEN video (UNLISTED): owner is closed (404)',
     },
     {
       hidden: true,
@@ -231,13 +231,13 @@ describe('isVideoClosedForCaller - Access Rule Matrix (Task C4 & A2)', () => {
       description: 'HIDDEN video (UNLISTED): anonymous user is closed (404)',
     },
 
-    // 6. HIDDEN (moderated), PRIVATE visibility: Both hidden and private, only owner / mod / admin can access
+    // 6. HIDDEN (moderated), PRIVATE visibility: Closed to all except moderator / admin
     {
       hidden: true,
       visibility: 'PRIVATE',
       callerType: 'owner',
-      expectedClosed: false,
-      description: 'HIDDEN + PRIVATE video: owner can access',
+      expectedClosed: true,
+      description: 'HIDDEN + PRIVATE video: owner is closed (404)',
     },
     {
       hidden: true,
