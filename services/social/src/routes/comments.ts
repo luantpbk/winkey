@@ -317,7 +317,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         // Top-level comment -> notify video owner if not self
         if (video.owner_id !== caller.userId) {
           const notifId = uuidv7();
-          await trx
+          const inserted = await trx
             .insertInto('social.notifications')
             .values({
               id: notifId,
@@ -328,13 +328,16 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
               comment_id: commentId,
             })
             .onConflict((oc) => oc.doNothing())
+            .returning('id')
             .execute();
-          notificationsCreatedCounter.inc({ kind: 'VIDEO_COMMENT' });
+          if (inserted.length > 0) {
+            notificationsCreatedCounter.inc({ kind: 'VIDEO_COMMENT' });
+          }
         }
       } else if (parentComment && parentComment.author_id !== caller.userId) {
         // Reply -> notify parent comment author if not self (reply does NOT notify video owner)
         const notifId = uuidv7();
-        await trx
+        const inserted = await trx
           .insertInto('social.notifications')
           .values({
             id: notifId,
@@ -345,8 +348,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
             comment_id: commentId,
           })
           .onConflict((oc) => oc.doNothing())
+          .returning('id')
           .execute();
-        notificationsCreatedCounter.inc({ kind: 'COMMENT_REPLY' });
+        if (inserted.length > 0) {
+          notificationsCreatedCounter.inc({ kind: 'COMMENT_REPLY' });
+        }
       }
     });
 

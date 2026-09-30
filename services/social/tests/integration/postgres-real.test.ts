@@ -2168,6 +2168,26 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     );
     expect(Number(remainingUnread.rows[0].count)).toBe(0);
 
+    // 8g. Microsecond precision: row at .123456Z marked read by up_to .123Z
+    const microTestId = uuidv7();
+    await pool.query(
+      `INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+       VALUES ($1, $2, $3, 'NEW_SUBSCRIBER', NULL, NULL, '2026-09-30 10:00:00.123456+00')`,
+      [microTestId, countRecipient, n1UserA],
+    );
+    const microMarkRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { up_to: '2026-09-30T10:00:00.123Z' },
+    });
+    expect(microMarkRes.statusCode).toBe(204);
+    const checkMicroRow = await pool.query(
+      'SELECT read_at FROM social.notifications WHERE id = $1',
+      [microTestId],
+    );
+    expect(checkMicroRow.rows[0].read_at).not.toBeNull();
+
     // 9. Janitor: deletes only rows older than retention and only one of two concurrent runs gets the lock
     const janitorOldId = uuidv7();
     const janitorNewId = uuidv7();

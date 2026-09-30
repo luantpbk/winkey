@@ -747,4 +747,63 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     expect(invalidRes.statusCode).toBe(400);
     expect(validateProblem(invalidRes.json())).toBe(true);
   });
+
+  it('Notifications pagination contract: obeys common.yaml Limit (default 24, max 100)', async () => {
+    // Populate 110 notifications for authorId
+    for (let i = 0; i < 110; i++) {
+      const idSuffix = String(i + 1).padStart(3, '0');
+      mockStore.notifications.push({
+        id: `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd${idSuffix}`,
+        user_id: authorId,
+        actor_id: ownerId,
+        kind: 'NEW_SUBSCRIBER',
+        video_id: null,
+        comment_id: null,
+        read_at: null,
+        created_at: new Date(Date.now() - i * 1000),
+      });
+    }
+
+    // 1. Default limit (no query param) -> returns 24 items
+    const defaultRes = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(defaultRes.statusCode).toBe(200);
+    const defaultBody = defaultRes.json();
+    expect(validateNotificationPage(defaultBody)).toBe(true);
+    expect(defaultBody.items).toHaveLength(24);
+    expect(defaultBody.next_cursor).not.toBeNull();
+
+    // 2. Limit = 100 -> returns 100 items
+    const limit100Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=100',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit100Res.statusCode).toBe(200);
+    const limit100Body = limit100Res.json();
+    expect(validateNotificationPage(limit100Body)).toBe(true);
+    expect(limit100Body.items).toHaveLength(100);
+    expect(limit100Body.next_cursor).not.toBeNull();
+
+    // 3. Limit > 100 -> 400 Problem
+    const limit101Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=101',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit101Res.statusCode).toBe(400);
+    expect(validateProblem(limit101Res.json())).toBe(true);
+
+    // 4. Limit < 1 -> 400 Problem
+    const limit0Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=0',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit0Res.statusCode).toBe(400);
+    expect(validateProblem(limit0Res.json())).toBe(true);
+  });
 });

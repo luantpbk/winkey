@@ -170,7 +170,8 @@ export class VideoProjectionConsumer {
 
             const wasPublic = prev !== undefined && prev.visibility === 'PUBLIC' && !prev.hidden;
 
-            const visibility: VideoVisibility = (rawVisibility as VideoVisibility) ?? 'PUBLIC';
+            const visibility: VideoVisibility =
+              (rawVisibility as VideoVisibility) ?? prev?.visibility ?? 'PUBLIC';
 
             if (rawVisibility !== undefined) {
               await trx
@@ -388,14 +389,17 @@ export class VideoProjectionConsumer {
           const ids = validSubscribers.map(() => uuidv7());
           const userIds = validSubscribers.map((s) => s.subscriber_id);
 
-          await sql`
+          const inserted = await sql<{ id: string }>`
             INSERT INTO social.notifications (id, user_id, kind, actor_id, video_id, comment_id)
             SELECT u.id, u.user_id, 'VIDEO_PUBLISHED'::social.notification_kind, ${ownerId}::uuid, ${videoId}::uuid, NULL
             FROM unnest(${sql.val(ids)}::uuid[], ${sql.val(userIds)}::uuid[]) AS u(id, user_id)
             ON CONFLICT DO NOTHING
+            RETURNING id
           `.execute(trx);
 
-          notificationsCreatedCounter.inc({ kind: 'VIDEO_PUBLISHED' }, validSubscribers.length);
+          if (inserted.rows.length > 0) {
+            notificationsCreatedCounter.inc({ kind: 'VIDEO_PUBLISHED' }, inserted.rows.length);
+          }
         }
 
         lastSubscriberId = subscribers[subscribers.length - 1].subscriber_id;

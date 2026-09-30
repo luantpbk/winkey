@@ -463,6 +463,71 @@ describe('VideoProjectionConsumer unit tests', () => {
     expect(mockMsg.ack).toHaveBeenCalledTimes(1);
   });
 
+  it('does NOT fan out on video.ready without visibility when previous video was PRIVATE', async () => {
+    const executeMock = vi.fn().mockResolvedValue([]);
+    const doUpdateSetMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
+    const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
+    const fanoutSpy = vi.fn();
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue({
+                id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+                owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+                hidden: false,
+                visibility: 'PRIVATE',
+              }),
+            }),
+          }),
+        }),
+      }),
+      insertInto: insertIntoMock,
+    };
+    const mockDb = {
+      insertInto: insertIntoMock,
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
+      }),
+    };
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
+    (consumer as any).fanoutVideoPublished = fanoutSpy;
+
+    onConflictMock.mockImplementation((cb: (oc: any) => any) => {
+      const oc = {
+        column: vi.fn().mockReturnValue({
+          doUpdateSet: doUpdateSetMock,
+        }),
+      };
+      return cb(oc);
+    });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(fanoutSpy).not.toHaveBeenCalled();
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+  });
+
   it('calls m.term() on video.visibility_changed with invalid UUID or visibility', async () => {
     const mockDb = {} as any;
     const mockNats = {} as any;

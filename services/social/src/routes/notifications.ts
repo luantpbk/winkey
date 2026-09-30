@@ -37,12 +37,12 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
     const caller = requireAuth(request);
     reply.header('Cache-Control', 'private, no-store');
 
-    let limitNum = 20;
+    let limitNum = 24;
     if (request.query.limit !== undefined) {
       const parsed = parseInt(request.query.limit, 10);
-      if (isNaN(parsed) || parsed < 1 || parsed > 50) {
+      if (isNaN(parsed) || parsed < 1 || parsed > 100) {
         throw ProblemError.badRequest(
-          'Limit must be an integer between 1 and 50',
+          'Limit must be an integer between 1 and 100',
           undefined,
           'INVALID_LIMIT',
         );
@@ -119,13 +119,17 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
         avatar_key: r.profile_avatar_key,
       };
 
+      const createdAtStr =
+        (r as { created_at_cursor?: string }).created_at_cursor ||
+        new Date(r.created_at).toISOString();
+
       return {
         id: r.id,
         kind: r.kind as NotificationKind,
         actor: formatPublicProfile(profile, env.MEDIA_BASE_URL)!,
         video_id: r.video_id ?? null,
         comment_id: r.comment_id ?? null,
-        created_at: new Date(r.created_at).toISOString(),
+        created_at: createdAtStr,
         read_at: r.read_at ? new Date(r.read_at).toISOString() : null,
       };
     });
@@ -233,17 +237,10 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
 
     if (hasUpTo) {
       const upTo = body.up_to;
-      if (typeof upTo !== 'string') {
+      const RFC3339_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+      if (typeof upTo !== 'string' || !RFC3339_REGEX.test(upTo) || isNaN(Date.parse(upTo))) {
         throw ProblemError.badRequest(
-          '"up_to" must be a date-time string',
-          undefined,
-          'INVALID_DATE',
-        );
-      }
-      const date = new Date(upTo);
-      if (isNaN(date.getTime())) {
-        throw ProblemError.badRequest(
-          '"up_to" must be a valid ISO date-time string',
+          '"up_to" must be a valid RFC 3339 date-time string',
           undefined,
           'INVALID_DATE',
         );
@@ -254,7 +251,7 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
         SET read_at = now()
         WHERE user_id = ${caller.userId}::uuid
           AND read_at IS NULL
-          AND created_at <= ${date.toISOString()}::timestamptz
+          AND created_at < ${upTo}::timestamptz + interval '1 millisecond'
       `.execute(db);
 
       return reply.status(204).send();

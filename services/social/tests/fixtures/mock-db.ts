@@ -78,6 +78,7 @@ export interface MockStore {
     comment_id: string | null;
     read_at: Date | null;
     created_at: Date;
+    created_at_micros?: string;
   }>;
   advisory_locks: Set<number>;
 }
@@ -490,7 +491,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
         const ids = (params[3] as string[]) || [];
         const userIds = (params[4] as string[]) || [];
 
-        let insertedCount = 0;
+        const newlyInserted: { id: string }[] = [];
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i];
           const userId = userIds[i];
@@ -511,10 +512,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
               read_at: null,
               created_at: createdAt,
             });
-            insertedCount++;
+            newlyInserted.push({ id });
           }
         }
-        return { rows: [], rowCount: insertedCount };
+        return { rows: newlyInserted, rowCount: newlyInserted.length };
       }
 
       if (
@@ -596,12 +597,26 @@ export function createMockDb(store: MockStore = createMockStore()): {
               count++;
             }
           }
-        } else if (sql.includes('created_at <=')) {
-          const upToDate = new Date(String(params[1]));
+        } else if (sql.includes('created_at <') || sql.includes('created_at <=')) {
+          const upToStr = String(params[1]);
+          const upToDate = new Date(upToStr);
+          const hasInterval1Ms = sql.includes("interval '1 millisecond'");
+          const cutoffMs = hasInterval1Ms ? upToDate.getTime() + 1 : upToDate.getTime();
+
           for (const n of store.notifications) {
-            if (n.user_id === userId && n.read_at === null && n.created_at <= upToDate) {
-              n.read_at = now;
-              count++;
+            if (n.user_id === userId && n.read_at === null) {
+              const notifMs = n.created_at.getTime();
+              if (hasInterval1Ms) {
+                if (notifMs < cutoffMs) {
+                  n.read_at = now;
+                  count++;
+                }
+              } else {
+                if (notifMs <= cutoffMs) {
+                  n.read_at = now;
+                  count++;
+                }
+              }
             }
           }
         }
@@ -1015,13 +1030,16 @@ export function createMockDb(store: MockStore = createMockStore()): {
           (a, b) => b.created_at.getTime() - a.created_at.getTime() || b.id.localeCompare(a.id),
         );
 
-        const limitParam = params.find((p) => typeof p === 'number' && p > 0 && p <= 51);
+        const limitParam = params.find((p) => typeof p === 'number' && p > 0 && p <= 101);
         if (typeof limitParam === 'number') {
           matched = matched.slice(0, limitParam);
         }
 
         const rows = matched.map((n) => {
           const p = store.public_profiles.find((prof) => prof.id === n.actor_id);
+          const cursorMicros =
+            (n as any).created_at_micros ??
+            n.created_at.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z');
           return {
             id: n.id,
             kind: n.kind,
@@ -1030,7 +1048,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
             comment_id: n.comment_id,
             created_at: n.created_at,
             read_at: n.read_at,
-            created_at_cursor: n.created_at.toISOString(),
+            created_at_cursor: cursorMicros,
             profile_id: p?.id,
             profile_handle: p?.handle,
             profile_display_name: p?.display_name,

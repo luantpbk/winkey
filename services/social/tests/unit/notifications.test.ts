@@ -8,6 +8,7 @@ import {
   NotificationsJanitor,
   NOTIFICATIONS_JANITOR_LOCK_KEY,
 } from '../../src/janitor/notifications-janitor.js';
+import { notificationsCreatedCounter } from '../../src/metrics.js';
 
 describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
   let app: FastifyInstance;
@@ -117,7 +118,7 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
         },
         video_id: null,
         comment_id: null,
-        created_at: now.toISOString(),
+        created_at: now.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z'),
         read_at: null,
       });
       expect(body.next_cursor).toBeNull();
@@ -228,7 +229,7 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
 
       const resLimitMax = await app.inject({
         method: 'GET',
-        url: '/v1/notifications?limit=51',
+        url: '/v1/notifications?limit=101',
         headers: { 'x-user-id': userA },
       });
       expect(resLimitMax.statusCode).toBe(400);
@@ -375,6 +376,56 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
       const body = res.json();
       expect(body.items.length).toBe(1);
       expect(body.items[0].id).toBe('0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9085');
+    });
+
+    it('obeys common.yaml limit parameter: default 24, max 100, rejects <1 or >100', async () => {
+      for (let i = 0; i < 105; i++) {
+        const idSuffix = String(i + 1).padStart(3, '0');
+        store.notifications.push({
+          id: `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be${idSuffix}`,
+          user_id: userA,
+          actor_id: userB,
+          kind: 'NEW_SUBSCRIBER',
+          video_id: null,
+          comment_id: null,
+          read_at: null,
+          created_at: new Date(Date.now() - i * 1000),
+        });
+      }
+
+      // Default: returns 24
+      const defaultRes = await app.inject({
+        method: 'GET',
+        url: '/v1/notifications',
+        headers: { 'x-user-id': userA },
+      });
+      expect(defaultRes.statusCode).toBe(200);
+      expect(defaultRes.json().items).toHaveLength(24);
+
+      // Explicit limit=100
+      const limit100Res = await app.inject({
+        method: 'GET',
+        url: '/v1/notifications?limit=100',
+        headers: { 'x-user-id': userA },
+      });
+      expect(limit100Res.statusCode).toBe(200);
+      expect(limit100Res.json().items).toHaveLength(100);
+
+      // Invalid: limit=101
+      const limit101Res = await app.inject({
+        method: 'GET',
+        url: '/v1/notifications?limit=101',
+        headers: { 'x-user-id': userA },
+      });
+      expect(limit101Res.statusCode).toBe(400);
+
+      // Invalid: limit=0
+      const limit0Res = await app.inject({
+        method: 'GET',
+        url: '/v1/notifications?limit=0',
+        headers: { 'x-user-id': userA },
+      });
+      expect(limit0Res.statusCode).toBe(400);
     });
   });
 
@@ -573,6 +624,85 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
       expect(store.notifications.find((n) => n.id === oldNotif)?.read_at).not.toBeNull();
       expect(store.notifications.find((n) => n.id === newNotif)?.read_at).toBeNull();
     });
+
+    it('marks row at .123456Z as read with up_to .123Z due to 1ms interval extension', async () => {
+      const microsNotif = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9095';
+      const laterNotif = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9096';
+      const tMicros = new Date('2026-09-30T10:00:00.123Z');
+      const tLater = new Date('2026-09-30T10:00:00.125Z');
+
+      store.notifications.push(
+        {
+          id: microsNotif,
+          user_id: userA,
+          actor_id: userB,
+          kind: 'NEW_SUBSCRIBER',
+          video_id: null,
+          comment_id: null,
+          read_at: null,
+          created_at: tMicros,
+          created_at_micros: '2026-09-30T10:00:00.123456Z',
+        },
+        {
+          id: laterNotif,
+          user_id: userA,
+          actor_id: userB,
+          kind: 'NEW_SUBSCRIBER',
+          video_id: null,
+          comment_id: null,
+          read_at: null,
+          created_at: tLater,
+          created_at_micros: '2026-09-30T10:00:00.125000Z',
+        },
+      );
+
+      // Verify GET /v1/notifications returns microsecond precision
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/v1/notifications',
+        headers: { 'x-user-id': userA },
+      });
+      expect(getRes.statusCode).toBe(200);
+      const getBody = getRes.json();
+      const returnedItem = getBody.items.find((i: any) => i.id === microsNotif);
+      expect(returnedItem).toBeDefined();
+      expect(returnedItem.created_at).toBe('2026-09-30T10:00:00.123456Z');
+
+      // POST /v1/notifications/read with up_to at millisecond precision .123Z
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/notifications/read',
+        headers: { 'x-user-id': userA },
+        payload: { up_to: '2026-09-30T10:00:00.123Z' },
+      });
+      expect(res.statusCode).toBe(204);
+
+      // Row at .123456Z is marked read because .123456Z < .123Z + 1ms (.124Z)
+      expect(store.notifications.find((n) => n.id === microsNotif)?.read_at).not.toBeNull();
+      // Row at .125Z is NOT marked read
+      expect(store.notifications.find((n) => n.id === laterNotif)?.read_at).toBeNull();
+    });
+
+    it('rejects invalid up_to formats with 400 (RFC 3339 regex)', async () => {
+      const invalidFormats = [
+        'invalid-date',
+        '2026-09-30',
+        '2026-09-30 10:00:00',
+        '2026-09-30T10:00:00', // missing timezone / Z
+        123456,
+      ];
+
+      for (const invalid of invalidFormats) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/notifications/read',
+          headers: { 'x-user-id': userA },
+          payload: { up_to: invalid },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().code).toBe('INVALID_DATE');
+      }
+    });
   });
 
   describe('Notifications Janitor', () => {
@@ -738,6 +868,11 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
     });
 
     it('creates NEW_SUBSCRIBER on first subscribe and deduplicates repeat subscriptions', async () => {
+      const initialMetrics =
+        (await notificationsCreatedCounter.get()).values.find(
+          (v) => v.labels.kind === 'NEW_SUBSCRIBER',
+        )?.value ?? 0;
+
       // User B subscribes to User A
       const res1 = await app.inject({
         method: 'PUT',
@@ -752,7 +887,13 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
       expect(notif).toBeDefined();
       expect(notif?.actor_id).toBe(userB);
 
-      // Subscribe again -> idempotent, no new notification
+      const afterRes1Metrics =
+        (await notificationsCreatedCounter.get()).values.find(
+          (v) => v.labels.kind === 'NEW_SUBSCRIBER',
+        )?.value ?? 0;
+      expect(afterRes1Metrics).toBe(initialMetrics + 1);
+
+      // Subscribe again -> idempotent, no new notification and counter NOT incremented
       const initialCount = store.notifications.length;
       const res2 = await app.inject({
         method: 'PUT',
@@ -761,6 +902,12 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
       });
       expect(res2.statusCode).toBe(200);
       expect(store.notifications.length).toBe(initialCount);
+
+      const afterRes2Metrics =
+        (await notificationsCreatedCounter.get()).values.find(
+          (v) => v.labels.kind === 'NEW_SUBSCRIBER',
+        )?.value ?? 0;
+      expect(afterRes2Metrics).toBe(initialMetrics + 1);
     });
   });
 });

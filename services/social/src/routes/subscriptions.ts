@@ -148,7 +148,7 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
           // In-app Notification (Task N1, ADR-023)
           if (caller.userId !== channel_id) {
             const notifId = uuidv7();
-            await trx
+            const inserted = await trx
               .insertInto('social.notifications')
               .values({
                 id: notifId,
@@ -159,8 +159,11 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
                 comment_id: null,
               })
               .onConflict((oc) => oc.doNothing())
+              .returning('id')
               .execute();
-            notificationsCreatedCounter.inc({ kind: 'NEW_SUBSCRIBER' });
+            if (inserted.length > 0) {
+              notificationsCreatedCounter.inc({ kind: 'NEW_SUBSCRIBER' });
+            }
           }
         }
       });
