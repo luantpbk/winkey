@@ -229,7 +229,9 @@ export interface paths {
         /**
          * Replace a user's roles (admin only). Audited as `USER_ROLES_CHANGED`.
          * @description The set must contain `viewer`. Setting the same roles again is a no-op (`200`, no audit row).
-         *     Changing your own roles → `403` `CANNOT_MODERATE_TARGET`.
+         *     Changing your own roles → `403` `CANNOT_MODERATE_TARGET`. An admin may change another admin's
+         *     roles. A `DELETED` user → `409`; removing `admin` from the last non-deleted admin → `409`
+         *     `LAST_ADMIN`.
          */
         put: operations["adminSetUserRoles"];
         post?: never;
@@ -262,7 +264,7 @@ export interface paths {
         post?: never;
         /**
          * Lift a suspension. Audited as `USER_UNSUSPENDED`. Idempotent.
-         * @description An `ACTIVE` user → `200` without an audit row.
+         * @description An `ACTIVE` user → `200` without an audit row. A `DELETED` user → `409`.
          */
         delete: operations["adminUnsuspendUser"];
         options?: never;
@@ -817,6 +819,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     adminSuspendUser: {
@@ -873,6 +876,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     adminListAuditLog: {

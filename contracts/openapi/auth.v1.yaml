@@ -356,7 +356,9 @@ paths:
       summary: Replace a user's roles (admin only). Audited as `USER_ROLES_CHANGED`.
       description: |
         The set must contain `viewer`. Setting the same roles again is a no-op (`200`, no audit row).
-        Changing your own roles → `403` `CANNOT_MODERATE_TARGET`.
+        Changing your own roles → `403` `CANNOT_MODERATE_TARGET`. An admin may change another admin's
+        roles. A `DELETED` user → `409`; removing `admin` from the last non-deleted admin → `409`
+        `LAST_ADMIN`.
       security:
         - bearerAuth: []
       requestBody:
@@ -380,6 +382,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
 
   /v1/admin/users/{user_id}/suspension:
     parameters:
@@ -424,7 +428,7 @@ paths:
       tags: [admin]
       operationId: adminUnsuspendUser
       summary: Lift a suspension. Audited as `USER_UNSUSPENDED`. Idempotent.
-      description: An `ACTIVE` user → `200` without an audit row.
+      description: An `ACTIVE` user → `200` without an audit row. A `DELETED` user → `409`.
       security:
         - bearerAuth: []
       responses:
@@ -440,6 +444,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
 
   /v1/admin/audit-log:
     get:
