@@ -29,8 +29,8 @@ You own: services/social. Branch: agent/ag3/c4-social-visibility.
      when absent, keep the existing value (new rows get the default PUBLIC).
    - video.visibility_changed: UPDATE social.videos SET visibility WHERE id; unknown video → ack and skip.
 2. Access rule, in ONE place shared with the `hidden` check: a video is "closed" for a caller when
-   (hidden OR visibility = 'PRIVATE') AND the caller is neither the video owner (social.videos.owner_id) nor a
-   moderator/admin (X-User-Roles). Closed → 404 on every comment/like endpoint of that video (list, create,
+   (hidden AND the caller is not a moderator/admin — A2: the owner is NOT exempt) OR (visibility = 'PRIVATE' AND
+   the caller is neither the video owner (social.videos.owner_id) nor a moderator/admin (X-User-Roles)). Closed → 404 on every comment/like endpoint of that video (list, create,
    replies, get/like/unlike), exactly like hidden today. UNLISTED = PUBLIC.
 3. Realtime is out of scope (events carry ids only).
 
