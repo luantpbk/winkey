@@ -5,6 +5,7 @@ import { getDb, closeDb, registerArrayParsers } from './db/client.js';
 import { initializeKeys } from './crypto/jwt.js';
 import { OutboxRelay } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
+import { RevocationService } from './revocation/revocation.js';
 import { buildApp } from './server.js';
 
 async function main() {
@@ -37,6 +38,7 @@ async function main() {
   }
 
   const rateLimiter = new ValkeyRateLimiter(env.VALKEY_URL, valkeyClient ?? undefined);
+  const revocationService = new RevocationService(valkeyClient);
 
   // 5. Start Outbox Relay worker
   let outboxRelay: OutboxRelay | null = null;
@@ -58,6 +60,7 @@ async function main() {
     db,
     rateLimiter,
     redis: valkeyClient,
+    revocationService,
     natsConnection,
   });
 

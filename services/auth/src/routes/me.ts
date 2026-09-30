@@ -1,13 +1,9 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { verifyAccessToken } from '../crypto/jwt.js';
+import { verifyAccessToken, type AccessTokenClaims } from '../crypto/jwt.js';
 import { verifyPassword, hashPassword } from '../crypto/passwords.js';
-import {
-  hashRefreshToken,
-  getClearRefreshCookieOptions,
-  REFRESH_COOKIE_NAME,
-} from '../crypto/refresh.js';
+import { getClearRefreshCookieOptions, REFRESH_COOKIE_NAME } from '../crypto/refresh.js';
 import {
   buildUpdateMeRateLimitKey,
   buildAccountActionRateLimitKeys,
@@ -17,6 +13,7 @@ import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role } from '../db/types.js';
 import type { Kysely } from 'kysely';
+import type { RevocationService } from '../revocation/revocation.js';
 
 const updateMeSchema = z
   .object({
@@ -45,7 +42,7 @@ const deleteMeSchema = z
   })
   .strict();
 
-async function extractBearerUserId(request: FastifyRequest, env: Env): Promise<string> {
+async function extractBearerClaims(request: FastifyRequest, env: Env): Promise<AccessTokenClaims> {
   const authHeader = request.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     throw ProblemError.unauthorized('Missing or invalid Authorization header');
@@ -53,8 +50,7 @@ async function extractBearerUserId(request: FastifyRequest, env: Env): Promise<s
 
   const token = authHeader.slice(7).trim();
   try {
-    const claims = await verifyAccessToken(token, env);
-    return claims.sub;
+    return await verifyAccessToken(token, env);
   } catch {
     throw ProblemError.unauthorized('Invalid or expired token');
   }
@@ -91,10 +87,12 @@ export const meRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
   rateLimiter: RateLimiter;
-}> = async (fastify, { db, env, rateLimiter }) => {
+  revocationService: RevocationService;
+}> = async (fastify, { db, env, rateLimiter, revocationService }) => {
   // 1. GET /v1/auth/me
   fastify.get('/v1/auth/me', async (request, reply) => {
-    const userId = await extractBearerUserId(request, env);
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
 
     const user = await db
       .selectFrom('auth.users')
@@ -111,7 +109,8 @@ export const meRoute: FastifyPluginAsync<{
 
   // 2. PATCH /v1/auth/me (updateMe)
   fastify.patch('/v1/auth/me', async (request, reply) => {
-    const userId = await extractBearerUserId(request, env);
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
 
     const parseResult = updateMeSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -174,7 +173,9 @@ export const meRoute: FastifyPluginAsync<{
 
   // 3. PUT /v1/auth/me/password (changePassword)
   fastify.put('/v1/auth/me/password', async (request, reply) => {
-    const userId = await extractBearerUserId(request, env);
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
+    const currentFamilyId = claims.sid;
 
     const parseResult = changePasswordSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -224,23 +225,7 @@ export const meRoute: FastifyPluginAsync<{
 
     const newHash = await hashPassword(new_password);
 
-    await db.transaction().execute(async (trx) => {
-      // Find current refresh token family from wk_rt cookie if present
-      let currentFamilyId: string | null = null;
-      const rawCookie = request.cookies[REFRESH_COOKIE_NAME];
-      if (rawCookie) {
-        const tokenHash = hashRefreshToken(rawCookie);
-        const currentToken = await trx
-          .selectFrom('auth.refresh_tokens')
-          .select('family_id')
-          .where('token_hash', '=', tokenHash)
-          .where('user_id', '=', userId)
-          .executeTakeFirst();
-        if (currentToken) {
-          currentFamilyId = currentToken.family_id;
-        }
-      }
-
+    const revokedFamilyIds = await db.transaction().execute(async (trx) => {
       const now = new Date();
       await trx
         .updateTable('auth.users')
@@ -251,19 +236,23 @@ export const meRoute: FastifyPluginAsync<{
         .where('id', '=', userId)
         .execute();
 
-      // Revoke all refresh families except the current one
-      let revokeQuery = trx
+      // Revoke all other refresh families in one atomic statement
+      const revokedRows = await trx
         .updateTable('auth.refresh_tokens')
         .set({ revoked_at: now })
         .where('user_id', '=', userId)
-        .where('revoked_at', 'is', null);
+        .where('revoked_at', 'is', null)
+        .where('family_id', '!=', currentFamilyId)
+        .returning('family_id')
+        .execute();
 
-      if (currentFamilyId) {
-        revokeQuery = revokeQuery.where('family_id', '!=', currentFamilyId);
-      }
-
-      await revokeQuery.execute();
+      return Array.from(new Set(revokedRows.map((r) => r.family_id)));
     });
+
+    // Revoke sessions in Valkey AFTER DB commit (fail-safe)
+    for (const famId of revokedFamilyIds) {
+      await revocationService.revokeSession(famId);
+    }
 
     request.log.info({ userId, op: 'changePassword' }, 'User changed password');
     return reply.status(204).send();
@@ -271,7 +260,8 @@ export const meRoute: FastifyPluginAsync<{
 
   // 4. DELETE /v1/auth/me (deleteMe)
   fastify.delete('/v1/auth/me', async (request, reply) => {
-    const userId = await extractBearerUserId(request, env);
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
 
     const parseResult = deleteMeSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -370,6 +360,9 @@ export const meRoute: FastifyPluginAsync<{
         .where('revoked_at', 'is', null)
         .execute();
     });
+
+    // Revoke user in Valkey AFTER DB commit (fail-safe)
+    await revocationService.revokeUser(userId);
 
     // Clear refresh cookie
     reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
