@@ -1197,16 +1197,16 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       const rtCookie1 = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
       const userId = regRes.json().user.id;
 
-      // Old token verified with initial role
+      // Old token verified with initial roles (viewer,creator)
       const v1 = await app.inject({
         method: 'GET',
         url: '/v1/auth/verify',
         headers: { authorization: `Bearer ${oldToken}` },
       });
       expect(v1.statusCode).toBe(204);
-      expect(v1.headers['x-user-roles']).toBe('viewer');
+      expect(v1.headers['x-user-roles']).toBe('viewer,creator');
 
-      // Admin changes roles to viewer,creator
+      // Admin changes roles to viewer only (demote creator)
       const roleRes = await app.inject({
         method: 'PUT',
         url: `/v1/admin/users/${userId}/roles`,
@@ -1215,7 +1215,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
           'x-user-roles': 'admin,viewer',
         },
         payload: {
-          roles: ['viewer', 'creator'],
+          roles: ['viewer'],
         },
       });
       expect(roleRes.statusCode).toBe(200);
@@ -1236,7 +1236,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(refreshRes.statusCode).toBe(200);
       const newToken = refreshRes.json().access_token;
-      expect(refreshRes.json().user.roles).toContain('creator');
+      expect(refreshRes.json().user.roles).toEqual(['viewer']);
 
       // New token gets 204 with updated roles
       const vNew = await app.inject({
@@ -1245,8 +1245,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         headers: { authorization: `Bearer ${newToken}` },
       });
       expect(vNew.statusCode).toBe(204);
-      expect(vNew.headers['x-user-roles']).toContain('creator');
-      expect(vNew.headers['x-user-roles']).toContain('viewer');
+      expect(vNew.headers['x-user-roles']).toBe('viewer');
     });
 
     // 4. changePassword -> the other device's access token 401, the current device's token still 204
@@ -1474,7 +1473,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         // 204 No Content with identity headers (fail-open)
         expect(verifyRes.statusCode).toBe(204);
         expect(verifyRes.headers['x-user-id']).toBe(validUserId);
-        expect(verifyRes.headers['x-user-roles']).toBe('viewer');
+        expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
 
         const afterErrorCount = getRevocationMetricCount('auth_verify_revocation_check_total', {
           result: 'error',
