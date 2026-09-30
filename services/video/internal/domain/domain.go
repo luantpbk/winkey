@@ -157,6 +157,13 @@ type Objects interface {
 	Delete(ctx context.Context, bucket, key string) error
 }
 
+// SubscriptionFeedQuery asks for the newest public videos of the channels Subscriber follows (task R2-b).
+type SubscriptionFeedQuery struct {
+	Subscriber uuid.UUID
+	After      *Position
+	Limit      int // the store returns up to Limit rows; callers pass pageSize+1
+}
+
 // TrendingQuery asks for the current trending ranking (task R2-a), best first.
 type TrendingQuery struct {
 	AfterRank int // 0 = from the top
@@ -262,6 +269,9 @@ type Store interface {
 	PutSubtitle(ctx context.Context, w SubtitleWrite) (SubtitleResult, error)
 	// DeleteSubtitle removes the row and returns its object key; ErrNotFound if there is no such track.
 	DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (objectKey string, err error)
+	// ListSubscriptionFeed reads one page of the public-feed videos of the channels the subscriber follows
+	// (media.subscriptions, the projection of social.subscription.changed), newest first by (published_at, id).
+	ListSubscriptionFeed(ctx context.Context, q SubscriptionFeedQuery) ([]Summary, error)
 	// ListTrending reads media.trending by rank, joined to the videos and re-applying the public-feed predicate
 	// (a video made PRIVATE or HIDDEN since the last recompute is not returned) in ONE query.
 	ListTrending(ctx context.Context, q TrendingQuery) ([]TrendingItem, error)

@@ -27,10 +27,11 @@ const (
 )
 
 const (
-	cursorFeed     = "feed"
-	cursorStudio   = "studio"
-	cursorSearch   = "search"
-	cursorTrending = "trending"
+	cursorFeed          = "feed"
+	cursorStudio        = "studio"
+	cursorSearch        = "search"
+	cursorTrending      = "trending"
+	cursorSubscriptions = "subscriptions"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -84,6 +85,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Delete("/v1/videos/{video_id}/subtitles/{lang}", h.deleteSubtitle)
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
+		r.Get("/v1/feed/subscriptions", h.subscriptionFeed)
 	})
 }
 

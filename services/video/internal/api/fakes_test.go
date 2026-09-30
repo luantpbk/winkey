@@ -25,6 +25,7 @@ type memStore struct {
 	subtitleWrites int
 	putSubtitleErr error
 	ranking        []rankedVideo
+	follows        map[uuid.UUID]map[uuid.UUID]bool
 	trendingReads  int
 	mediaChecks    int
 	lists          int
@@ -320,4 +321,38 @@ func (s *memStore) ListTrending(_ context.Context, q domain.TrendingQuery) ([]do
 type rankedVideo struct {
 	id   uuid.UUID
 	rank int
+}
+
+// follow records that subscriber follows channel (the projection of social.subscription.changed).
+func (s *memStore) follow(subscriber, channel uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.follows == nil {
+		s.follows = map[uuid.UUID]map[uuid.UUID]bool{}
+	}
+	if s.follows[subscriber] == nil {
+		s.follows[subscriber] = map[uuid.UUID]bool{}
+	}
+	s.follows[subscriber][channel] = true
+}
+
+func (s *memStore) ListSubscriptionFeed(_ context.Context, q domain.SubscriptionFeedQuery) ([]domain.Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []domain.Summary
+	for _, v := range s.videos {
+		if !s.follows[q.Subscriber][v.OwnerID] || v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing || v.Hidden() {
+			continue
+		}
+		if q.After != nil && !less(*v.PublishedAt, v.ID, q.After.T, q.After.ID) {
+			continue
+		}
+		out = append(out, domain.Summary{ID: v.ID, Title: v.Title, Owner: v.Owner, DurationMs: *v.DurationMs, ViewCount: v.ViewCount,
+			PublishedAt: *v.PublishedAt, ThumbnailKey: *v.ThumbnailKey})
+	}
+	sort.Slice(out, func(i, j int) bool { return less(out[j].PublishedAt, out[j].ID, out[i].PublishedAt, out[i].ID) })
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
 }
