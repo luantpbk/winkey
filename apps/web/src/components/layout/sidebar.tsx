@@ -13,7 +13,9 @@ import {
   Flame,
   Music2,
   Gamepad2,
+  Shield,
 } from 'lucide-react';
+import { useAuth } from '../../lib/auth/auth-context';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -24,10 +26,12 @@ interface SidebarProps {
 export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const t = useTranslations('nav');
   const pathname = usePathname();
+  const { canAccessAdmin } = useAuth();
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
     { href: '/studio', label: t('studio'), icon: LayoutDashboard },
+    ...(canAccessAdmin ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
     { href: '/upload', label: t('upload'), icon: UploadCloud },
     { href: '#subscriptions', label: t('subscriptions'), icon: Tv },
   ];

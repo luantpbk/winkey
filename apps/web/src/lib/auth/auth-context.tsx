@@ -10,6 +10,9 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isCreator: boolean;
+  isModerator: boolean;
+  isAdmin: boolean;
+  canAccessAdmin: boolean;
   login: (credentials: LoginRequest) => Promise<{ success: boolean; error?: Problem }>;
   register: (data: RegisterRequest) => Promise<{ success: boolean; error?: Problem }>;
   logout: () => Promise<void>;
@@ -57,6 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setUser(data.user);
+        if (typeof document !== 'undefined') {
+          const role = data.user.roles.includes('admin')
+            ? 'admin'
+            : data.user.roles.includes('moderator')
+              ? 'moderator'
+              : 'creator';
+          document.cookie = `wk_mock_role=${role}; path=/; max-age=86400; SameSite=Lax`;
+        }
         return { success: true };
       }
 
@@ -89,6 +100,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setUser(data.user);
+        if (typeof document !== 'undefined') {
+          document.cookie = 'wk_mock_role=creator; path=/; max-age=86400; SameSite=Lax';
+        }
         return { success: true };
       }
 
@@ -117,10 +131,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       tokenStore.clear();
       setUser(null);
+      if (typeof document !== 'undefined') {
+        document.cookie = 'wk_mock_role=; path=/; max-age=0; SameSite=Lax';
+      }
     }
   };
 
   const isCreator = !!user?.roles?.includes('creator');
+  const isModerator = !!user?.roles?.includes('moderator');
+  const isAdmin = !!user?.roles?.includes('admin');
+  const canAccessAdmin = isModerator || isAdmin;
 
   return (
     <AuthContext.Provider
@@ -129,6 +149,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isCreator,
+        isModerator,
+        isAdmin,
+        canAccessAdmin,
         login,
         register,
         logout,

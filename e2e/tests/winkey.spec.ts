@@ -349,6 +349,116 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(videoRow.getByText(/Ready|Sẵn sàng/)).toBeVisible({ timeout: 10000 });
   });
 
+  test('U4: Moderator hides reported video & resolves case; Admin edits roles & suspends user', async ({
+    page,
+  }) => {
+    // --- Part 1: Moderator flow ---
+    // 1. Log in as moderator
+    await page.goto('/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.fill('input[type="email"]', 'mod@winkey.vn');
+    await page.fill('input[type="password"]', 'any-valid-password');
+
+    const [loginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      page.locator('main button[type="submit"]').click(),
+    ]);
+    expect(loginRes.status()).toBe(200);
+    await page
+      .context()
+      .addCookies([{ name: 'wk_mock_role', value: 'moderator', domain: 'localhost', path: '/' }]);
+
+    // 2. Navigate to /admin
+    await page.goto('/admin');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Expect Moderation Queue and Users tabs, but not Audit Log
+    await expect(page.getByText(/Admin & Moderation Panel|Bảng điều khiển quản trị/)).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText(/Moderation Queue|Hàng đợi báo cáo/)).toBeVisible();
+    await expect(page.getByText(/Audit Log|Nhật ký/)).not.toBeVisible();
+
+    // 3. Open moderation modal on the first case
+    const moderateBtn = page.getByRole('button', { name: /Moderate|Xử lý/ }).first();
+    await expect(moderateBtn).toBeVisible({ timeout: 10000 });
+    await moderateBtn.click();
+
+    // Fill action reason and confirm
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible();
+
+    const reasonInput = modal.locator('input#action-reason');
+    await reasonInput.fill('Inappropriate content and copyright violations');
+
+    const confirmBtn = modal.locator('button[type="submit"]');
+    await confirmBtn.click();
+
+    // Verify modal closes and resolution succeeds
+    await expect(modal).not.toBeVisible({ timeout: 10000 });
+
+    // --- Part 2: Admin flow ---
+    // 1. Log in as admin
+    await page.goto('/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.fill('input[type="email"]', 'admin@winkey.vn');
+    await page.fill('input[type="password"]', 'any-valid-password');
+
+    const [adminLoginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      page.locator('main button[type="submit"]').click(),
+    ]);
+    expect(adminLoginRes.status()).toBe(200);
+    await page
+      .context()
+      .addCookies([{ name: 'wk_mock_role', value: 'admin', domain: 'localhost', path: '/' }]);
+
+    // 2. Navigate to /admin
+    await page.goto('/admin');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Admin should see Audit Log tab
+    await expect(page.getByText(/Audit Log|Nhật ký/)).toBeVisible();
+
+    // Switch to Users tab
+    await page.getByText(/Users|Người dùng/).click();
+
+    // Search for a user
+    const searchInput = page.locator(
+      'main input[placeholder*="Search"], main input[placeholder*="Tìm"]',
+    );
+    await searchInput.fill('tech');
+    await page.waitForTimeout(500); // debounce 300ms
+
+    // Target row
+    const userRow = page.locator('tr:has-text("tech@winkey.vn")').first();
+    await expect(userRow).toBeVisible();
+
+    // 3. Edit roles: grant moderator role
+    await userRow.getByRole('button', { name: /Edit Roles|Đổi quyền/ }).click();
+    const rolesDialog = page.locator('[role="dialog"]');
+    await expect(rolesDialog).toBeVisible();
+
+    const modCheckbox = rolesDialog.locator('input[type="checkbox"]').nth(2); // moderator
+    await modCheckbox.check();
+
+    await rolesDialog.locator('button[type="submit"]').click();
+    await expect(rolesDialog).not.toBeVisible({ timeout: 10000 });
+
+    // 4. Suspend user with reason
+    await userRow.getByRole('button', { name: /Suspend|Khóa/ }).click();
+    const suspendDialog = page.locator('[role="dialog"]');
+    await expect(suspendDialog).toBeVisible();
+
+    const suspendReasonInput = suspendDialog.locator('input#suspend-reason-input');
+    await suspendReasonInput.fill('Repeated platform violations');
+
+    await suspendDialog.locator('button[type="submit"]').click();
+    await expect(suspendDialog).not.toBeVisible({ timeout: 10000 });
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
     test.setTimeout(180000);
 
@@ -366,6 +476,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       { path: '/register', slug: 'register' },
       { path: '/upload', slug: 'upload' },
       { path: '/studio', slug: 'studio' },
+      { path: '/admin', slug: 'admin' },
     ];
 
     const screenshotDir = path.join(process.cwd(), 'screenshots');
