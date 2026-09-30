@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valkey-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: winkey
+data:
+  valkey.conf: |
+    # Valkey 8 Configuration for Winkey
+    bind 0.0.0.0
+    port 6379
+    protected-mode yes
+
+    # Memory capping and eviction policy
+    maxmemory 512mb
+    # IMPORTANT: volatile-lru ensures keys without TTL (like video-svc view flush hashes) are never evicted
+    maxmemory-policy volatile-lru
+
+    # Persistence
+    appendonly yes
+    appendfsync everysec
+    dir /data

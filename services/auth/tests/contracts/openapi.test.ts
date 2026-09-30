@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import _Ajv from 'ajv';
+import { Ajv, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
-const Ajv = (_Ajv as any).default ?? _Ajv;
+import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
@@ -13,15 +13,18 @@ import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 
 describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', () => {
-  let app: any;
-  let ajv: any;
-  let validateTokenResponse: any;
-  let validateUser: any;
-  let validatePublicProfile: any;
-  let validateProblem: any;
-  let validateAdminUser: any;
-  let validateAdminUserPage: any;
-  let validateAuditEntryPage: any;
+  let app: FastifyInstance;
+  let ajv: Ajv;
+  let validateTokenResponse: ValidateFunction;
+  let validateUser: ValidateFunction;
+  let validatePublicProfile: ValidateFunction;
+  let validateProblem: ValidateFunction;
+  let validateAdminUser: ValidateFunction;
+  let validateAdminUserPage: ValidateFunction;
+  let validateAuditEntryPage: ValidateFunction;
+  let validateUpdateMeRequest: ValidateFunction;
+  let validateChangePasswordRequest: ValidateFunction;
+  let validateDeleteMeRequest: ValidateFunction;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -33,7 +36,7 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
 
     // 2. Setup Ajv
     ajv = new Ajv({ strict: false, allErrors: true });
-    (addFormats as any)(ajv);
+    (addFormats as unknown as (a: unknown) => void)(ajv);
 
     commonSpec.$id = 'https://winkey.vn/contracts/openapi/common.yaml';
     authSpec.$id = 'https://winkey.vn/contracts/openapi/auth.v1.yaml';
@@ -61,6 +64,15 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     )!;
     validateAuditEntryPage = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AuditEntryPage',
+    )!;
+    validateUpdateMeRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/UpdateMeRequest',
+    )!;
+    validateChangePasswordRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/ChangePasswordRequest',
+    )!;
+    validateDeleteMeRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/DeleteMeRequest',
     )!;
 
     // 3. Build test app
@@ -132,7 +144,7 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
         password: 'SecurePassword123!',
       },
     });
-    const cookie = loginRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const cookie = loginRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     const refreshRes = await app.inject({
       method: 'POST',
@@ -330,5 +342,88 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     const validAudit = validateAuditEntryPage(auditBody);
     if (!validAudit) console.error(validateAuditEntryPage.errors);
     expect(validAudit).toBe(true);
+  });
+
+  it('Validates Task A3 account self-service schemas (User.has_password, requests, 204s, and Problem errors)', async () => {
+    // 1. Validate request schemas
+    const validUpdateMeReq = { display_name: 'New Name', handle: 'new_handle' };
+    expect(validateUpdateMeRequest(validUpdateMeReq)).toBe(true);
+    expect(validateUpdateMeRequest({})).toBe(false); // minProperties: 1
+
+    const validChangePwdReq = {
+      current_password: 'OldPassword123!',
+      new_password: 'NewPassword123!',
+    };
+    expect(validateChangePasswordRequest(validChangePwdReq)).toBe(true);
+    expect(validateChangePasswordRequest({ new_password: 'short' })).toBe(false); // minLength: 8
+
+    const validDelReq = { confirm_handle: 'my_handle', password: 'Password123!' };
+    expect(validateDeleteMeRequest(validDelReq)).toBe(true);
+    expect(validateDeleteMeRequest({})).toBe(false); // confirm_handle required
+
+    // 2. Register user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'a3_contract@winkey.vn',
+        password: 'Password123!',
+        handle: 'a3_contract',
+        display_name: 'A3 Contract',
+      },
+    });
+    const token = regRes.json().access_token;
+
+    // 3. GET /v1/auth/me returns User with has_password
+    const meRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(meRes.statusCode).toBe(200);
+    const meBody = meRes.json();
+    expect(validateUser(meBody)).toBe(true);
+    expect(meBody.has_password).toBe(true);
+
+    // 4. PATCH /v1/auth/me returns User with has_password
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { display_name: 'A3 Contract Renamed' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const patchBody = patchRes.json();
+    expect(validateUser(patchBody)).toBe(true);
+    expect(patchBody.display_name).toBe('A3 Contract Renamed');
+    expect(patchBody.has_password).toBe(true);
+
+    // 5. Error response validates against Problem schema
+    const conflictRes = await app.inject({
+      method: 'PATCH',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { handle: 'contract_user' }, // Already exists from earlier contract test
+    });
+    expect(conflictRes.statusCode).toBe(409);
+    expect(validateProblem(conflictRes.json())).toBe(true);
+
+    // 6. PUT /v1/auth/me/password returns 204
+    const changePwdRes = await app.inject({
+      method: 'PUT',
+      url: '/v1/auth/me/password',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { current_password: 'Password123!', new_password: 'NewSecurePassword123!' },
+    });
+    expect(changePwdRes.statusCode).toBe(204);
+
+    // 7. DELETE /v1/auth/me returns 204
+    const delRes = await app.inject({
+      method: 'DELETE',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { confirm_handle: 'a3_contract', password: 'NewSecurePassword123!' },
+    });
+    expect(delRes.statusCode).toBe(204);
   });
 });

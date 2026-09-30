@@ -206,10 +206,15 @@ jobs:
           sudo mv kustomize /usr/local/bin/
           curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
           sudo mv kubeconform /usr/local/bin/
+      - name: Verify data migrations in sync with db/migrations
+        run: |
+          diff -r db/migrations deploy/k8s/data/migrations
       - name: Validate kustomize build
         run: |
           kustomize build deploy/k8s/storage
+          kustomize build deploy/k8s/data
       - name: Validate schemas with kubeconform
         run: |
           kubeconform -strict -summary -skip IngressRoute,Middleware -schema-location default deploy/k8s/edge/*.yaml
           kustomize build deploy/k8s/storage | kubeconform -strict -summary -schema-location default
+          kustomize build deploy/k8s/data | kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/988ca70b50376c40ec7cf5099d041081f6ae1ffd/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'

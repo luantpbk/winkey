@@ -852,4 +852,498 @@ describe('auth-svc full integration flow', () => {
       expect(store.users.find((u) => u.id === deletedId)!.status).toBe('DELETED');
     });
   });
+
+  describe('Task A3: Account Self-Service (me, updateMe, changePassword, deleteMe)', () => {
+    it('GET /v1/auth/me returns has_password = true for password user and false for OAuth-only user', async () => {
+      // 1. Password user
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'pw_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'pw_user',
+          display_name: 'Password User',
+        },
+      });
+      expect(reg.statusCode).toBe(201);
+      const pwToken = reg.json().access_token;
+
+      const meRes1 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${pwToken}` },
+      });
+      expect(meRes1.statusCode).toBe(200);
+      expect(meRes1.json().has_password).toBe(true);
+
+      // 2. OAuth-only user
+      const startRes = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/',
+      });
+      const redirectUrl = new URL(startRes.headers.location);
+      const oauthSignedCookie = startRes.cookies.find(
+        (c: { name: string; value: string }) => c.name === OAUTH_COOKIE_NAME,
+      )!.value;
+      const stateParam = redirectUrl.searchParams.get('state')!;
+
+      const oauthRes = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=oauth_user_code&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthSignedCookie },
+      });
+      expect(oauthRes.statusCode).toBe(302);
+      const oauthCookie = oauthRes.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
+
+      // Exchange refresh cookie for access token
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: oauthCookie },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const oauthToken = refreshRes.json().access_token;
+
+      const meRes2 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${oauthToken}` },
+      });
+      expect(meRes2.statusCode).toBe(200);
+      expect(meRes2.json().has_password).toBe(false);
+    });
+
+    it('PATCH /v1/auth/me (updateMe): updates display_name and handle; no-op returns 200 without DB write', async () => {
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'updateme_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'updateme_orig',
+          display_name: 'Original Name',
+        },
+      });
+      const token = reg.json().access_token;
+      const userId = reg.json().user.id;
+
+      // 1. Update display_name only
+      const u1 = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { display_name: 'Updated Name 1' },
+      });
+      expect(u1.statusCode).toBe(200);
+      expect(u1.json().display_name).toBe('Updated Name 1');
+      expect(u1.json().handle).toBe('updateme_orig');
+      expect(u1.json().has_password).toBe(true);
+      expect(store.users.find((u) => u.id === userId)!.display_name).toBe('Updated Name 1');
+
+      // 2. Update handle only
+      const u2 = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { handle: 'updateme_newhandle' },
+      });
+      expect(u2.statusCode).toBe(200);
+      expect(u2.json().handle).toBe('updateme_newhandle');
+      expect(store.users.find((u) => u.id === userId)!.handle).toBe('updateme_newhandle');
+
+      // 3. No-op: sending exact same values returns 200
+      const prevUpdatedAt = store.users.find((u) => u.id === userId)!.updated_at;
+      const noop = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { display_name: 'Updated Name 1', handle: 'updateme_newhandle' },
+      });
+      expect(noop.statusCode).toBe(200);
+      expect(store.users.find((u) => u.id === userId)!.updated_at).toEqual(prevUpdatedAt);
+
+      // 4. Empty payload -> 400
+      const bad1 = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      expect(bad1.statusCode).toBe(400);
+
+      // 5. Invalid handle format -> 400
+      const bad2 = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { handle: 'bad handle with spaces' },
+      });
+      expect(bad2.statusCode).toBe(400);
+    });
+
+    it('PATCH /v1/auth/me: returns 409 HANDLE_TAKEN on case-insensitive collision and 429 when rate limited', async () => {
+      // Register alice and bob
+      const r1 = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'alice_patch@winkey.vn',
+          password: 'Password123!',
+          handle: 'alice_patch',
+          display_name: 'Alice Patch',
+        },
+      });
+      expect(r1.statusCode).toBe(201);
+      const bobRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'bob_patch@winkey.vn',
+          password: 'Password123!',
+          handle: 'bob_patch',
+          display_name: 'Bob Patch',
+        },
+      });
+      expect(bobRes.statusCode).toBe(201);
+      const bobToken = bobRes.json().access_token;
+
+      // Bob tries to take Alice's handle (case variant)
+      const conflictRes = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${bobToken}` },
+        payload: { handle: 'ALICE_PATCH' },
+      });
+      expect(conflictRes.statusCode).toBe(409);
+      expect(conflictRes.json().code).toBe('HANDLE_TAKEN');
+
+      // Rate limit test: 10 changes allowed per hour
+      for (let i = 0; i < 9; i++) {
+        const ok = await app.inject({
+          method: 'PATCH',
+          url: '/v1/auth/me',
+          headers: { authorization: `Bearer ${bobToken}` },
+          payload: { display_name: `Bob Iteration ${i}` },
+        });
+        expect(ok.statusCode).toBe(200);
+      }
+      // 10th change or subsequent request triggers 429
+      const rateLimitedRes = await app.inject({
+        method: 'PATCH',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${bobToken}` },
+        payload: { display_name: 'Bob Exceeded' },
+      });
+      expect(rateLimitedRes.statusCode).toBe(429);
+    });
+
+    it('PUT /v1/auth/me/password: password verification, OAuth first password, and other-device session revocation', async () => {
+      // 1. Register user (Device 1)
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'pwd_user@winkey.vn',
+          password: 'OldPassword123!',
+          handle: 'pwd_user',
+          display_name: 'Pwd User',
+        },
+      });
+      const device1Cookie = reg.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
+      const device1Token = reg.json().access_token;
+
+      // 2. Login on Device 2
+      const loginDev2 = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'pwd_user@winkey.vn',
+          password: 'OldPassword123!',
+        },
+      });
+      expect(loginDev2.statusCode).toBe(200);
+      const device2Cookie = loginDev2.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
+
+      // 3. Wrong current_password returns 403 INVALID_CREDENTIALS
+      const wrongPwdRes = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${device1Token}` },
+        cookies: { [REFRESH_COOKIE_NAME]: device1Cookie },
+        payload: {
+          current_password: 'WrongPassword!',
+          new_password: 'NewPassword123!',
+        },
+      });
+      expect(wrongPwdRes.statusCode).toBe(403);
+      expect(wrongPwdRes.json().code).toBe('INVALID_CREDENTIALS');
+
+      // 4. Missing current_password on password account returns 403
+      const missingPwdRes = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${device1Token}` },
+        cookies: { [REFRESH_COOKIE_NAME]: device1Cookie },
+        payload: {
+          new_password: 'NewPassword123!',
+        },
+      });
+      expect(missingPwdRes.statusCode).toBe(403);
+      expect(missingPwdRes.json().code).toBe('INVALID_CREDENTIALS');
+
+      // 5. Change password successfully from Device 1
+      const okPwdRes = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${device1Token}` },
+        cookies: { [REFRESH_COOKIE_NAME]: device1Cookie },
+        payload: {
+          current_password: 'OldPassword123!',
+          new_password: 'NewPassword123!',
+        },
+      });
+      expect(okPwdRes.statusCode).toBe(204);
+
+      // 6. Old password fails login, new password succeeds
+      const oldLogin = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { email: 'pwd_user@winkey.vn', password: 'OldPassword123!' },
+      });
+      expect(oldLogin.statusCode).toBe(401);
+
+      const newLogin = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { email: 'pwd_user@winkey.vn', password: 'NewPassword123!' },
+      });
+      expect(newLogin.statusCode).toBe(200);
+
+      // 7. Device 2 refresh token is revoked (401), while Device 1 refresh token remains valid (200)
+      const dev2Refresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: device2Cookie },
+      });
+      expect(dev2Refresh.statusCode).toBe(401);
+
+      const dev1Refresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: device1Cookie },
+      });
+      expect(dev1Refresh.statusCode).toBe(200);
+
+      // 8. OAuth-only account sets first password
+      const startOAuth2 = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/',
+      });
+      const redirectUrl2 = new URL(startOAuth2.headers.location);
+      const oauthSignedCookie2 = startOAuth2.cookies.find(
+        (c: { name: string; value: string }) => c.name === OAUTH_COOKIE_NAME,
+      )!.value;
+      const stateParam2 = redirectUrl2.searchParams.get('state')!;
+
+      const oauthRes = await app.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=oauth_first_pwd&state=${stateParam2}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthSignedCookie2 },
+      });
+      expect(oauthRes.statusCode).toBe(302);
+      const oauthCookie = oauthRes.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
+      const oauthRefresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: oauthCookie },
+      });
+      const oauthAccessToken = oauthRefresh.json().access_token;
+
+      // Providing current_password on OAuth account returns 400
+      const oauthBad = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${oauthAccessToken}` },
+        payload: {
+          current_password: 'UnexpectedPassword',
+          new_password: 'BrandNewPassword123!',
+        },
+      });
+      expect(oauthBad.statusCode).toBe(400);
+
+      // Setting first password without current_password succeeds
+      const oauthSet = await app.inject({
+        method: 'PUT',
+        url: '/v1/auth/me/password',
+        headers: { authorization: `Bearer ${oauthAccessToken}` },
+        cookies: { [REFRESH_COOKIE_NAME]: oauthCookie },
+        payload: {
+          new_password: 'BrandNewPassword123!',
+        },
+      });
+      expect(oauthSet.statusCode).toBe(204);
+
+      // Now can log in with email and new password
+      const oauthLogin = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'oauth_first_pwd@gmail.com',
+          password: 'BrandNewPassword123!',
+        },
+      });
+      expect(oauthLogin.statusCode).toBe(200);
+      const meAfterPwd = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${oauthLogin.json().access_token}` },
+      });
+      expect(meAfterPwd.statusCode).toBe(200);
+      expect(meAfterPwd.json().has_password).toBe(true);
+    });
+
+    it('DELETE /v1/auth/me: confirmation, last admin safeguard, user scrubbing, token revocation, and cookie clearing', async () => {
+      // 1. Register a regular user
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'del_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'del_user',
+          display_name: 'Delete Target',
+        },
+      });
+      const delCookie = reg.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
+      const delToken = reg.json().access_token;
+      const delUserId = reg.json().user.id;
+
+      // 2. Confirmation mismatch -> 400 CONFIRMATION_MISMATCH
+      const misRes = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${delToken}` },
+        payload: {
+          confirm_handle: 'wrong_handle',
+          password: 'Password123!',
+        },
+      });
+      expect(misRes.statusCode).toBe(400);
+      expect(misRes.json().code).toBe('CONFIRMATION_MISMATCH');
+
+      // 3. Wrong password -> 403 INVALID_CREDENTIALS
+      const wrongPwd = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${delToken}` },
+        payload: {
+          confirm_handle: 'del_user',
+          password: 'WrongPassword!',
+        },
+      });
+      expect(wrongPwd.statusCode).toBe(403);
+      expect(wrongPwd.json().code).toBe('INVALID_CREDENTIALS');
+
+      // 4. Sole admin safeguard -> 409 LAST_ADMIN
+      const soleAdminReg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'sole_admin_del@winkey.vn',
+          password: 'Password123!',
+          handle: 'sole_admin_del',
+          display_name: 'Sole Admin Del',
+        },
+      });
+      const soleAdminId = soleAdminReg.json().user.id;
+      const soleAdminToken = soleAdminReg.json().access_token;
+      // Make them the only active admin
+      store.users.find((u) => u.id === soleAdminId)!.roles = ['admin', 'viewer'];
+      store.users = store.users.filter((u) => u.id === soleAdminId || !u.roles.includes('admin'));
+
+      const lastAdminDel = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${soleAdminToken}` },
+        payload: {
+          confirm_handle: 'sole_admin_del',
+          password: 'Password123!',
+        },
+      });
+      expect(lastAdminDel.statusCode).toBe(409);
+      expect(lastAdminDel.json().code).toBe('LAST_ADMIN');
+
+      // 5. Successful delete of regular user (case-insensitive handle confirmation)
+      const okDel = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${delToken}` },
+        payload: {
+          confirm_handle: 'DEL_USER',
+          password: 'Password123!',
+        },
+      });
+      expect(okDel.statusCode).toBe(204);
+      expect(okDel.headers['set-cookie'] as string).toContain('Max-Age=0');
+
+      // Verify scrubbed user row in store
+      const scrubbed = store.users.find((u) => u.id === delUserId)!;
+      expect(scrubbed.status).toBe('DELETED');
+      expect(scrubbed.email).toBe(`deleted+${delUserId}@invalid.winkey.vn`);
+      const hex = delUserId.replace(/-/g, '');
+      expect(scrubbed.handle).toBe(`d_${hex.slice(0, 28)}`);
+      expect(scrubbed.handle.length).toBe(30);
+      expect(scrubbed.display_name).toBe('Deleted user');
+      expect(scrubbed.password_hash).toBeNull();
+      expect(scrubbed.email_verified_at).toBeNull();
+      expect(scrubbed.avatar_key).toBeNull();
+      expect(scrubbed.suspended_until).toBeNull();
+      expect(scrubbed.suspension_reason).toBeNull();
+
+      // Refresh token is revoked
+      const delRefresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: delCookie },
+      });
+      expect(delRefresh.statusCode).toBe(401);
+
+      // Login with old email fails
+      const oldLogin = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'del_user@winkey.vn',
+          password: 'Password123!',
+        },
+      });
+      expect(oldLogin.statusCode).toBe(401);
+
+      // 6. Re-registration with the same email and handle succeeds
+      const reReg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'del_user@winkey.vn',
+          password: 'NewPassword456!',
+          handle: 'del_user',
+          display_name: 'New Re-registered User',
+        },
+      });
+      expect(reReg.statusCode).toBe(201);
+      expect(reReg.json().user.handle).toBe('del_user');
+      expect(reReg.json().user.email).toBe('del_user@winkey.vn');
+    });
+  });
 });

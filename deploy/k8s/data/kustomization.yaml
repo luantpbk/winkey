@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: default
+
+resources:
+  - postgres-cluster.yaml
+  - postgres-setup-job.yaml
+  - nats-config.yaml
+  - nats-statefulset.yaml
+  - nats-bootstrap-job.yaml
+  - valkey-config.yaml
+  - valkey-statefulset.yaml
+  - network-policy.yaml
+
+configMapGenerator:
+  - name: winkey-pg-migrations
+    files:
+      - migrations/000001_foundation.up.sql
+      - migrations/000001_foundation.down.sql
+      - migrations/000002_auth.up.sql
+      - migrations/000002_auth.down.sql
+      - migrations/000003_media.up.sql
+      - migrations/000003_media.down.sql
+      - migrations/000004_transcode_heartbeat.up.sql
+      - migrations/000004_transcode_heartbeat.down.sql
+      - migrations/000005_social.up.sql
+      - migrations/000005_social.down.sql
+      - migrations/000006_moderation.up.sql
+      - migrations/000006_moderation.down.sql
+      - migrations/000007_search.up.sql
+      - migrations/000007_search.down.sql
+  - name: winkey-pg-scripts
+    files:
+      - scripts/grants.sql
+
+generatorOptions:
+  disableNameSuffixHash: true

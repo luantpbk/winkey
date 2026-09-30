@@ -1,0 +1,99 @@
+# NetworkPolicies for Winkey Data Plane (PostgreSQL, NATS, Valkey)
+# Ensures only authorized application pods and jobs reach the data stores
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-access
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: winkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # 1. Product services connecting to database
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: winkey
+      ports:
+        - protocol: TCP
+          port: 5432
+    # 2. CloudNativePG operator in cnpg-system
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+    # 3. Inter-instance replication & communication within cluster
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: winkey-pg
+    # 4. Tailnet access via NodePort (externalTrafficPolicy: Local preserves Tailscale client IP)
+    - from:
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-access
+  namespace: default
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/part-of: winkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # 1. Product services connecting to NATS
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: winkey
+      ports:
+        - protocol: TCP
+          port: 4222
+        - protocol: TCP
+          port: 8222
+    # 2. Tailnet access via NodePort (transcoder on gpu-01, etc.)
+    - from:
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 4222
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-access
+  namespace: default
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: winkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Ingress
+  ingress:
+    # 1. Product services connecting to Valkey
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: winkey
+      ports:
+        - protocol: TCP
+          port: 6379

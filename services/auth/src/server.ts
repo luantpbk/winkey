@@ -51,9 +51,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'headers.authorization',
           'headers.cookie',
           'body.password',
+          'body.current_password',
+          'body.new_password',
+          'body.confirm_handle',
           'body.email',
           'body.reason',
           'password',
+          'current_password',
+          'new_password',
+          'confirm_handle',
           'email',
           'reason',
           'suspension_reason',
@@ -109,7 +115,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(loginRoute, { db, env, rateLimiter });
   await app.register(refreshRoute, { db, env });
   await app.register(logoutRoute, { db, env });
-  await app.register(meRoute, { db, env });
+  await app.register(meRoute, { db, env, rateLimiter });
   await app.register(verifyRoute, { env });
   await app.register(jwksRoute, { env });
   await app.register(usersRoute, { db, env });
