@@ -76,6 +76,23 @@ fi
 echo "[systest] Building and starting all services..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --wait
 
+# 3b. Poll /readyz for services without internal healthcheck (3002, 3003, 8081)
+echo "[systest] Polling /readyz endpoints for upload-svc, video-svc, transcoder..."
+for port in 3002 3003 8081; do
+  READY=0
+  for _ in $(seq 1 120); do
+    if curl -s "http://127.0.0.1:${port}/readyz" | grep -q '"status":"ok"' || curl -s "http://127.0.0.1:${port}/readyz" | grep -q '"status":"UP"'; then
+      READY=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "${READY}" -ne 1 ]; then
+    echo "[systest] ERROR: Service on port ${port} did not become ready in 120s" >&2
+    exit 1
+  fi
+done
+
 # 4. Generate 10s 720p test clip if not present
 if [ ! -f "${CLIP_PATH}" ]; then
   echo "[systest] Generating 10s 720p test video clip with transcoder FFmpeg..."
