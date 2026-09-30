@@ -24,6 +24,7 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2), notify (P3) | [social.comment.created](social.comment.created.schema.json) |
 | `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |
 | `social.subscription.changed` | JetStream `SOCIAL` | social-svc | video-svc (feed theo dõi, R2-b), notify (P3) | [social.subscription.changed](social.subscription.changed.schema.json) |
+| `analytics.playback` | JetStream `ANALYTICS` (telemetry, không qua outbox) | video-svc (R1) | analytics-worker trên gpu-01 → ClickHouse | [analytics.playback](analytics.playback.schema.json) |
 | `rt.video.{video_id}.progress` | core NATS | transcoder | realtime-gw, upload-svc (cache) | [video.progress](video.progress.schema.json) |
 | `dlq.video.uploaded` | JetStream `DLQ` | transcoder | con người (replay tool) | bản gốc của `video.uploaded` |
 
@@ -35,8 +36,11 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `USER` | `user.>` | file | 3 | 7d | 2m |
 | `SOCIAL` | `social.>` | file | 3 | 7d | 2m |
 | `DLQ` | `dlq.>` | file | 3 | 30d | 2m |
+| `ANALYTICS` | `analytics.>` | file | 1 | 7d, **`max_bytes` 5 GiB, `discard: old`** | 2m |
 
-Giai đoạn 1 VPS (ADR-013) dùng `replicas: 1`, nâng lên 3 khi có cluster NATS 3 node. Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject.
+Giai đoạn 1 VPS (ADR-013) dùng `replicas: 1`, nâng lên 3 khi có cluster NATS 3 node. Retention là `limits`, không dùng `workqueue`, để nhiều consumer độc lập đọc được cùng một subject. `ANALYTICS` (ADR-022) giữ `replicas: 1` kể cả sau này: đây là telemetry, mất một phần chấp nhận được, và `max_bytes` + `discard: old` bảo đảm gpu-01 tắt lâu ngày cũng không làm đầy đĩa edge-1.
+
+**Telemetry khác domain event.** `analytics.*` được video-svc publish thẳng từ handler (không outbox, ngoại lệ có chủ đích với ADR-008): mất vài sample không làm sai trạng thái nghiệp vụ nào, còn đi qua outbox thì mỗi heartbeat thành một lần ghi PostgreSQL. `event_id` là UUIDv5 tính từ `playback_id:seq`, nên client gửi lại cùng sample sẽ bị JetStream khử trùng lặp.
 
 ## Consumer của realtime-gw
 
@@ -53,8 +57,16 @@ social-svc giữ projection `social.videos` (video nào nhận được comment/
 
 ## Consumer của video-svc cho feed theo dõi (R2-b)
 
-- Durable `video-subscriptions` trên stream `SOCIAL`, pull, `filter_subject: social.subscription.changed`, `deliver_policy: all` (lần đầu phát lại cả 7 ngày của stream, sau khi migration 000012 đã backfill từ `social.subscriptions`), `ack_policy: explicit`, `ack_wait: 30s`, `max_deliver: 5`.
+- Durable `video-subscriptions` trên stream `SOCIAL`, pull, `filter_subject: social.subscription.changed`, `deliver_policy: all` (lần đầu phát lại cả 7 ngày của stream, sau khi migration 000012 đã backfill từ `social.subscriptions`), `ack_policy: explicit`, `ack_wait: 30s`, **`max_ack_pending: 1`, `max_deliver: -1`** (thứ tự nghiêm ngặt: event sau chỉ được giao khi event trước đã ack; lỗi tạm thời không bao giờ làm mất thay đổi, hàng đợi chờ DB; `Term` chỉ dành cho event sai định dạng).
 - `subscribed = true` → `INSERT … ON CONFLICT DO NOTHING`; `false` → `DELETE`. Xử lý tuần tự theo thứ tự stream nên trạng thái cuối khớp social-svc. Event sai schema → `Term()`.
+
+## Consumer `analytics-worker` (R1, ADR-022)
+
+- Chạy trên gpu-01 (ngoài k3s, như transcoder, ADR-015), nối NATS qua NodePort Tailscale 30422.
+- Durable `analytics-clickhouse` trên stream `ANALYTICS`, pull, `filter_subject: analytics.playback`, `deliver_policy: all`, `ack_policy: explicit`, `ack_wait: 60s`, `max_deliver: -1`, `max_ack_pending: 20000`.
+- Lấy theo lô (tối đa 5 000 message hoặc 2 s), ghi **một** `INSERT` vào ClickHouse, **chỉ ack cả lô sau khi INSERT thành công**. INSERT lỗi thì không ack (NAK có delay), cả lô được giao lại. Trùng lặp được bảng `ReplacingMergeTree` khử theo `event_id`.
+- Event sai schema hoặc version lạ: `Term()` + metric, không chặn lô.
+- gpu-01 tắt: message nằm chờ trong stream (tối đa 7 ngày / 5 GiB). Khi bật lại, worker đọc bù từ chỗ đã ack.
 
 ## Consumer `transcoder`
 

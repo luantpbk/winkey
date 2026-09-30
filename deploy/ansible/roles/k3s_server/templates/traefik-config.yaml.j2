@@ -13,6 +13,7 @@ spec:
         # only opens NodePorts on the Tailscale IP, see config.yaml).
         # The chart reads service.spec.type; a top-level service.type is silently ignored.
         type: {{ traefik_service_type }}
+        externalTrafficPolicy: Local
     ports:
       web:
         nodePort: {{ traefik_nodeport_web }}

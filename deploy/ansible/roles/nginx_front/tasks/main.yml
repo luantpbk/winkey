@@ -1,10 +1,42 @@
-- name: Ensure nginx media cache directory exists
+- name: Ensure nginx media cache directories exist
   ansible.builtin.file:
-    path: /var/cache/nginx/winkey-media
+    path: "{{ item }}"
     state: directory
     owner: nginx
     group: nginx
     mode: "0700"
+  loop:
+    - /var/cache/nginx/winkey-media
+    - /var/cache/nginx/winkey-media-auth
+
+- name: Slurp media link secret from host
+  ansible.builtin.slurp:
+    src: /etc/nginx/winkey-media-link-secret
+  register: media_link_secret_file
+  failed_when: false
+
+- name: Set media_link_secret fact
+  ansible.builtin.set_fact:
+    media_link_secret: "{{ (media_link_secret_file.content | b64decode | trim) if (media_link_secret_file.content is defined) else (lookup('env', 'MEDIA_LINK_SECRET') | default('', true)) }}"
+  no_log: true
+
+- name: Assert media link secret is defined and sufficiently long
+  ansible.builtin.assert:
+    that:
+      - media_link_secret is defined
+      - media_link_secret | length >= 32
+    fail_msg: "media_link_secret must be set and at least 32 characters long"
+  no_log: true
+
+- name: Winkey media link secret configuration
+  ansible.builtin.template:
+    src: winkey-media-secret.conf.j2
+    dest: /etc/nginx/winkey-media-secret.conf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Reload nginx
 
 - name: Is the certificate there yet?
   ansible.builtin.stat:
@@ -19,6 +51,7 @@
   vars:
     with_tls: "{{ front_cert.stat.exists }}"
   register: front_conf
+  no_log: true
 
 - name: Reload nginx for the HTTP-01 challenge
   ansible.builtin.shell: nginx -t && systemctl reload nginx
@@ -41,6 +74,7 @@
     mode: "0644"
   vars:
     with_tls: true
+  no_log: true
   notify: Reload nginx
 
 - name: Certbot renews on its timer

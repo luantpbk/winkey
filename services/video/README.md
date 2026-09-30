@@ -17,6 +17,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `GET /internal/media-access/{id}` | none | **Infrastructure only** (task SEC1, ADR-017): nginx `auth_request`. `204` if the public may fetch the video media, `403` otherwise. See *Media access*. |
 | `PUT /v1/videos/{id}/subtitles/{lang}` | required | Owner only: create or replace the WebVTT track of one language (task V5b). `201` created / `200` replaced, `SubtitleTrack`; `400` `INVALID_WEBVTT` / `SUBTITLE_TOO_LARGE` / `VALIDATION_ERROR`, `403`, `404`, `409` `TOO_MANY_SUBTITLES` / `VIDEO_FAILED`. See *Subtitles*. |
 | `DELETE /v1/videos/{id}/subtitles/{lang}` | required | Owner only: remove a track. `204`, `403`, `404` (also when there is no track for that language). |
+| `GET /v1/feed/subscriptions` | required | The newest public videos of the channels the caller follows (task R2-b): see *Subscription feed*. `VideoPage`, `limit`, `cursor`; `401` without identity; `Cache-Control: private, no-store`. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
 
@@ -195,6 +196,32 @@ Note on the threshold: the age of a bucket is measured from its start, so a vide
 | `video_trending_recompute_errors_total` | counter | Runs that failed (the previous ranking stays) |
 
 The run logs `trending recomputed` at info with `videos`, `duration` and `retired_buckets`.
+
+### Subscription feed (R2-b, ADR-021)
+
+`GET /v1/feed/subscriptions` returns the newest videos of the channels the caller follows: the public feed's predicate (`READY`, `PUBLIC`, `VISIBLE`) with the owner active, ordered `published_at DESC, id DESC`, as a `VideoPage`. Identity is required (`X-User-Id`; `401` otherwise). `limit` as for `listVideos`; the opaque `cursor` is the `(published_at, id)` keyset of the last item, HMAC-signed and bound to the endpoint **and the caller** (another user's cursor, or one from the public feed, is `400 INVALID_CURSOR`). No subscriptions is an empty page. The answer depends on the caller, so `Cache-Control: private, no-store`. A video made PRIVATE, hidden or whose owner is suspended leaves the feed at once: it reads the videos themselves.
+
+**Why a projection.** The subscriptions live in social-svc's schema and ADR-007 forbids reading it from here, so video-svc keeps its own `media.subscriptions (subscriber_id, channel_id, subscribed_at)` (migration 000012, no cross-schema foreign key), built from `social.subscription.changed`. Migration 000012 also **backfilled** it once from `social.subscriptions`, because the SOCIAL stream only keeps 7 days.
+
+**The consumer** (`internal/subscriptions`, one goroutine per replica): durable `video-subscriptions` on the stream `SOCIAL`, pull, `filter_subject: social.subscription.changed`, `deliver_policy: all`, `ack_policy: explicit`, `ack_wait: 30s`, **`max_ack_pending: 1`, `max_deliver: -1`**, created with `CreateOrUpdateConsumer` (a restart or a second replica reuses it). Each event is validated by hand against `envelope.schema.json` and `social.subscription.changed.schema.json` (unknown keys, missing or mistyped fields, a non-canonical UUID, a negative count all fail; a test compares this validation with the real schemas): a malformed event is `Term()`inated and counted, never redelivered and never blocks the next one; an event of a version this code does not know is acked and skipped; a subscription of a channel to itself is refused (the table forbids it). Valid events: `subscribed = true` -> `INSERT … ON CONFLICT DO NOTHING` with `subscribed_at` = the event's `occurred_at` (an existing row keeps its first date), `false` -> `DELETE`. Both are idempotent, so redelivery, duplicates and the replay of the whole stream after the backfill (or after the durable is re-created) leave the same rows **as long as the events of a pair are applied in stream order**, and that is enforced, not hoped for: `max_ack_pending: 1` makes JetStream hand out the next message only when the current one is acknowledged (and the consumer fetches one at a time), so a message that failed and was Nak'd (`NakWithDelay`, 10 s) is redelivered **before** any newer one; `max_deliver: -1` means a transient database error is never turned into a dropped change: the queue waits for the database, by design; `Term()` is only for malformed events, which can never succeed. Before that, a database error is also retried in-process (3 attempts, 200 ms doubling). (`contracts/events/README.md` still says `max_deliver: 5` for this durable; it predates this rule and should be updated by its owner.) The consumer keeps looking for the stream while it does not exist, so video-svc starts before social-svc is deployed. Metric `video_subscription_events_total{result}`: `subscribed`, `unsubscribed`, `malformed`, `ignored_version`, `error`. It is not a readiness dependency.
+
+**Eventual consistency.** A new subscription appears in the feed when the consumer has applied its event, normally within a second or two; an unsubscribe disappears the same way.
+
+**The query** reads, for each followed channel (one `auth.public_profiles` join per channel, so a suspended owner costs nothing), at most `limit + 1` of its newest public videos straight from the partial index `videos_owner_published (owner_id, published_at DESC, id DESC)` (a `LATERAL` subquery), and keeps the newest `limit + 1` of those candidates. A channel with thousands of videos therefore costs `limit + 1` index entries, not thousands. The store test plans it on 6000 videos of 60 channels (12 followed) without discouraging any scan type:
+
+```
+Limit
+  Sort
+    Nested Loop
+      Nested Loop
+        Seq Scan on users              (the owner join, per followed channel)
+        Seq Scan on subscriptions      (the followed channels of one subscriber)
+      Limit
+        Index Scan on videos using videos_owner_published
+```
+A user that follows thousands of channels makes the query heavier (thousands of small index scans); accepted for the beta (ADR-021), fan-out on write is the way out later.
+
+**NATS permission.** Creating the durable is a JetStream API call (`$JS.API.CONSUMER.*.SOCIAL.*`); the k3s `nats-auth` Secret (`deploy/k8s/data/secrets.sh`) lets the user `video` publish `$JS.API.>`, so it is allowed, and a pull consumer receives its messages on the caller's `_INBOX.>` (also allowed), not on the event subject. Nothing has to change for this to work. For symmetry with the like consumer (whose subject is in the `video` user's `subscribe` list) `social.subscription.changed` could be added there; it is not needed and I have not opened an issue for it.
 
 ### Moderation
 

@@ -28,6 +28,7 @@ import (
 	"github.com/luantpbk/winkey/services/video/internal/likes"
 	"github.com/luantpbk/winkey/services/video/internal/objects"
 	"github.com/luantpbk/winkey/services/video/internal/store"
+	"github.com/luantpbk/winkey/services/video/internal/subscriptions"
 	"github.com/luantpbk/winkey/services/video/internal/trending"
 	"github.com/luantpbk/winkey/services/video/internal/views"
 )
@@ -125,6 +126,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	if cfg.TrendingEnabled {
 		trendingJob = &trending.Job{Pool: pool, Interval: cfg.TrendingInterval, Log: log}
 	}
+	subConsumer := &subscriptions.Consumer{JS: js, Store: st, Log: log}
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
 
 	outbox.SetProducer(service)
@@ -150,6 +152,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); _ = relay.Run(ctx) }()
 	go func() { defer wg.Done(); _ = likeConsumer.Run(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); _ = subConsumer.Run(ctx) }()
 	if trendingJob != nil {
 		wg.Add(1)
 		go func() { defer wg.Done(); _ = trendingJob.Run(ctx) }()

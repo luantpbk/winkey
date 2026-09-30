@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/analytics.playback.schema.json",
+  "title": "analytics.playback v1",
+  "description": "One player sample (task R1, ADR-022). Telemetry, not a domain event: published directly by video-svc (no outbox), may be lost. `event_id` is UUIDv5(namespace, playback_id + ':' + seq) so a retried sample de-duplicates in JetStream (Nats-Msg-Id) and in ClickHouse. Producer: video-svc. Consumer: analytics-worker on gpu-01.",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "analytics.playback" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "playback_id",
+        "video_id",
+        "owner_id",
+        "viewer_key",
+        "authenticated",
+        "kind",
+        "seq",
+        "received_at",
+        "sent_at",
+        "position_ms",
+        "watched_ms",
+        "rebuffer_ms",
+        "rebuffer_count",
+        "client"
+      ],
+      "properties": {
+        "playback_id": { "type": "string", "format": "uuid" },
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Channel of the video at receive time, so per-channel analytics need no join."
+        },
+        "viewer_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "HMAC-SHA256(ANALYTICS_VIEWER_SALT, user id or the C3 anonymous viewer hash), hex. Never a user id in clear."
+        },
+        "authenticated": { "type": "boolean" },
+        "kind": { "enum": ["start", "heartbeat", "end"] },
+        "seq": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "received_at": { "type": "string", "format": "date-time", "description": "Server time; used for bucketing." },
+        "sent_at": { "type": "string", "format": "date-time", "description": "Client clock, informational." },
+        "position_ms": { "type": "integer", "minimum": 0 },
+        "watched_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "rebuffer_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "rebuffer_count": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "startup_ms": { "type": ["integer", "null"], "minimum": 0, "maximum": 600000 },
+        "rendition": { "type": ["string", "null"], "maxLength": 16 },
+        "bitrate_kbps": { "type": ["integer", "null"], "minimum": 0 },
+        "error_code": { "type": ["string", "null"], "maxLength": 64 },
+        "client": { "enum": ["web", "ios", "android", "other"] },
+        "country": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Z]{2}$",
+          "description": "Reserved (GeoIP later); null in v1."
+        }
+      }
+    }
+  }
+}

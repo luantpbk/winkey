@@ -86,6 +86,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/playback/heartbeats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report player QoE and watch-time samples (task R1, ADR-022). Optional auth.
+         * @description The player sends a batch of samples of the playbacks it is running: one `start` when the first frame is
+         *     shown, one `heartbeat` about every 30 s while the page is open, and one `end` when the playback stops
+         *     (`navigator.sendBeacon` on page hide). Each sample carries the **deltas since the previous sample of the
+         *     same playback** (`watched_ms`, `rebuffer_ms`, `rebuffer_count`), so losing a sample loses only its own
+         *     interval and nothing is counted twice.
+         *
+         *     video-svc validates the batch, drops samples of videos it does not know or the caller may not read, and
+         *     publishes one `analytics.playback` event per accepted sample to JetStream (stream `ANALYTICS`). This is
+         *     telemetry, not a domain event: it is published directly (no outbox) and a publish failure is not an error
+         *     for the client (the samples are dropped and a metric is incremented). The data ends up in ClickHouse on
+         *     gpu-01; nothing is stored in PostgreSQL and nothing in this response depends on it.
+         *
+         *     Privacy: the server never forwards the IP address or the user agent. The viewer is identified by
+         *     `viewer_key` = HMAC-SHA256(`ANALYTICS_VIEWER_SALT`, user id or C3's anonymous viewer hash), so
+         *     ClickHouse never holds a user id in clear.
+         *
+         *     Limits: at most 20 samples per request, body ≤ 16 KiB, rate limit 30 requests per minute per client IP
+         *     (`429`). `view` counting stays with `recordView` (C3); this endpoint never changes `view_count`.
+         */
+        post: operations["recordPlaybackHeartbeats"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/studio/videos": {
         parameters: {
             query?: never;
@@ -370,6 +407,46 @@ export interface components {
             /** @description `true` when this report added one view. */
             counted: boolean;
         };
+        PlaybackHeartbeatBatch: {
+            samples: components["schemas"]["PlaybackSample"][];
+        };
+        /** @description One sample of one playback (task R1). Counters are deltas since the previous sample of the same playback. */
+        PlaybackSample: {
+            /** @description Same id as `RecordViewRequest.playback_id`. */
+            playback_id: components["schemas"]["Uuid"];
+            video_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "start" | "heartbeat" | "end";
+            /** @description 0 for `start`, +1 for every later sample of the playback; (playback_id, seq) is unique. */
+            seq: number;
+            /**
+             * Format: date-time
+             * @description Client clock; the server stores its own receive time too and trusts that one for bucketing.
+             */
+            sent_at: string;
+            position_ms: number;
+            /** @description Played time since the previous sample, seeking and stalls excluded. */
+            watched_ms: number;
+            /** @description Stall time since the previous sample (buffer empty while playing; the initial load is not a stall). */
+            rebuffer_ms: number;
+            rebuffer_count: number;
+            /** @description Only on `start`, time from play request to first frame. */
+            startup_ms?: number;
+            /** @description Current rendition label, e.g. `720p`; null when unknown. */
+            rendition?: string | null;
+            bitrate_kbps?: number | null;
+            /** @description Only on `end` when the playback stopped because of an error (e.g. hls.js `fatal` details). */
+            error_code?: string | null;
+            /**
+             * @default web
+             * @enum {string}
+             */
+            client: "web" | "ios" | "android" | "other";
+        };
+        PlaybackHeartbeatResult: {
+            /** @description Number of samples accepted from the batch. */
+            accepted: number;
+        };
         /** @description Present only for the owner, moderators and admins (task A2). */
         VideoModeration: {
             /** @enum {string} */
@@ -653,6 +730,41 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    recordPlaybackHeartbeats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackHeartbeatBatch"];
+            };
+        };
+        responses: {
+            /** @description Batch accepted (possibly partially; rejected samples are not reported back). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackHeartbeatResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Body larger than 16 KiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             429: components["responses"]["TooManyRequests"];
         };
     };
