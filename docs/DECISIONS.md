@@ -302,3 +302,27 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Gợi ý không mang id hay nội dung. Client chỉ gọi lại `getUnreadNotificationCount`. Như vậy quy tắc lọc (ẩn, PRIVATE, actor bị khóa, trùng lặp) vẫn chỉ nằm ở social-svc, và một gợi ý thừa chỉ tốn một request.
 - `VIDEO_PUBLISHED` không có gợi ý: fan-out tới mọi subscriber qua WebSocket quá tốn. Web vẫn poll, nhưng khi socket đang kết nối thì giãn chu kỳ từ 60 s lên 5 phút (N2-web, Antigravity 1).
 - Event tới realtime-gw sau khi outbox relay đã publish, tức là sau khi transaction ghi thông báo đã commit. Vì vậy request đếm lại luôn thấy thông báo mới.
+
+### ADR-024 — Danh sách phát và "Xem sau" (PL1)
+**Bối cảnh.** Người xem đã có feed, tìm kiếm và thông báo, nhưng chưa có cách lưu video để xem sau hay gom thành danh sách phát. Chủ kênh cũng chưa có danh sách phát trên trang kênh. Video nằm ở video-svc, còn quan hệ giữa người dùng và nội dung (comment, like, subscribe) nằm ở social-svc (ADR-007).
+**Quyết định.**
+- **Chủ sở hữu:** social-svc. Hai bảng `social.playlists` và `social.playlist_items` (migration 000014). Item tham chiếu projection `social.videos` bằng FK `ON DELETE CASCADE`, nên `video.deleted` tự xóa video khỏi mọi danh sách. Không cần consumer mới.
+- **"Xem sau"** là một playlist `kind = WATCH_LATER`:
+  - mỗi user tối đa 1 (unique index một phần), luôn `PRIVATE` (CHECK);
+  - tạo lười khi gọi `getWatchLater` lần đầu, bằng `INSERT … ON CONFLICT DO NOTHING`;
+  - thêm và bớt video bằng chính các endpoint item.
+- **Giới hạn:** 200 playlist mỗi user, 5 000 item mỗi playlist. Giới hạn item được bảo đảm bằng CHECK `item_count ≤ 5000`; trigger giữ `item_count` và `updated_at`.
+- **Thứ tự:** `position bigint` thưa, cách nhau 2^20.
+  - Thêm vào cuối: `max + 2^20`.
+  - Di chuyển: lấy điểm giữa hai hàng xóm. Khi không còn khe, đánh số lại cả playlist trong cùng transaction; ràng buộc unique `(playlist_id, position)` là `DEFERRABLE` nên được phép trùng tạm thời.
+- **Hiển thị:**
+  - Playlist `PRIVATE` chỉ chủ xem được; người khác nhận 404. `UNLISTED` thì ai có link cũng xem được. Trang kênh chỉ liệt kê `PUBLIC`, trừ khi chính chủ đang xem.
+  - Video trong playlist bị ẩn hoặc `PRIVATE` thì bị lọc lúc đọc, trừ khi người gọi là chủ video. Riêng `item_count` vẫn đếm mọi hàng.
+- **Tiêu đề và thumbnail:** social-svc chỉ lưu id video. Client gọi `batchGetVideos` mới ở video-svc (`GET /v1/videos/batch?ids=…`, tối đa 50 id, trả đúng thứ tự, lặng lẽ bỏ video không đọc được), mỗi trang một lần. Không chép tiêu đề sang social-svc, để khỏi phải đồng bộ khi đổi tên.
+- **Không phát event** ở PL1. Chưa ai cần; khi tìm kiếm playlist hoặc recommendation cần thì thêm `social.playlist.*` qua outbox.
+- **Gateway:** `/v1/playlists` và `/v1/me/watch-later` đi tới social-svc. `/v1/channels/{id}/playlists` đã đi sẵn nhờ `PathPrefix(/v1/channels)`. `/v1/videos/batch` đi tới video-svc qua route `/v1/videos` đã có.
+**Hệ quả.**
+- Có tính năng lưu video và playlist mà không cần đồng bộ dữ liệu mới giữa các service.
+- Mỗi trang playlist cần 2 request (items, rồi batch videos). Chấp nhận được; nếu cần có thể gộp phía BFF sau này.
+- Video bị ẩn vẫn chiếm chỗ trong giới hạn 5 000 item của playlist; chấp nhận.
+- Mở rộng sau: playlist cộng tác, lưu playlist của người khác, phát liên tục (autoplay next) trên trang xem, tìm kiếm playlist.
