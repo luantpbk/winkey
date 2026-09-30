@@ -5,7 +5,6 @@ import type { Env } from '../config/env.js';
 import {
   RevocationService,
   verifyRevocationCheckCounter,
-  recordRevocationMetric,
 } from '../revocation/revocation.js';
 
 export const verifyRoute: FastifyPluginAsync<{
@@ -39,15 +38,12 @@ export const verifyRoute: FastifyPluginAsync<{
     // 4. Task A4 (ADR-019): immediate revocation check via Valkey MGET with 50 ms timeout
     const check = await revocationService.isRevoked(claims.sid, claims.sub, claims.iat);
     if (!check.checked) {
-      verifyRevocationCheckCounter.add(1, { result: 'error' });
-      recordRevocationMetric('auth_verify_revocation_check_total', { result: 'error' });
+      verifyRevocationCheckCounter.inc({ result: 'error' });
     } else if (check.revoked) {
-      verifyRevocationCheckCounter.add(1, { result: 'revoked' });
-      recordRevocationMetric('auth_verify_revocation_check_total', { result: 'revoked' });
+      verifyRevocationCheckCounter.inc({ result: 'revoked' });
       throw ProblemError.unauthorized('Invalid or expired token');
     } else {
-      verifyRevocationCheckCounter.add(1, { result: 'ok' });
-      recordRevocationMetric('auth_verify_revocation_check_total', { result: 'ok' });
+      verifyRevocationCheckCounter.inc({ result: 'ok' });
     }
 
     reply.header('X-User-Id', claims.sub);

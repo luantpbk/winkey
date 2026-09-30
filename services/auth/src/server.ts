@@ -19,7 +19,8 @@ import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
-import { RevocationService } from './revocation/revocation.js';
+import { metricsPlugin, type Registry } from '@winkey/metrics';
+import { RevocationService, authRegistry } from './revocation/revocation.js';
 
 export interface BuildAppOptions {
   env?: Env;
@@ -29,6 +30,7 @@ export interface BuildAppOptions {
   revocationService?: RevocationService;
   natsConnection?: NatsConnection | null;
   googleTokenExchanger?: GoogleTokenExchanger;
+  metricsRegistry?: Registry;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -112,6 +114,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         code: 'INTERNAL_SERVER_ERROR',
         instance: request.url,
       });
+  });
+
+  // Register Prometheus /metrics & HTTP request telemetry
+  await app.register(metricsPlugin, {
+    registry: options.metricsRegistry ?? authRegistry,
   });
 
   // Register routes

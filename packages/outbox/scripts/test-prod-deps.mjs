@@ -25,9 +25,10 @@ async function verifyService(serviceName, serviceRelDir) {
   );
 
   try {
-    // 1. Build outbox and service
-    console.log(`[1/4] Building @winkey/outbox and ${serviceName}...`);
+    // 1. Build outbox, metrics and service
+    console.log(`[1/4] Building @winkey/outbox, @winkey/metrics and ${serviceName}...`);
     execSync(`pnpm --filter @winkey/outbox run build`, { cwd: repoRoot, stdio: 'pipe' });
+    execSync(`pnpm --filter @winkey/metrics run build`, { cwd: repoRoot, stdio: 'pipe' });
     execSync(`pnpm --filter ${serviceName} run build`, { cwd: repoRoot, stdio: 'pipe' });
 
     // 2. Deploy with --prod
@@ -47,6 +48,14 @@ async function verifyService(serviceName, serviceRelDir) {
       const outboxDist = path.join(repoRoot, 'packages/outbox/dist');
       if (fs.existsSync(outboxDist)) {
         fs.cpSync(outboxDist, path.join(outboxDepDir, 'dist'), { recursive: true });
+      }
+    }
+
+    const metricsDepDir = path.join(tempDir, 'node_modules/@winkey/metrics');
+    if (fs.existsSync(metricsDepDir)) {
+      const metricsDist = path.join(repoRoot, 'packages/metrics/dist');
+      if (fs.existsSync(metricsDist)) {
+        fs.cpSync(metricsDist, path.join(metricsDepDir, 'dist'), { recursive: true });
       }
     }
 

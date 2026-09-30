@@ -14,21 +14,25 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
 
 # Copy packages, service source, and contracts
 COPY packages/outbox ./packages/outbox
+COPY packages/metrics ./packages/metrics
 COPY services/realtime ./services/realtime
 COPY contracts/realtime ./contracts/realtime
 
 # Install all workspace dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build outbox library and realtime service
+# Build libraries and realtime service
 RUN pnpm --filter @winkey/outbox run build
+RUN pnpm --filter @winkey/metrics run build
 RUN pnpm --filter @winkey/realtime run build
 
 # Deploy standalone production bundle
 RUN pnpm --filter=@winkey/realtime --prod deploy /app/deployed
 RUN cp -r /app/services/realtime/dist /app/deployed/dist && \
     mkdir -p /app/deployed/node_modules/@winkey/outbox && \
-    cp -r /app/packages/outbox/dist /app/deployed/node_modules/@winkey/outbox/dist
+    cp -r /app/packages/outbox/dist /app/deployed/node_modules/@winkey/outbox/dist && \
+    mkdir -p /app/deployed/node_modules/@winkey/metrics && \
+    cp -r /app/packages/metrics/dist /app/deployed/node_modules/@winkey/metrics/dist
 
 # --- Production Runner Stage ---
 FROM node:22-bookworm-slim AS runner

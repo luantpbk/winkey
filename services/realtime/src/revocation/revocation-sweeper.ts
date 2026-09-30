@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { metrics } from '@opentelemetry/api';
+import { createRegistry, Counter } from '@winkey/metrics';
 import type { ConnectionManager } from '../websocket/connection-manager.js';
 
 export interface LoggerLike {
@@ -22,31 +22,20 @@ export interface SweepResult {
   error?: boolean;
 }
 
-// OpenTelemetry metrics
-const meter = metrics.getMeter('realtime-gw');
+// Prometheus metrics
+export const realtimeRegistry = createRegistry('realtime-gw');
 
-export const revokedClosesCounter = meter.createCounter('realtime_revoked_closes_total', {
-  description: 'Total number of WebSocket connections closed due to user revocation',
+export const revokedClosesCounter = new Counter({
+  name: 'realtime_revoked_closes_total',
+  help: 'Total number of WebSocket connections closed due to user revocation',
+  registers: [realtimeRegistry],
 });
 
-export const sweepErrorsCounter = meter.createCounter('realtime_revocation_sweep_errors_total', {
-  description: 'Total number of revocation sweep errors (e.g. Valkey unavailable)',
+export const sweepErrorsCounter = new Counter({
+  name: 'realtime_revocation_sweep_errors_total',
+  help: 'Total number of revocation sweep errors (e.g. Valkey unavailable)',
+  registers: [realtimeRegistry],
 });
-
-// In-memory counters for test verification
-const inMemoryCounters = new Map<string, number>();
-
-export function recordRevocationMetric(name: string, count = 1): void {
-  inMemoryCounters.set(name, (inMemoryCounters.get(name) ?? 0) + count);
-}
-
-export function getRevocationMetricCount(name: string): number {
-  return inMemoryCounters.get(name) ?? 0;
-}
-
-export function resetRevocationMetricsForTest(): void {
-  inMemoryCounters.clear();
-}
 
 export const CHUNK_SIZE = 500;
 export const WARN_THROTTLE_MS = 60_000; // Log warning at most once per minute
@@ -143,8 +132,7 @@ export class RevocationSweeper {
               );
               if (closed > 0) {
                 totalClosed += closed;
-                revokedClosesCounter.add(closed);
-                recordRevocationMetric('realtime_revoked_closes_total', closed);
+                revokedClosesCounter.inc(closed);
               }
             }
           }
@@ -158,8 +146,7 @@ export class RevocationSweeper {
   }
 
   private handleValkeyError(err: unknown): void {
-    sweepErrorsCounter.add(1);
-    recordRevocationMetric('realtime_revocation_sweep_errors_total', 1);
+    sweepErrorsCounter.inc();
 
     const now = Date.now();
     if (now - this.lastWarnAt >= WARN_THROTTLE_MS) {
