@@ -9,6 +9,7 @@ const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 const REALTIME_URL = process.env.REALTIME_URL || 'http://127.0.0.1:8003';
 const SOCIAL_URL = process.env.SOCIAL_URL || 'http://127.0.0.1:3004';
 const VIDEO_URL = process.env.VIDEO_URL || 'http://127.0.0.1:3003';
+const AUTH_URL = process.env.AUTH_URL || 'http://127.0.0.1:3001';
 const CLIP_PATH = process.env.CLIP_PATH || path.join(process.cwd(), 'systest/.run/clip.mp4');
 
 let creatorToken = '';
@@ -38,7 +39,9 @@ async function checkRes(res, expectedStatus, label = 'Request') {
   if (text) {
     try {
       json = JSON.parse(text);
-    } catch {}
+    } catch (_e) {
+      /* ignore non-json response */
+    }
   }
   assert.equal(
     res.status,
@@ -231,7 +234,9 @@ describe('Winkey System Integration Test Suite', () => {
         let sData;
         try {
           sData = JSON.parse(sText);
-        } catch {}
+        } catch (_e) {
+          /* ignore non-json response */
+        }
         if (sData) {
           status = sData.status;
           if (status === 'READY') break;
