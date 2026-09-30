@@ -32,7 +32,7 @@ if ! kubectl get secret auth-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     RSA_KEY=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048)
     COOKIE_SECRET=$(gen_secret 32)
     DATABASE_URL="postgres://auth_svc:${PG_AUTH_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
-    NATS_URL="nats://auth:${NATS_AUTH_PWD}@nats:4222"
+    NATS_URL="nats://auth:${NATS_AUTH_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
 
     kubectl create secret generic auth-secrets -n "$NAMESPACE" \
@@ -50,7 +50,7 @@ fi
 echo "==> [3/6] Ensuring upload-secrets exists..."
 if ! kubectl get secret upload-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
-    NATS_URL="nats://upload:${NATS_UPLOAD_PWD}@nats:4222"
+    NATS_URL="nats://upload:${NATS_UPLOAD_PWD}@nats.default.svc:4222"
 
     kubectl create secret generic upload-secrets -n "$NAMESPACE" \
       --from-literal=DATABASE_URL="$DATABASE_URL" \
@@ -63,7 +63,7 @@ fi
 echo "==> [4/6] Ensuring video-secrets exists..."
 if ! kubectl get secret video-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
-    NATS_URL="nats://video:${NATS_VIDEO_PWD}@nats:4222"
+    NATS_URL="nats://video:${NATS_VIDEO_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379/0"
     MEDIA_LINK_SECRET=$(gen_secret 32)
     CURSOR_SECRET=$(gen_secret 16)
@@ -95,7 +95,7 @@ fi
 echo "==> [5/6] Ensuring social-secrets exists..."
 if ! kubectl get secret social-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://social_svc:${PG_SOCIAL_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
-    NATS_URL="nats://social:${NATS_SOCIAL_PWD}@nats:4222"
+    NATS_URL="nats://social:${NATS_SOCIAL_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
 
     kubectl create secret generic social-secrets -n "$NAMESPACE" \
@@ -109,7 +109,7 @@ fi
 
 echo "==> [6/6] Ensuring realtime-secrets exists..."
 if ! kubectl get secret realtime-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
-    NATS_URL="nats://realtime:${NATS_REALTIME_PWD}@nats:4222"
+    NATS_URL="nats://realtime:${NATS_REALTIME_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
 
     kubectl create secret generic realtime-secrets -n "$NAMESPACE" \

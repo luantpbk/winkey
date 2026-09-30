@@ -17,11 +17,34 @@ spec:
         app.kubernetes.io/name: realtime-svc
         app.kubernetes.io/part-of: winkey
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
       terminationGracePeriodSeconds: 30
+      volumes:
+        - name: node-modules
+          emptyDir: {}
+      initContainers:
+        - name: patch-modules
+          image: ghcr.io/luantpbk/winkey-realtime
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp -a /app/node_modules/. /target/
+              mkdir -p /tmp/pkg
+              cd /tmp/pkg
+              npm install --no-save ajv@8.17.1 ajv-formats@3.0.1
+              cp -a /tmp/pkg/node_modules/. /target/
+              chown -R 1000:1000 /target
+          volumeMounts:
+            - name: node-modules
+              mountPath: /target
       containers:
         - name: realtime
           image: ghcr.io/luantpbk/winkey-realtime
@@ -72,7 +95,12 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
+          volumeMounts:
+            - name: node-modules
+              mountPath: /app/node_modules
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             capabilities:
