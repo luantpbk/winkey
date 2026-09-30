@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -280,5 +281,101 @@ func TestValidationAgreesWithTheContractSchemas(t *testing.T) {
 	inst, _ = jsonschema.UnmarshalJSON(bytes.NewReader(self))
 	if _, ok, _ := Decode(self); schema.Validate(inst) != nil || ok {
 		t.Error("a self subscription passes the schema but not the consumer")
+	}
+}
+
+// ---- strict order (review of #110) -------------------------------------------------------------------------
+
+// fakeMsg is a jetstream.Msg that records what the consumer does with it. Unimplemented methods panic (nil embed):
+// the consumer must only Ack, Nak with a delay or Term.
+type fakeMsg struct {
+	jetstream.Msg
+	data      []byte
+	delivered uint64 // what Metadata reports as NumDelivered
+	acked     bool
+	naked     []time.Duration
+	termed    bool
+}
+
+func (m *fakeMsg) Data() []byte { return m.data }
+func (m *fakeMsg) Ack() error   { m.acked = true; return nil }
+func (m *fakeMsg) Term() error  { m.termed = true; return nil }
+func (m *fakeMsg) NakWithDelay(d time.Duration) error {
+	m.naked = append(m.naked, d)
+	return nil
+}
+func (m *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
+	return &jetstream.MsgMetadata{NumDelivered: m.delivered}, nil
+}
+
+func TestATransientFailureIsNeverTerminatedHoweverOftenItWasDelivered(t *testing.T) {
+	st := newFakeStore()
+	st.failFor = 1 << 30 // the database is down for good
+	c := consumer(st)
+	c.Attempts, c.NakDelay = 1, 250*time.Millisecond
+	for _, delivered := range []uint64{1, 5, 6, 100, 100000} { // MaxDeliver is unlimited: no delivery count is "the last one"
+		m := &fakeMsg{data: event(subChange(subA, subB, "true")), delivered: delivered}
+		c.handle(context.Background(), m)
+		if m.termed || m.acked || len(m.naked) != 1 || m.naked[0] != 250*time.Millisecond {
+			t.Fatalf("delivery %d: termed=%v acked=%v naks=%v", delivered, m.termed, m.acked, m.naked)
+		}
+	}
+	// Only a malformed event is terminated, and it is not retried.
+	m := &fakeMsg{data: []byte(`garbage`), delivered: 1}
+	c.handle(context.Background(), m)
+	if !m.termed || m.acked || len(m.naked) != 0 {
+		t.Fatalf("malformed: termed=%v acked=%v naks=%v", m.termed, m.acked, m.naked)
+	}
+	ok := &fakeMsg{data: event(subChange(subA, subB, "true"))}
+	st.failFor = 0
+	c.handle(context.Background(), ok)
+	if !ok.acked || ok.termed || len(ok.naked) != 0 {
+		t.Fatalf("applied: acked=%v termed=%v naks=%v", ok.acked, ok.termed, ok.naked)
+	}
+}
+
+// With MaxAckPending 1 JetStream redelivers a Nak'd message BEFORE it hands out a newer one. This models that server
+// rule around the real handle() (the real server is exercised by the NATS integration tests): a subscribe that fails
+// transiently is applied before the unsubscribe that follows it, whatever the number of failures.
+func TestSubscribeThenUnsubscribeIsAppliedInOrderDespiteTransientFailures(t *testing.T) {
+	for failures := 0; failures <= 7; failures++ {
+		st := newFakeStore()
+		st.failFor = failures // the first `failures` store calls fail (each is one attempt: Attempts = 1)
+		c := consumer(st)
+		c.Attempts, c.NakDelay = 1, time.Millisecond
+
+		queue := [][]byte{
+			event(subChange(subA, subB, "true")),
+			event(subChange(subA, subB, "false")),
+		}
+		var delivered uint64
+		for len(queue) > 0 { // MaxAckPending 1: the head is redelivered until it is acknowledged
+			m := &fakeMsg{data: queue[0], delivered: delivered + 1}
+			delivered++
+			c.handle(context.Background(), m)
+			switch {
+			case m.acked:
+				queue, delivered = queue[1:], 0
+			case len(m.naked) == 1 && !m.termed:
+				// stays at the head
+			default:
+				t.Fatalf("failures=%d: unexpected outcome %+v", failures, m)
+			}
+			if delivered > 50 {
+				t.Fatal("the head never got through")
+			}
+		}
+		if len(st.calls) != 2 || !st.calls[0].subscribe || st.calls[1].subscribe {
+			t.Fatalf("failures=%d: applied %+v, want subscribe then unsubscribe", failures, st.calls)
+		}
+		if len(st.state) != 0 {
+			t.Fatalf("failures=%d: a row is left after subscribe + unsubscribe: %v", failures, st.state)
+		}
+	}
+}
+
+func TestConsumerConfigurationGivesStrictOrder(t *testing.T) {
+	if MaxAckPending != 1 || MaxDeliver != -1 {
+		t.Fatalf("MaxAckPending %d, MaxDeliver %d: strict order needs 1 and -1", MaxAckPending, MaxDeliver)
 	}
 }

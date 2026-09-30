@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -310,7 +312,7 @@ func TestTheDurableMatchesTheContract(t *testing.T) {
 	i := s.info(t)
 	c := i.Config
 	if c.Durable != "video-subscriptions" || c.FilterSubject != "social.subscription.changed" || c.DeliverPolicy != jetstream.DeliverAllPolicy ||
-		c.AckPolicy != jetstream.AckExplicitPolicy || c.AckWait != 30*time.Second || c.MaxDeliver != 5 {
+		c.AckPolicy != jetstream.AckExplicitPolicy || c.AckWait != 30*time.Second || c.MaxDeliver != -1 || c.MaxAckPending != 1 {
 		t.Fatalf("%+v", c)
 	}
 	// A second start (a restart or another replica) reuses the same durable.
@@ -366,5 +368,83 @@ func TestTransientDatabaseTroubleKeepsTheOrder(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	if got := s.pairs(t); len(got) != 0 {
 		t.Fatalf("the unsubscribe was applied before the subscribe: %v", got)
+	}
+}
+
+// recordingStore wraps the real store: it records the changes that reached the database, in order, and fails the first
+// `failFirst` calls of Subscribe (a transient database error).
+type recordingStore struct {
+	inner     *store.Postgres
+	mu        sync.Mutex
+	failFirst int
+	log       []string // "subscribe!" for a failed attempt, "subscribe" / "unsubscribe" for an applied change
+}
+
+func (r *recordingStore) Subscribe(ctx context.Context, sub, ch uuid.UUID, at time.Time) error {
+	r.mu.Lock()
+	if r.failFirst > 0 {
+		r.failFirst--
+		r.log = append(r.log, "subscribe!")
+		r.mu.Unlock()
+		return errors.New("transient database error")
+	}
+	r.mu.Unlock()
+	if err := r.inner.Subscribe(ctx, sub, ch, at); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.log = append(r.log, "subscribe")
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *recordingStore) Unsubscribe(ctx context.Context, sub, ch uuid.UUID) error {
+	if err := r.inner.Unsubscribe(ctx, sub, ch); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.log = append(r.log, "unsubscribe")
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *recordingStore) applied() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.log, ",")
+}
+
+// The review of #110: a subscribe that fails transiently is Nak'd; the unsubscribe behind it must NOT be applied first
+// (that would leave the row behind for good). With MaxAckPending 1 and an unlimited MaxDeliver the Nak'd message comes
+// back before the next one, however many times it fails.
+func TestAFailedSubscribeIsRetriedBeforeTheUnsubscribeBehindIt(t *testing.T) {
+	var rec *recordingStore
+	s := startSubs(t, func(c *subscriptions.Consumer) {
+		c.Attempts = 1                      // every failure goes straight to a Nak ...
+		c.NakDelay = 200 * time.Millisecond // ... that comes back quickly
+	})
+	rec = &recordingStore{inner: &store.Postgres{Pool: s.feed.pg.Pool}, failFirst: 7} // more failures than the old MaxDeliver of 5
+	s.cons.Store = rec
+	s.run(t)
+	pg := s.feed.pg.Pool
+	a := testutil.SeedUser(t, pg, "usera", nil, "")
+	b := testutil.SeedUser(t, pg, "userb", nil, "")
+	s.publish(t, a.ID, b.ID, true)
+	s.publish(t, a.ID, b.ID, false)
+
+	waitFor(t, 60*time.Second, "both events applied", func() bool {
+		return strings.HasSuffix(rec.applied(), "subscribe,unsubscribe")
+	})
+	waitFor(t, 20*time.Second, "queue drained", s.drained(t))
+	want := strings.Repeat("subscribe!,", 7) + "subscribe,unsubscribe"
+	if got := rec.applied(); got != want {
+		t.Fatalf("applied in the wrong order or count:\n got %s\nwant %s", got, want)
+	}
+	if got := s.pairs(t); len(got) != 0 {
+		t.Fatalf("a row is left after subscribe + unsubscribe: %v", got)
+	}
+	// The failed delivery was redelivered, never terminated: nothing was dropped after 7 deliveries.
+	if info := s.info(t); info.NumAckPending != 0 || info.NumPending != 0 {
+		t.Fatalf("%+v", info)
 	}
 }

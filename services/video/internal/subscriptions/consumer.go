@@ -9,6 +9,12 @@
 // time and transient database errors are retried in-process (like the like-count consumer) instead of being
 // Nak'd, because a Nak'd message is redelivered after newer ones and an unsubscribe applied before the
 // subscribe it follows would leave the wrong row behind.
+//
+// STRICT ORDER. That in-process retry only shrinks the window; what closes it is the consumer configuration:
+// MaxAckPending = 1, so JetStream hands out the next message only when the current one is acknowledged, and a
+// Nak'd message is therefore redelivered BEFORE any newer one; MaxDeliver = -1, so a transient failure is never
+// turned into a dropped change (the queue waits for the database instead); Term is only for malformed events, which
+// can never succeed. The price of a database that stays down is a queue that waits, by design.
 package subscriptions
 
 import (
@@ -27,11 +33,14 @@ import (
 
 // Consumer parameters (contracts/events/README.md, "Consumer của video-svc cho feed theo dõi").
 const (
-	Stream     = "SOCIAL"
-	Durable    = "video-subscriptions"
-	Subject    = "social.subscription.changed"
-	AckWait    = 30 * time.Second
-	MaxDeliver = 5
+	Stream  = "SOCIAL"
+	Durable = "video-subscriptions"
+	Subject = "social.subscription.changed"
+	AckWait = 30 * time.Second
+	// MaxDeliver -1 = unlimited and MaxAckPending 1: see "STRICT ORDER" in the package comment. (The events README
+	// still says max_deliver 5; that was written before this rule.)
+	MaxDeliver    = -1
+	MaxAckPending = 1
 )
 
 var eventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -215,6 +224,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			AckPolicy:     jetstream.AckExplicitPolicy,
 			AckWait:       AckWait,
 			MaxDeliver:    MaxDeliver,
+			MaxAckPending: MaxAckPending,
 		})
 		if err != nil {
 			if ctx.Err() != nil {
@@ -238,7 +248,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 // set it up again.
 func (c *Consumer) consume(ctx context.Context, cons jetstream.Consumer) {
 	for ctx.Err() == nil {
-		batch, err := cons.Fetch(10, jetstream.FetchMaxWait(5*time.Second))
+		batch, err := cons.Fetch(1, jetstream.FetchMaxWait(5*time.Second)) // one message at a time, like MaxAckPending
 		if err != nil {
 			c.Log.Warn("fetch failed; re-creating the consumer", "error", err)
 			sleep(ctx, time.Second)
@@ -260,12 +270,8 @@ func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {
 	case ActionTerm:
 		_ = msg.Term()
 	case ActionRetry:
-		if md, err := msg.Metadata(); err == nil && md.NumDelivered >= MaxDeliver {
-			// Out of deliveries. The state of this pair is wrong until its next event (or the next backfill).
-			c.Log.ErrorContext(ctx, "giving up on a subscription event after the last delivery", "seq", md.Sequence.Stream)
-			_ = msg.Term()
-			return
-		}
+		// Never Term on a transient failure, and never move on: with MaxAckPending 1 the same message comes back
+		// after the delay, before any newer one, so the events of a pair are applied in stream order.
 		_ = msg.NakWithDelay(c.NakDelay)
 	}
 }
