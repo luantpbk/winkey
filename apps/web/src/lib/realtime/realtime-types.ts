@@ -136,13 +136,28 @@ export interface ServerLikeCountEvent {
   ts: string;
 }
 
+export type NotificationHintKind = 'VIDEO_COMMENT' | 'COMMENT_REPLY' | 'NEW_SUBSCRIBER';
+
+export interface NotificationHintData {
+  kind: NotificationHintKind;
+}
+
+export interface ServerNotificationHintEvent {
+  type: 'event';
+  room: string; // user:{user_id}
+  event: 'notification.hint';
+  data: NotificationHintData;
+  ts: string;
+}
+
 export type ServerEventMessage =
   | ServerVideoProgressEvent
   | ServerVideoReadyEvent
   | ServerVideoFailedEvent
   | ServerCommentCreatedEvent
   | ServerCommentReplyEvent
-  | ServerLikeCountEvent;
+  | ServerLikeCountEvent
+  | ServerNotificationHintEvent;
 
 export type ServerMessage =
   | ServerWelcomeMessage

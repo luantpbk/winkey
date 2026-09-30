@@ -2897,4 +2897,23 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     resetNotificationMocks();
     return new HttpResponse(null, { status: 204 });
   }),
+
+  http.post('*/v1/test/add-notification', async () => {
+    const newNotif: Notification = {
+      id: `0192f5e4-9000-7000-8000-${Date.now().toString(16).padStart(12, '0')}`,
+      kind: 'VIDEO_COMMENT',
+      actor: {
+        id: '018f3a22-7f91-7d9a-9e12-111111111111',
+        handle: 'fan123',
+        display_name: 'Fan 123',
+        avatar_url: null,
+      },
+      video_id: '018f3a22-7f91-7d9a-9e12-000000000001',
+      comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+    dynamicNotifications.unshift(newNotif);
+    return HttpResponse.json(newNotif, { status: 201 });
+  }),
 ];

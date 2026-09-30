@@ -132,6 +132,10 @@ export function useRealtime() {
   return context;
 }
 
+export function useOptionalRealtime() {
+  return useContext(RealtimeContext);
+}
+
 /**
  * Hook to subscribe to a realtime room with ref-counting.
  * Calls onEvent when an event arrives for this room.
