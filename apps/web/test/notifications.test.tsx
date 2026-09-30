@@ -11,12 +11,7 @@ import {
 import NotificationsPage from '../src/app/[locale]/notifications/page';
 import { CommentSection } from '../src/components/social/comment-section';
 import { api } from '../src/lib/api-client';
-import type {
-  Notification,
-  NotificationPage,
-  Comment,
-  Video,
-} from '@winkey/api-client';
+import type { Notification, NotificationPage, Comment, Video } from '@winkey/api-client';
 import viMessages from '../messages/vi.json';
 import enMessages from '../messages/en.json';
 
