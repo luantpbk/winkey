@@ -78,6 +78,20 @@ export interface PublicProfilesTable {
   avatar_key: string | null;
 }
 
+export type NotificationKind =
+  'VIDEO_PUBLISHED' | 'VIDEO_COMMENT' | 'COMMENT_REPLY' | 'NEW_SUBSCRIBER';
+
+export interface NotificationsTable {
+  id: string;
+  user_id: string;
+  kind: NotificationKind;
+  actor_id: string;
+  video_id: string | null;
+  comment_id: string | null;
+  created_at: Generated<Date>;
+  read_at: Date | string | null;
+}
+
 export interface Database {
   'social.videos': VideosTable;
   'social.comments': CommentsTable;
@@ -85,6 +99,7 @@ export interface Database {
   'social.channels': ChannelsTable;
   'social.subscriptions': SubscriptionsTable;
   'social.reports': ReportsTable;
+  'social.notifications': NotificationsTable;
   'social.outbox': OutboxTable;
   'auth.public_profiles': PublicProfilesTable;
 }
@@ -173,4 +188,29 @@ export interface ModerationCasePageDto {
 
 export interface ResolveCaseResultDto {
   resolved_count: number;
+}
+
+export interface NotificationDto {
+  id: string;
+  kind: NotificationKind;
+  actor: PublicProfileDto;
+  video_id: string | null;
+  comment_id: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface NotificationPageDto {
+  items: NotificationDto[];
+  next_cursor: string | null;
+}
+
+export interface UnreadCountDto {
+  count: number;
+  capped: boolean;
+}
+
+export interface MarkNotificationsReadRequestDto {
+  ids?: string[];
+  up_to?: string;
 }

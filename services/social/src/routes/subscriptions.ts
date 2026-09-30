@@ -14,6 +14,8 @@ import { ProblemError } from '../errors/problem.js';
 import { getCaller, requireAuth, isValidUuid } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
+import { v7 as uuidv7 } from 'uuid';
+import { notificationsCreatedCounter } from '../metrics.js';
 
 export interface SubscriptionsRouteOptions {
   db: Kysely<Database>;
@@ -142,6 +144,24 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
             },
             { producer: 'social-svc', version: 1 },
           );
+
+          // In-app Notification (Task N1, ADR-023)
+          if (caller.userId !== channel_id) {
+            const notifId = uuidv7();
+            await trx
+              .insertInto('social.notifications')
+              .values({
+                id: notifId,
+                user_id: channel_id,
+                kind: 'NEW_SUBSCRIBER',
+                actor_id: caller.userId,
+                video_id: null,
+                comment_id: null,
+              })
+              .onConflict((oc) => oc.doNothing())
+              .execute();
+            notificationsCreatedCounter.inc({ kind: 'NEW_SUBSCRIBER' });
+          }
         }
       });
 

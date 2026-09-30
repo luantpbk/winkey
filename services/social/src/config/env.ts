@@ -10,11 +10,34 @@ export const envSchema = z.object({
   VALKEY_URL: z.string().default('redis://localhost:6379'),
   MEDIA_BASE_URL: z.string().default('https://media.winkey.vn'),
   TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
+  NOTIFICATIONS_RETENTION_DAYS: z.coerce.number().default(90),
+  NOTIFICATIONS_JANITOR_INTERVAL: z.string().default('10m'),
 });
 
 export type Env = z.infer<typeof envSchema>;
 
 let parsedEnv: Env | null = null;
+
+export function parseDurationMs(val: string | number): number {
+  if (typeof val === 'number') return val;
+  const trimmed = val.trim();
+  const match = /^(\d+)\s*(ms|s|m|h|d)?$/i.exec(trimmed);
+  if (!match) return 10 * 60 * 1000;
+  const num = parseInt(match[1], 10);
+  const unit = (match[2] || 'ms').toLowerCase();
+  switch (unit) {
+    case 's':
+      return num * 1000;
+    case 'm':
+      return num * 60 * 1000;
+    case 'h':
+      return num * 60 * 60 * 1000;
+    case 'd':
+      return num * 24 * 60 * 60 * 1000;
+    default:
+      return num;
+  }
+}
 
 export function getEnv(overrides: Partial<Env> = {}): Env {
   if (parsedEnv && Object.keys(overrides).length === 0) {

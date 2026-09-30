@@ -1,17 +1,18 @@
 import { connect as connectNats, type NatsConnection } from 'nats';
 import { Redis } from 'ioredis';
-import { getEnv } from './config/env.js';
+import { getEnv, parseDurationMs } from './config/env.js';
 import { getDb, closeDb } from './db/client.js';
 import { OutboxRelay, natsOptionsFromUrl } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
 import { VideoProjectionConsumer } from './projection/consumer.js';
+import { NotificationsJanitor } from './janitor/notifications-janitor.js';
 import { buildApp } from './server.js';
 
 async function main() {
   const env = getEnv();
 
   // 1. Connect to database
-  const { db } = getDb(env.DATABASE_URL);
+  const { db, pool } = getDb(env.DATABASE_URL);
 
   // 2. Connect to Valkey (Redis)
   let valkeyClient: Redis | null = null;
@@ -107,7 +108,16 @@ async function main() {
   await app.listen({ port: env.HTTP_PORT, host: '0.0.0.0' });
   app.log.info({ port: env.HTTP_PORT, service: 'social-svc' }, 'social-svc started');
 
-  // 5. Graceful shutdown handler (SIGTERM / SIGINT)
+  // 5. Start Notifications Janitor (Task N1, ADR-023)
+  const janitor = new NotificationsJanitor({
+    pool,
+    retentionDays: env.NOTIFICATIONS_RETENTION_DAYS,
+    intervalMs: parseDurationMs(env.NOTIFICATIONS_JANITOR_INTERVAL),
+    logger: app.log,
+  });
+  janitor.start();
+
+  // 6. Graceful shutdown handler (SIGTERM / SIGINT)
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'Graceful shutdown initiated');
 
@@ -115,6 +125,9 @@ async function main() {
       clearInterval(retryTimer);
       retryTimer = null;
     }
+
+    // Stop janitor
+    janitor.stop();
 
     // Stop accepting new HTTP requests
     await app.close();
