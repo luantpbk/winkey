@@ -1118,9 +1118,15 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(socialVideoConsumers.length).toBe(1);
 
     const videoOwnerId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9002';
-    const authorId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001';
+    const outsiderId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc497';
     const moderatorId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999';
     const adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9998';
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES ('${outsiderId}', 'outsider@winkey.vn', 'outsider_c4', 'Outsider User', 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING;
+    `);
 
     // 2. Publish video.ready WITHOUT visibility -> defaults to PUBLIC
     const defaultVisVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc401';
@@ -1217,7 +1223,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const viewerCommentsRes = await app.inject({
       method: 'GET',
       url: `/v1/videos/${privateVideoId}/comments`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(viewerCommentsRes.statusCode).toBe(404);
     expect(viewerCommentsRes.json().code).toBe('VIDEO_NOT_FOUND');
@@ -1226,7 +1232,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const viewerPostCommentRes = await app.inject({
       method: 'POST',
       url: `/v1/videos/${privateVideoId}/comments`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
       payload: { body: 'Unauthorized comment' },
     });
     expect(viewerPostCommentRes.statusCode).toBe(404);
@@ -1236,7 +1242,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const viewerGetLikeRes = await app.inject({
       method: 'GET',
       url: `/v1/videos/${privateVideoId}/like`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(viewerGetLikeRes.statusCode).toBe(404);
     expect(viewerGetLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
@@ -1244,7 +1250,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const viewerPutLikeRes = await app.inject({
       method: 'PUT',
       url: `/v1/videos/${privateVideoId}/like`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(viewerPutLikeRes.statusCode).toBe(404);
     expect(viewerPutLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
@@ -1321,14 +1327,14 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const reopenedCommentsRes = await app.inject({
       method: 'GET',
       url: `/v1/videos/${privateVideoId}/comments`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(reopenedCommentsRes.statusCode).toBe(200);
 
     const reopenedLikeRes = await app.inject({
       method: 'GET',
       url: `/v1/videos/${privateVideoId}/like`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(reopenedLikeRes.statusCode).toBe(200);
 
@@ -1389,7 +1395,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const unlistedCommentsRes = await app.inject({
       method: 'GET',
       url: `/v1/videos/${unlistedVideoId}/comments`,
-      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      headers: { 'x-user-id': outsiderId, 'x-user-roles': 'viewer' },
     });
     expect(unlistedCommentsRes.statusCode).toBe(200);
   });
