@@ -273,12 +273,20 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
   }) => {
     const videoId = '018f3a22-7f91-7d9a-9e12-000000000099';
     let socketServer: any = null;
+    let isSubscribed = false;
 
     // Route WebSocket connections to mock realtime-gw
     await page.routeWebSocket('**/v1/realtime*', (ws) => {
       socketServer = ws;
-      ws.onMessage(() => {
-        // Realtime subscribe / ping frames
+      ws.onMessage((msg) => {
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed.type === 'subscribe' && parsed.room === `upload:${videoId}`) {
+            isSubscribed = true;
+          }
+        } catch {
+          // ignore
+        }
       });
 
       // Send welcome frame matching contract
@@ -292,44 +300,21 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       );
     });
 
-    // Mock GET /v1/videos/me returning video in PROCESSING stage
-    await page.route('**/v1/videos/me*', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          items: [
-            {
-              id: videoId,
-              title: 'Realtime E2E Processing Video',
-              visibility: 'PUBLIC',
-              status: 'PROCESSING',
-              progress: 15,
-              error: null,
-              duration_ms: 60000,
-              created_at: new Date().toISOString(),
-              thumbnail_url: null,
-            },
-          ],
-          total: 1,
-          page: 1,
-          page_size: 10,
-        }),
-      });
-    });
-
     // Navigate to studio
     await page.goto('/studio');
     await page.waitForLoadState('domcontentloaded');
 
-    // 1. Initial state: 15% progress is visible
-    await expect(page.locator('text=15%')).toBeVisible({ timeout: 15000 });
+    const videoRow = page.locator(`tr:has-text("${videoId}")`);
 
-    // 2. Server sends video.progress (70%) over WebSocket
+    // 1. Initial state: 15% progress is visible
+    await expect(videoRow.locator('text=15%')).toBeVisible({ timeout: 15000 });
+
+    // Wait until client has connected and subscribed to upload:{videoId}
     await expect
-      .poll(() => socketServer !== null, { message: 'Waiting for WebSocket connection' })
+      .poll(() => isSubscribed, { message: 'Waiting for client to subscribe to room' })
       .toBe(true);
 
+    // 2. Server sends video.progress (70%) over WebSocket
     socketServer.send(
       JSON.stringify({
         type: 'event',
@@ -345,7 +330,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     );
 
     // Verify 70% appears without page reload
-    await expect(page.locator('text=70%')).toBeVisible({ timeout: 10000 });
+    await expect(videoRow.locator('text=70%')).toBeVisible({ timeout: 10000 });
 
     // 3. Server sends video.ready over WebSocket
     socketServer.send(
@@ -361,9 +346,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     );
 
     // Verify status changes to Ready / Sẵn sàng without page reload
-    await expect(
-      page.locator('text=Sẵn sàng, text=Ready, span:has-text("Sẵn sàng")').first(),
-    ).toBeVisible({ timeout: 10000 });
+    await expect(videoRow.getByText(/Ready|Sẵn sàng/)).toBeVisible({ timeout: 10000 });
   });
 
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {

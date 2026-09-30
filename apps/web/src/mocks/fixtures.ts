@@ -161,4 +161,15 @@ export const mockStudioVideos: StudioVideo[] = [
     created_at: mockVideos[2].created_at,
     thumbnail_url: mockVideos[2].playback?.thumbnail_url || null,
   },
+  {
+    id: '018f3a22-7f91-7d9a-9e12-000000000099',
+    title: 'Realtime E2E Processing Video',
+    visibility: 'PUBLIC',
+    status: 'PROCESSING',
+    progress: 15,
+    error: null,
+    duration_ms: 60000,
+    created_at: '2026-09-25T10:00:00Z',
+    thumbnail_url: null,
+  },
 ];

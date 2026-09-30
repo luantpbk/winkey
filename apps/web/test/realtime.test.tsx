@@ -133,7 +133,7 @@ describe('Realtime Protocol & Client Architecture (Task U2)', () => {
     }
 
     // Attempt 1 should be around 1000ms
-    expect(delays[0]).toBeGreaterThanOrEqual(750);
+    expect(delays[0]).toBeGreaterThanOrEqual(1000);
     expect(delays[0]).toBeLessThanOrEqual(1500);
 
     // Each subsequent delay should grow exponentially
@@ -383,22 +383,85 @@ describe('Realtime Protocol & Client Architecture (Task U2)', () => {
 
     client.disconnect();
   });
+
+  it('7. Rapid handleAuthChange calls: calling twice in succession opens exactly 1 connection and preserves subscriptions', async () => {
+    let connectionCount = 0;
+    const receivedFrames: Array<{ type: string; room?: string }> = [];
+
+    mockServer.on('connection', (socket) => {
+      connectionCount += 1;
+      socket.on('message', (data) => {
+        receivedFrames.push(JSON.parse(data as string));
+      });
+
+      socket.send(
+        JSON.stringify({
+          type: 'welcome',
+          connection_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          user_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          heartbeat_interval_ms: 25000,
+        }),
+      );
+    });
+
+    const client = new RealtimeClient({
+      getWsUrl: () => WS_URL,
+      requestTicket: async () => 'test-ticket',
+    });
+
+    const room = 'upload:018f3a22-7f91-7d9a-9e12-000000000099';
+    client.subscribe(room, vi.fn());
+
+    // Call handleAuthChange twice in immediate succession
+    client.handleAuthChange();
+    client.handleAuthChange();
+
+    await waitFor(() => {
+      expect(client.getIsConnected()).toBe(true);
+    });
+
+    // Exactly 1 active connection opened
+    expect(connectionCount).toBe(1);
+
+    // Subscribe frame arrives at server
+    await waitFor(() => {
+      expect(receivedFrames).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'subscribe',
+            room,
+          }),
+        ]),
+      );
+    });
+
+    client.disconnect();
+  });
 });
 
 describe('Studio & Social Realtime Integration (Task U2)', () => {
   let mockServer: Server;
   let serverSocket: any = null;
+  let receivedServerFrames: Array<{ type: string; room?: string }> = [];
   let queryClient: QueryClient;
 
   beforeEach(() => {
     vi.restoreAllMocks();
     serverSocket = null;
+    receivedServerFrames = [];
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     mockServer = new Server(WS_URL);
     mockServer.on('connection', (socket) => {
       serverSocket = socket;
+      socket.on('message', (data) => {
+        try {
+          receivedServerFrames.push(JSON.parse(data as string));
+        } catch {
+          // ignore
+        }
+      });
       socket.send(
         JSON.stringify({
           type: 'welcome',
@@ -413,6 +476,7 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
   afterEach(() => {
     mockServer.stop();
     serverSocket = null;
+    receivedServerFrames = [];
   });
 
   it('8. Studio live updates: video.progress and video.ready update state in real time', async () => {
@@ -602,5 +666,182 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     });
 
     client.disconnect();
+  });
+
+  it('11. Studio stability: 5 video.progress events produce exactly 1 subscribe and 0 unsubscribe until video.ready', async () => {
+    const videoId = '018f3a22-7f91-7d9a-9e12-000000000099';
+
+    vi.spyOn(api.video, 'GET').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: videoId,
+            title: 'Realtime Progress Stability Video',
+            visibility: 'PUBLIC',
+            status: 'PROCESSING',
+            progress: 10,
+            thumbnail_url: null,
+            duration_ms: 60000,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10,
+      },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    const client = new RealtimeClient({ getWsUrl: () => WS_URL });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <RealtimeProvider client={client}>
+            <StudioPage />
+          </RealtimeProvider>
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Initial state rendered
+    expect(await screen.findByText(/10%/)).toBeDefined();
+
+    // Verify 1 subscribe frame was sent, 0 unsubscribe
+    await waitFor(() => {
+      expect(
+        receivedServerFrames.filter((f) => f.type === 'subscribe' && f.room === `upload:${videoId}`)
+          .length,
+      ).toBe(1);
+    });
+    expect(receivedServerFrames.filter((f) => f.type === 'unsubscribe').length).toBe(0);
+
+    // Send 5 video.progress events with different percentages
+    const percents = [25, 40, 55, 70, 85];
+    for (const pct of percents) {
+      act(() => {
+        serverSocket.send(
+          JSON.stringify({
+            type: 'event',
+            room: `upload:${videoId}`,
+            event: 'video.progress',
+            data: {
+              video_id: videoId,
+              stage: 'TRANSCODING',
+              percent: pct,
+            },
+            ts: new Date().toISOString(),
+          }),
+        );
+      });
+      expect(await screen.findByText(new RegExp(`${pct}%`))).toBeDefined();
+    }
+
+    // Verify STILL exactly 1 subscribe, 0 unsubscribe!
+    expect(
+      receivedServerFrames.filter((f) => f.type === 'subscribe' && f.room === `upload:${videoId}`)
+        .length,
+    ).toBe(1);
+    expect(receivedServerFrames.filter((f) => f.type === 'unsubscribe').length).toBe(0);
+
+    // Now send video.ready
+    act(() => {
+      serverSocket.send(
+        JSON.stringify({
+          type: 'event',
+          room: `upload:${videoId}`,
+          event: 'video.ready',
+          data: { video_id: videoId },
+          ts: new Date().toISOString(),
+        }),
+      );
+    });
+
+    expect(await screen.findByText('Sẵn sàng')).toBeDefined();
+
+    // Once READY, video is no longer pending, so room is unsubscribed!
+    await waitFor(() => {
+      expect(
+        receivedServerFrames.filter(
+          (f) => f.type === 'unsubscribe' && f.room === `upload:${videoId}`,
+        ).length,
+      ).toBe(1);
+    });
+
+    client.disconnect();
+  });
+
+  it('12. Fallback polling: 0 polls when socket connected over 120s; 1 poll when disconnected after 30s', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const videoId = '018f3a22-7f91-7d9a-9e12-000000000099';
+    const uploadPollSpy = vi.spyOn(api.upload, 'GET').mockResolvedValue({
+      data: {
+        id: videoId,
+        status: 'PROCESSING',
+        progress: 30,
+        error: null,
+      },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    vi.spyOn(api.video, 'GET').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: videoId,
+            title: 'Fallback Polling Test Video',
+            visibility: 'PUBLIC',
+            status: 'PROCESSING',
+            progress: 10,
+            thumbnail_url: null,
+            duration_ms: 60000,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10,
+      },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    const client = new RealtimeClient({ getWsUrl: () => WS_URL });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <RealtimeProvider client={client}>
+            <StudioPage />
+          </RealtimeProvider>
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Initial render finishes with socket connected
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(client.getIsConnected()).toBe(true);
+
+    // 1. Socket connected: advance 120s -> 0 calls to api.upload.GET
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120000);
+    });
+    expect(uploadPollSpy).toHaveBeenCalledTimes(0);
+
+    // 2. Disconnect socket -> isConnected becomes false
+    act(() => {
+      client.disconnect();
+    });
+    expect(client.getIsConnected()).toBe(false);
+
+    // Advance 30s while disconnected -> exactly 1 call to api.upload.GET
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(uploadPollSpy).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
   });
 });

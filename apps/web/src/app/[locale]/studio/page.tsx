@@ -39,14 +39,22 @@ export default function StudioPage() {
 
   const videos = data?.items || [];
 
+  const pendingIds = React.useMemo(() => {
+    const items = data?.items || [];
+    return items
+      .filter((v) => v.status === 'UPLOADED' || v.status === 'PROCESSING')
+      .map((v) => v.id)
+      .sort()
+      .join(',');
+  }, [data?.items]);
+
   // Realtime subscription for pending videos (UPLOADED / PROCESSING)
   useEffect(() => {
-    const pendingVideos = videos.filter(
-      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
-    );
+    if (!pendingIds) return;
+    const ids = pendingIds.split(',').filter(Boolean);
 
-    const unsubs = pendingVideos.map((video) => {
-      const room = `upload:${video.id}`;
+    const unsubs = ids.map((id) => {
+      const room = `upload:${id}`;
       return client.subscribe(
         room,
         (event) => {
@@ -110,23 +118,20 @@ export default function StudioPage() {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [videos, client, queryClient, refetch]);
+  }, [client, pendingIds, queryClient, refetch]);
 
   // Fallback slow poll (30 s) ONLY while the socket is disconnected
   useEffect(() => {
-    if (isConnected) return; // No polling when connected!
+    if (isConnected || !pendingIds) return; // No polling when connected!
 
-    const pendingVideos = videos.filter(
-      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
-    );
-
-    if (pendingVideos.length === 0) return;
+    const ids = pendingIds.split(',').filter(Boolean);
+    if (ids.length === 0) return;
 
     const interval = setInterval(async () => {
-      for (const video of pendingVideos) {
+      for (const id of ids) {
         try {
           const { data: statusData } = await api.upload.GET('/v1/uploads/{video_id}', {
-            params: { path: { video_id: video.id } },
+            params: { path: { video_id: id } },
           });
 
           if (statusData) {
@@ -135,7 +140,7 @@ export default function StudioPage() {
               return {
                 ...old,
                 items: old.items.map((item) =>
-                  item.id === video.id
+                  item.id === id
                     ? {
                         ...item,
                         status: statusData.status,
@@ -154,7 +159,7 @@ export default function StudioPage() {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [isConnected, videos, queryClient]);
+  }, [isConnected, pendingIds, queryClient]);
 
   const handleDelete = async (videoId: string) => {
     if (!confirm('Bạn có chắc muốn xóa video này?')) return;

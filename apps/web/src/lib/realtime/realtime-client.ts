@@ -35,6 +35,7 @@ export class RealtimeClient {
   private dropAuthUntilReauth = false;
   private connectionId: string | null = null;
   private userId: string | null = null;
+  private connectGeneration = 0;
 
   // Reconnection backoff
   private reconnectAttempts = 0;
@@ -112,20 +113,38 @@ export class RealtimeClient {
   }
 
   /**
+   * Close socket and clean up event handlers to prevent ghost events.
+   */
+  private closeSocket(): void {
+    if (this.ws) {
+      const socket = this.ws;
+      this.ws = null;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000, 'Client closed');
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  /**
    * Close connection and prevent auto-reconnect (e.g. unmount / logout).
    */
   public disconnect(): void {
     this.isExplicitlyClosed = true;
+    this.connectGeneration++;
     this.hasConnectedBefore = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.ws) {
-      this.ws.close(1000, 'Client disconnected');
-      this.ws = null;
-    }
+    this.closeSocket();
     this.setConnectedState(false);
+    this.isConnecting = false;
   }
 
   /**
@@ -134,17 +153,16 @@ export class RealtimeClient {
    */
   public handleAuthChange(): void {
     this.dropAuthUntilReauth = false;
-    if (this.isConnected || this.isConnecting || this.rooms.size > 0) {
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
-      }
-      if (this.ws) {
-        this.ws.close(1000, 'Auth session changed');
-        this.ws = null;
-      }
-      this.setConnectedState(false);
-      this.reconnectAttempts = 0;
+    this.connectGeneration++;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.closeSocket();
+    this.setConnectedState(false);
+    this.isConnecting = false;
+    this.reconnectAttempts = 0;
+    if (this.rooms.size > 0) {
       this.connect();
     }
   }
@@ -173,8 +191,10 @@ export class RealtimeClient {
       };
       this.rooms.set(room, entry);
 
-      // Send subscribe frame if socket is open
-      this.sendSubscribe(room);
+      // Send subscribe frame only if already connected (welcome received)
+      if (this.isConnected) {
+        this.sendSubscribe(room);
+      }
     } else {
       entry.count += 1;
       entry.handlers.add(onEvent);
@@ -230,6 +250,7 @@ export class RealtimeClient {
   private async doConnect(): Promise<void> {
     if (this.isConnecting || this.isConnected) return;
     this.isConnecting = true;
+    const currentGen = ++this.connectGeneration;
 
     try {
       let ticket: string | null = null;
@@ -243,6 +264,11 @@ export class RealtimeClient {
         }
       }
 
+      if (this.isExplicitlyClosed || this.connectGeneration !== currentGen) {
+        this.isConnecting = false;
+        return;
+      }
+
       const base = this.wsUrlGetter();
       const url = ticket ? `${base}?ticket=${encodeURIComponent(ticket)}` : base;
 
@@ -250,22 +276,28 @@ export class RealtimeClient {
       this.ws = ws;
 
       ws.onopen = () => {
+        if (this.ws !== ws) return;
         // Connection opened; wait for welcome frame before marking connected
       };
 
       ws.onmessage = (event: MessageEvent) => {
+        if (this.ws !== ws) return;
         this.handleMessage(event.data);
       };
 
       ws.onclose = (event: CloseEvent) => {
+        if (this.ws !== ws) return;
         this.handleClose(event.code, event.reason);
       };
 
       ws.onerror = () => {
+        if (this.ws !== ws) return;
         // Handled via onclose
       };
     } catch {
-      this.handleClose(1006, 'Connection creation failed');
+      if (this.connectGeneration === currentGen) {
+        this.handleClose(1006, 'Connection creation failed');
+      }
     }
   }
 
@@ -313,7 +345,7 @@ export class RealtimeClient {
   }
 
   private handleWelcome(msg: ServerWelcomeMessage): void {
-    const isReconnect = this.hasConnectedBefore;
+    const isReconnect = this.reconnectAttempts > 0;
     this.hasConnectedBefore = true;
     this.isConnecting = false;
     this.connectionId = msg.connection_id;
