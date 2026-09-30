@@ -883,6 +883,46 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // S12: Subtitles (V5b Merged)
+  // ---------------------------------------------------------------------------
+  it('S12: subtitles track upload 201 & playback listing', async () => {
+    const startTime = Date.now();
+
+    // Upload subtitle track for video
+    const subRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/subtitles/vi`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({
+        label: 'Tiếng Việt',
+        content: 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nXin chào Hà Nội!\n',
+      }),
+    });
+
+    await checkRes(subRes, 201, 'Upload subtitles');
+
+    // GET video and verify playback.subtitles
+    const vidRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const videoData = (await checkRes(vidRes, 200, 'GET video with subtitles')).json;
+
+    assert.ok(Array.isArray(videoData.playback.subtitles), 'playback.subtitles must be an array');
+    const track = videoData.playback.subtitles.find((s) => s.lang === 'vi');
+    assert.ok(track, 'Subtitle track for "vi" missing in playback response');
+    assert.equal(track.lang, 'vi');
+
+    // Fetch subtitle .vtt URL
+    const vttRes = await fetch(track.url);
+    const vttObj = await checkRes(vttRes, 200, 'Fetch subtitle VTT');
+    assert.ok(vttObj.text.includes('WEBVTT'), 'Subtitle VTT file content invalid');
+
+    recordResult('S12', 'subtitles (V5b)', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
   // S11: Video Deletion & Master Playlist Poll
   // ---------------------------------------------------------------------------
   it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
@@ -931,45 +971,5 @@ describe('Winkey System Integration Test Suite', () => {
     assert.ok(mediaDeleted, 'Master playlist media object was not deleted within 60s');
 
     recordResult('S11', 'video deletion & media purge', 'PASSED', Date.now() - startTime);
-  });
-
-  // ---------------------------------------------------------------------------
-  // S12: Subtitles (V5b Merged)
-  // ---------------------------------------------------------------------------
-  it('S12: subtitles track upload 201 & playback listing', async () => {
-    const startTime = Date.now();
-
-    // Upload subtitle track for video
-    const subRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/subtitles/vi`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${creatorToken}`,
-      },
-      body: JSON.stringify({
-        label: 'Tiếng Việt',
-        content: 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nXin chào Hà Nội!\n',
-      }),
-    });
-
-    await checkRes(subRes, 201, 'Upload subtitles');
-
-    // GET video and verify playback.subtitles
-    const vidRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
-      headers: { Authorization: `Bearer ${creatorToken}` },
-    });
-    const videoData = (await checkRes(vidRes, 200, 'GET video with subtitles')).json;
-
-    assert.ok(Array.isArray(videoData.playback.subtitles), 'playback.subtitles must be an array');
-    const track = videoData.playback.subtitles.find((s) => s.lang === 'vi');
-    assert.ok(track, 'Subtitle track for "vi" missing in playback response');
-    assert.equal(track.lang, 'vi');
-
-    // Fetch subtitle .vtt URL
-    const vttRes = await fetch(track.url);
-    const vttObj = await checkRes(vttRes, 200, 'Fetch subtitle VTT');
-    assert.ok(vttObj.text.includes('WEBVTT'), 'Subtitle VTT file content invalid');
-
-    recordResult('S12', 'subtitles (V5b)', 'PASSED', Date.now() - startTime);
   });
 });
