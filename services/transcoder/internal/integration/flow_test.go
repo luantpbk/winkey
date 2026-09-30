@@ -272,10 +272,15 @@ func TestEndToEndX264(t *testing.T) {
 				VideoID string `json:"video_id"`
 				OwnerID string `json:"owner_id"`
 				Encoder string `json:"encoder"`
+				// C4-b: the visibility of the row when it became READY
+				Visibility string `json:"visibility"`
 				// V5a
 				StoryboardKey *string `json:"storyboard_key"`
 			}
 			_ = json.Unmarshal(ready[0].Data, &data)
+			if data.Visibility != "PUBLIC" { // seed() creates PUBLIC videos
+				t.Errorf("video.ready visibility = %q, want PUBLIC", data.Visibility)
+			}
 			if data.StoryboardKey == nil || *data.StoryboardKey != *storyboard {
 				t.Errorf("video.ready storyboard_key = %v, want %s", data.StoryboardKey, *storyboard)
 			}

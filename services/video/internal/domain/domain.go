@@ -189,7 +189,9 @@ type Store interface {
 	ListFeed(ctx context.Context, q FeedQuery) ([]Summary, error)
 	ListStudio(ctx context.Context, q StudioQuery) ([]StudioItem, error)
 	// UpdateVideo applies u to the video only if ownerID owns it and returns the
-	// new record. ErrNotFound if the video does not exist or is not theirs.
+	// new record. ErrNotFound if the video does not exist or is not theirs. In the
+	// SAME transaction, when the visibility actually changes, it enqueues
+	// video.visibility_changed (nothing for a no-op or for other fields).
 	UpdateVideo(ctx context.Context, id, ownerID uuid.UUID, u Update) (Video, error)
 	// DeleteVideo, in ONE transaction, deletes the row (cascading to renditions
 	// and jobs) and enqueues video.deleted. deleted is false when it no longer exists.
@@ -221,6 +223,13 @@ type ModeratedEvent struct {
 	OwnerID     string `json:"owner_id"`
 	State       string `json:"state"`
 	ModeratorID string `json:"moderator_id"`
+}
+
+// VisibilityChangedEvent is the `data` of video.visibility_changed (task C4).
+type VisibilityChangedEvent struct {
+	VideoID    string `json:"video_id"`
+	OwnerID    string `json:"owner_id"`
+	Visibility string `json:"visibility"`
 }
 
 // DeletedEvent is the `data` of video.deleted.
