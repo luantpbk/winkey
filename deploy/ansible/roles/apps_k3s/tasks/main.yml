@@ -1,0 +1,77 @@
+---
+# Role: apps_k3s
+# Deploys Winkey product services (auth, upload, video, social, realtime, web) to k3s (Task I2)
+
+- name: Sync application plane manifests to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../k8s/apps/"
+    dest: /var/lib/rancher/k3s/apps-manifests/
+    mode: preserve
+  register: apps_manifests_sync
+
+- name: Make scripts executable
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+  loop:
+    - /var/lib/rancher/k3s/apps-manifests/secrets.sh
+    - /var/lib/rancher/k3s/apps-manifests/verify.sh
+
+- name: Check if application secrets exist
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret auth-secrets upload-secrets video-secrets social-secrets realtime-secrets -n default
+  register: apps_secrets_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Generate application secrets if missing
+  ansible.builtin.command: bash /var/lib/rancher/k3s/apps-manifests/secrets.sh default
+  when: apps_secrets_check.rc != 0
+
+- name: Check if auth-svc deployment exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get deployment auth-svc -n default
+  register: auth_deploy_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Check for drift in application plane manifests
+  ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/apps-manifests/
+  register: apps_drift_check
+  changed_when: apps_drift_check.rc == 1
+  failed_when: apps_drift_check.rc > 1
+  check_mode: false
+
+- name: Apply application plane kustomization
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/apps-manifests/
+  when: apps_manifests_sync.changed or auth_deploy_check.rc != 0 or apps_drift_check.rc == 1
+
+- name: Wait for auth-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/auth-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for upload-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/upload-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for video-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/video-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for social-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/social-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for realtime-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/realtime-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for web-svc deployment rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/web-svc -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode

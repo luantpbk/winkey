@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upload-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: upload-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: upload-svc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: upload-svc
+        app.kubernetes.io/part-of: winkey
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: upload
+          image: ghcr.io/luantpbk/winkey-upload
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3002
+              protocol: TCP
+          env:
+            - name: HTTP_ADDR
+              value: ':3002'
+            - name: LOG_LEVEL
+              value: 'info'
+            - name: S3_ENDPOINT
+              value: 'http://garage-s3.default.svc:3900'
+            - name: S3_PUBLIC_ENDPOINT
+              value: 'https://s3.winkey.vn'
+            - name: S3_REGION
+              value: 'garage'
+            - name: S3_RAW_BUCKET
+              value: 'winkey-raw'
+            - name: JANITOR_INTERVAL
+              value: '10m'
+            - name: UPLOAD_STALE_AFTER
+              value: '24h'
+            - name: TRUST_PROXY_CIDRS
+              value: '10.42.0.0/16,127.0.0.1'
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: upload-secrets
+                  key: DATABASE_URL
+            - name: NATS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: upload-secrets
+                  key: NATS_URL
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-upload-svc
+                  key: AWS_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-upload-svc
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
