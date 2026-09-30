@@ -20,6 +20,10 @@
         "encoder": { "enum": ["nvenc", "x264"] },
         "hls_master_key": { "type": "string" },
         "thumbnail_key": { "type": "string" },
+        "storyboard_key": {
+          "type": ["string", "null"],
+          "description": "Key of storyboard.vtt (seek preview, task V5a). Null or absent when generation failed; the job still succeeds."
+        },
         "duration_ms": { "type": "integer", "minimum": 1 },
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 },

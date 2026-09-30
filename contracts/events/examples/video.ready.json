@@ -12,13 +12,29 @@
     "encoder": "nvenc",
     "hls_master_key": "v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/a1/hls/master.m3u8",
     "thumbnail_key": "v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/a1/thumb/poster.jpg",
+    "storyboard_key": "v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/a1/storyboard/storyboard.vtt",
     "duration_ms": 600000,
     "width": 1920,
     "height": 1080,
     "renditions": [
-      { "name": "1080p", "width": 1920, "height": 1080, "bitrate_kbps": 5000 },
-      { "name": "720p", "width": 1280, "height": 720, "bitrate_kbps": 2800 },
-      { "name": "480p", "width": 854, "height": 480, "bitrate_kbps": 1400 }
+      {
+        "name": "1080p",
+        "width": 1920,
+        "height": 1080,
+        "bitrate_kbps": 5000
+      },
+      {
+        "name": "720p",
+        "width": 1280,
+        "height": 720,
+        "bitrate_kbps": 2800
+      },
+      {
+        "name": "480p",
+        "width": 854,
+        "height": 480,
+        "bitrate_kbps": 1400
+      }
     ]
   }
 }
