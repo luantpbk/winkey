@@ -14,7 +14,7 @@ spec:
   routes:
     # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
     # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`))'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`))'
       kind: Rule
       priority: 100
       middlewares:
@@ -29,7 +29,7 @@ spec:
 
     # 2. Auth protected endpoints (users, profile management, admin)
     # Excludes /v1/auth/verify so it matches no public route and returns Traefik 404
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && ((PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`))'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && ((PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`))'
       kind: Rule
       priority: 90
       middlewares:
@@ -45,7 +45,7 @@ spec:
           namespace: default
 
     # 3. Upload service routes
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/uploads`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/v1/uploads`)'
       kind: Rule
       priority: 80
       middlewares:
@@ -62,7 +62,7 @@ spec:
 
     # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation)
     # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
       kind: Rule
       priority: 85
       middlewares:
@@ -78,7 +78,7 @@ spec:
           namespace: default
 
     # 5. Video & Search routes
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/search`))'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/search`))'
       kind: Rule
       priority: 80
       middlewares:
@@ -94,7 +94,7 @@ spec:
           namespace: default
 
     # 6. Realtime service routes (WebSocket & ticket issuance)
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/realtime`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/v1/realtime`)'
       kind: Rule
       priority: 80
       middlewares:
@@ -110,7 +110,7 @@ spec:
           namespace: default
 
     # 7. Smoke test route for header stripping verification
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/smoke/whoami`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/smoke/whoami`)'
       kind: Rule
       priority: 80
       middlewares:

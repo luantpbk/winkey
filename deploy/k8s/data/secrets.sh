@@ -11,8 +11,7 @@ fi
 NAMESPACE="${1:-default}"
 
 gen_pwd() {
-    # Prefix with 'w' so nats.js hostPort parser never matches :DIGITS at password start as port
-    echo "w$(openssl rand -hex 16)"
+    openssl rand -hex 16
 }
 
 ensure_pg_secret() {
