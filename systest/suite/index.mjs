@@ -39,8 +39,8 @@ async function checkRes(res, expectedStatus, label = 'Request') {
   if (text) {
     try {
       json = JSON.parse(text);
-    } catch (err) {
-      void err;
+    } catch {
+      // ignore non-JSON response
     }
   }
   assert.equal(
@@ -234,8 +234,8 @@ describe('Winkey System Integration Test Suite', () => {
         let sData;
         try {
           sData = JSON.parse(sText);
-        } catch (err) {
-          void err;
+        } catch {
+          // ignore non-JSON response
         }
         if (sData) {
           status = sData.status;
