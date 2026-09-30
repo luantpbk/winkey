@@ -271,6 +271,10 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Một ngoại lệ với ADR-008 (outbox), giới hạn ở subject `analytics.*` và ghi rõ trong `contracts/events/README.md`.
 - Gateway cần route `/v1/playback` tới video-svc (Traefik dev và k8s).
 - Hướng mở rộng: ClickHouse replica hoặc chuyển về edge khi có edge-2/3; GeoIP (`country`, hiện luôn null).
+**Bổ sung (2026-10-01, lúc chuẩn bị gpu-01).**
+- Không có ổ 512 GB trống riêng: `/srv/winkey-analytics` là bind mount của `/mnt/nvme_models/winkey-analytics` trên NVMe Kingmax, **dùng chung** với model ComfyUI và scratch của transcoder (còn trống 127 GB lúc cài). Dữ liệu thô chỉ giữ 90 ngày nên vẫn đủ cho beta; cảnh báo khi còn < 20 GB (I3). Có ổ riêng thì chỉ cần đổi mount, không đổi đường dẫn.
+- gpu-01 trước đó chưa có Docker. Chủ dự án đã cài `docker.io` + `docker-compose-v2` của Ubuntu với `iptables: false` (Docker không sửa firewall của máy đang chạy miner/ComfyUI) và `data-root` trên `/srv/winkey-analytics/docker` (ổ `/` chỉ còn khoảng 18 GB). Hệ quả: container dùng `network_mode: host`, ClickHouse tự giới hạn `listen_host` loopback.
+- Nhóm `docker` tương đương root, nên quy tắc "agent không sudo trên gpu-01" giờ được giữ bằng review: compose không `privileged`, chỉ mount `/srv/winkey-analytics/{clickhouse,backup}` và `db/clickhouse` (read-only).
 
 ### ADR-023 — Thông báo trong app (N1)
 **Bối cảnh.** Người dùng đã comment, reply và subscribe được (C1), nhưng không biết khi kênh mình theo dõi ra video mới hay khi có người trả lời mình. Catalog event ghi consumer "notify (P3)" nhưng chưa có thiết kế. Chưa có hạ tầng gửi push/e-mail, và chưa cần: bản beta chỉ cần chuông thông báo trên web.
