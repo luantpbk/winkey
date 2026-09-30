@@ -95,14 +95,23 @@ done
 
 # 4. Generate 10s 720p test clip if not present
 if [ ! -f "${CLIP_PATH}" ]; then
-  echo "[systest] Generating 10s 720p test video clip with transcoder FFmpeg..."
-  docker run --rm -v "${RUN_DIR}:/out" transcoder \
+  echo "[systest] Generating 10s 720p test video clip with FFmpeg..."
+  if command -v ffmpeg >/dev/null 2>&1; then
     ffmpeg -y \
-    -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
-    -f lavfi -i sine=frequency=1000:duration=10 \
-    -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-    -c:a aac -b:a 128k \
-    /out/clip.mp4 2>/dev/null
+      -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
+      -f lavfi -i sine=frequency=1000:duration=10 \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+      -c:a aac -b:a 128k \
+      "${CLIP_PATH}" 2>/dev/null
+  else
+    docker run --rm -v "${RUN_DIR}:/out" transcoder \
+      ffmpeg -y \
+      -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
+      -f lavfi -i sine=frequency=1000:duration=10 \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+      -c:a aac -b:a 128k \
+      /out/clip.mp4 2>/dev/null
+  fi
 fi
 
 # 5. Execute Node 22 system test suite
