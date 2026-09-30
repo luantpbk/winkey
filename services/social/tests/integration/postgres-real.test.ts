@@ -1591,7 +1591,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       url: `/v1/channels/${n1Owner}/subscription`,
       headers: { 'x-user-id': n1UserA },
     });
-    expect(unsubRes.statusCode).toBe(204);
+    expect(unsubRes.statusCode).toBe(200);
+    expect(unsubRes.json().subscribed).toBe(false);
 
     // Unsubscribe deletes nothing
     const subNotifAfterUnsub = await pool.query(
