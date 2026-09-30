@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
-const CLIP_PATH = process.env.CLIP_PATH || path.join(__dirname, '../systest/.run/clip.mp4');
+const CLIP_PATH = process.env.CLIP_PATH || path.join(__dirname, '../systest/.run/clip_5m.mp4');
 
 const NUM_VIDEOS = parseInt(process.env.NUM_VIDEOS || '5', 10);
 const NUM_USERS = parseInt(process.env.NUM_USERS || '5', 10);
@@ -95,7 +95,10 @@ async function main() {
         `${GATEWAY_URL}/v1/auth/register`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Forwarded-For': `10.0.0.${i + 1}`,
+          },
           body: JSON.stringify({
             email,
             password,
@@ -217,11 +220,11 @@ async function main() {
   // 3. Poll uploaded videos until READY
   console.log(`[seed] Polling ${uploadedVideoIds.length} videos until READY state...`);
   const videos = [];
-  const pollDeadline = Date.now() + 180000; // 3 min
 
   for (const { videoId, creatorToken, title } of uploadedVideoIds) {
     let ready = false;
-    while (Date.now() < pollDeadline) {
+    const videoDeadline = Date.now() + 300000; // 5 min per video
+    while (Date.now() < videoDeadline) {
       const statusRes = await fetch(`${GATEWAY_URL}/v1/uploads/${videoId}`, {
         headers: { Authorization: `Bearer ${creatorToken}` },
       });
@@ -245,7 +248,7 @@ async function main() {
     }
 
     if (!ready) {
-      throw new Error(`Video ${videoId} failed to reach READY status in 180s`);
+      throw new Error(`Video ${videoId} failed to reach READY status in 300s`);
     }
 
     // Fetch video playback info

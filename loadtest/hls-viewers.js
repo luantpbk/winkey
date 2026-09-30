@@ -18,7 +18,7 @@ export const options = {
     hls_viewers: {
       executor: 'constant-vus',
       vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 50,
-      duration: __ENV.DURATION || '1m',
+      duration: __ENV.DURATION || '5m',
     },
   },
 };
@@ -177,8 +177,10 @@ export default function () {
     seekSegmentIndex = Math.floor(Math.random() * (segments.length - 1)) + 1;
   }
 
-  // Buffer pacing state (~10 s buffer target)
+  // Target watch time for session: 120 s to 300 s (2 to 5 minutes)
+  const targetWatchTime = 120 + Math.random() * 180;
   const TARGET_BUFFER = 10.0;
+
   let currentBuffer = segments[0].duration;
   let totalStallTime = 0.0;
   let totalWatchTime = segments[0].duration;
@@ -186,10 +188,15 @@ export default function () {
   let lastBytes = seg0Res.body ? seg0Res.body.length : 0;
   let lastDlTimeSec = (seg0Res.timings.duration || 100) / 1000.0;
 
-  // Stream remaining segments
-  for (let i = 1; i < segments.length; i++) {
+  let segIdx = 1;
+
+  while (totalWatchTime < targetWatchTime) {
+    if (segIdx >= segments.length) {
+      segIdx = 0; // Loop playlist if video is shorter than target watch session
+    }
+
     // Check seek logic
-    if (i === seekSegmentIndex) {
+    if (willSeek && segIdx === seekSegmentIndex) {
       currentBuffer = 0.0; // Seek flushes current buffer
     }
 
@@ -209,8 +216,8 @@ export default function () {
       }
     }
 
-    const segUrl = segments[i] ? segments[i].url : segments[0].url;
-    const segDuration = segments[i] ? segments[i].duration : 2.0;
+    const segUrl = segments[segIdx] ? segments[segIdx].url : segments[0].url;
+    const segDuration = segments[segIdx] ? segments[segIdx].duration : 2.0;
 
     const segRes = http.get(segUrl);
     httpReqFailed.add(segRes.status !== 200);
@@ -219,11 +226,16 @@ export default function () {
     lastBytes = segRes.body ? segRes.body.length : 0;
     lastDlTimeSec = dlTimeSec;
 
-    // Evaluate buffer & stalls
+    // STALL EVALUATION FORMULA:
+    // When segment download time (dlTimeSec) exceeds current playback buffer (currentBuffer),
+    // the player runs out of buffer and stalls.
+    // - Stall duration: stallSec = dlTimeSec - currentBuffer
+    // - Played video time during download: currentBuffer (only what was buffered and played)
+    // - totalWatchTime grows ONLY by the played video time (currentBuffer), NOT by dlTimeSec.
     if (dlTimeSec > currentBuffer) {
       const stallSec = dlTimeSec - currentBuffer;
       totalStallTime += stallSec;
-      totalWatchTime += dlTimeSec;
+      totalWatchTime += currentBuffer;
       currentBuffer = 0.0;
     } else {
       currentBuffer -= dlTimeSec;
@@ -244,6 +256,8 @@ export default function () {
       currentBuffer -= paceSleep;
       totalWatchTime += paceSleep;
     }
+
+    segIdx++;
   }
 
   // Record rebuffer ratio = total stall time / total watch time
