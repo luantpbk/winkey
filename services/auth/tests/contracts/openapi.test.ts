@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import _Ajv from 'ajv';
+import { Ajv, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
-const Ajv = (_Ajv as any).default ?? _Ajv;
+import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
@@ -13,18 +13,18 @@ import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 
 describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', () => {
-  let app: any;
-  let ajv: any;
-  let validateTokenResponse: any;
-  let validateUser: any;
-  let validatePublicProfile: any;
-  let validateProblem: any;
-  let validateAdminUser: any;
-  let validateAdminUserPage: any;
-  let validateAuditEntryPage: any;
-  let validateUpdateMeRequest: any;
-  let validateChangePasswordRequest: any;
-  let validateDeleteMeRequest: any;
+  let app: FastifyInstance;
+  let ajv: Ajv;
+  let validateTokenResponse: ValidateFunction;
+  let validateUser: ValidateFunction;
+  let validatePublicProfile: ValidateFunction;
+  let validateProblem: ValidateFunction;
+  let validateAdminUser: ValidateFunction;
+  let validateAdminUserPage: ValidateFunction;
+  let validateAuditEntryPage: ValidateFunction;
+  let validateUpdateMeRequest: ValidateFunction;
+  let validateChangePasswordRequest: ValidateFunction;
+  let validateDeleteMeRequest: ValidateFunction;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -36,7 +36,7 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
 
     // 2. Setup Ajv
     ajv = new Ajv({ strict: false, allErrors: true });
-    (addFormats as any)(ajv);
+    (addFormats as unknown as (a: unknown) => void)(ajv);
 
     commonSpec.$id = 'https://winkey.vn/contracts/openapi/common.yaml';
     authSpec.$id = 'https://winkey.vn/contracts/openapi/auth.v1.yaml';
@@ -144,7 +144,7 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
         password: 'SecurePassword123!',
       },
     });
-    const cookie = loginRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const cookie = loginRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     const refreshRes = await app.inject({
       method: 'POST',

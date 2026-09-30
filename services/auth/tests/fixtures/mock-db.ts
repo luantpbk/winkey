@@ -441,6 +441,9 @@ export function createMockDb(store: MockStore = createMockStore()): {
           user.updated_at = new Date();
           updatedCount++;
         }
+        if (sql.toLowerCase().includes('returning')) {
+          return { rows: user ? [user] : [], rowCount: updatedCount };
+        }
         return { rows: [], rowCount: updatedCount };
       }
 

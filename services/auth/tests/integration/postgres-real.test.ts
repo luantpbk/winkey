@@ -11,6 +11,7 @@ import type { RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 import { v7 as uuidv7, version as uuidVersion } from 'uuid';
 import { issueAccessToken } from '../../src/crypto/jwt.js';
+import { hashPassword } from '../../src/crypto/passwords.js';
 import type { FastifyInstance } from 'fastify';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -288,7 +289,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
-    const initialCookie = regRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const initialCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 2. Normal rotation: use initial token to get rotated token
     const refresh1Res = await app.inject({
@@ -297,7 +298,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       cookies: { [REFRESH_COOKIE_NAME]: initialCookie },
     });
     expect(refresh1Res.statusCode).toBe(200);
-    const childCookie = refresh1Res.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const childCookie = refresh1Res.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
     expect(childCookie).not.toBe(initialCookie);
 
     // Verify parent token has rotated_at set in DB, child token is active
@@ -769,7 +770,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
-    const dev1Cookie = regRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const dev1Cookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
     const dev1Token = regRes.json().access_token;
 
     // 2. Login on Device 2
@@ -782,7 +783,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(loginDev2.statusCode).toBe(200);
-    const dev2Cookie = loginDev2.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const dev2Cookie = loginDev2.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 3. Change password from Device 1 with current cookie
     const chgRes = await app.inject({
@@ -892,7 +893,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
-    const delCookie = regRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+    const delCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
     const delToken = regRes.json().access_token;
     const delUserId = regRes.json().user.id;
 
@@ -985,11 +986,12 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       "UPDATE auth.users SET roles = ARRAY['viewer']::auth.role[] WHERE 'admin' = ANY(roles) AND id != $1",
       [soleAdminId],
     );
+    const adminHash = await hashPassword('AdminPass123!');
     await pool.query(
       `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
-       VALUES ($1, 'sole_admin_pg@winkey.vn', 'hash', 'sole_admin_pg', 'Sole Admin', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
-       ON CONFLICT (id) DO UPDATE SET roles = ARRAY['admin', 'viewer']::auth.role[], status = 'ACTIVE'`,
-      [soleAdminId],
+       VALUES ($1, 'sole_admin_pg@winkey.vn', $2, 'sole_admin_pg', 'Sole Admin', ARRAY['admin', 'viewer']::auth.role[], 'ACTIVE')
+       ON CONFLICT (id) DO UPDATE SET roles = ARRAY['admin', 'viewer']::auth.role[], password_hash = $2, status = 'ACTIVE'`,
+      [soleAdminId, adminHash],
     );
     const { token: soleAdminToken } = await issueAccessToken(
       { id: soleAdminId, roles: ['admin', 'viewer'] },
@@ -997,12 +999,27 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       testEnv,
     );
 
+    // Wrong password returns 403 INVALID_CREDENTIALS before 409
+    const wrongPwdRes = await app.inject({
+      method: 'DELETE',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${soleAdminToken}` },
+      payload: {
+        confirm_handle: 'sole_admin_pg',
+        password: 'WrongPassword!',
+      },
+    });
+    expect(wrongPwdRes.statusCode).toBe(403);
+    expect(wrongPwdRes.json().code).toBe('INVALID_CREDENTIALS');
+
+    // Correct password on sole admin returns 409 LAST_ADMIN
     const lastAdminRes = await app.inject({
       method: 'DELETE',
       url: '/v1/auth/me',
       headers: { authorization: `Bearer ${soleAdminToken}` },
       payload: {
         confirm_handle: 'sole_admin_pg',
+        password: 'AdminPass123!',
       },
     });
     expect(lastAdminRes.statusCode).toBe(409);

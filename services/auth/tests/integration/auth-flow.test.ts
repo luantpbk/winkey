@@ -884,7 +884,7 @@ describe('auth-svc full integration flow', () => {
       });
       const redirectUrl = new URL(startRes.headers.location);
       const oauthSignedCookie = startRes.cookies.find(
-        (c: any) => c.name === OAUTH_COOKIE_NAME,
+        (c: { name: string; value: string }) => c.name === OAUTH_COOKIE_NAME,
       )!.value;
       const stateParam = redirectUrl.searchParams.get('state')!;
 
@@ -894,7 +894,9 @@ describe('auth-svc full integration flow', () => {
         cookies: { [OAUTH_COOKIE_NAME]: oauthSignedCookie },
       });
       expect(oauthRes.statusCode).toBe(302);
-      const oauthCookie = oauthRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const oauthCookie = oauthRes.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
 
       // Exchange refresh cookie for access token
       const refreshRes = await app.inject({
@@ -1050,7 +1052,9 @@ describe('auth-svc full integration flow', () => {
           display_name: 'Pwd User',
         },
       });
-      const device1Cookie = reg.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const device1Cookie = reg.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
       const device1Token = reg.json().access_token;
 
       // 2. Login on Device 2
@@ -1064,7 +1068,7 @@ describe('auth-svc full integration flow', () => {
       });
       expect(loginDev2.statusCode).toBe(200);
       const device2Cookie = loginDev2.cookies.find(
-        (c: any) => c.name === REFRESH_COOKIE_NAME,
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
       )!.value;
 
       // 3. Wrong current_password returns 403 INVALID_CREDENTIALS
@@ -1144,7 +1148,7 @@ describe('auth-svc full integration flow', () => {
       });
       const redirectUrl2 = new URL(startOAuth2.headers.location);
       const oauthSignedCookie2 = startOAuth2.cookies.find(
-        (c: any) => c.name === OAUTH_COOKIE_NAME,
+        (c: { name: string; value: string }) => c.name === OAUTH_COOKIE_NAME,
       )!.value;
       const stateParam2 = redirectUrl2.searchParams.get('state')!;
 
@@ -1154,7 +1158,9 @@ describe('auth-svc full integration flow', () => {
         cookies: { [OAUTH_COOKIE_NAME]: oauthSignedCookie2 },
       });
       expect(oauthRes.statusCode).toBe(302);
-      const oauthCookie = oauthRes.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const oauthCookie = oauthRes.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
       const oauthRefresh = await app.inject({
         method: 'POST',
         url: '/v1/auth/refresh',
@@ -1217,7 +1223,9 @@ describe('auth-svc full integration flow', () => {
           display_name: 'Delete Target',
         },
       });
-      const delCookie = reg.cookies.find((c: any) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const delCookie = reg.cookies.find(
+        (c: { name: string; value: string }) => c.name === REFRESH_COOKIE_NAME,
+      )!.value;
       const delToken = reg.json().access_token;
       const delUserId = reg.json().user.id;
 

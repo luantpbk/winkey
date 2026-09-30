@@ -150,7 +150,7 @@ export const meRoute: FastifyPluginAsync<{
     });
 
     try {
-      await db
+      const updated = await db
         .updateTable('auth.users')
         .set({
           ...(display_name !== undefined ? { display_name } : {}),
@@ -158,12 +158,7 @@ export const meRoute: FastifyPluginAsync<{
           updated_at: new Date(),
         })
         .where('id', '=', userId)
-        .execute();
-
-      const updated = await db
-        .selectFrom('auth.users')
-        .selectAll()
-        .where('id', '=', userId)
+        .returningAll()
         .executeTakeFirstOrThrow();
 
       request.log.info({ userId, op: 'updateMe' }, 'User updated profile');
