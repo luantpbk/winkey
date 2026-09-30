@@ -157,6 +157,18 @@ type Objects interface {
 	Delete(ctx context.Context, bucket, key string) error
 }
 
+// TrendingQuery asks for the current trending ranking (task R2-a), best first.
+type TrendingQuery struct {
+	AfterRank int // 0 = from the top
+	Limit     int // the store returns up to Limit rows; callers pass pageSize+1
+}
+
+// TrendingItem is one entry of the ranking with its rank.
+type TrendingItem struct {
+	Summary
+	Rank int
+}
+
 // Position is a keyset position: the sort timestamp and id of the last item
 // of the previous page.
 type Position struct {
@@ -250,6 +262,9 @@ type Store interface {
 	PutSubtitle(ctx context.Context, w SubtitleWrite) (SubtitleResult, error)
 	// DeleteSubtitle removes the row and returns its object key; ErrNotFound if there is no such track.
 	DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (objectKey string, err error)
+	// ListTrending reads media.trending by rank, joined to the videos and re-applying the public-feed predicate
+	// (a video made PRIVATE or HIDDEN since the last recompute is not returned) in ONE query.
+	ListTrending(ctx context.Context, q TrendingQuery) ([]TrendingItem, error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)

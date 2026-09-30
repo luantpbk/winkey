@@ -6,6 +6,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 
 | Endpoint | Auth | Notes |
 |---|---|---|
+| `GET /v1/videos?sort=trending` | optional | The trending ranking (task R2-a): see *Trending*. `limit`, `cursor`; `owner_id` together with it is `400 INVALID_SORT`; `Cache-Control: public, max-age=60`. |
 | `GET /v1/videos` | optional | Public feed: **READY + PUBLIC** only, newest first, keyset pagination on `(published_at DESC, id DESC)` (partial index `media.videos_public_feed`). `limit` 1-100 (default 24), `cursor`, `owner_id` (channel page). UNLISTED and PRIVATE videos are never listed, not even for their owner (the studio is for that). |
 | `GET /v1/videos/{id}` | optional | Watch page. Visibility below. `Cache-Control: public, max-age=30` for PUBLIC READY, `private, no-store` otherwise. `playback` is `null` unless READY. |
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. When the visibility **actually changes** it also enqueues `video.visibility_changed`: see *Events*. |
@@ -163,6 +164,37 @@ which is exactly what nginx checks with `secure_link_md5 "$secure_link_expires/v
 - **`Playback.subtitles`** is always present (empty array when none), sorted by `lang` (bytewise), on every response that carries `playback` (`getVideo`, `updateVideo`, `moderateVideo`): one extra query per video (`SELECT … FROM media.video_subtitles WHERE video_id = $1`), none for a video that is not READY, and no list carries playback, so there is no N+1. URLs are signed with the same `expires_at` as `hls_url` when the video is not publicly watchable. Put and delete invalidate this replica's cache entry; other replicas serve their copy for at most `CACHE_TTL` (as for `PATCH`).
 - **Delete of the video**: the rows go with the video (`ON DELETE CASCADE`) and the objects with the `video.deleted` purge of `v/{id}/` (media janitor); a test runs that prefix delete against the bucket.
 - No event is emitted (ADR-018). The player must show cues through the browser text track or hls.js, never `innerHTML` (the cue text is user input).
+
+### Trending (R2-a, ADR-020)
+
+`GET /v1/videos?sort=trending` reads the current ranking of `media.trending`, best first. `sort` is `newest` (the default, the feed above, unchanged) or `trending`; anything else is `400 VALIDATION_ERROR`, and `owner_id` together with `sort=trending` is `400 INVALID_SORT` (there is no per-channel ranking). Same `VideoPage` as the feed; `next_cursor` is the last **rank** returned (opaque, HMAC-signed like the others, bound to the endpoint: a feed cursor is `400 INVALID_CURSOR` here and the other way round). The ranking has at most 200 entries and may be empty (no recent views): the response is then an empty page, not an error, and the client shows the newest feed. `Cache-Control: public, max-age=60`, whoever calls.
+
+**Read time.** The ranking is up to one interval old, so the read joins `media.videos` and `auth.public_profiles` and applies the exact predicate of the public feed again (`READY`, `PUBLIC`, `VISIBLE`, owner in the view) in the same statement: a video made `PRIVATE`, hidden or whose owner was suspended since the last run is never returned (its rank is just a gap). Paging while a recompute happens can show a video twice or skip one; read the ranking in one go if that matters (limit up to 100, 200 entries at most).
+
+**Hourly buckets.** `store.AddViews` (the view flusher, C3) adds the counted views to `media.videos.view_count` AND to the bucket of the current **UTC hour** in `media.video_views_hourly` in ONE statement (`WITH upd AS (UPDATE … RETURNING) INSERT … ON CONFLICT (video_id, hour) DO UPDATE SET views = views + EXCLUDED.views`), so either both happen or neither. A video that no longer exists matches no row in the `UPDATE`, gets no bucket and does not fail the batch; the `UPDATE` also row-locks the matched videos until commit, so a concurrent delete cannot break the foreign key of the bucket.
+
+**The job** (`internal/trending`, one goroutine per replica, at once at startup and then every `TRENDING_INTERVAL`, default 10 minutes; `TRENDING_ENABLED=false` switches it off on a replica, reads still work):
+
+1. one transaction that starts with `pg_try_advisory_xact_lock(0x77696e6b65790001)`; a replica that does not get it skips the run (debug log) and touches nothing, so exactly one replica works at a time;
+2. **score** = `Σ views × 0.5^(age / 24 h)` over the buckets of the last **72 hours** (`age` = `now() - hour`, the start of the bucket, so a view counted in the current hour is worth between 1.0 and about 0.97 and one of 24 hours ago about 0.5; `trending.Score` is the same formula in Go and a test compares them);
+3. **eligible** = the exact public-feed predicate (`PUBLIC`, `READY`, `VISIBLE`, owner in `auth.public_profiles`); videos scoring **below 1** are dropped; the **top 200** by `score DESC, video_id DESC` (stable ties) get rank 1..N;
+4. `DELETE FROM media.trending` + `INSERT` of the new ranking in the SAME transaction: a reader sees the old ranking or the new one, never an empty or mixed table; a failure rolls back and the old ranking stays;
+5. after the commit, **retention**: `media.video_views_hourly` buckets older than 8 days are deleted in batches of 5000 until none is left (a failure is a warning, retried on the next run).
+
+Note on the threshold: the age of a bucket is measured from its start, so a video with a single view in the current hour scores a little under 1 and is not ranked; two views are.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRENDING_ENABLED` | `true` | Run the recompute job on this replica |
+| `TRENDING_INTERVAL` | `10m` | Time between recomputes (at least 1 s when enabled) |
+
+| Metric | Type | |
+|---|---|---|
+| `video_trending_recompute_seconds` | histogram | Duration of a recompute that ran (the replica that got the lock) |
+| `video_trending_size` | gauge | Videos in `media.trending` after this replica's last run |
+| `video_trending_recompute_errors_total` | counter | Runs that failed (the previous ranking stays) |
+
+The run logs `trending recomputed` at info with `videos`, `duration` and `retired_buckets`.
 
 ### Moderation
 
