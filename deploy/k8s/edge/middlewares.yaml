@@ -61,3 +61,4 @@ spec:
   ipAllowList:
     sourceRange:
       - '{{ tailscale_ipv4 }}/32'
+      - 10.42.0.1/32
