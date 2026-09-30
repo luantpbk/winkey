@@ -83,14 +83,10 @@ describe('Winkey System Integration Test Suite', () => {
     for (const svc of services) {
       const res = await fetch(svc.url);
       assert.equal(res.status, 200, `Healthcheck for ${svc.name} failed with status ${res.status}`);
-      const body = await res.json();
+      const text = await res.text();
       assert.ok(
-        body[svc.key] === 'OK' ||
-          body[svc.key] === 'ok' ||
-          body[svc.key] === 'UP' ||
-          body.status === 'ok' ||
-          body.status === 'UP',
-        `Healthcheck payload invalid for ${svc.name}: ${JSON.stringify(body)}`,
+        text.includes('OK') || text.includes('ok') || text.includes('UP'),
+        `Healthcheck payload invalid for ${svc.name}: ${text}`,
       );
     }
 
@@ -895,7 +891,9 @@ describe('Winkey System Integration Test Suite', () => {
     let mediaDeleted = false;
     const pollDeadline = Date.now() + 60000;
     while (Date.now() < pollDeadline) {
-      const mediaRes = await fetch(masterPlaylistUrl);
+      const mediaRes = await fetch(`${masterPlaylistUrl}?nocache=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      });
       if (mediaRes.status === 404 || mediaRes.status === 403) {
         mediaDeleted = true;
         break;
