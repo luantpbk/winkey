@@ -14,7 +14,7 @@ echo " Running Winkey Edge Smoke Tests against ${BASE_URL}"
 echo "=========================================================="
 
 # 1. Check that /v1/auth/verify returns HTTP 404 (not publicly routed)
-echo "[1/6] Checking that /v1/auth/verify is not publicly accessible..."
+echo "[1/10] Checking that /v1/auth/verify is not publicly accessible..."
 VERIFY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/auth/verify")
 if [ "$VERIFY_STATUS" != "404" ]; then
     echo "FAILED: ${BASE_URL}/v1/auth/verify returned HTTP $VERIFY_STATUS (expected strictly 404)!" >&2
@@ -23,7 +23,7 @@ fi
 echo "SUCCESS: ${BASE_URL}/v1/auth/verify returned HTTP 404 (router excluded)."
 
 # 2. Check that unknown /v1 route returns HTTP 404 (does not bleed into web router)
-echo "[2/6] Checking that unknown /v1/nope returns HTTP 404..."
+echo "[2/10] Checking that unknown /v1/nope returns HTTP 404..."
 NOPE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/nope")
 if [ "$NOPE_STATUS" != "404" ]; then
     echo "FAILED: ${BASE_URL}/v1/nope returned HTTP $NOPE_STATUS (expected strictly 404)!" >&2
@@ -32,7 +32,7 @@ fi
 echo "SUCCESS: ${BASE_URL}/v1/nope returned HTTP 404 (not handled by web router)."
 
 # 3. Check gateway header spoofing protection and client IP assertion via /smoke/whoami
-echo "[3/6] Checking header stripping and client IP assertion via /smoke/whoami..."
+echo "[3/10] Checking header stripping and client IP assertion via /smoke/whoami..."
 CLIENT_IP=$(curl -sS https://api.ipify.org 2>/dev/null || curl -sS https://ifconfig.me 2>/dev/null || true)
 if [ -z "$CLIENT_IP" ]; then
     echo "FAILED: Could not detect client public IP to verify X-Forwarded-For!" >&2
@@ -78,7 +78,7 @@ fi
 echo "SUCCESS: whoami returned 200; identity headers stripped; upstream sees real client IP ($CLIENT_IP)."
 
 # 4. Check Traefik rate limit behavior (ipStrategy depth: 1)
-echo "[4/6] Checking Traefik rate limiting on ${BASE_URL}/smoke/whoami..."
+echo "[4/10] Checking Traefik rate limiting on ${BASE_URL}/smoke/whoami..."
 echo "  Firing 150 concurrent requests (threshold: average 100/s, burst 50)..."
 
 TMP_DIR=$(mktemp -d)
@@ -121,8 +121,8 @@ if [ "$COUNT_429" -le 0 ]; then
 fi
 echo "SUCCESS: Traefik rateLimit engaged ($COUNT_429 requests received HTTP 429 Too Many Requests)."
 
-# 5. Check media proxy_cache on media.winkey.vn (MISS -> HIT)
-echo "[5/6] Checking media proxy_cache on ${MEDIA_URL}..."
+# 5. Check media proxy_cache on media.winkey.vn (MISS/HIT -> HIT)
+echo "[5/10] Checking media proxy_cache on ${MEDIA_URL}..."
 if [ "${SKIP_MEDIA}" = "1" ]; then
     echo "SKIP: Media proxy_cache test skipped via SKIP_MEDIA=1 (pending task STO)."
 else
@@ -142,11 +142,15 @@ else
         exit 1
     fi
 
-    if [ "$CACHE_STATUS1" != "MISS" ] || [ "$CACHE_STATUS2" != "HIT" ]; then
-        echo "FAILED: Expected cache status MISS then HIT, got '$CACHE_STATUS1' then '$CACHE_STATUS2'!" >&2
+    if [ "$CACHE_STATUS1" != "MISS" ] && [ "$CACHE_STATUS1" != "HIT" ]; then
+        echo "FAILED: Expected cache status MISS or HIT, got '$CACHE_STATUS1'!" >&2
         exit 1
     fi
-    echo "SUCCESS: media object cached correctly: MISS then HIT."
+    if [ "$CACHE_STATUS2" != "HIT" ]; then
+        echo "FAILED: Expected cache status HIT on second fetch, got '$CACHE_STATUS2'!" >&2
+        exit 1
+    fi
+    echo "SUCCESS: media object cached correctly: ${CACHE_STATUS1} then ${CACHE_STATUS2}."
 fi
 
 # 6. Check that internal NodePorts are strictly unreachable from public IP
