@@ -49,6 +49,13 @@ export interface LikeChangedData {
   like_count: number;
 }
 
+export interface SubscriptionChangedData {
+  subscriber_id: string;
+  channel_id: string;
+  subscribed: boolean;
+  subscriber_count: number;
+}
+
 export interface NatsConsumerOptions {
   nats: NatsConnection;
   connectionManager: ConnectionManager;
@@ -171,7 +178,11 @@ export class RealtimeEventConsumer {
     while (this.isRunning && !this.isSocialConsumerReady) {
       try {
         const socialConsumer = await js.consumers.get('SOCIAL', {
-          filterSubjects: ['social.comment.created', 'social.video.like_changed'],
+          filterSubjects: [
+            'social.comment.created',
+            'social.video.like_changed',
+            'social.subscription.changed',
+          ],
           deliver_policy: DeliverPolicy.New,
         });
         const socialMessages = await socialConsumer.consume();
@@ -321,6 +332,25 @@ export class RealtimeEventConsumer {
               commentRef,
             );
           }
+
+          // N2 notification hints (never send to the actor themself):
+          // 1. Top-level comment: parent_id null and video_owner_id != author_id -> VIDEO_COMMENT to user:{video_owner_id}
+          if (!data.parent_id && data.video_owner_id && data.video_owner_id !== data.author_id) {
+            this.connectionManager.broadcastEvent(
+              `user:${data.video_owner_id}`,
+              'notification.hint',
+              { kind: 'VIDEO_COMMENT' },
+            );
+          }
+
+          // 2. Reply: parent_author_id non-null and parent_author_id != author_id -> COMMENT_REPLY to user:{parent_author_id}
+          if (data.parent_author_id && data.parent_author_id !== data.author_id) {
+            this.connectionManager.broadcastEvent(
+              `user:${data.parent_author_id}`,
+              'notification.hint',
+              { kind: 'COMMENT_REPLY' },
+            );
+          }
           break;
         }
 
@@ -332,6 +362,22 @@ export class RealtimeEventConsumer {
             video_id: data.video_id,
             like_count: data.like_count,
           });
+          break;
+        }
+
+        case 'social.subscription.changed': {
+          const data = env.data as unknown as SubscriptionChangedData;
+          if (!data || !data.channel_id || !data.subscriber_id) break;
+
+          // N2 notification hint: subscribed is true and subscriber_id != channel_id
+          // -> NEW_SUBSCRIBER to user:{channel_id}
+          // subscribed is false (unsubscribe) -> nothing
+          // subscriber_id == channel_id (self-subscribe) -> nothing
+          if (data.subscribed && data.subscriber_id !== data.channel_id) {
+            this.connectionManager.broadcastEvent(`user:${data.channel_id}`, 'notification.hint', {
+              kind: 'NEW_SUBSCRIBER',
+            });
+          }
           break;
         }
 
