@@ -77,8 +77,8 @@ spec:
           port: 3004
           namespace: default
 
-    # 5. Video & Search routes
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/search`))'
+    # 5. Video, Studio, Feed, Search & Playback routes
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`))'
       kind: Rule
       priority: 80
       middlewares:

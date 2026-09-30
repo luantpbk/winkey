@@ -325,6 +325,19 @@ services:
   #     migrate:
   #       condition: service_completed_successfully
 
+  # realtime-svc:
+  #   image: ghcr.io/luantpbk/winkey-realtime:latest
+  #   profiles: ["realtime", "all"]
+  #   environment:
+  #     NATS_URL: nats://nats:4222
+  #     VALKEY_URL: redis://valkey:6379
+  #     HTTP_PORT: 8003
+  #   depends_on:
+  #     nats-bootstrap:
+  #       condition: service_completed_successfully
+  #     valkey:
+  #       condition: service_started
+
 volumes:
   postgres_data:
   valkey_data:
