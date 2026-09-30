@@ -87,6 +87,5 @@ Inspect these log files to trace error causes across cross-service event flows.
 
 ## Known Gaps & Pending Tracking
 
-- **Task A4 (Session Revocation)**: Password change revokes refresh tokens immediately; in-memory access token revocation check against Valkey in `auth-svc` `/v1/auth/verify` is pending A4 merge.
-- **Task V5b (Subtitles)**: Subtitle track API endpoint `PUT /v1/videos/{id}/subtitles/{lang}` is marked pending until V5b merges.
-- **Traefik Realtime Gateway Route**: Traefik `deploy/compose/traefik/dynamic.yml` does not currently include a route for `/v1/realtime` WebSocket upgrade. `systest/compose.apps.yml` exposes `realtime-svc` on port 8003 directly to allow testing. Issue opened for Antigravity 2.
+- **[#103](https://github.com/luantpbk/winkey/issues/103)**: Traefik missing routing rules for `/v1/realtime` WebSocket ticket endpoint (`POST /v1/realtime/ticket`). S4 connects to `realtime-svc` port 8003 directly when not routed via Traefik gateway.
+- **[#112](https://github.com/luantpbk/winkey/issues/112)**: Traefik missing routing rules for `/v1/reports`, `/v1/moderation` and `/v1/search`. S8 & S9 fallback to direct service calls (`social-svc` / `video-svc`) when not routed via Traefik gateway.

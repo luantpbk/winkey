@@ -601,6 +601,7 @@ describe('Winkey System Integration Test Suite', () => {
     });
 
     if (reportRes.status === 404) {
+      // TODO(#112): switch to gateway once routed
       reportRes = await fetch(`${SOCIAL_URL}/v1/reports`, {
         method: 'POST',
         headers: {
@@ -628,6 +629,7 @@ describe('Winkey System Integration Test Suite', () => {
     });
 
     if (modCases.status === 404) {
+      // TODO(#112): switch to gateway once routed
       modCases = await fetch(`${SOCIAL_URL}/v1/moderation/reports`, {
         headers: {
           'X-User-Id': moderatorUser.id,
@@ -649,6 +651,7 @@ describe('Winkey System Integration Test Suite', () => {
     });
 
     if (hideRes.status === 404) {
+      // TODO(#112): switch to gateway once routed
       hideRes = await fetch(`${SOCIAL_URL}/v1/videos/${uploadedVideoId}/moderation`, {
         method: 'PUT',
         headers: {
@@ -676,6 +679,7 @@ describe('Winkey System Integration Test Suite', () => {
     );
 
     if (resCase.status === 404) {
+      // TODO(#112): switch to gateway once routed
       resCase = await fetch(
         `${SOCIAL_URL}/v1/moderation/cases/VIDEO/${uploadedVideoId}/resolution`,
         {
@@ -704,6 +708,7 @@ describe('Winkey System Integration Test Suite', () => {
     });
 
     if (modVid.status === 404) {
+      // TODO(#112): switch to gateway once routed
       modVid = await fetch(`${VIDEO_URL}/v1/videos/${uploadedVideoId}`, {
         headers: {
           'X-User-Id': moderatorUser.id,
@@ -725,6 +730,7 @@ describe('Winkey System Integration Test Suite', () => {
     });
 
     if (restoreRes.status === 404) {
+      // TODO(#112): switch to gateway once routed
       restoreRes = await fetch(`${SOCIAL_URL}/v1/videos/${uploadedVideoId}/moderation`, {
         method: 'PUT',
         headers: {
@@ -749,6 +755,7 @@ describe('Winkey System Integration Test Suite', () => {
     let searchRes = await fetch(`${GATEWAY_URL}/v1/search?q=ha+noi`);
 
     if (searchRes.status === 404) {
+      // TODO(#112): switch to gateway once routed
       searchRes = await fetch(`${VIDEO_URL}/v1/search?q=ha+noi`);
     }
 

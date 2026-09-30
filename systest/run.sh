@@ -104,13 +104,10 @@ if [ ! -f "${CLIP_PATH}" ]; then
       -c:a aac -b:a 128k \
       "${CLIP_PATH}" 2>/dev/null
   else
-    docker run --rm -v "${RUN_DIR}:/out" transcoder \
-      ffmpeg -y \
-      -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
-      -f lavfi -i sine=frequency=1000:duration=10 \
-      -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-      -c:a aac -b:a 128k \
-      /out/clip.mp4 2>/dev/null
+    docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" run --rm --no-deps \
+      --entrypoint ffmpeg --user "$(id -u):$(id -g)" -v "${RUN_DIR}:/out" transcoder \
+      -y -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f lavfi -i sine=frequency=1000:duration=10 \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 128k /out/clip.mp4
   fi
 fi
 
