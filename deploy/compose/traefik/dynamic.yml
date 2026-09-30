@@ -9,10 +9,10 @@ http:
       middlewares: ['strip-user-headers']
       priority: 100
 
-    # 2. Auth protected endpoints (users, profile management)
+    # 2. Auth protected endpoints (users, profile management, admin)
     auth-protected:
       entryPoints: ['web']
-      rule: '(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`)'
+      rule: '(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`)'
       service: 'auth-svc'
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 90
@@ -25,24 +25,32 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 4. Social service routes (comments, likes, channels, subscriptions)
+    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation)
     # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
     social:
       entryPoints: ['web']
-      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || Path(`/v1/me/subscriptions`)'
+      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`)'
       service: 'social-svc'
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 85
 
-    # 5. Video & Studio routes
+    # 5. Video, Studio, Feed, Search & Playback routes
     video:
       entryPoints: ['web']
-      rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`)'
+      rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`)'
       service: 'video-svc'
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 6. Smoke test route for header stripping verification
+    # 6. Realtime service routes (WebSocket & ticket issuance)
+    realtime:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/realtime`)'
+      service: 'realtime-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 80
+
+    # 7. Smoke test route for header stripping verification
     smoke-test:
       entryPoints: ['web']
       rule: 'PathPrefix(`/smoke/whoami`)'
@@ -50,10 +58,10 @@ http:
       middlewares: ['strip-user-headers']
       priority: 80
 
-    # 7. Web Next.js fallback
+    # 8. Web Next.js fallback
     web:
       entryPoints: ['web']
-      rule: 'PathPrefix(`/`) && !PathPrefix(`/v1`)'
+      rule: 'PathPrefix(`/`) && !PathPrefix(`/v1`) && !PathPrefix(`/smoke`)'
       service: 'web-svc'
       priority: 10
 
@@ -90,6 +98,10 @@ http:
       loadBalancer:
         servers:
           - url: 'http://social-svc:3004'
+    realtime-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://realtime-svc:8003'
     whoami-svc:
       loadBalancer:
         servers:
