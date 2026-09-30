@@ -1,0 +1,28 @@
+{
+  "event_id": "5f0c2c8e-6a51-5a7e-9d1b-2f3c4d5e6f70",
+  "type": "analytics.playback",
+  "version": 1,
+  "occurred_at": "2026-10-02T11:05:30Z",
+  "producer": "video-svc",
+  "data": {
+    "playback_id": "0192f5f1-aaaa-7000-8000-000000000001",
+    "video_id": "0192f5e1-0000-7000-8000-000000000010",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "viewer_key": "3b1f0c9a8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a",
+    "authenticated": true,
+    "kind": "heartbeat",
+    "seq": 4,
+    "received_at": "2026-10-02T11:05:30Z",
+    "sent_at": "2026-10-02T11:05:29Z",
+    "position_ms": 121500,
+    "watched_ms": 30000,
+    "rebuffer_ms": 450,
+    "rebuffer_count": 1,
+    "startup_ms": null,
+    "rendition": "720p",
+    "bitrate_kbps": 2800,
+    "error_code": null,
+    "client": "web",
+    "country": null
+  }
+}

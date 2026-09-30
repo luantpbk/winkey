@@ -77,7 +77,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 ### P3 — V1
 | ID | Task | Owner |
 |---|---|---|
-| R1 | Analytics: heartbeat xem → JetStream → ClickHouse (gpu-01) | Antigravity 2 + Sonnet |
+| R1 | Analytics (ADR-022): player gửi heartbeat QoE/watch time → video-svc → JetStream `ANALYTICS` → analytics-worker → ClickHouse trên gpu-01 (NVMe 512 GB). R1-a video-svc + worker ([Brief](prompts/sonnet_R1_analytics.md)), R1-infra stream/route/deploy gpu-01 ([Brief](prompts/antigravity-2_R1_analytics-infra.md)), player gửi heartbeat sau (U8) | Opus (thiết kế ✅) → Sonnet + Antigravity 2 |
 | R2-a | Feed thịnh hành v1 (ADR-020): view theo giờ trong flush C3, bảng xếp hạng tính lại mỗi 10 phút, `listVideos?sort=trending`, migration 000011. [Brief](prompts/sonnet_R2a_trending.md) · ✅ (#101) | Sonnet |
 | R2-b | Feed "Đang theo dõi" (ADR-021): projection `media.subscriptions` từ `social.subscription.changed`, migration 000012 (có backfill), `GET /v1/feed/subscriptions`. [Brief](prompts/sonnet_R2b_subscription-feed.md) · ✅ (#110) | Sonnet |
 | R2 | Recommendation v1 đầy đủ: co-view, theo subscription, ranking; khung A/B (sau R2-a) | Opus (thiết kế) + Sonnet |
