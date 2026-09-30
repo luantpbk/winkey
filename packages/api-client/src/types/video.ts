@@ -189,6 +189,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/feed/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Newest videos of the channels the caller follows (task R2-b, ADR-021).
+         * @description Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), newest first by `published_at`, of the
+         *     channels in the caller's subscriptions. video-svc answers from its own projection of
+         *     `social.subscription.changed`, so a new subscription shows up within seconds (eventual consistency).
+         *     No subscriptions → empty page. `Cache-Control: private, no-store`.
+         *     Gateway: `/v1/feed` goes to video-svc.
+         */
+        get: operations["getSubscriptionFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/search": {
         parameters: {
             query?: never;
@@ -792,6 +816,32 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    getSubscriptionFeed: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of videos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     searchVideos: {

@@ -78,7 +78,8 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | ID | Task | Owner |
 |---|---|---|
 | R1 | Analytics: heartbeat xem → JetStream → ClickHouse (gpu-01) | Antigravity 2 + Sonnet |
-| R2-a | Feed thịnh hành v1 (ADR-020): view theo giờ trong flush C3, bảng xếp hạng tính lại mỗi 10 phút, `listVideos?sort=trending`, migration 000011. [Brief](prompts/sonnet_R2a_trending.md) | Sonnet |
+| R2-a | Feed thịnh hành v1 (ADR-020): view theo giờ trong flush C3, bảng xếp hạng tính lại mỗi 10 phút, `listVideos?sort=trending`, migration 000011. [Brief](prompts/sonnet_R2a_trending.md) · ✅ (#101) | Sonnet |
+| R2-b | Feed "Đang theo dõi" (ADR-021): projection `media.subscriptions` từ `social.subscription.changed`, migration 000012 (có backfill), `GET /v1/feed/subscriptions`. [Brief](prompts/sonnet_R2b_subscription-feed.md) | Sonnet |
 | R2 | Recommendation v1 đầy đủ: co-view, theo subscription, ranking; khung A/B (sau R2-a) | Opus (thiết kế) + Sonnet |
 | V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
 | V5a | Storyboard xem trước khi tua: sprite 160×90 + WebVTT `#xywh`, migration 000008, `Playback.storyboard_url`. [Brief](prompts/sonnet_V5a_storyboard.md) · ✅ (#86) | Sonnet |

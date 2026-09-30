@@ -216,3 +216,20 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Việc tính lại là một câu truy vấn aggregate trên tối đa 72 giờ bucket, có index theo `hour`.
 - Video bị chuyển sang PRIVATE/HIDDEN vẫn nằm trong bảng tối đa 10 phút. Vì vậy câu đọc vẫn lọc lại theo điều kiện feed công khai, để nó không bao giờ lộ ra.
 - R2 đầy đủ (co-view, theo subscription, A/B) sẽ dùng lại `video_views_hourly` hoặc ClickHouse của R1.
+
+### ADR-021 — Feed "Đang theo dõi" (R2-b)
+**Bối cảnh.** Người dùng đã subscribe kênh (C1) nhưng chưa có chỗ xem video mới của các kênh đó. Dữ liệu subscribe nằm ở social-svc, còn danh sách video ở video-svc. ADR-007 cấm FK và truy vấn chéo schema giữa các service.
+**Quyết định.**
+- video-svc giữ **projection riêng** `media.subscriptions` (migration 000012), dựng từ event `social.subscription.changed`:
+  - durable `video-subscriptions` trên stream `SOCIAL`, `deliver_policy: all`;
+  - `subscribed=true` → upsert, `false` → delete, xử lý tuần tự theo thứ tự stream.
+- Stream `SOCIAL` chỉ giữ 7 ngày, nên migration 000012 **backfill một lần** từ `social.subscriptions`. Việc này làm được vì role migrator sở hữu cả hai schema. Consumer phát lại stream sau đó cũng vô hại, vì mọi thao tác đều idempotent và theo đúng thứ tự.
+- `GET /v1/feed/subscriptions`:
+  - chỉ trả video mà feed công khai được hiện, của các kênh người gọi theo dõi;
+  - xếp mới nhất trước theo `(published_at, id)`, có cursor;
+  - dùng index riêng `videos_owner_published`;
+  - `private, no-store`.
+- Nhất quán sau vài giây: một lượt subscribe mới xuất hiện trong feed khi consumer xử lý xong event.
+**Hệ quả.**
+- video-svc tiêu thụ thêm một subject của `SOCIAL`; NATS user của video cần quyền tạo durable này.
+- Người theo dõi hàng nghìn kênh làm câu truy vấn nặng hơn. Chấp nhận ở beta: truy vấn dùng index theo `owner_id` và giới hạn `limit`. Nếu cần, ở R2 đầy đủ sẽ chuyển sang fan-out-on-write.
