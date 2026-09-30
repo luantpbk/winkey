@@ -1,5 +1,5 @@
-# Traefik IngressRoute for Winkey on k3s (ADR-009, ADR-014)
-# Reuses routing rules exactly from deploy/compose/traefik/dynamic.yml
+# Traefik IngressRoute for Winkey on k3s (ADR-009, ADR-014, ADR-017)
+# Reuses routing rules from deploy/compose/traefik/dynamic.yml
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -12,7 +12,7 @@ spec:
   entryPoints:
     - web
   routes:
-    # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
+    # 1a. Auth public endpoints (external, with rate-limiting)
     # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`))'
       kind: Rule
@@ -27,7 +27,19 @@ spec:
           port: 3001
           namespace: default
 
-    # 2. Auth protected endpoints (users, profile management, admin)
+    # 1b. Auth public endpoints (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`))'
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+      services:
+        - name: auth-svc
+          port: 3001
+          namespace: default
+
+    # 2a. Auth protected endpoints (external, with rate-limiting)
     # Excludes /v1/auth/verify so it matches no public route and returns Traefik 404
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && ((PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`))'
       kind: Rule
@@ -44,7 +56,21 @@ spec:
           port: 3001
           namespace: default
 
-    # 3. Upload service routes
+    # 2b. Auth protected endpoints (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && ((PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`))'
+      kind: Rule
+      priority: 90
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: auth-verify
+          namespace: default
+      services:
+        - name: auth-svc
+          port: 3001
+          namespace: default
+
+    # 3a. Upload service routes (external, with rate-limiting)
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/uploads`)'
       kind: Rule
       priority: 80
@@ -60,7 +86,21 @@ spec:
           port: 3002
           namespace: default
 
-    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation)
+    # 3b. Upload service routes (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/v1/uploads`)'
+      kind: Rule
+      priority: 80
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: auth-verify
+          namespace: default
+      services:
+        - name: upload-svc
+          port: 3002
+          namespace: default
+
+    # 4a. Social service routes (external, with rate-limiting)
     # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
       kind: Rule
@@ -77,7 +117,21 @@ spec:
           port: 3004
           namespace: default
 
-    # 5. Video, Studio, Feed, Search & Playback routes
+    # 4b. Social service routes (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
+      kind: Rule
+      priority: 85
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: auth-verify
+          namespace: default
+      services:
+        - name: social-svc
+          port: 3004
+          namespace: default
+
+    # 5a. Video, Studio, Feed, Search & Playback routes (external, with rate-limiting)
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`))'
       kind: Rule
       priority: 80
@@ -93,7 +147,21 @@ spec:
           port: 3003
           namespace: default
 
-    # 6. Realtime service routes (WebSocket & ticket issuance)
+    # 5b. Video, Studio, Feed, Search & Playback routes (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`))'
+      kind: Rule
+      priority: 80
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: auth-verify
+          namespace: default
+      services:
+        - name: video-svc
+          port: 3003
+          namespace: default
+
+    # 6a. Realtime service routes (external, with rate-limiting)
     - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/realtime`)'
       kind: Rule
       priority: 80
@@ -109,8 +177,22 @@ spec:
           port: 3005
           namespace: default
 
+    # 6b. Realtime service routes (in-cluster SSR, separate router without rate-limiting)
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/v1/realtime`)'
+      kind: Rule
+      priority: 80
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: auth-verify
+          namespace: default
+      services:
+        - name: realtime-svc
+          port: 3005
+          namespace: default
+
     # 7. Smoke test route for header stripping verification
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/smoke/whoami`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/smoke/whoami`)'
       kind: Rule
       priority: 80
       middlewares:
