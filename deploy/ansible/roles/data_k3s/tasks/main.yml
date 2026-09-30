@@ -1,0 +1,107 @@
+---
+# Role: data_k3s
+# Deploys CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and migration/setup jobs (task DATA)
+
+- name: Check if kubectl-cnpg is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/kubectl-cnpg
+  register: kubectl_cnpg_bin
+
+- name: Download and install kubectl-cnpg plugin (v1.25.4 arm64)
+  ansible.builtin.unarchive:
+    src: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.25.4/kubectl-cnpg_1.25.4_linux_arm64.tar.gz
+    dest: /usr/local/bin/
+    remote_src: true
+    mode: "0755"
+    include:
+      - kubectl-cnpg
+  when: not kubectl_cnpg_bin.stat.exists
+
+- name: Sync data plane manifests to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../k8s/data/"
+    dest: /var/lib/rancher/k3s/data-manifests/
+    mode: preserve
+  register: data_manifests_sync
+
+- name: Make scripts executable
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+  loop:
+    - /var/lib/rancher/k3s/data-manifests/secrets.sh
+    - /var/lib/rancher/k3s/data-manifests/verify.sh
+
+- name: Check if CNPG operator deployment exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get deployment cnpg-controller-manager -n cnpg-system
+  register: cnpg_deploy_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Deploy CloudNativePG operator
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply --server-side --force-conflicts -f /var/lib/rancher/k3s/data-manifests/cnpg-operator.yaml
+  when: cnpg_deploy_check.rc != 0
+
+- name: Wait for CNPG operator rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment cnpg-controller-manager -n cnpg-system --timeout=120s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Check if data plane secrets exist
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret winkey-pg-owner nats-auth valkey-auth -n default
+  register: data_secrets_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Generate data plane secrets if missing
+  ansible.builtin.command: bash /var/lib/rancher/k3s/data-manifests/secrets.sh default
+  when: data_secrets_check.rc != 0
+
+- name: Check if winkey-pg cluster exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get cluster winkey-pg -n default
+  register: pg_cluster_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Check for drift in data plane manifests
+  ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/data-manifests/
+  register: data_drift_check
+  changed_when: data_drift_check.rc == 1
+  failed_when: data_drift_check.rc > 1
+  check_mode: false
+
+- name: Recreate setup jobs when manifests changed or drift detected
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete job winkey-pg-setup nats-bootstrap -n default --ignore-not-found
+  when: data_manifests_sync.changed or data_drift_check.rc == 1
+
+- name: Apply data plane kustomization
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/data-manifests/
+  when: data_manifests_sync.changed or pg_cluster_check.rc != 0 or data_drift_check.rc == 1
+
+- name: Wait for PostgreSQL cluster winkey-pg
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready cluster/winkey-pg -n default --timeout=300s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for NATS StatefulSet rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/nats -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for Valkey StatefulSet rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/valkey -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for winkey-pg-setup Job completion
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=complete job/winkey-pg-setup -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for nats-bootstrap Job completion
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=complete job/nats-bootstrap -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode

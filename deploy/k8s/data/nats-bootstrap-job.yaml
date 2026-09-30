@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nats-bootstrap
+  namespace: default
+  labels:
+    app.kubernetes.io/name: nats-bootstrap
+    app.kubernetes.io/part-of: winkey
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats-bootstrap
+        app.kubernetes.io/part-of: winkey
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: natsio/nats-box:0.14.5
+          env:
+            - name: NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-admin-creds
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              NATS_SERVER="nats://admin:${NATS_PASSWORD}@nats:4222"
+
+              echo "Waiting for NATS JetStream..."
+              until nats stream ls --server="$NATS_SERVER" >/dev/null 2>&1; do
+                sleep 2
+              done
+              echo "Connected to NATS JetStream."
+
+              create_or_update_stream() {
+                NAME="$1"
+                SUBJECT="$2"
+                AGE="$3"
+                cat <<EOF > "/tmp/${NAME}.json"
+              {
+                "name": "${NAME}",
+                "subjects": ["${SUBJECT}"],
+                "retention": "limits",
+                "max_consumers": -1,
+                "max_msgs": -1,
+                "max_bytes": -1,
+                "discard": "old",
+                "max_age": ${AGE},
+                "storage": "file",
+                "num_replicas": 1,
+                "duplicate_window": 120000000000
+              }
+              EOF
+                if nats stream info "$NAME" --server="$NATS_SERVER" >/dev/null 2>&1; then
+                  echo "Stream $NAME exists, updating..."
+                  nats stream edit "$NAME" --server="$NATS_SERVER" --config="/tmp/${NAME}.json" -f
+                else
+                  echo "Creating stream $NAME..."
+                  nats stream add "$NAME" --server="$NATS_SERVER" --config="/tmp/${NAME}.json"
+                fi
+              }
+
+              create_or_update_stream "VIDEO" "video.>" 604800000000000
+              create_or_update_stream "USER" "user.>" 604800000000000
+              create_or_update_stream "SOCIAL" "social.>" 604800000000000
+              create_or_update_stream "DLQ" "dlq.>" 2592000000000000
+
+              echo "Streams configured successfully:"
+              nats stream ls --server="$NATS_SERVER"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

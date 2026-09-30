@@ -1,0 +1,97 @@
+# PostgreSQL 17 Cluster via CloudNativePG (CNPG)
+# Task DATA: Single-node cluster on local-path, managed roles, and automated S3 backup to Garage
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: winkey-pg
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: winkey
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+
+  inheritedMetadata:
+    labels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/part-of: winkey
+
+  storage:
+    size: 15Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: winkey
+      owner: winkey_owner
+      secret:
+        name: winkey-pg-owner
+
+  managed:
+    roles:
+      - name: auth_svc
+        ensure: present
+        login: true
+        passwordSecret:
+          name: winkey-pg-auth-svc
+      - name: media_svc
+        ensure: present
+        login: true
+        passwordSecret:
+          name: winkey-pg-media-svc
+      - name: social_svc
+        ensure: present
+        login: true
+        passwordSecret:
+          name: winkey-pg-social-svc
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://winkey-pg-backup/
+      endpointURL: http://garage-s3.default.svc:3900
+      s3Credentials:
+        accessKeyId:
+          name: garage-key-pg-backup
+          key: AWS_ACCESS_KEY_ID
+        secretAccessKey:
+          name: garage-key-pg-backup
+          key: AWS_SECRET_ACCESS_KEY
+        region:
+          name: garage-key-pg-backup
+          key: S3_REGION
+      wal:
+        compression: gzip
+        maxParallel: 1
+      data:
+        compression: gzip
+    retentionPolicy: '7d'
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1536Mi
+
+  postgresql:
+    parameters:
+      shared_buffers: '256MB'
+      work_mem: '16MB'
+      maintenance_work_mem: '64MB'
+      max_connections: '100'
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: winkey-pg-daily-backup
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: winkey
+spec:
+  schedule: '0 0 3 * * *'
+  cluster:
+    name: winkey-pg
+  backupOwnerReference: self

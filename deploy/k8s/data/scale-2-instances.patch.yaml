@@ -1,0 +1,11 @@
+# Kustomize patch to scale PostgreSQL cluster from 1 to 2 instances (HA replica)
+# When scaling to >1 instance, the NodePort service (postgres-nodeport 30432)
+# must select cnpg.io/instanceRole: primary to ensure external/gpu-01 write traffic
+# routes exclusively to the primary instance.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: winkey-pg
+  namespace: default
+spec:
+  instances: 2
