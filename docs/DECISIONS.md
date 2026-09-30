@@ -170,3 +170,13 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Link ký là **link chia sẻ được trong 6 giờ** (gắn với video, không gắn với người dùng). Chấp nhận được cho người xem có quyền; giảm TTL nếu cần.
 - `secure_link` của nginx chỉ hỗ trợ MD5; an toàn đủ dùng vì bí mật đứng cuối chuỗi và có hạn dùng. Nếu cần HMAC thật thì chuyển sang njs (việc sau).
 - Video-svc thêm một endpoint nóng; nó phải rẻ (1 truy vấn theo khóa chính, không log từng request ở mức info).
+
+### ADR-018 — Phụ đề WebVTT (V5b), auto-caption tách thành V5c
+**Bối cảnh.** Roadmap gộp "phụ đề + auto-caption Whisper trên GPU" vào V5b. Auto-caption cần GPU của gpu-01, mà máy này còn chạy việc khác ngoài Winkey (ADR-015; agent không được đụng tới). Phần phụ đề do chủ video tải lên thì không cần GPU và làm được ngay.
+**Quyết định.**
+- **V5b = phụ đề do chủ video tải lên.** Mỗi video có tối đa 20 track, mỗi ngôn ngữ một track (BCP 47 rút gọn: `vi`, `en`, `en-US`). Bảng `media.video_subtitles` (migration 000010); `source` = `UPLOAD`, còn `AUTO` để dành cho V5c.
+- API `PUT`/`DELETE /v1/videos/{id}/subtitles/{lang}`, chỉ chủ video được gọi. Body JSON `{label, content}` (tối đa 512 KiB). video-svc kiểm tra WebVTT phía server (UTF-8, dòng đầu `WEBVTT`, có ít nhất một cue, timing hợp lệ, end > start), rồi chuẩn hóa (bỏ BOM, xuống dòng kiểu LF) trước khi lưu. File sai → `400` `INVALID_WEBVTT`, kèm số dòng lỗi.
+- Object nằm ở `v/{video_id}/subtitles/{lang}-{uuidv7}.vtt`. Mỗi lần tải lên dùng **khóa mới**, nên object không bao giờ bị ghi đè và vẫn cache `immutable` được; object cũ bị xóa sau commit (best effort). Vì nằm dưới `v/{id}/` nên URL ký của SEC1 (ADR-017), `mediaAccess` và janitor khi xóa video tự áp dụng mà không phải sửa gì.
+- `Playback.subtitles[]` trả `{lang, label, source, url, updated_at}`; `url` được ký giống `hls_url` khi video không công khai. Không phát event nào, vì không service nào khác cần.
+- **V5c (auto-caption)** chưa thiết kế. Trước khi làm cần quyết định ngân sách GPU trên gpu-01 (giờ chạy, VRAM, có dừng các việc khác hay không). Khi đó transcoder hoặc một worker riêng sẽ ghi track `source = AUTO`, dùng lại đúng bảng và URL của V5b.
+**Hệ quả.** File `.vtt` được phục vụ từ `media.winkey.vn` với `Content-Type: text/vtt`, trình duyệt không chạy nó như HTML. Khi làm SEC1-b, nginx nên thêm `X-Content-Type-Options: nosniff` cho mọi media. Nội dung cue do người dùng viết: player phải hiển thị bằng text track của trình duyệt hoặc hls.js, không chèn `innerHTML`.

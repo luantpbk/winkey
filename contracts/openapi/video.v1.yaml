@@ -23,6 +23,8 @@ info:
     (now + 6 h) and `sig` is the unpadded base64url of `md5(expires + "/v/" + video_id + "/ " + MEDIA_LINK_SECRET)`
     (nginx `secure_link` format). `Playback.expires_at` is then set; the player refetches the video
     before it passes.
+    Task V5b (ADR-018) — subtitles: WebVTT tracks, one per language, uploaded by the owner. Objects live
+    under `v/{video_id}/subtitles/`, so SEC1 signing and the delete path apply to them unchanged.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -38,6 +40,8 @@ tags:
     description: Creator views of their own videos.
   - name: moderation
     description: Hide or restore a video (task A2).
+  - name: subtitles
+    description: WebVTT subtitle tracks (task V5b, ADR-018).
   - name: internal
     description: Called only by infrastructure (nginx on edge-1). Never routed publicly (task SEC1).
   - name: search
@@ -255,6 +259,85 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /v1/videos/{video_id}/subtitles/{lang}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+      - name: lang
+        in: path
+        required: true
+        description: BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `en-US`).
+        schema:
+          type: string
+          pattern: '^[a-z]{2,3}(-[A-Z]{2})?$'
+    put:
+      tags: [subtitles]
+      operationId: putSubtitle
+      summary: Create or replace the subtitle track of one language (owner only).
+      description: |
+        Only the owner (moderators and admins included: `403` unless they own the video). Any status except
+        `FAILED` (`409`); a track can be prepared while the video is processing.
+
+        `content` is validated server-side, otherwise `400` with `code`:
+        - `SUBTITLE_TOO_LARGE`: more than 524288 bytes of UTF-8;
+        - `INVALID_WEBVTT`: not valid UTF-8, contains NUL, the first line (after an optional BOM) is not
+          `WEBVTT` optionally followed by a space or tab and text, no cue, a cue timing that is not
+          `[HH:]MM:SS.mmm --> [HH:]MM:SS.mmm` or whose end is not after its start. `detail` names the line.
+        The stored file is normalised (BOM removed, CRLF/CR → LF) and served as `text/vtt; charset=utf-8`
+        with the same immutable Cache-Control as other media. Every upload gets a NEW object key
+        (`v/{video_id}/subtitles/{lang}-{uuidv7}.vtt`); the previous object is removed after the commit,
+        best effort. At most 20 tracks per video: a new language beyond that → `409` `TOO_MANY_SUBTITLES`.
+        No event is emitted.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutSubtitleRequest'
+      responses:
+        '200':
+          description: Track replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubtitleTrack'
+        '201':
+          description: Track created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubtitleTrack'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [subtitles]
+      operationId: deleteSubtitle
+      summary: Remove the subtitle track of one language (owner only). The object is removed best effort.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: Unknown video, video the caller may not see, or no track for this language.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
+
   /internal/media-access/{video_id}:
     get:
       tags: [internal]
@@ -410,6 +493,14 @@ components:
           type: string
           format: date-time
           description: Present only for signed URLs; when they stop working (task SEC1).
+        subtitles:
+          type: array
+          maxItems: 20
+          description: |
+            Subtitle tracks (task V5b), sorted by `lang`. video-svc always sends it (empty when there is none);
+            optional only so that older servers stay valid.
+          items:
+            $ref: '#/components/schemas/SubtitleTrack'
         renditions:
           type: array
           items:
@@ -596,6 +687,46 @@ components:
         moderated_at:
           type: [string, 'null']
           format: date-time
+
+    SubtitleTrack:
+      type: object
+      additionalProperties: false
+      required: [lang, label, source, url, updated_at]
+      properties:
+        lang:
+          type: string
+          pattern: '^[a-z]{2,3}(-[A-Z]{2})?$'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Shown in the player menu, e.g. `Tiếng Việt`.
+        source:
+          type: string
+          enum: [UPLOAD, AUTO]
+          description: '`AUTO` is reserved for auto-captions (V5c); only `UPLOAD` exists today.'
+        url:
+          type: string
+          format: uri
+          description: The `.vtt` file. Signed like `Playback.hls_url` when the video is not publicly watchable (SEC1).
+        updated_at:
+          type: string
+          format: date-time
+
+    PutSubtitleRequest:
+      type: object
+      additionalProperties: false
+      required: [label, content]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        content:
+          type: string
+          minLength: 6
+          maxLength: 524288
+          description: The whole WebVTT file. The byte limit (524288 bytes of UTF-8) is checked server-side.
 
     ModerateVideoRequest:
       type: object
