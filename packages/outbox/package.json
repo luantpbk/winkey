@@ -51,6 +51,6 @@
     "pg": "^8.13.3",
     "testcontainers": "^10.18.0",
     "typescript": "^5.8.2",
-    "vitest": "^3.0.8"
+    "vitest": "^5.0.2"
   }
 }
