@@ -1,0 +1,9 @@
+{
+  "type": "event",
+  "room": "user:0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9a01",
+  "event": "notification.hint",
+  "data": {
+    "kind": "COMMENT_REPLY"
+  },
+  "ts": "2026-10-01T08:00:00.000Z"
+}

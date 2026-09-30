@@ -23,7 +23,7 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
 | `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2) | [social.comment.created](social.comment.created.schema.json) |
 | `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |
-| `social.subscription.changed` | JetStream `SOCIAL` | social-svc | video-svc (feed theo dõi, R2-b) | [social.subscription.changed](social.subscription.changed.schema.json) |
+| `social.subscription.changed` | JetStream `SOCIAL` | social-svc | video-svc (feed theo dõi, R2-b), realtime-gw (N2) | [social.subscription.changed](social.subscription.changed.schema.json) |
 | `analytics.playback` | JetStream `ANALYTICS` (telemetry, không qua outbox) | video-svc (R1) | analytics-worker trên gpu-01 → ClickHouse | [analytics.playback](analytics.playback.schema.json) |
 | `rt.video.{video_id}.progress` | core NATS | transcoder | realtime-gw, upload-svc (cache) | [video.progress](video.progress.schema.json) |
 | `dlq.video.uploaded` | JetStream `DLQ` | transcoder | con người (replay tool) | bản gốc của `video.uploaded` |
