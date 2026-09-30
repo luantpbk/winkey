@@ -16,6 +16,7 @@ let moderatorToken = '';
 let moderatorUser = null;
 let uploadedVideoId = '';
 let commentId = '';
+let masterPlaylistUrl = '';
 
 export const scenarioResults = [];
 
@@ -24,7 +25,6 @@ function recordResult(id, name, status, durationMs, notes = '') {
 }
 
 describe('Winkey End-to-End System Tests (QA1)', () => {
-
   after(() => {
     console.log('\n========================================================================================');
     console.log('                          SYSTEM TEST SUITE SUMMARY (QA1)                               ');
@@ -229,23 +229,33 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // S4: Realtime Gateway (Ticket & WebSocket Subscription)
+  // S4: Realtime Gateway (Browser W3C WebSocket API & Ticket through Gateway)
   // ---------------------------------------------------------------------------
   it('S4: realtime ticket & video room subscription', async () => {
     const startTime = Date.now();
-    // 1. Issue ticket
-    const ticketRes = await fetch(`${REALTIME_URL}/v1/realtime/ticket`, {
+
+    // 1. Issue ticket THROUGH THE GATEWAY with Authorization header
+    let ticketRes = await fetch(`${GATEWAY_URL}/v1/realtime/ticket`, {
       method: 'POST',
-      headers: {
-        'X-User-Id': creatorUser.id,
-        'X-User-Roles': 'viewer,creator',
-      },
+      headers: { Authorization: `Bearer ${creatorToken}` },
     });
+
+    // Fallback direct endpoint if Traefik route /v1/realtime is missing (Issue #103)
+    if (ticketRes.status === 404) {
+      ticketRes = await fetch(`${REALTIME_URL}/v1/realtime/ticket`, {
+        method: 'POST',
+        headers: {
+          'X-User-Id': creatorUser.id,
+          'X-User-Roles': 'viewer,creator',
+        },
+      });
+    }
+
     assert.equal(ticketRes.status, 201, `Issue ticket failed: ${await ticketRes.text()}`);
     const ticketData = await ticketRes.json();
     assert.ok(ticketData.ticket, 'Ticket missing from response');
 
-    // 2. Connect WebSocket
+    // 2. Connect WebSocket using Node 22 global WHATWG WebSocket standard API
     const wsUrl = `ws://127.0.0.1:8003/v1/realtime?ticket=${ticketData.ticket}`;
     const ws = new WebSocket(wsUrl);
 
@@ -253,15 +263,15 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
       const timeout = setTimeout(() => {
         ws.close();
         reject(new Error('WebSocket connection timeout'));
-      }, 5000);
+      }, 10000);
 
-      ws.on('open', () => {
+      ws.addEventListener('open', () => {
         // Subscribe to video room
         ws.send(JSON.stringify({ type: 'subscribe', id: 'req-1', room: `video:${uploadedVideoId}` }));
       });
 
-      ws.on('message', (msg) => {
-        const parsed = JSON.parse(msg.toString());
+      ws.addEventListener('message', (event) => {
+        const parsed = JSON.parse(event.data);
         if (parsed.type === 'ack' && parsed.id === 'req-1') {
           clearTimeout(timeout);
           ws.close();
@@ -269,7 +279,7 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
         }
       });
 
-      ws.on('error', (err) => {
+      ws.addEventListener('error', (err) => {
         clearTimeout(timeout);
         reject(err);
       });
@@ -288,6 +298,8 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const video = await vidRes.json();
     assert.ok(video.playback, 'video playback object is missing');
     assert.ok(video.playback.hls_url, 'hls_url is missing');
+    assert.ok(video.playback.storyboard_url, 'storyboard_url MUST be present');
+    masterPlaylistUrl = video.playback.hls_url;
 
     // 1. Fetch master playlist
     const masterRes = await fetch(video.playback.hls_url);
@@ -316,24 +328,70 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const segRes = await fetch(segmentUrl);
     assert.equal(segRes.status, 200, `Segment fetch failed: ${segRes.status}`);
 
-    // Check Storyboard VTT if present
-    if (video.playback.storyboard_url) {
-      const sbRes = await fetch(video.playback.storyboard_url);
-      assert.equal(sbRes.status, 200, `Storyboard VTT fetch failed: ${sbRes.status}`);
-      const sbText = await sbRes.text();
-      assert.ok(sbText.includes('WEBVTT'), 'Invalid storyboard VTT format');
-    }
+    // Fetch Storyboard VTT
+    const sbRes = await fetch(video.playback.storyboard_url);
+    assert.equal(sbRes.status, 200, `Storyboard VTT fetch failed: ${sbRes.status}`);
+    const sbText = await sbRes.text();
+    assert.ok(sbText.includes('WEBVTT'), 'Invalid storyboard VTT format');
 
     recordResult('S5', 'viewer playback & storyboard', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
-  // S6: Social Flow (Comments, Replies, Likes, Subscriptions)
+  // S6: Social Flow (Comments, Replies, Likes, Subscriptions & Realtime Event)
   // ---------------------------------------------------------------------------
-  it('S6: comment, reply, like, subscribe & realtime events', async () => {
+  it('S6: comment, reply, like, subscribe & realtime comment.created', async () => {
     const startTime = Date.now();
 
-    // 1. Viewer B posts top-level comment
+    // 1. Open WS connection for realtime comment.created check
+    let ticketRes = await fetch(`${GATEWAY_URL}/v1/realtime/ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+
+    if (ticketRes.status === 404) {
+      ticketRes = await fetch(`${REALTIME_URL}/v1/realtime/ticket`, {
+        method: 'POST',
+        headers: {
+          'X-User-Id': creatorUser.id,
+          'X-User-Roles': 'viewer,creator',
+        },
+      });
+    }
+
+    const ticketData = await ticketRes.json();
+    const wsUrl = `ws://127.0.0.1:8003/v1/realtime?ticket=${ticketData.ticket}`;
+    const ws = new WebSocket(wsUrl);
+
+    let realtimeCommentCreatedPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        ws.close();
+        reject(new Error('Timeout waiting for comment.created realtime event'));
+      }, 10000);
+
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({ type: 'subscribe', id: 's6-sub', room: `video:${uploadedVideoId}` }));
+      });
+
+      ws.addEventListener('message', (event) => {
+        const parsed = JSON.parse(event.data);
+        if (parsed.type === 'event' && parsed.event === 'comment.created') {
+          clearTimeout(timeout);
+          ws.close();
+          resolve(parsed);
+        }
+      });
+
+      ws.addEventListener('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+
+    // Wait 500ms for WS connection to open & subscribe
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 2. Viewer B posts top-level comment
     const commentRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
       method: 'POST',
       headers: {
@@ -347,7 +405,10 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     commentId = commentData.id;
     assert.ok(commentId, 'Comment ID missing');
 
-    // 2. Creator A replies to B's comment
+    // 3. Await realtime comment.created event delivery
+    await realtimeCommentCreatedPromise;
+
+    // 4. Creator A replies to B's comment
     const replyRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
       method: 'POST',
       headers: {
@@ -358,7 +419,7 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     });
     assert.equal(replyRes.status, 201, `Create reply failed: ${await replyRes.text()}`);
 
-    // 3. Viewer B likes video
+    // 5. Viewer B likes video
     const likeRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/like`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${viewerToken}` },
@@ -368,7 +429,7 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     assert.equal(likeData.liked, true);
     assert.equal(likeData.like_count, 1);
 
-    // 4. Viewer B subscribes to Creator A
+    // 6. Viewer B subscribes to Creator A
     const subRes = await fetch(`${GATEWAY_URL}/v1/channels/${creatorUser.id}/subscription`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${viewerToken}` },
@@ -377,13 +438,13 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const subData = await subRes.json();
     assert.equal(subData.subscribed, true);
 
-    // 5. Verify listings
+    // 7. Verify listings
     const commentsList = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
     assert.equal(commentsList.status, 200);
     const cListData = await commentsList.json();
     assert.ok(cListData.items.length >= 1);
 
-    recordResult('S6', 'social interactions', 'PASSED', Date.now() - startTime);
+    recordResult('S6', 'social & realtime comment.created', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
@@ -590,17 +651,40 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // S10: Account Password Change & Suspension
+  // S10: Account Password Change & A4 Revocation / Suspension
   // ---------------------------------------------------------------------------
-  it('S10: changePassword & admin suspension 401/403', async () => {
+  it('S10: changePassword session revocation & admin suspension 401/403', async () => {
     const startTime = Date.now();
 
-    // 1. Creator A changes password
+    // 1. Log Creator A in twice (Session 1 and Session 2)
+    const login1 = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: creatorUser.email,
+        password: 'Password123!',
+      }),
+    });
+    assert.equal(login1.status, 200);
+    const token1 = (await login1.json()).access_token;
+
+    const login2 = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: creatorUser.email,
+        password: 'Password123!',
+      }),
+    });
+    assert.equal(login2.status, 200);
+    const token2 = (await login2.json()).access_token;
+
+    // 2. Change password using Session 1 (token1)
     const pwdRes = await fetch(`${GATEWAY_URL}/v1/auth/me/password`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${creatorToken}`,
+        Authorization: `Bearer ${token1}`,
       },
       body: JSON.stringify({
         current_password: 'Password123!',
@@ -609,18 +693,19 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     });
     assert.equal(pwdRes.status, 204, `Change password failed: ${await pwdRes.text()}`);
 
-    // Check old token behavior (A4 session revocation status)
-    const oldTokenCheck = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${creatorToken}` },
+    // 3. Assert Session 2's token (token2) is revoked immediately -> 401
+    const checkToken2 = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token2}` },
     });
-    let s10Note = '';
-    if (oldTokenCheck.status === 401) {
-      s10Note = 'Session revoked immediately (A4 merged)';
-    } else {
-      s10Note = '[PENDING A4] Token remains valid statelessly prior to A4 revocation check';
-    }
+    assert.equal(checkToken2.status, 401, 'Session 2 token should be revoked immediately (A4)');
 
-    // 2. Admin M suspends Viewer B
+    // 4. Assert Session 1's token (token1) remains valid -> 200
+    const checkToken1 = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token1}` },
+    });
+    assert.equal(checkToken1.status, 200, 'Session 1 token should remain valid after password change');
+
+    // 5. Admin M suspends Viewer B
     const suspRes = await fetch(`${GATEWAY_URL}/v1/admin/users/${viewerUser.id}/suspension`, {
       method: 'PUT',
       headers: {
@@ -631,7 +716,13 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     });
     assert.equal(suspRes.status, 200, `Suspend user failed: ${await suspRes.text()}`);
 
-    // 3. Suspended Viewer B attempts login -> 403
+    // 6. Suspended Viewer B's EXISTING token -> 401 on /v1/auth/me immediately
+    const checkViewerToken = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
+    assert.equal(checkViewerToken.status, 401, 'Suspended user existing token should be revoked immediately (401)');
+
+    // 7. Suspended Viewer B login attempt -> 403
     const suspLogin = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -642,13 +733,13 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     });
     assert.equal(suspLogin.status, 403, `Suspended user login returned ${suspLogin.status} instead of 403`);
 
-    recordResult('S10', 'account password & suspension', 'PASSED', Date.now() - startTime, s10Note);
+    recordResult('S10', 'account password & A4 revocation', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
-  // S11: Video Deletion
+  // S11: Video Deletion & Master Playlist Poll
   // ---------------------------------------------------------------------------
-  it('S11: delete -> 404 everywhere & media objects purged', async () => {
+  it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
     const startTime = Date.now();
 
     // Re-authenticate Creator A with new password
@@ -677,15 +768,29 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const getComm = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
     assert.equal(getComm.status, 404);
 
-    recordResult('S11', 'video deletion', 'PASSED', Date.now() - startTime);
+    // 3. Poll master playlist URL until 404 (≤ 60s)
+    let mediaDeleted = false;
+    const pollDeadline = Date.now() + 60000;
+    while (Date.now() < pollDeadline) {
+      const mediaRes = await fetch(masterPlaylistUrl);
+      if (mediaRes.status === 404 || mediaRes.status === 403) {
+        mediaDeleted = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    assert.ok(mediaDeleted, 'Master playlist media object was not deleted within 60s');
+
+    recordResult('S11', 'video deletion & media purge', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
-  // S12: Subtitles (Pending V5b)
+  // S12: Subtitles (V5b Merged)
   // ---------------------------------------------------------------------------
-  it('S12: subtitles track upload & playback listing (V5b status)', async () => {
+  it('S12: subtitles track upload 201 & playback listing', async () => {
     const startTime = Date.now();
-    // Test if V5b subtitle endpoint exists
+
+    // Upload subtitle track for a new upload or video
     const subRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/subtitles/vi`, {
       method: 'PUT',
       headers: {
@@ -694,21 +799,30 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
       },
       body: JSON.stringify({
         label: 'Tiếng Việt',
-        content: 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nXin chào\n',
+        content: 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nXin chào Hà Nội!\n',
       }),
     });
 
-    if (subRes.status === 404 || subRes.status === 501) {
-      recordResult(
-        'S12',
-        'subtitles (V5b)',
-        'PENDING',
-        Date.now() - startTime,
-        '[PENDING V5b] Subtitles feature not merged yet',
-      );
-    } else {
-      assert.ok(subRes.status === 200 || subRes.status === 201, `Subtitles endpoint returned ${subRes.status}`);
-      recordResult('S12', 'subtitles (V5b)', 'PASSED', Date.now() - startTime);
-    }
+    assert.equal(subRes.status, 201, `Upload subtitles returned ${subRes.status} instead of 201: ${await subRes.text()}`);
+
+    // GET video and verify playback.subtitles
+    const vidRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    assert.equal(vidRes.status, 200);
+    const videoData = await vidRes.json();
+
+    assert.ok(Array.isArray(videoData.playback.subtitles), 'playback.subtitles must be an array');
+    const track = videoData.playback.subtitles.find((s) => s.lang === 'vi');
+    assert.ok(track, 'Subtitle track for "vi" missing in playback response');
+    assert.equal(track.lang, 'vi');
+
+    // Fetch subtitle .vtt URL
+    const vttRes = await fetch(track.url);
+    assert.equal(vttRes.status, 200, `Subtitle .vtt fetch returned ${vttRes.status}`);
+    const vttText = await vttRes.text();
+    assert.ok(vttText.includes('WEBVTT'), 'Subtitle VTT file content invalid');
+
+    recordResult('S12', 'subtitles (V5b)', 'PASSED', Date.now() - startTime);
   });
 });
