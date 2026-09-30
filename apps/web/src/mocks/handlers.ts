@@ -32,6 +32,8 @@ import type {
   UpdateMeRequest,
   ChangePasswordRequest,
   DeleteMeRequest,
+  SubtitleTrack,
+  PutSubtitleRequest,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -1038,6 +1040,230 @@ export const handlers = [
     const currentStudio = getDynamicStudioVideos().filter((v) => v.id !== videoId);
     setDynamicStudioVideos(currentStudio);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // --- SUBTITLES & STORYBOARD ENDPOINTS (Task U7) ---
+  http.put('*/v1/videos/:id/subtitles/:lang', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.id as string;
+    const lang = params.lang as string;
+    const body = (await request.json()) as PutSubtitleRequest;
+
+    // Check size limit: max 524288 bytes
+    if (body.content && new TextEncoder().encode(body.content).length > 524288) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Subtitle too large',
+          status: 400,
+          code: 'SUBTITLE_TOO_LARGE',
+          detail: 'Subtitle file exceeds 524288 bytes',
+        },
+        { status: 400 },
+      );
+    }
+
+    // Check WebVTT validity: starts with WEBVTT
+    const cleanContent = (body.content || '').replace(/^\uFEFF/, '').trim();
+    if (!cleanContent.startsWith('WEBVTT')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Invalid WebVTT',
+          status: 400,
+          code: 'INVALID_WEBVTT',
+          detail: 'First line must be WEBVTT (line 1)',
+        },
+        { status: 400 },
+      );
+    }
+
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const video = currentVideos[videoIndex];
+    if (video.owner.id !== caller.id) {
+      return HttpResponse.json(
+        { type: '/problems/forbidden', title: 'Forbidden', status: 403, code: 'FORBIDDEN' },
+        { status: 403 },
+      );
+    }
+
+    if (video.status === 'FAILED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Video failed',
+          status: 409,
+          code: 'VIDEO_FAILED',
+          detail: 'Cannot add subtitles to a failed video',
+        },
+        { status: 409 },
+      );
+    }
+
+    const currentSubtitles = [...(video.playback?.subtitles || [])];
+    const existingIndex = currentSubtitles.findIndex((t) => t.lang === lang);
+
+    if (existingIndex === -1 && currentSubtitles.length >= 20) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Too many subtitles',
+          status: 409,
+          code: 'TOO_MANY_SUBTITLES',
+          detail: 'Maximum 20 subtitle tracks per video',
+        },
+        { status: 409 },
+      );
+    }
+
+    const track: SubtitleTrack = {
+      lang,
+      label: body.label || lang,
+      source: 'UPLOAD',
+      url: `/v1/mock-subtitles/${videoId}/${lang}.vtt`,
+      updated_at: new Date().toISOString(),
+    };
+
+    let status = 200;
+    if (existingIndex !== -1) {
+      currentSubtitles[existingIndex] = track;
+    } else {
+      currentSubtitles.push(track);
+      status = 201;
+    }
+
+    if (video.playback) {
+      video.playback = {
+        ...video.playback,
+        subtitles: currentSubtitles,
+      };
+    }
+
+    currentVideos[videoIndex] = video;
+    setDynamicVideos(currentVideos);
+
+    return HttpResponse.json(track, { status });
+  }),
+
+  http.delete('*/v1/videos/:id/subtitles/:lang', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.id as string;
+    const lang = params.lang as string;
+
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const video = currentVideos[videoIndex];
+    if (video.owner.id !== caller.id) {
+      return HttpResponse.json(
+        { type: '/problems/forbidden', title: 'Forbidden', status: 403, code: 'FORBIDDEN' },
+        { status: 403 },
+      );
+    }
+
+    const currentSubtitles = [...(video.playback?.subtitles || [])];
+    const trackIndex = currentSubtitles.findIndex((t) => t.lang === lang);
+    if (trackIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Subtitle track not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    currentSubtitles.splice(trackIndex, 1);
+    if (video.playback) {
+      video.playback = {
+        ...video.playback,
+        subtitles: currentSubtitles,
+      };
+    }
+
+    currentVideos[videoIndex] = video;
+    setDynamicVideos(currentVideos);
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/mock-subtitles/:id/:file', () => {
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+Chào mừng các bạn đến với Winkey VN!
+
+00:00:05.000 --> 00:00:10.000
+Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
+`;
+    return new HttpResponse(vtt, {
+      status: 200,
+      headers: { 'Content-Type': 'text/vtt; charset=utf-8' },
+    });
+  }),
+
+  http.get('*/v1/mock-storyboard/:id/storyboard.vtt', () => {
+    let vtt = 'WEBVTT\n\n';
+    for (let t = 0; t < 1500; t += 5) {
+      const start = new Date(t * 1000).toISOString().slice(11, 23);
+      const end = new Date((t + 5) * 1000).toISOString().slice(11, 23);
+      const col = (t / 5) % 5;
+      const row = Math.floor(t / 5 / 5) % 5;
+      vtt += `${start} --> ${end}\nsprites_0.jpg#xywh=${col * 160},${row * 90},160,90\n\n`;
+    }
+    return new HttpResponse(vtt, {
+      status: 200,
+      headers: { 'Content-Type': 'text/vtt; charset=utf-8' },
+    });
+  }),
+
+  http.get('*/v1/mock-storyboard/:id/:file', () => {
+    const mockPixel = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const binary = Uint8Array.from(atob(mockPixel), (c) => c.charCodeAt(0));
+    return new HttpResponse(binary, {
+      status: 200,
+      headers: { 'Content-Type': 'image/gif' },
+    });
   }),
 
   // --- UPLOAD & STUDIO ENDPOINTS ---
