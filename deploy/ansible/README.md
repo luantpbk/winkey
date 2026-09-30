@@ -34,6 +34,7 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 | `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432/30900 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
 | `storage_k3s` | Garage S3 storage cluster on k3s via Kustomize (task STO) |
 | `data_k3s` | CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and database setup jobs (task DATA) |
+| `apps_k3s` | Winkey product services (auth, upload, video, social, realtime, web) via Kustomize (task I2) |
 
 k3s: `cluster-init`, `node-ip`/`advertise-address` = Tailscale IP, `flannel-iface: tailscale0`,
 `secrets-encryption`, `selinux: true`, kubeconfig `0600`. Joining servers (edge-2/3): set

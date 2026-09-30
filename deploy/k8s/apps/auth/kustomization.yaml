@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: ghcr.io/luantpbk/winkey-auth
+    digest: sha256:09961ce8c3f86bd672c9fc3007dcb85f7c295549cb9e312e25b9c4210b37fee3

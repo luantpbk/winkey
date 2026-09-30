@@ -14,7 +14,7 @@ spec:
   routes:
     # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
     # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
-    - match: 'PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`))'
       kind: Rule
       priority: 100
       middlewares:
@@ -27,9 +27,9 @@ spec:
           port: 3001
           namespace: default
 
-    # 2. Auth protected endpoints (users, profile management)
+    # 2. Auth protected endpoints (users, profile management, admin)
     # Excludes /v1/auth/verify so it matches no public route and returns Traefik 404
-    - match: '(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && ((PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`))'
       kind: Rule
       priority: 90
       middlewares:
@@ -45,7 +45,7 @@ spec:
           namespace: default
 
     # 3. Upload service routes
-    - match: 'PathPrefix(`/v1/uploads`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/uploads`)'
       kind: Rule
       priority: 80
       middlewares:
@@ -60,9 +60,9 @@ spec:
           port: 3002
           namespace: default
 
-    # 4. Social service routes (comments, likes, channels, subscriptions)
+    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation)
     # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
-    - match: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || Path(`/v1/me/subscriptions`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
       kind: Rule
       priority: 85
       middlewares:
@@ -77,8 +77,8 @@ spec:
           port: 3004
           namespace: default
 
-    # 5. Video & Studio routes
-    - match: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`)'
+    # 5. Video & Search routes
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/search`))'
       kind: Rule
       priority: 80
       middlewares:
@@ -94,7 +94,7 @@ spec:
           namespace: default
 
     # 6. Realtime service routes (WebSocket & ticket issuance)
-    - match: 'PathPrefix(`/v1/realtime`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/v1/realtime`)'
       kind: Rule
       priority: 80
       middlewares:
@@ -110,7 +110,7 @@ spec:
           namespace: default
 
     # 7. Smoke test route for header stripping verification
-    - match: 'PathPrefix(`/smoke/whoami`)'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/smoke/whoami`)'
       kind: Rule
       priority: 80
       middlewares:
@@ -123,8 +123,8 @@ spec:
           port: 80
           namespace: default
 
-    # 8. Web Next.js fallback (explicitly excludes /v1 to prevent mock/API bleed)
-    - match: 'PathPrefix(`/`) && !PathPrefix(`/v1`)'
+    # 8. Web Next.js fallback (explicitly excludes /v1 and /smoke to prevent API bleed)
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/`) && !PathPrefix(`/v1`) && !PathPrefix(`/smoke`)'
       kind: Rule
       priority: 10
       middlewares:

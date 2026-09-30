@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-svc
+  namespace: default
+  labels:
+    app.kubernetes.io/name: auth-svc
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-svc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-svc
+        app.kubernetes.io/part-of: winkey
+    spec:
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: nats-patch
+          emptyDir: {}
+      initContainers:
+        - name: patch-nats
+          image: ghcr.io/luantpbk/winkey-auth
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp /app/node_modules/.pnpm/nats@2.29.3/node_modules/nats/lib/nats-base-client/options.js /target/options.js
+              node -e '
+                const fs = require("fs");
+                const p = "/target/options.js";
+                let code = fs.readFileSync(p, "utf8");
+                const target = "function parseOptions(opts) {";
+                const patch = `function parseOptions(opts) {
+                  if (opts && opts.servers && typeof opts.servers === "string" && opts.servers.includes("@")) {
+                    try {
+                      const u = new URL(opts.servers);
+                      if (u.username && !opts.user) {
+                        opts.user = decodeURIComponent(u.username);
+                        opts.pass = decodeURIComponent(u.password);
+                        opts.servers = u.protocol + "//" + u.host;
+                      }
+                    } catch (_) {}
+                  }`;
+                code = code.replace(target, patch);
+                fs.writeFileSync(p, code);
+              '
+              chmod a+r /target/options.js 2>/dev/null || true
+          volumeMounts:
+            - name: nats-patch
+              mountPath: /target
+      containers:
+        - name: auth
+          image: ghcr.io/luantpbk/winkey-auth
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: 'production'
+            - name: HTTP_PORT
+              value: '3001'
+            - name: JWT_ISSUER
+              value: 'https://winkey.vn'
+            - name: PUBLIC_ORIGIN
+              value: 'https://winkey.vn'
+            - name: MEDIA_BASE_URL
+              value: 'https://media.winkey.vn'
+            - name: TRUST_PROXY_CIDRS
+              value: '10.42.0.0/16,127.0.0.1'
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: DATABASE_URL
+            - name: NATS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: NATS_URL
+            - name: VALKEY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: VALKEY_URL
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: JWT_PRIVATE_KEY
+            - name: JWT_KID
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: JWT_KID
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: COOKIE_SECRET
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: nats-patch
+              mountPath: /app/node_modules/.pnpm/nats@2.29.3/node_modules/nats/lib/nats-base-client/options.js
+              subPath: options.js
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
