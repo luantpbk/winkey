@@ -1,0 +1,4 @@
+<clickhouse>
+    <!-- Task R1-infra / ADR-022: 12 GB max server memory usage to avoid competing with ComfyUI and miner on gpu-01 -->
+    <max_server_memory_usage>12884901888</max_server_memory_usage>
+</clickhouse>

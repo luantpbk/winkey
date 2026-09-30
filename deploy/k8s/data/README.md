@@ -129,10 +129,11 @@ Per `contracts/events/README.md`:
 
 | Stream | Subjects | Storage | Retention | Discard | Max Age | Max Bytes | Duplication Window |
 |---|---|---|---|---|---|---|---|
-| `VIDEO` | `video.>` | File | Limits | Old | 30d | 50 GB | 2m |
-| `USER` | `user.>` | File | Limits | Old | 30d | 10 GB | 2m |
-| `SOCIAL` | `social.>` | File | Limits | Old | 30d | 20 GB | 2m |
-| `DLQ` | `dlq.>` | File | Limits | Old | 90d | 10 GB | 2m |
+| `VIDEO` | `video.>` | File | Limits | Old | 7d | Unlimited | 2m |
+| `USER` | `user.>` | File | Limits | Old | 7d | Unlimited | 2m |
+| `SOCIAL` | `social.>` | File | Limits | Old | 7d | Unlimited | 2m |
+| `DLQ` | `dlq.>` | File | Limits | Old | 30d | Unlimited | 2m |
+| `ANALYTICS` | `analytics.>` | File | Limits | Old | 7d | 5 GiB | 2m |
 
 ### Service Auth Matrix
 
@@ -141,11 +142,12 @@ Per `contracts/events/README.md`:
 | `auth` | `user.>`, `_INBOX.>`, `$JS.API.>` | `_INBOX.>` |
 | `upload` | `video.uploaded`, `_INBOX.>`, `$JS.API.>` | `rt.video.*.progress`, `_INBOX.>` |
 | `transcoder` | `video.ready`, `video.failed`, `rt.video.*.progress`, `dlq.video.uploaded`, `_INBOX.>`, `$JS.API.>` | `video.uploaded`, `_INBOX.>` |
-| `video` | `video.deleted`, `video.moderated`, `_INBOX.>`, `$JS.API.>` | `social.video.like_changed`, `_INBOX.>` |
+| `video` | `video.deleted`, `video.moderated`, `video.visibility_changed`, `analytics.>`, `_INBOX.>`, `$JS.API.>` | `social.video.like_changed`, `social.subscription.changed`, `_INBOX.>` |
 | `social` | `social.comment.created`, `social.video.like_changed`, `social.subscription.changed`, `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.deleted`, `video.moderated`, `_INBOX.>` |
 | `realtime` | `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.failed`, `social.comment.created`, `social.video.like_changed`, `rt.video.*.progress`, `_INBOX.>` |
+| `analytics` | `_INBOX.>`, `$JS.API.STREAM.INFO.ANALYTICS`, `$JS.API.CONSUMER.*.ANALYTICS.analytics-clickhouse`, `$JS.ACK.ANALYTICS.analytics-clickhouse.>` | `_INBOX.>` |
 
-*All users have access to `$JS.API.>` for JetStream pull consumers and `_INBOX.>` for RPC responses.*
+*All standard users have access to `$JS.API.>` for JetStream pull consumers and `_INBOX.>` for RPC responses. User `analytics` is strictly restricted to consumer `analytics-clickhouse` on stream `ANALYTICS`.*
 
 ---
 

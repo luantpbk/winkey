@@ -1,0 +1,9 @@
+<clickhouse>
+    <!-- Listen strictly on loopback interfaces (ADR-022) with network_mode: host -->
+    <listen_host>127.0.0.1</listen_host>
+    <listen_host>::1</listen_host>
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <!-- Disable interserver port (single-node deployment, loopback only) -->
+    <interserver_http_port>0</interserver_http_port>
+</clickhouse>
