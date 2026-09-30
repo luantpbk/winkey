@@ -1279,7 +1279,6 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(dev1Login.statusCode).toBe(200);
       const tokenDev1 = dev1Login.json().access_token;
-      const rtDev1 = dev1Login.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
       // Device 2 login
       const dev2Login = await app.inject({
@@ -1308,12 +1307,11 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(vDev2Before.statusCode).toBe(204);
 
-      // Device 1 changes password
+      // Device 1 changes password WITHOUT the wk_rt cookie (API client / no cookie)
       const changeRes = await app.inject({
         method: 'PUT',
         url: '/v1/auth/me/password',
         headers: { authorization: `Bearer ${tokenDev1}` },
-        cookies: { [REFRESH_COOKIE_NAME]: rtDev1 },
         payload: {
           current_password: 'OldPassword123!',
           new_password: 'NewPassword123!',
@@ -1336,6 +1334,24 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         headers: { authorization: `Bearer ${tokenDev1}` },
       });
       expect(vDev1After.statusCode).toBe(204);
+
+      // Device 2 refresh token is revoked
+      const rtDev2 = dev2Login.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const dev2Refresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rtDev2 },
+      });
+      expect(dev2Refresh.statusCode).toBe(401);
+
+      // Device 1 refresh token remains valid
+      const rtDev1 = dev1Login.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+      const dev1Refresh = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rtDev1 },
+      });
+      expect(dev1Refresh.statusCode).toBe(200);
     });
 
     // 5. deleteMe -> token 401; refresh reuse -> the family's access token 401

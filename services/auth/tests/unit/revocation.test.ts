@@ -4,6 +4,7 @@ import {
   REVOCATION_TTL_SECONDS,
   MGET_TIMEOUT_MS,
   type LoggerLike,
+  resetLastWarnAtForTest,
 } from '../../src/revocation/revocation.js';
 import type { Redis } from 'ioredis';
 
@@ -16,6 +17,7 @@ describe('RevocationService unit tests', () => {
   beforeEach(() => {
     mockStore = new Map<string, string>();
     loggedWarns = [];
+    resetLastWarnAtForTest();
 
     mockLogger = {
       warn: (obj, msg) => {
@@ -24,6 +26,7 @@ describe('RevocationService unit tests', () => {
     };
 
     mockRedis = {
+      status: 'ready',
       get: vi.fn(async (key: string) => mockStore.get(key) ?? null),
       set: vi.fn(async (key: string, val: string, _ex?: string, _ttl?: number) => {
         mockStore.set(key, val);
@@ -95,6 +98,16 @@ describe('RevocationService unit tests', () => {
       const service = new RevocationService(null, mockLogger);
       const res = await service.isRevoked('fam-123', 'user-456', 1700000000);
       expect(res).toEqual({ revoked: false, checked: false });
+      expect(loggedWarns.length).toBe(0);
+    });
+
+    it('returns { revoked: false, checked: false } without calling mget or logging when redis status is not ready', async () => {
+      (mockRedis as unknown as { status: string }).status = 'connecting';
+      const service = new RevocationService(mockRedis, mockLogger);
+      const res = await service.isRevoked('fam-123', 'user-456', 1700000000);
+      expect(res).toEqual({ revoked: false, checked: false });
+      expect(mockRedis.mget).not.toHaveBeenCalled();
+      expect(loggedWarns.length).toBe(0);
     });
 
     it('returns { revoked: false, checked: false } when Valkey throws an error', async () => {
@@ -107,6 +120,32 @@ describe('RevocationService unit tests', () => {
       expect(loggedWarns[0].obj.sid).toBe('fam-123');
       expect(loggedWarns[0].obj.userId).toBe('user-456');
       expect(loggedWarns[0].obj.err).toContain('Valkey connection refused');
+    });
+
+    it('throttles warning logs to at most once per 10 seconds during continuous errors', async () => {
+      mockRedis.mget = vi.fn().mockRejectedValue(new Error('Valkey down'));
+      const service = new RevocationService(mockRedis, mockLogger);
+
+      // First error logs a warning
+      const res1 = await service.isRevoked('fam-123', 'user-456', 1700000000);
+      expect(res1).toEqual({ revoked: false, checked: false });
+      expect(loggedWarns.length).toBe(1);
+
+      // Second error immediately after does NOT log
+      const res2 = await service.isRevoked('fam-123', 'user-456', 1700000000);
+      expect(res2).toEqual({ revoked: false, checked: false });
+      expect(loggedWarns.length).toBe(1);
+
+      // Advance time past 10 seconds -> third error logs again
+      const originalDateNow = Date.now;
+      try {
+        Date.now = () => originalDateNow() + 10_001;
+        const res3 = await service.isRevoked('fam-123', 'user-456', 1700000000);
+        expect(res3).toEqual({ revoked: false, checked: false });
+        expect(loggedWarns.length).toBe(2);
+      } finally {
+        Date.now = originalDateNow;
+      }
     });
 
     it('returns { revoked: false, checked: false } when Valkey hangs past 50 ms timeout', async () => {

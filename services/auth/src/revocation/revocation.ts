@@ -69,6 +69,12 @@ export function resetRevocationMetricsForTest(): void {
   inMemoryCounters.clear();
 }
 
+let lastWarnAt = 0;
+
+export function resetLastWarnAtForTest(): void {
+  lastWarnAt = 0;
+}
+
 export class RevocationService {
   private redis: Redis | null;
   private logger?: LoggerLike;
@@ -160,7 +166,7 @@ export class RevocationService {
    *   { revoked: false, checked: false } - fail-open on Valkey error/timeout/null client
    */
   async isRevoked(sid: string, userId: string, iat: number): Promise<RevocationCheckResult> {
-    if (!this.redis) {
+    if (!this.redis || this.redis.status !== 'ready') {
       return { revoked: false, checked: false };
     }
 
@@ -202,10 +208,14 @@ export class RevocationService {
     } catch (err: unknown) {
       if (timer) clearTimeout(timer);
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger?.warn(
-        { sid, userId, err: msg },
-        'Revocation check failed or timed out (fail-open)',
-      );
+      const now = Date.now();
+      if (now - lastWarnAt >= 10_000) {
+        lastWarnAt = now;
+        this.logger?.warn(
+          { sid, userId, err: msg },
+          'Revocation check failed or timed out (fail-open)',
+        );
+      }
       return { revoked: false, checked: false };
     }
   }

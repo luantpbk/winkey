@@ -343,6 +343,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           if (sql.includes('"family_id" !=') || sql.includes('"family_id" <>')) {
             exceptFamily = String(params[2]);
           }
+          const returningRows: Array<{ family_id: string }> = [];
           for (const token of store.refresh_tokens) {
             if (token.user_id === userId && !token.revoked_at) {
               if (exceptFamily && token.family_id === exceptFamily) {
@@ -350,7 +351,11 @@ export function createMockDb(store: MockStore = createMockStore()): {
               }
               token.revoked_at = new Date();
               updatedCount++;
+              returningRows.push({ family_id: token.family_id });
             }
+          }
+          if (sql.toLowerCase().includes('returning')) {
+            return { rows: returningRows, rowCount: updatedCount };
           }
         } else if (sql.includes('"rotated_at" =') && sql.includes('"id" =')) {
           const tokenId = String(params.length > 1 ? params[1] : params[0]);
