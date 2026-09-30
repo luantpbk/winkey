@@ -291,7 +291,7 @@ if [ "$PARTS_CODE" != "200" ]; then
     exit 1
 fi
 if command -v jq >/dev/null 2>&1; then
-    PART_URL=$(echo "$PARTS_RESP" | grep '^{"parts"' | jq -r '.parts[0].url')
+    PART_URL=$(echo "$PARTS_RESP" | sed -e '1,/^\r\{0,1\}$/d' | jq -r '.urls[0].url')
 else
     PART_URL=$(echo "$PARTS_RESP" | grep -o '"url":"[^"]*"' | head -n1 | cut -d'"' -f4 | sed 's/\\u0026/\&/g')
 fi
