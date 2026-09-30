@@ -2,26 +2,59 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell } from 'lucide-react';
 import type { UnreadCount } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
+import { useOptionalRealtime } from '../../lib/realtime/realtime-context';
+import { usePathname } from '../../i18n/routing';
+import type { ServerEventMessage } from '../../lib/realtime/realtime-types';
 import { NotificationDropdown } from './notification-dropdown';
 
 export function NotificationBell() {
   const t = useTranslations('notifications');
-  const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
+  const { isAuthenticated, user } = useAuth();
+  const pathname = usePathname();
+  const realtime = useOptionalRealtime();
+  const client = realtime?.client;
+
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  // Keep refs for callbacks and timers to avoid stale closures
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
+  const hintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track status ticks to re-render if standalone client changes connection status
+  const [, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!client) return;
+    return client.onStatusChange(() => {
+      setStatusTick((prev) => prev + 1);
+    });
+  }, [client]);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Poll unread count every 60s only when the tab is visible (ADR-023)
+  // Polling interval (ADR-023 addendum N2):
+  // 5 min (300,000 ms) while realtime socket is connected & authenticated;
+  // 60 s (60,000 ms) while disconnected or anonymous.
+  const isRealtimeAuthenticated =
+    (realtime?.isConnected ?? client?.getIsConnected() ?? false) && Boolean(client?.getUserId());
+  const pollInterval = isRealtimeAuthenticated ? 5 * 60 * 1000 : 60 * 1000;
+
+  // Poll unread count only when tab is visible
   const { data } = useQuery<UnreadCount>({
     queryKey: ['notifications', 'unread-count'],
     queryFn: async () => {
@@ -33,11 +66,74 @@ export function NotificationBell() {
       return data;
     },
     enabled: isAuthenticated && mounted,
-    refetchInterval: 60000,
+    refetchInterval: pollInterval,
     refetchIntervalInBackground: false, // Stop polling when tab is hidden
     refetchOnWindowFocus: true,
     staleTime: 30000,
   });
+
+  const triggerNotificationInvalidation = () => {
+    queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
+    if (isOpenRef.current) {
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'latest-10'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'dropdown'] });
+    }
+    if (
+      pathnameRef.current?.includes('/notifications') ||
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['notifications', 'page'] })
+        .some((q) => q.isActive())
+    ) {
+      queryClient.invalidateQueries({ queryKey: ['notifications', 'page'] });
+    }
+  };
+
+  // Listen to realtime notification.hint events on user:{me} room (N2)
+  useEffect(() => {
+    if (!client || !isAuthenticated || !user) return;
+
+    const unsubUserEvent = client.onUserEvent((event: ServerEventMessage) => {
+      if (event.event !== 'notification.hint') return;
+      if (event.room !== `user:${user.id}`) return;
+
+      // Never render anything from the hint itself.
+      // Coalesce bursts: at most one refetch per 2 s (trailing).
+      if (hintTimeoutRef.current) return;
+
+      hintTimeoutRef.current = setTimeout(() => {
+        hintTimeoutRef.current = null;
+        triggerNotificationInvalidation();
+      }, 2000);
+    });
+
+    return () => {
+      unsubUserEvent();
+      if (hintTimeoutRef.current) {
+        clearTimeout(hintTimeoutRef.current);
+        hintTimeoutRef.current = null;
+      }
+    };
+  }, [client, isAuthenticated, user, queryClient]);
+
+  // On socket reconnect, refetch once (ADR-023 N2)
+  useEffect(() => {
+    if (!client || !isAuthenticated) return;
+
+    const unsubReconnect = client.onReconnect(() => {
+      triggerNotificationInvalidation();
+    });
+
+    return () => {
+      unsubReconnect();
+    };
+  }, [client, isAuthenticated, queryClient]);
+
+  // Connect realtime client when authenticated to receive user:{me} hints
+  useEffect(() => {
+    if (!client || !isAuthenticated) return;
+    client.connect();
+  }, [client, isAuthenticated]);
 
   if (!isAuthenticated) return null;
 

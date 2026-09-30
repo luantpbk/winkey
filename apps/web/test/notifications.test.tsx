@@ -120,6 +120,8 @@ vi.mock('../src/lib/auth/auth-context', () => ({
 // --- Realtime Mock ---
 vi.mock('../src/lib/realtime/realtime-context', () => ({
   useRealtimeRoom: vi.fn(),
+  useOptionalRealtime: () => undefined,
+  useRealtime: () => ({ client: null, isConnected: false }),
 }));
 
 // Helper to create test QueryClient

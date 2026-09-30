@@ -56,6 +56,7 @@ export class RealtimeClient {
   // Global listeners for user:{me} events or status
   private userEventHandlers = new Set<RoomEventHandler>();
   private statusListeners = new Set<StatusChangeHandler>();
+  private reconnectListeners = new Set<ReconnectHandler>();
 
   constructor(options: RealtimeClientOptions = {}) {
     this.wsUrlGetter =
@@ -103,6 +104,13 @@ export class RealtimeClient {
     };
   }
 
+  public onReconnect(handler: ReconnectHandler): () => void {
+    this.reconnectListeners.add(handler);
+    return () => {
+      this.reconnectListeners.delete(handler);
+    };
+  }
+
   /**
    * Lazily initiate connection if not already open or connecting.
    */
@@ -143,6 +151,7 @@ export class RealtimeClient {
       this.reconnectTimer = null;
     }
     this.closeSocket();
+    this.userId = null;
     this.setConnectedState(false);
     this.isConnecting = false;
   }
@@ -360,6 +369,13 @@ export class RealtimeClient {
 
     // Trigger onReconnect for consumers only on reconnect to refetch REST state
     if (isReconnect) {
+      for (const listener of this.reconnectListeners) {
+        try {
+          listener();
+        } catch (err) {
+          console.error('[Realtime] Error in reconnect listener:', err);
+        }
+      }
       for (const entry of this.rooms.values()) {
         for (const handler of entry.reconnectHandlers) {
           try {
@@ -403,6 +419,7 @@ export class RealtimeClient {
     this.isConnecting = false;
     this.ws = null;
     this.connectionId = null;
+    this.userId = null;
     this.setConnectedState(false);
 
     if (this.isExplicitlyClosed) return;

@@ -1008,4 +1008,73 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // Badge is hidden
     await expect(badge).toBeHidden({ timeout: 10000 });
   });
+
+  test('N2-web: Realtime notification hint updates badge without waiting for polling', async ({
+    page,
+  }) => {
+    let socketServer: any = null;
+    let welcomeSent = false;
+
+    // Reset notifications
+    await page.request.post('http://localhost:3000/v1/test/reset-notifications').catch(() => {});
+
+    // Route WebSocket connections to mock realtime-gw
+    await page.routeWebSocket('**/v1/realtime*', (ws) => {
+      socketServer = ws;
+      ws.send(
+        JSON.stringify({
+          type: 'welcome',
+          connection_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          user_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+          heartbeat_interval_ms: 25000,
+        }),
+      );
+      welcomeSent = true;
+    });
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Bell button is visible, initial badge shows 3
+    const bellButton = page.locator('[data-testid="notification-bell-button"]');
+    await expect(bellButton).toBeVisible({ timeout: 10000 });
+    const badge = page.locator('[data-testid="notification-badge"]');
+    await expect(badge).toHaveText('3', { timeout: 10000 });
+
+    // Ensure WebSocket is connected
+    await expect
+      .poll(() => welcomeSent, { message: 'Waiting for WebSocket connection' })
+      .toBe(true);
+
+    // 3. Add a new unread notification on the backend via test helper inside browser MSW
+    await page.evaluate(async () => {
+      const res = await fetch('/v1/test/add-notification', { method: 'POST' });
+      if (!res.ok) throw new Error(`Failed to add notification: ${res.status}`);
+    });
+
+    // Badge should still show 3 because polling is 5 minutes when realtime is connected
+    await expect(badge).toHaveText('3');
+
+    // 4. Push realtime notification.hint over WebSocket
+    socketServer.send(
+      JSON.stringify({
+        type: 'event',
+        room: 'user:0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        event: 'notification.hint',
+        data: { kind: 'VIDEO_COMMENT' },
+        ts: new Date().toISOString(),
+      }),
+    );
+
+    // 5. Badge updates to 4 after hint without waiting for 5-minute poll
+    await expect(badge).toHaveText('4', { timeout: 10000 });
+  });
 });
