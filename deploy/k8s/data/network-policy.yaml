@@ -33,10 +33,13 @@ spec:
         - podSelector:
             matchLabels:
               cnpg.io/cluster: winkey-pg
-    # 4. Kubelet health probes & host NodePort routing
+    # 4. Tailnet access via NodePort (externalTrafficPolicy: Local preserves Tailscale client IP)
     - from:
         - ipBlock:
-            cidr: 10.42.0.0/16
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 5432
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -53,6 +56,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # 1. Product services connecting to NATS
     - from:
         - podSelector:
             matchLabels:
@@ -62,6 +66,13 @@ spec:
           port: 4222
         - protocol: TCP
           port: 8222
+    # 2. Tailnet access via NodePort (transcoder on gpu-01, etc.)
+    - from:
+        - ipBlock:
+            cidr: 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 4222
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -78,6 +89,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # 1. Product services connecting to Valkey
     - from:
         - podSelector:
             matchLabels:

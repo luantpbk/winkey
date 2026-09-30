@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/part-of: winkey
 spec:
   type: NodePort
+  externalTrafficPolicy: Local
   ports:
     - name: nats
       port: 4222
@@ -30,6 +31,7 @@ metadata:
     app.kubernetes.io/part-of: winkey
 spec:
   type: NodePort
+  externalTrafficPolicy: Local
   ports:
     - name: postgresql
       port: 5432

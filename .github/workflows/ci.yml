@@ -206,6 +206,9 @@ jobs:
           sudo mv kustomize /usr/local/bin/
           curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
           sudo mv kubeconform /usr/local/bin/
+      - name: Verify data migrations in sync with db/migrations
+        run: |
+          diff -r db/migrations deploy/k8s/data/migrations
       - name: Validate kustomize build
         run: |
           kustomize build deploy/k8s/storage

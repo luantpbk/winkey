@@ -11,7 +11,7 @@ fi
 NAMESPACE="${1:-default}"
 
 cleanup() {
-    kubectl delete pod nats-verifier s3-backup-verify -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
+    kubectl delete pod nats-verifier s3-backup-verify unauth-test-verifier auth-test-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -133,6 +133,11 @@ spec:
         secretKeyRef:
           name: nats-auth
           key: social_password
+    - name: REALTIME_PWD
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth
+          key: realtime_password
 EOF
 
 kubectl wait --for=condition=Ready pod/nats-verifier -n "$NAMESPACE" --timeout=60s
@@ -183,7 +188,61 @@ echo "  PASS: video user published to video.moderated."
 echo "Test 5.7: social user publishes to social.comment.created..."
 kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "social.comment.created" "test-comment" --server="nats://social:${SOCIAL_PWD}@nats:4222"' >/dev/null
 echo "  PASS: social user published to social.comment.created."
-echo "SUCCESS: NATS authorization matrix strictly enforced."
+
+echo "Test 5.8: realtime user subscribes to video.ready..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
+  nats sub --count=1 "video.ready" --server="nats://realtime:${REALTIME_PWD}@nats:4222" > /tmp/sub_rt.log 2>&1 &
+  SUB_PID=$!
+  sleep 1
+  nats pub "video.ready" "test-realtime-sub" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222" >/dev/null
+  wait $SUB_PID
+  grep -q "test-realtime-sub" /tmp/sub_rt.log
+'
+echo "  PASS: realtime user subscribed and received message from video.ready."
+
+echo "Test 5.9: realtime user CANNOT subscribe to video.uploaded (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "video.uploaded" --server="nats://realtime:${REALTIME_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: realtime user was able to subscribe to video.uploaded!" >&2
+    exit 1
+fi
+echo "  PASS: realtime user blocked from video.uploaded (Permissions Violation)."
+
+echo "Test 5.10: transcoder user subscribes to video.uploaded..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
+  nats sub --count=1 "video.uploaded" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222" > /tmp/sub_tc.log 2>&1 &
+  SUB_PID=$!
+  sleep 1
+  nats pub "video.uploaded" "test-tc-sub" --server="nats://upload:${UPLOAD_PWD}@nats:4222" >/dev/null
+  wait $SUB_PID
+  grep -q "test-tc-sub" /tmp/sub_tc.log
+'
+echo "  PASS: transcoder user subscribed and received message from video.uploaded."
+
+echo "Test 5.11: transcoder user CANNOT subscribe to social.comment.created (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "social.comment.created" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: transcoder user was able to subscribe to social.comment.created!" >&2
+    exit 1
+fi
+echo "  PASS: transcoder user blocked from social.comment.created (Permissions Violation)."
+
+echo "Test 5.12: social user subscribes to video.ready..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
+  nats sub --count=1 "video.ready" --server="nats://social:${SOCIAL_PWD}@nats:4222" > /tmp/sub_soc.log 2>&1 &
+  SUB_PID=$!
+  sleep 1
+  nats pub "video.ready" "test-soc-sub" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222" >/dev/null
+  wait $SUB_PID
+  grep -q "test-soc-sub" /tmp/sub_soc.log
+'
+echo "  PASS: social user subscribed and received message from video.ready."
+
+echo "Test 5.13: social user CANNOT subscribe to video.uploaded (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "video.uploaded" --server="nats://social:${SOCIAL_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: social user was able to subscribe to video.uploaded!" >&2
+    exit 1
+fi
+echo "  PASS: social user blocked from video.uploaded (Permissions Violation)."
+echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
 
@@ -269,6 +328,85 @@ EOF
 kubectl wait --for=condition=Ready pod/s3-backup-verify -n "$NAMESPACE" --timeout=60s
 kubectl exec -n "$NAMESPACE" s3-backup-verify -- aws --endpoint-url http://garage-s3:3900 s3 ls s3://winkey-pg-backup/ --recursive
 kubectl delete pod s3-backup-verify -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
+
+echo ""
+echo "=========================================================================="
+echo " 8. NetworkPolicy Isolation & Ingress Controls"
+echo "=========================================================================="
+kubectl delete pod unauth-test-verifier auth-test-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
+
+echo "Test 8.1: Pod WITHOUT part-of: winkey label is blocked from data plane..."
+cat << 'EOF' | kubectl apply -n "$NAMESPACE" -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unauth-test-verifier
+  labels:
+    app.kubernetes.io/name: unauth-test-verifier
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: busybox:1.36
+    command: ["sleep", "120"]
+EOF
+
+kubectl wait --for=condition=Ready pod/unauth-test-verifier -n "$NAMESPACE" --timeout=60s
+
+echo "  Testing connection to PostgreSQL (winkey-pg-rw:5432)..."
+if kubectl exec -n "$NAMESPACE" unauth-test-verifier -- nc -w 2 -z winkey-pg-rw 5432 >/dev/null 2>&1; then
+    echo "ERROR: unauth pod reached PostgreSQL!" >&2
+    exit 1
+fi
+echo "  PASS: PostgreSQL blocked unauthenticated pod (timeout)."
+
+echo "  Testing connection to NATS (nats:4222)..."
+if kubectl exec -n "$NAMESPACE" unauth-test-verifier -- nc -w 2 -z nats 4222 >/dev/null 2>&1; then
+    echo "ERROR: unauth pod reached NATS!" >&2
+    exit 1
+fi
+echo "  PASS: NATS blocked unauthenticated pod (timeout)."
+
+echo "  Testing connection to Valkey (valkey:6379)..."
+if kubectl exec -n "$NAMESPACE" unauth-test-verifier -- nc -w 2 -z valkey 6379 >/dev/null 2>&1; then
+    echo "ERROR: unauth pod reached Valkey!" >&2
+    exit 1
+fi
+echo "  PASS: Valkey blocked unauthenticated pod (timeout)."
+
+echo "Test 8.2: Pod WITH part-of: winkey label can connect to data plane..."
+cat << 'EOF' | kubectl apply -n "$NAMESPACE" -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: auth-test-verifier
+  labels:
+    app.kubernetes.io/name: auth-test-verifier
+    app.kubernetes.io/part-of: winkey
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: busybox:1.36
+    command: ["sleep", "120"]
+EOF
+
+kubectl wait --for=condition=Ready pod/auth-test-verifier -n "$NAMESPACE" --timeout=60s
+
+echo "  Testing connection to PostgreSQL (winkey-pg-rw:5432)..."
+kubectl exec -n "$NAMESPACE" auth-test-verifier -- nc -w 3 -z winkey-pg-rw 5432
+echo "  PASS: Authorized pod connected to PostgreSQL."
+
+echo "  Testing connection to NATS (nats:4222)..."
+kubectl exec -n "$NAMESPACE" auth-test-verifier -- nc -w 3 -z nats 4222
+echo "  PASS: Authorized pod connected to NATS."
+
+echo "  Testing connection to Valkey (valkey:6379)..."
+kubectl exec -n "$NAMESPACE" auth-test-verifier -- nc -w 3 -z valkey 6379
+echo "  PASS: Authorized pod connected to Valkey."
+
+kubectl delete pod unauth-test-verifier auth-test-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
+echo "SUCCESS: NetworkPolicy strictly enforces pod isolation."
 
 echo ""
 echo "=========================================================================="

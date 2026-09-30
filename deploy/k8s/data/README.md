@@ -8,14 +8,28 @@ This directory contains Kubernetes manifests, scripts, and documentation for Win
 
 | Component | Technology | Version | Instances | Storage | Requests (CPU / RAM) | Limits (CPU / RAM) |
 |---|---|---|---|---|---|---|
-| **Operator** | CloudNativePG (CNPG) | v1.25.4 | 1 | — | 100m / 128Mi | 500m / 256Mi |
+| **Operator** | CloudNativePG (CNPG) | v1.25.4 | 1 | — | 100m / 100Mi | 500m / 256Mi |
 | **PostgreSQL** | PostgreSQL (CNPG) | 17.4 | 1 (scale patch: 2) | 15 Gi (`local-path`) | 200m / 512Mi | 1000m / 1536Mi |
 | **NATS** | NATS JetStream | 2.10.26-alpine | 1 | 5 Gi (`local-path`) | 100m / 256Mi | 500m / 512Mi |
 | **Valkey** | Valkey | 8.0.2-alpine | 1 | 1 Gi (`local-path`) | 50m / 256Mi | 500m / 512Mi |
-| **Jobs** | golang-migrate, nats-box | pinned | transient | — | ~80m / 128Mi | ~300m / 256Mi |
-| **Total** | | | | **21 Gi** | **~530m / ~1.3 GB** | **≤ 2.3 vCPU / 3 GB** |
+| **Jobs** | golang-migrate, nats-box | pinned | transient | — | ~40m / 64Mi | ~300m / 256Mi |
+| **Total** | | | | **21 Gi** | **~490m / ~1.2 GB** | **≤ 2.3 vCPU / 3 GB** |
 
 Resource requests are strictly bounded below the host budget (1 vCPU / 4 GB) to leave ample headroom for product services and Garage storage.
+
+#### Resource Request Verification Command
+To verify resource requests across all data plane workloads on the cluster:
+```bash
+kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.containers[*]}{.resources.requests.cpu}{"\t"}{.resources.requests.memory}{"\n"}{end}{end}' | grep -E 'cnpg-controller|nats-0|valkey-0|winkey-pg-1'
+```
+Example cluster output:
+```text
+cnpg-controller-manager-6c98c7d94-6wvq2    100m    100Mi
+nats-0                                    100m    256Mi
+valkey-0                                  50m     256Mi
+winkey-pg-1                               200m    512Mi
+```
+*Total steady-state: 450m CPU / 1124Mi RAM (with bootstrap jobs: ~490m CPU / ~1.2 GB RAM).*
 
 ---
 
@@ -32,11 +46,11 @@ deploy/k8s/data/
 ├── nats-bootstrap-job.yaml        # Idempotent JetStream stream provisioning (VIDEO, USER, SOCIAL, DLQ)
 ├── valkey-config.yaml             # maxmemory 512mb, volatile-lru, AOF everysec
 ├── valkey-statefulset.yaml        # Valkey 8.0.2 StatefulSet + Service
-├── network-policy.yaml            # NetworkPolicy: part-of: winkey only
+├── network-policy.yaml            # NetworkPolicy: part-of: winkey only + Tailscale NodePort
 ├── scale-2-instances.patch.yaml   # Documentation & patch for HA 2-instance failover
 ├── secrets.sh                     # Idempotent password & secret generator
 ├── verify.sh                      # Comprehensive end-to-end smoke test
-├── migrations/                    # Vendored SQL migrations from db/migrations/
+├── migrations/                    # Vendored SQL migrations (mirror of db/migrations/)
 │   ├── 000001_foundation.{up,down}.sql
 │   ├── 000002_auth.{up,down}.sql
 │   ├── 000003_media.{up,down}.sql
@@ -47,6 +61,10 @@ deploy/k8s/data/
 └── scripts/
     └── grants.sql                 # SQL schema isolation & grant script
 ```
+
+> [!NOTE]
+> **Vendored Migrations Synchronization Policy**:
+> `deploy/k8s/data/migrations/` is a direct mirror of `db/migrations/`, packaged here so k8s bootstrap jobs can mount them directly. Hard rule #3 states that only the architect writes schema migrations. To prevent drift, CI job `k8s` strictly asserts `diff -r db/migrations deploy/k8s/data/migrations`. The architect updates both directories together in schema migration PRs.
 
 ---
 
@@ -120,12 +138,12 @@ Per `contracts/events/README.md`:
 
 | Service User | Publish Permissions | Subscribe Permissions |
 |---|---|---|
-| `auth` | `user.>`, `dlq.>`, `$JS.API.>` | `user.>`, `_INBOX.>` |
-| `upload` | `video.uploaded`, `dlq.>`, `$JS.API.>` | `_INBOX.>` |
-| `transcoder` | `video.transcoded`, `video.failed`, `dlq.>`, `$JS.API.>` | `video.uploaded`, `_INBOX.>` |
-| `video` | `video.published`, `video.deleted`, `video.ready`, `video.moderated`, `dlq.>`, `$JS.API.>` | `video.transcoded`, `video.failed`, `_INBOX.>` |
-| `social` | `social.>`, `dlq.>`, `$JS.API.>` | `social.>`, `video.published`, `_INBOX.>` |
-| `realtime` | `dlq.>`, `$JS.API.>` | `video.>`, `social.>`, `_INBOX.>` |
+| `auth` | `user.>`, `_INBOX.>`, `$JS.API.>` | `_INBOX.>` |
+| `upload` | `video.uploaded`, `_INBOX.>`, `$JS.API.>` | `rt.video.*.progress`, `_INBOX.>` |
+| `transcoder` | `video.ready`, `video.failed`, `rt.video.*.progress`, `dlq.video.uploaded`, `_INBOX.>`, `$JS.API.>` | `video.uploaded`, `_INBOX.>` |
+| `video` | `video.deleted`, `video.moderated`, `_INBOX.>`, `$JS.API.>` | `social.video.like_changed`, `_INBOX.>` |
+| `social` | `social.comment.created`, `social.video.like_changed`, `social.subscription.changed`, `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.deleted`, `video.moderated`, `_INBOX.>` |
+| `realtime` | `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.failed`, `social.comment.created`, `social.video.like_changed`, `rt.video.*.progress`, `_INBOX.>` |
 
 *All users have access to `$JS.API.>` for JetStream pull consumers and `_INBOX.>` for RPC responses.*
 
