@@ -1,7 +1,7 @@
 # auth-svc (services/auth)
 
 Authentication and session identity service for Winkey.
-Owner: **Antigravity 3** (Tasks A1, A2).
+Owner: **Antigravity 3** (Tasks A1, A2, A3).
 
 ## Overview
 
@@ -65,7 +65,20 @@ openssl pkey -in private_new.pem -pubout -out public_new.pem
 Rate limiting is enforced via Valkey (sliding window counter):
 - **Login:** Maximum 5 requests/minute per (IP + email) AND 20 requests/minute per IP.
 - **Register:** Maximum 5 requests/hour per IP.
+- **Profile Updates (`PATCH /v1/auth/me`):** Maximum 10 changes/hour per user ID.
+- **Account Actions (`changePassword`, `deleteMe`):** Maximum 5 requests/minute per user ID AND 20 requests/minute per IP.
 - **Exceeded:** Returns `429 Too Many Requests` with RFC 9457 `application/problem+json` and `Retry-After: <seconds>` header.
+
+---
+
+## Account Self-Service (Task A3)
+
+| Endpoint | Method | Security | Description |
+|---|---|---|---|
+| `/v1/auth/me` | `GET` | Bearer | Returns the authenticated `User` record including `has_password: boolean`. |
+| `/v1/auth/me` | `PATCH` | Bearer | Edits `display_name` (1-50 chars) and/or `handle` (`^[A-Za-z0-9_.]{3,30}$`). Case-insensitive collision maps to `409` `HANDLE_TAKEN` via DB unique violation. Same values return `200` without a DB write. Rate limited to 10 changes/hour per user ID. Updates immediately reflect in `auth.public_profiles`. |
+| `/v1/auth/me/password` | `PUT` | Bearer | Sets or changes account password. Accounts with a password require `current_password` (verified with argon2id, mismatch yields `403` `INVALID_CREDENTIALS`). OAuth-only accounts must omit `current_password` (if provided -> `400`) and set their first password. In the same transaction, revokes all refresh token families except the family matching the request's `wk_rt` cookie (other devices logged out; current session preserved). Rate limited like login. Returns `204`. |
+| `/v1/auth/me` | `DELETE` | Bearer | Anonymizes and deletes account. Requires `confirm_handle` (case-insensitive match, else `400` `CONFIRMATION_MISMATCH`) and `password` if account has a password (`403` `INVALID_CREDENTIALS` if invalid). Protected by `LAST_ADMIN` transaction advisory lock (`pg_advisory_xact_lock(hashtext('auth.last_admin'))`); sole admin receives `409` `LAST_ADMIN`. In a single transaction with `SELECT ... FOR UPDATE`: scrubs user row (`email = deleted+<id>@invalid.winkey.vn`, `handle = d_<28 hex>` [exactly 30 chars], `display_name = 'Deleted user'`, `status = 'DELETED'`, NULLs for passwords, avatar, suspension), deletes `auth.oauth_identities`, and revokes all refresh tokens. Clears `wk_rt` cookie (Max-Age=0) and returns `204`. The previous email and handle become immediately available for new registrations. |
 
 ---
 

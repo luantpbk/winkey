@@ -103,3 +103,18 @@ export function buildLoginRateLimitKeys(
 export function buildRegisterRateLimitKey(ip: string): string {
   return `rl:reg:ip:${ip}`;
 }
+
+export function buildUpdateMeRateLimitKey(userId: string): string {
+  return `rl:update_me:user:${userId}`;
+}
+
+export function buildAccountActionRateLimitKeys(
+  action: 'password' | 'delete',
+  userId: string,
+  ip: string,
+): { userKey: string; ipKey: string } {
+  return {
+    userKey: `rl:${action}:user:${userId}`,
+    ipKey: `rl:${action}:ip:${ip}`,
+  };
+}
