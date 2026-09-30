@@ -353,9 +353,15 @@ func TestTwentyTrackLimitHoldsUnderConcurrency(t *testing.T) {
 	if keys := s.keys(video); len(keys) != 20 {
 		t.Fatalf("%d objects for 20 rows (leaked objects of refused uploads?)", len(keys))
 	}
-	// Replacing a language at the limit is fine; a 21st language is not.
-	if code, _ := s.put(alice, video, "aa", "again", vttOK); code != http.StatusOK {
-		t.Fatalf("replace at the limit: %d", code)
+	// Replacing a language at the limit is fine; a 21st language is not. Which 20 of the 25 got in is up to
+	// the scheduler, so the language to replace is one that really has a row.
+	var existing string
+	for lang := range s.rows(video) {
+		existing = lang
+		break
+	}
+	if code, _ := s.put(alice, video, existing, "again", vttOK); code != http.StatusOK {
+		t.Fatalf("replace %q at the limit: %d", existing, code)
 	}
 	if code, _ := s.put(alice, video, "vi", "Tiếng Việt", vttOK); code != http.StatusConflict {
 		t.Fatalf("21st language: %d", code)
