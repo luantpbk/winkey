@@ -4,6 +4,7 @@ import { commentsRoute } from './routes/comments.js';
 import { likesRoute } from './routes/likes.js';
 import { subscriptionsRoute } from './routes/subscriptions.js';
 import { reportsRoute } from './routes/reports.js';
+import { notificationsRoute } from './routes/notifications.js';
 import { healthRoute } from './routes/health.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
@@ -105,6 +106,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(likesRoute, { db, env, rateLimiter });
   await app.register(subscriptionsRoute, { db, env, rateLimiter });
   await app.register(reportsRoute, { db, env, rateLimiter });
+  await app.register(notificationsRoute, { db, env });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

@@ -10,6 +10,7 @@ import { ProblemError } from '../errors/problem.js';
 import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
+import { notificationsCreatedCounter } from '../metrics.js';
 
 export interface CommentsRouteOptions {
   db: Kysely<Database>;
@@ -310,6 +311,49 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         },
         { producer: 'social-svc', version: 1 },
       );
+
+      // In-app Notification (Task N1, ADR-023)
+      if (parentId === null) {
+        // Top-level comment -> notify video owner if not self
+        if (video.owner_id !== caller.userId) {
+          const notifId = uuidv7();
+          const inserted = await trx
+            .insertInto('social.notifications')
+            .values({
+              id: notifId,
+              user_id: video.owner_id,
+              kind: 'VIDEO_COMMENT',
+              actor_id: caller.userId,
+              video_id,
+              comment_id: commentId,
+            })
+            .onConflict((oc) => oc.doNothing())
+            .returning('id')
+            .execute();
+          if (inserted.length > 0) {
+            notificationsCreatedCounter.inc({ kind: 'VIDEO_COMMENT' });
+          }
+        }
+      } else if (parentComment && parentComment.author_id !== caller.userId) {
+        // Reply -> notify parent comment author if not self (reply does NOT notify video owner)
+        const notifId = uuidv7();
+        const inserted = await trx
+          .insertInto('social.notifications')
+          .values({
+            id: notifId,
+            user_id: parentComment.author_id,
+            kind: 'COMMENT_REPLY',
+            actor_id: caller.userId,
+            video_id,
+            comment_id: commentId,
+          })
+          .onConflict((oc) => oc.doNothing())
+          .returning('id')
+          .execute();
+        if (inserted.length > 0) {
+          notificationsCreatedCounter.inc({ kind: 'COMMENT_REPLY' });
+        }
+      }
     });
 
     // Fetch author profile

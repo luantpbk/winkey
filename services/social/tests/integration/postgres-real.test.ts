@@ -12,6 +12,12 @@ import { getEnv } from '../../src/config/env.js';
 import { getDb } from '../../src/db/client.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { VideoProjectionConsumer } from '../../src/projection/consumer.js';
+import { parse as parseYaml } from 'yaml';
+import { v7 as uuidv7 } from 'uuid';
+import {
+  NotificationsJanitor,
+  NOTIFICATIONS_JANITOR_LOCK_KEY,
+} from '../../src/janitor/notifications-janitor.js';
 import type { FastifyInstance } from 'fastify';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -61,6 +67,10 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateCommentCreated: any;
   let validateLikeChanged: any;
   let validateSubChanged: any;
+  let validateNotification: any;
+  let validateNotificationPage: any;
+  let validateUnreadCount: any;
+  let validateProblem: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -97,6 +107,27 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     validateCommentCreated = ajv.compile(commentCreatedSchema);
     validateLikeChanged = ajv.compile(likeChangedSchema);
     validateSubChanged = ajv.compile(subChangedSchema);
+
+    // OpenAPI contracts
+    const openapiDir = path.join(repoRoot, 'contracts', 'openapi');
+    const socialSpec = parseYaml(fs.readFileSync(path.join(openapiDir, 'social.v1.yaml'), 'utf8'));
+    const commonSpec = parseYaml(fs.readFileSync(path.join(openapiDir, 'common.yaml'), 'utf8'));
+    commonSpec.$id = 'https://winkey.vn/contracts/openapi/common.yaml';
+    socialSpec.$id = 'https://winkey.vn/contracts/openapi/social.v1.yaml';
+    ajv.addSchema(commonSpec);
+    ajv.addSchema(socialSpec);
+    validateNotification = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Notification',
+    )!;
+    validateNotificationPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/NotificationPage',
+    )!;
+    validateUnreadCount = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/UnreadCount',
+    )!;
+    validateProblem = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+    )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
     let testDbUrl =
@@ -1407,4 +1438,856 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(unlistedCommentsRes.statusCode).toBe(200);
   });
+
+  it('runs full in-app notifications lifecycle on real PostgreSQL 17 + NATS JetStream (Task N1)', async () => {
+    if (!app || !pool || !nc) return;
+
+    const js = nc.jetstream();
+
+    // 1. Setup Users in auth.users and channels in social.channels
+    const n1Owner = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd001';
+    const n1UserA = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd002';
+    const n1UserB = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd003';
+    const n1UserC = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd004';
+    const n1Suspended = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd005';
+
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, avatar_key, status)
+        VALUES
+          ('${n1Owner}', 'n1_owner@winkey.vn', 'n1_owner', 'Owner Channel', NULL, 'ACTIVE'),
+          ('${n1UserA}', 'n1_usera@winkey.vn', 'n1_usera', 'User Alice', 'avatars/alice.png', 'ACTIVE'),
+          ('${n1UserB}', 'n1_userb@winkey.vn', 'n1_userb', 'User Bob', NULL, 'ACTIVE'),
+          ('${n1UserC}', 'n1_userc@winkey.vn', 'n1_userc', 'User Carol', NULL, 'ACTIVE'),
+          ('${n1Suspended}', 'n1_suspended@winkey.vn', 'n1_suspended', 'Suspended User', NULL, 'SUSPENDED')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    await pool.query(`
+        INSERT INTO social.channels (id, subscriber_count)
+        VALUES
+          ('${n1Owner}', 0),
+          ('${n1UserA}', 0),
+          ('${n1UserB}', 0),
+          ('${n1UserC}', 0)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    // Video setup
+    const n1Video1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd010';
+    await pool.query(`
+        INSERT INTO social.videos (id, owner_id, visibility, hidden, like_count, comment_count)
+        VALUES ('${n1Video1}', '${n1Owner}', 'PUBLIC', false, 0, 0)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    // 2. Comments and Subscriptions notifications
+    // 2a. comment -> owner notified, own comment produces nothing
+    const commentRes1 = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${n1Video1}/comments`,
+      headers: { 'x-user-id': n1UserA },
+      payload: { body: 'Top level comment by Alice' },
+    });
+    expect(commentRes1.statusCode).toBe(201);
+    const comment1 = commentRes1.json();
+
+    const notifQuery1 = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2',
+      [n1Owner, 'VIDEO_COMMENT'],
+    );
+    expect(notifQuery1.rows.length).toBe(1);
+    expect(notifQuery1.rows[0].actor_id).toBe(n1UserA);
+    expect(notifQuery1.rows[0].video_id).toBe(n1Video1);
+    expect(notifQuery1.rows[0].comment_id).toBe(comment1.id);
+
+    // Own comment by owner produces nothing
+    const ownCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${n1Video1}/comments`,
+      headers: { 'x-user-id': n1Owner },
+      payload: { body: 'Owner comment on own video' },
+    });
+    expect(ownCommentRes.statusCode).toBe(201);
+
+    const notifQueryOwnerSelf = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND actor_id = $1',
+      [n1Owner],
+    );
+    expect(notifQueryOwnerSelf.rows.length).toBe(0);
+
+    // 2b. reply -> parent author notified (not the owner), own reply produces nothing
+    const replyRes1 = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${n1Video1}/comments`,
+      headers: { 'x-user-id': n1UserB },
+      payload: { parent_id: comment1.id, body: 'Reply by Bob to Alice' },
+    });
+    expect(replyRes1.statusCode).toBe(201);
+    const reply1 = replyRes1.json();
+
+    const notifReplyToAlice = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2',
+      [n1UserA, 'COMMENT_REPLY'],
+    );
+    expect(notifReplyToAlice.rows.length).toBe(1);
+    expect(notifReplyToAlice.rows[0].actor_id).toBe(n1UserB);
+    expect(notifReplyToAlice.rows[0].comment_id).toBe(reply1.id);
+
+    // Video owner should NOT receive a reply notification
+    const ownerReplyCount = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2',
+      [n1Owner, 'COMMENT_REPLY'],
+    );
+    expect(ownerReplyCount.rows.length).toBe(0);
+
+    // Own reply produces nothing
+    const ownReplyRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${n1Video1}/comments`,
+      headers: { 'x-user-id': n1UserA },
+      payload: { parent_id: comment1.id, body: 'Alice replying to herself' },
+    });
+    expect(ownReplyRes.statusCode).toBe(201);
+
+    // Self subscribe produces nothing
+    const selfSubRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${n1UserA}/subscription`,
+      headers: { 'x-user-id': n1UserA },
+    });
+    expect(selfSubRes.statusCode).toBe(400);
+
+    // 2c. subscribe twice / unsubscribe + subscribe -> 1 NEW_SUBSCRIBER
+    const subRes1 = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${n1Owner}/subscription`,
+      headers: { 'x-user-id': n1UserA },
+    });
+    expect(subRes1.statusCode).toBe(200);
+
+    const subNotif1 = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2 AND actor_id = $3',
+      [n1Owner, 'NEW_SUBSCRIBER', n1UserA],
+    );
+    expect(subNotif1.rows.length).toBe(1);
+
+    // Subscribe twice
+    const subRes2 = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${n1Owner}/subscription`,
+      headers: { 'x-user-id': n1UserA },
+    });
+    expect(subRes2.statusCode).toBe(200);
+
+    const subNotif2 = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2 AND actor_id = $3',
+      [n1Owner, 'NEW_SUBSCRIBER', n1UserA],
+    );
+    expect(subNotif2.rows.length).toBe(1);
+
+    // Unsubscribe
+    const unsubRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/channels/${n1Owner}/subscription`,
+      headers: { 'x-user-id': n1UserA },
+    });
+    expect(unsubRes.statusCode).toBe(200);
+    expect(unsubRes.json().subscribed).toBe(false);
+
+    // Unsubscribe deletes nothing
+    const subNotifAfterUnsub = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2 AND actor_id = $3',
+      [n1Owner, 'NEW_SUBSCRIBER', n1UserA],
+    );
+    expect(subNotifAfterUnsub.rows.length).toBe(1);
+
+    // Subscribe again -> still 1
+    const subRes3 = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${n1Owner}/subscription`,
+      headers: { 'x-user-id': n1UserA },
+    });
+    expect(subRes3.statusCode).toBe(200);
+
+    const subNotif3 = await pool.query(
+      'SELECT * FROM social.notifications WHERE user_id = $1 AND kind = $2 AND actor_id = $3',
+      [n1Owner, 'NEW_SUBSCRIBER', n1UserA],
+    );
+    expect(subNotif3.rows.length).toBe(1);
+
+    // 3. Projection Consumer Video Publication Fanout
+    // Setup channel with 3 subscribers
+    const fanoutChannel = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd050';
+    const subUser1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd051';
+    const subUser2 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd052';
+    const subUser3 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd053';
+
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES
+          ('${fanoutChannel}', 'fanout_ch@winkey.vn', 'fanout_ch', 'Fanout Channel', 'ACTIVE'),
+          ('${subUser1}', 'sub1@winkey.vn', 'sub1', 'Sub One', 'ACTIVE'),
+          ('${subUser2}', 'sub2@winkey.vn', 'sub2', 'Sub Two', 'ACTIVE'),
+          ('${subUser3}', 'sub3@winkey.vn', 'sub3', 'Sub Three', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    await pool.query(`
+        INSERT INTO social.channels (id, subscriber_count)
+        VALUES ('${fanoutChannel}', 3)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    await pool.query(`
+        INSERT INTO social.subscriptions (subscriber_id, channel_id)
+        VALUES
+          ('${subUser1}', '${fanoutChannel}'),
+          ('${subUser2}', '${fanoutChannel}'),
+          ('${subUser3}', '${fanoutChannel}')
+        ON CONFLICT DO NOTHING;
+      `);
+
+    // 3a. video.ready PUBLIC with 3 subscribers -> 3 rows, redelivered -> still 3
+    const fanoutVid1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd061';
+    const videoReadyPublicEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be501',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: fanoutVid1,
+        owner_id: fanoutChannel,
+        visibility: 'PUBLIC',
+      },
+    };
+
+    await js.publish('video.ready', Buffer.from(JSON.stringify(videoReadyPublicEvent)));
+
+    // Poll until 3 rows appear in social.notifications
+    let rows3Count = 0;
+    for (let i = 0; i < 30; i++) {
+      const res = await pool.query(
+        'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1 AND kind = $2',
+        [fanoutVid1, 'VIDEO_PUBLISHED'],
+      );
+      rows3Count = Number(res.rows[0].count);
+      if (rows3Count === 3) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(rows3Count).toBe(3);
+
+    // Redeliver same event -> still 3
+    await js.publish('video.ready', Buffer.from(JSON.stringify(videoReadyPublicEvent)));
+    await new Promise((r) => setTimeout(r, 1000));
+    const resRedeliver = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1 AND kind = $2',
+      [fanoutVid1, 'VIDEO_PUBLISHED'],
+    );
+    expect(Number(resRedeliver.rows[0].count)).toBe(3);
+
+    // 3b. PRIVATE -> nothing, then visibility_changed PUBLIC -> 3, PRIVATE -> PUBLIC again -> still 3
+    const fanoutVid2 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd062';
+    const videoReadyPrivateEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be502',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: fanoutVid2,
+        owner_id: fanoutChannel,
+        visibility: 'PRIVATE',
+      },
+    };
+
+    await js.publish('video.ready', Buffer.from(JSON.stringify(videoReadyPrivateEvent)));
+    // Wait for projection
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT * FROM social.videos WHERE id = $1', [fanoutVid2]);
+      if (res.rows.length === 1) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    // PRIVATE -> 0 notifications
+    const resPrivCount = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+      [fanoutVid2],
+    );
+    expect(Number(resPrivCount.rows[0].count)).toBe(0);
+
+    // visibility_changed PUBLIC -> 3 notifications
+    const visChangedPublicEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be503',
+      type: 'video.visibility_changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: fanoutVid2,
+        owner_id: fanoutChannel,
+        visibility: 'PUBLIC',
+      },
+    };
+
+    await js.publish(
+      'video.visibility_changed',
+      Buffer.from(JSON.stringify(visChangedPublicEvent)),
+    );
+    for (let i = 0; i < 30; i++) {
+      const res = await pool.query(
+        'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+        [fanoutVid2],
+      );
+      if (Number(res.rows[0].count) === 3) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const resPubCount = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+      [fanoutVid2],
+    );
+    expect(Number(resPubCount.rows[0].count)).toBe(3);
+
+    // PRIVATE -> PUBLIC again -> still 3
+    const visChangedPrivateEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be504',
+      type: 'video.visibility_changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: fanoutVid2,
+        owner_id: fanoutChannel,
+        visibility: 'PRIVATE',
+      },
+    };
+    await js.publish(
+      'video.visibility_changed',
+      Buffer.from(JSON.stringify(visChangedPrivateEvent)),
+    );
+    await new Promise((r) => setTimeout(r, 500));
+
+    const visChangedPublicEvent2 = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be505',
+      type: 'video.visibility_changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: fanoutVid2,
+        owner_id: fanoutChannel,
+        visibility: 'PUBLIC',
+      },
+    };
+    await js.publish(
+      'video.visibility_changed',
+      Buffer.from(JSON.stringify(visChangedPublicEvent2)),
+    );
+    await new Promise((r) => setTimeout(r, 1000));
+
+    const resPubAgainCount = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+      [fanoutVid2],
+    );
+    expect(Number(resPubAgainCount.rows[0].count)).toBe(3);
+
+    // 3c. UNLISTED -> nothing
+    const fanoutVid3 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd063';
+    const videoReadyUnlistedEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be506',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: fanoutVid3,
+        owner_id: fanoutChannel,
+        visibility: 'UNLISTED',
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(videoReadyUnlistedEvent)));
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT * FROM social.videos WHERE id = $1', [fanoutVid3]);
+      if (res.rows.length === 1) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const resUnlistedCount = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+      [fanoutVid3],
+    );
+    expect(Number(resUnlistedCount.rows[0].count)).toBe(0);
+
+    // 3d. 2 500 subscribers -> 2 500 rows (paging keyset)
+    const bigChannelId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd100';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${bigChannelId}', 'big_channel@winkey.vn', 'big_channel', 'Big Star', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO social.channels (id, subscriber_count)
+        VALUES ('${bigChannelId}', 2500)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const bigSubIds: string[] = [];
+    const bigSubValues: string[] = [];
+    for (let i = 0; i < 2500; i++) {
+      const subId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b${String(i).padStart(4, '0')}`;
+      bigSubIds.push(subId);
+      bigSubValues.push(`('${subId}', 'big_sub_${i}@winkey.vn', 'sub_${i}', 'Sub ${i}', 'ACTIVE')`);
+    }
+
+    // Chunk bulk insert users (1000 per chunk)
+    for (let i = 0; i < bigSubValues.length; i += 1000) {
+      const chunk = bigSubValues.slice(i, i + 1000).join(',');
+      await pool.query(`
+          INSERT INTO auth.users (id, email, handle, display_name, status)
+          VALUES ${chunk}
+          ON CONFLICT (id) DO NOTHING;
+        `);
+    }
+
+    // Bulk insert subscriptions
+    const subInsertRows: string[] = bigSubIds.map((id) => `('${id}', '${bigChannelId}')`);
+    for (let i = 0; i < subInsertRows.length; i += 1000) {
+      const chunk = subInsertRows.slice(i, i + 1000).join(',');
+      await pool.query(`
+          INSERT INTO social.subscriptions (subscriber_id, channel_id)
+          VALUES ${chunk}
+          ON CONFLICT DO NOTHING;
+        `);
+    }
+
+    const bigVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd101';
+    const bigVideoReadyEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be507',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: bigVideoId,
+        owner_id: bigChannelId,
+        visibility: 'PUBLIC',
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(bigVideoReadyEvent)));
+
+    let bigNotifCount = 0;
+    for (let i = 0; i < 60; i++) {
+      const res = await pool.query(
+        'SELECT count(*)::int as count FROM social.notifications WHERE video_id = $1',
+        [bigVideoId],
+      );
+      bigNotifCount = Number(res.rows[0].count);
+      if (bigNotifCount === 2500) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(bigNotifCount).toBe(2500);
+
+    // 4. List filters: hidden video, PRIVATE video, HIDDEN/DELETED comment, suspended actor with page still full
+    const filterRecipient = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd200';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${filterRecipient}', 'filter_rcp@winkey.vn', 'filter_rcp', 'Filter Recipient', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const privVid = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd201';
+    const hiddenVid = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd202';
+    const okVid = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd203';
+    await pool.query(`
+        INSERT INTO social.videos (id, owner_id, visibility, hidden, like_count, comment_count)
+        VALUES
+          ('${privVid}', '${n1Owner}', 'PRIVATE', false, 0, 0),
+          ('${hiddenVid}', '${n1Owner}', 'PUBLIC', true, 0, 0),
+          ('${okVid}', '${n1Owner}', 'PUBLIC', false, 0, 0)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const hiddenComment = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd204';
+    const deletedComment = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd205';
+    const okComment = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd206';
+    await pool.query(`
+        INSERT INTO social.comments (id, video_id, author_id, parent_id, body, status, reply_count)
+        VALUES
+          ('${hiddenComment}', '${okVid}', '${n1UserA}', NULL, 'Hidden comment', 'HIDDEN', 0),
+          ('${deletedComment}', '${okVid}', '${n1UserA}', NULL, '', 'DELETED', 0),
+          ('${okComment}', '${okVid}', '${n1UserA}', NULL, 'Ok comment', 'VISIBLE', 0)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    // Insert 5 filtered notifications
+    await pool.query(`
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES
+          ('${uuidv7()}', '${filterRecipient}', '${n1UserA}', 'VIDEO_PUBLISHED', '${privVid}', NULL, now()),
+          ('${uuidv7()}', '${filterRecipient}', '${n1UserA}', 'VIDEO_PUBLISHED', '${hiddenVid}', NULL, now()),
+          ('${uuidv7()}', '${filterRecipient}', '${n1UserA}', 'VIDEO_COMMENT', '${okVid}', '${hiddenComment}', now()),
+          ('${uuidv7()}', '${filterRecipient}', '${n1UserA}', 'VIDEO_COMMENT', '${okVid}', '${deletedComment}', now()),
+          ('${uuidv7()}', '${filterRecipient}', '${n1Suspended}', 'NEW_SUBSCRIBER', NULL, NULL, now())
+        ON CONFLICT DO NOTHING;
+      `);
+
+    // Insert 10 valid notifications with 10 distinct active actors
+    const filterActors: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf1${String(i).padStart(2, '0')}`;
+      filterActors.push(
+        `('${actId}', 'filter_actor_${i}@winkey.vn', 'fact_${i}', 'Filter Actor ${i}', 'ACTIVE')`,
+      );
+    }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${filterActors.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    for (let i = 0; i < 10; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf1${String(i).padStart(2, '0')}`;
+      await pool.query(`
+          INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+          VALUES ('${uuidv7()}', '${filterRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i + 1} minutes')
+          ON CONFLICT DO NOTHING;
+        `);
+    }
+
+    // Fetch limit=10 -> page is still full of 10 items
+    const filterRes = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=10',
+      headers: { 'x-user-id': filterRecipient },
+    });
+    expect(filterRes.statusCode).toBe(200);
+    const filterBody = filterRes.json();
+    expect(validateNotificationPage(filterBody)).toBe(true);
+    expect(filterBody.items.length).toBe(10);
+    // Ensure none of the filtered ones are in the list
+    for (const item of filterBody.items) {
+      expect(validateNotification(item)).toBe(true);
+      expect(item.video_id).not.toBe(privVid);
+      expect(item.video_id).not.toBe(hiddenVid);
+      expect(item.comment_id).not.toBe(hiddenComment);
+      expect(item.comment_id).not.toBe(deletedComment);
+      expect(item.actor.id).not.toBe(n1Suspended);
+    }
+
+    // 5. Cursor walk over 45 rows with limit 20 = 20/20/5 with no duplicates
+    const cursorRecipient = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd300';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${cursorRecipient}', 'cursor_rcp@winkey.vn', 'cursor_rcp', 'Cursor Walk', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const cursorActorRows: string[] = [];
+    const cursorNotifRows: string[] = [];
+    for (let i = 0; i < 45; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc${String(i).padStart(3, '0')}`;
+      cursorActorRows.push(
+        `('${actId}', 'cursor_act_${i}@winkey.vn', 'c_act_${i}', 'Cursor Actor ${i}', 'ACTIVE')`,
+      );
+      cursorNotifRows.push(
+        `('${uuidv7()}', '${cursorRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${45 - i} seconds')`,
+      );
+    }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${cursorActorRows.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES ${cursorNotifRows.join(',')}
+        ON CONFLICT DO NOTHING;
+      `);
+
+    const page1Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=20',
+      headers: { 'x-user-id': cursorRecipient },
+    });
+    expect(page1Res.statusCode).toBe(200);
+    const page1Body = page1Res.json();
+    expect(validateNotificationPage(page1Body)).toBe(true);
+    expect(page1Body.items.length).toBe(20);
+    expect(page1Body.next_cursor).not.toBeNull();
+
+    const page2Res = await app.inject({
+      method: 'GET',
+      url: `/v1/notifications?limit=20&cursor=${encodeURIComponent(page1Body.next_cursor)}`,
+      headers: { 'x-user-id': cursorRecipient },
+    });
+    expect(page2Res.statusCode).toBe(200);
+    const page2Body = page2Res.json();
+    expect(validateNotificationPage(page2Body)).toBe(true);
+    expect(page2Body.items.length).toBe(20);
+    expect(page2Body.next_cursor).not.toBeNull();
+
+    const page3Res = await app.inject({
+      method: 'GET',
+      url: `/v1/notifications?limit=20&cursor=${encodeURIComponent(page2Body.next_cursor)}`,
+      headers: { 'x-user-id': cursorRecipient },
+    });
+    expect(page3Res.statusCode).toBe(200);
+    const page3Body = page3Res.json();
+    expect(validateNotificationPage(page3Body)).toBe(true);
+    expect(page3Body.items.length).toBe(5);
+    expect(page3Body.next_cursor).toBeNull();
+
+    const allCursorIds = [
+      ...page1Body.items.map((i: any) => i.id),
+      ...page2Body.items.map((i: any) => i.id),
+      ...page3Body.items.map((i: any) => i.id),
+    ];
+    expect(new Set(allCursorIds).size).toBe(45);
+
+    // 6. Unread filter
+    // Mark 5 notifications as read
+    const idsToMark = page1Body.items.slice(0, 5).map((i: any) => i.id);
+    await pool.query('UPDATE social.notifications SET read_at = now() WHERE id = ANY($1::uuid[])', [
+      idsToMark,
+    ]);
+
+    const unreadRes = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=50&unread=true',
+      headers: { 'x-user-id': cursorRecipient },
+    });
+    expect(unreadRes.statusCode).toBe(200);
+    const unreadBody = unreadRes.json();
+    expect(unreadBody.items.length).toBe(40);
+    for (const item of unreadBody.items) {
+      expect(item.read_at).toBeNull();
+    }
+
+    // 7. Unread Count capped at 100 (+ capped=true at 101)
+    const countRecipient = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd400';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${countRecipient}', 'count_rcp@winkey.vn', 'count_rcp', 'Count Recipient', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const countActorRows: string[] = [];
+    const countNotifRows: string[] = [];
+    for (let i = 0; i < 101; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be${String(i).padStart(3, '0')}`;
+      countActorRows.push(
+        `('${actId}', 'count_act_${i}@winkey.vn', 'cnt_act_${i}', 'Count Actor ${i}', 'ACTIVE')`,
+      );
+      countNotifRows.push(
+        `('${uuidv7()}', '${countRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i} seconds')`,
+      );
+    }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${countActorRows.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES ${countNotifRows.join(',')}
+        ON CONFLICT DO NOTHING;
+      `);
+
+    const count101Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications/unread-count',
+      headers: { 'x-user-id': countRecipient },
+    });
+    expect(count101Res.statusCode).toBe(200);
+    const count101Body = count101Res.json();
+    expect(validateUnreadCount(count101Body)).toBe(true);
+    expect(count101Body).toEqual({ count: 100, capped: true });
+
+    // Mark 1 as read -> now exactly 100 unread -> capped: false
+    const oneNotifRes = await pool.query(
+      'SELECT id FROM social.notifications WHERE user_id = $1 LIMIT 1',
+      [countRecipient],
+    );
+    await pool.query('UPDATE social.notifications SET read_at = now() WHERE id = $1', [
+      oneNotifRes.rows[0].id,
+    ]);
+
+    const count100Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications/unread-count',
+      headers: { 'x-user-id': countRecipient },
+    });
+    expect(count100Res.statusCode).toBe(200);
+    expect(count100Res.json()).toEqual({ count: 100, capped: false });
+
+    // 8. Mark by ids and by up_to, error cases
+    // 8a. 401 without identity
+    const noAuthRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      payload: { ids: [uuidv7()] },
+    });
+    expect(noAuthRes.statusCode).toBe(401);
+
+    // 8b. 400 on both ids and up_to
+    const bothRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { ids: [uuidv7()], up_to: new Date().toISOString() },
+    });
+    expect(bothRes.statusCode).toBe(400);
+    expect(validateProblem(bothRes.json())).toBe(true);
+
+    // 8c. 400 on neither
+    const neitherRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: {},
+    });
+    expect(neitherRes.statusCode).toBe(400);
+    expect(validateProblem(neitherRes.json())).toBe(true);
+
+    // 8d. 400 on 101 ids
+    const ids101 = Array.from({ length: 101 }, () => uuidv7());
+    const maxIdsRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { ids: ids101 },
+    });
+    expect(maxIdsRes.statusCode).toBe(400);
+    expect(validateProblem(maxIdsRes.json())).toBe(true);
+
+    // 8e. Mark by ids: foreign id ignored, read_at unchanged on repeat
+    const unread2Rows = await pool.query(
+      'SELECT id FROM social.notifications WHERE user_id = $1 AND read_at IS NULL LIMIT 2',
+      [countRecipient],
+    );
+    const targetId1 = unread2Rows.rows[0].id;
+    const targetId2 = unread2Rows.rows[1].id;
+    const foreignId = uuidv7(); // id of someone else
+
+    const markRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { ids: [targetId1, targetId2, foreignId] },
+    });
+    expect(markRes.statusCode).toBe(204);
+
+    const checkMarked = await pool.query(
+      'SELECT id, read_at FROM social.notifications WHERE id IN ($1, $2)',
+      [targetId1, targetId2],
+    );
+    expect(checkMarked.rows[0].read_at).not.toBeNull();
+    expect(checkMarked.rows[1].read_at).not.toBeNull();
+    const firstReadAt = checkMarked.rows[0].read_at;
+
+    // Repeat mark call -> read_at unchanged
+    await new Promise((r) => setTimeout(r, 100));
+    const repeatMarkRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { ids: [targetId1] },
+    });
+    expect(repeatMarkRes.statusCode).toBe(204);
+    const checkRepeat = await pool.query('SELECT read_at FROM social.notifications WHERE id = $1', [
+      targetId1,
+    ]);
+    expect(new Date(checkRepeat.rows[0].read_at).getTime()).toBe(new Date(firstReadAt).getTime());
+
+    // 8f. Mark by up_to
+    const markUpToDate = new Date().toISOString();
+    const markUpToRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { up_to: markUpToDate },
+    });
+    expect(markUpToRes.statusCode).toBe(204);
+
+    const remainingUnread = await pool.query(
+      'SELECT count(*)::int as count FROM social.notifications WHERE user_id = $1 AND read_at IS NULL',
+      [countRecipient],
+    );
+    expect(Number(remainingUnread.rows[0].count)).toBe(0);
+
+    // 8g. Microsecond precision: row at .123456Z marked read by up_to .123Z
+    const microActor = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf999';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${microActor}', 'micro_act@winkey.vn', 'micro_act', 'Micro Actor', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    const microTestId = uuidv7();
+    await pool.query(
+      `INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+       VALUES ($1, $2, $3, 'NEW_SUBSCRIBER', NULL, NULL, '2026-09-30 10:00:00.123456+00')`,
+      [microTestId, countRecipient, microActor],
+    );
+    const microMarkRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': countRecipient },
+      payload: { up_to: '2026-09-30T10:00:00.123Z' },
+    });
+    expect(microMarkRes.statusCode).toBe(204);
+    const checkMicroRow = await pool.query(
+      'SELECT read_at FROM social.notifications WHERE id = $1',
+      [microTestId],
+    );
+    expect(checkMicroRow.rows[0].read_at).not.toBeNull();
+
+    // 9. Janitor: deletes only rows older than retention and only one of two concurrent runs gets the lock
+    const janitorRecipient = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd500';
+    const janitorActor1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd501';
+    const janitorActor2 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd502';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES
+          ('${janitorRecipient}', 'jan_rcp@winkey.vn', 'jan_rcp', 'Janitor Recipient', 'ACTIVE'),
+          ('${janitorActor1}', 'jan_act1@winkey.vn', 'jan_act1', 'Janitor Actor 1', 'ACTIVE'),
+          ('${janitorActor2}', 'jan_act2@winkey.vn', 'jan_act2', 'Janitor Actor 2', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    const janitorOldId = uuidv7();
+    const janitorNewId = uuidv7();
+    await pool.query(`
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES
+          ('${janitorOldId}', '${janitorRecipient}', '${janitorActor1}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '95 days'),
+          ('${janitorNewId}', '${janitorRecipient}', '${janitorActor2}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '10 days')
+        ON CONFLICT DO NOTHING;
+      `);
+
+    const janitor = new NotificationsJanitor({ pool, retentionDays: 90 });
+
+    // Concurrency check: hold lock from separate client
+    const lockClient = await pool.connect();
+    try {
+      const lockRes = await lockClient.query('SELECT pg_try_advisory_lock($1) as locked', [
+        NOTIFICATIONS_JANITOR_LOCK_KEY,
+      ]);
+      expect(lockRes.rows[0].locked).toBe(true);
+
+      // While locked, janitor run should skip and return 0
+      const skippedDeleted = await janitor.runOnce();
+      expect(skippedDeleted).toBe(0);
+
+      // Unlock
+      await lockClient.query('SELECT pg_advisory_unlock($1)', [NOTIFICATIONS_JANITOR_LOCK_KEY]);
+    } finally {
+      lockClient.release();
+    }
+
+    // Now janitor runs alone and deletes the 95-day-old notification
+    const deletedCount = await janitor.runOnce();
+    expect(deletedCount).toBeGreaterThanOrEqual(1);
+
+    const checkOld = await pool.query('SELECT * FROM social.notifications WHERE id = $1', [
+      janitorOldId,
+    ]);
+    expect(checkOld.rows.length).toBe(0);
+
+    const checkNew = await pool.query('SELECT * FROM social.notifications WHERE id = $1', [
+      janitorNewId,
+    ]);
+    expect(checkNew.rows.length).toBe(1);
+  }, 120_000);
 });

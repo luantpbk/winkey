@@ -29,6 +29,10 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
   let validateModerationCase: any;
   let validateModerationCasePage: any;
   let validateResolveCaseResult: any;
+  let validateNotification: any;
+  let validateNotificationPage: any;
+  let validateUnreadCount: any;
+  let validateMarkNotificationsReadRequest: any;
 
   const mockStore = createMockStore();
 
@@ -89,6 +93,18 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateResolveCaseResult = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ResolveCaseResult',
+    )!;
+    validateNotification = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Notification',
+    )!;
+    validateNotificationPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/NotificationPage',
+    )!;
+    validateUnreadCount = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/UnreadCount',
+    )!;
+    validateMarkNotificationsReadRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/MarkNotificationsReadRequest',
     )!;
 
     // 3. Populate mock store
@@ -669,5 +685,125 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     });
     expect(notFoundRes.statusCode).toBe(404);
     expect(validateProblem(notFoundRes.json())).toBe(true);
+  });
+
+  it('Notifications contract: GET /v1/notifications conforms to NotificationPage and Notification schemas', async () => {
+    mockStore.notifications.push({
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bcc01',
+      user_id: authorId,
+      actor_id: ownerId,
+      kind: 'VIDEO_COMMENT',
+      video_id: videoId,
+      comment_id: commentId,
+      read_at: null,
+      created_at: new Date(),
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const isPageValid = validateNotificationPage(body);
+    expect(isPageValid, JSON.stringify(validateNotificationPage.errors)).toBe(true);
+    expect(body.items.length).toBeGreaterThan(0);
+    const isItemValid = validateNotification(body.items[0]);
+    expect(isItemValid, JSON.stringify(validateNotification.errors)).toBe(true);
+  });
+
+  it('Unread notification count contract: GET /v1/notifications/unread-count conforms to UnreadCount schema', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications/unread-count',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const isValid = validateUnreadCount(body);
+    expect(isValid, JSON.stringify(validateUnreadCount.errors)).toBe(true);
+  });
+
+  it('Mark notifications read contract: POST /v1/notifications/read conforms to MarkNotificationsReadRequest schema', async () => {
+    const reqBody = { ids: ['0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bcc01'] };
+    expect(validateMarkNotificationsReadRequest(reqBody)).toBe(true);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': authorId },
+      payload: reqBody,
+    });
+    expect(res.statusCode).toBe(204);
+
+    // Invalid body -> 400 Problem
+    const invalidRes = await app.inject({
+      method: 'POST',
+      url: '/v1/notifications/read',
+      headers: { 'x-user-id': authorId },
+      payload: { ids: ['0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bcc01'], up_to: new Date().toISOString() },
+    });
+    expect(invalidRes.statusCode).toBe(400);
+    expect(validateProblem(invalidRes.json())).toBe(true);
+  });
+
+  it('Notifications pagination contract: obeys common.yaml Limit (default 24, max 100)', async () => {
+    // Populate 110 notifications for authorId
+    for (let i = 0; i < 110; i++) {
+      const idSuffix = String(i + 1).padStart(3, '0');
+      mockStore.notifications.push({
+        id: `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd${idSuffix}`,
+        user_id: authorId,
+        actor_id: ownerId,
+        kind: 'NEW_SUBSCRIBER',
+        video_id: null,
+        comment_id: null,
+        read_at: null,
+        created_at: new Date(Date.now() - i * 1000),
+      });
+    }
+
+    // 1. Default limit (no query param) -> returns 24 items
+    const defaultRes = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(defaultRes.statusCode).toBe(200);
+    const defaultBody = defaultRes.json();
+    expect(validateNotificationPage(defaultBody)).toBe(true);
+    expect(defaultBody.items).toHaveLength(24);
+    expect(defaultBody.next_cursor).not.toBeNull();
+
+    // 2. Limit = 100 -> returns 100 items
+    const limit100Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=100',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit100Res.statusCode).toBe(200);
+    const limit100Body = limit100Res.json();
+    expect(validateNotificationPage(limit100Body)).toBe(true);
+    expect(limit100Body.items).toHaveLength(100);
+    expect(limit100Body.next_cursor).not.toBeNull();
+
+    // 3. Limit > 100 -> 400 Problem
+    const limit101Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=101',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit101Res.statusCode).toBe(400);
+    expect(validateProblem(limit101Res.json())).toBe(true);
+
+    // 4. Limit < 1 -> 400 Problem
+    const limit0Res = await app.inject({
+      method: 'GET',
+      url: '/v1/notifications?limit=0',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(limit0Res.statusCode).toBe(400);
+    expect(validateProblem(limit0Res.json())).toBe(true);
   });
 });

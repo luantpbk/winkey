@@ -33,6 +33,19 @@ Part of **Task C1**, owned by **Antigravity 3**.
   - Ingests `video.ready` (upserting optional `visibility`: `PUBLIC`, `UNLISTED`, `PRIVATE`) and `video.visibility_changed` (`UPDATE social.videos SET visibility WHERE id`, acking unknown videos).
   - Unified access control rule: Moderator/admin always has access; hidden video is closed to all callers (including owner); PRIVATE video is open to owner and closed to outsiders; UNLISTED behaves like PUBLIC.
   - Closed videos answer `404` (`VIDEO_NOT_FOUND`) on every comment and like endpoint; `UNLISTED` behaves like `PUBLIC`.
+- **In-App Notifications (Task N1 / ADR-023)**:
+  - Writers:
+    - Top-level comment -> `VIDEO_COMMENT` notification to video owner.
+    - Comment reply -> `COMMENT_REPLY` notification to parent comment author (video owner not notified).
+    - Channel subscription -> `NEW_SUBSCRIBER` notification to channel owner on first subscribe.
+    - Video publish fanout -> `VIDEO_PUBLISHED` notification to all channel subscribers on `video.ready` / `video.visibility_changed` transition to `PUBLIC`.
+    - Dedup index on `(user_id, kind, COALESCE(comment_id, video_id, actor_id))`.
+    - Self-notifications (`user_id = actor_id`) are always omitted.
+  - Readers:
+    - `GET /v1/notifications`: List caller's notifications with keyset cursor pagination (`(created_at, id) DESC`), `limit` parameter, and optional `unread=true` filter. Automatically omits notifications pointing to hidden or private videos, non-visible comments, or deleted/missing actor profiles.
+    - `GET /v1/notifications/unread-count`: Efficient unread badge counter (`count: min(n, 100)`, `capped: n > 100`).
+    - `POST /v1/notifications/read`: Mark notifications as read using either `ids` (1-100 UUIDs) or `up_to` (ISO timestamp). Returns 204.
+  - Janitor: Periodic background worker using Postgres advisory lock (`821390`) to batch delete notifications older than retention days (default 90 days).
 - **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.
 
@@ -49,6 +62,8 @@ Part of **Task C1**, owned by **Antigravity 3**.
 | `VALKEY_URL` | `string` | `redis://localhost:6379` | Valkey/Redis instance URL |
 | `MEDIA_BASE_URL` | `string` | `https://media.winkey.vn` | Base CDN URL for avatars and media |
 | `TRUST_PROXY_CIDRS` | `string` | `10.42.0.0/16,127.0.0.1` | Trusted proxy CIDRs for Fastify client IP resolution |
+| `NOTIFICATIONS_RETENTION_DAYS` | `number` | `90` | Retention period in days for notifications before janitor purges |
+| `NOTIFICATIONS_JANITOR_INTERVAL` | `string` | `10m` | Interval between notification janitor runs (e.g. `10m`, `1h`) |
 
 ---
 
@@ -63,6 +78,9 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 |---|---|---|---|
 | `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
+| `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`). |
+| `social_notifications_fanout_seconds` | Histogram | None | Latency of subscriber notification fanout on video publication. |
+| `social_notifications_janitor_deleted_total` | Counter | None | Total expired notification rows deleted by background janitor. |
 | Standard Node.js runtime metrics | Various | `service="social-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
 
 ---

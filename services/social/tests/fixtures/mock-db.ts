@@ -1,5 +1,10 @@
 import { Kysely, PostgresDialect } from 'kysely';
-import type { Database, CommentStatus, VideoVisibility } from '../../src/db/types.js';
+import type {
+  Database,
+  CommentStatus,
+  VideoVisibility,
+  NotificationKind,
+} from '../../src/db/types.js';
 
 export interface MockStore {
   videos: Array<{
@@ -64,6 +69,18 @@ export interface MockStore {
     resolved_at: Date | null;
     created_at: Date;
   }>;
+  notifications: Array<{
+    id: string;
+    user_id: string;
+    actor_id: string;
+    kind: NotificationKind;
+    video_id: string | null;
+    comment_id: string | null;
+    read_at: Date | null;
+    created_at: Date;
+    created_at_micros?: string;
+  }>;
+  advisory_locks: Set<number>;
 }
 
 export function createMockStore(): MockStore {
@@ -76,6 +93,8 @@ export function createMockStore(): MockStore {
     outbox: [],
     public_profiles: [],
     reports: [],
+    notifications: [],
+    advisory_locks: new Set<number>(),
   };
 }
 
@@ -96,6 +115,22 @@ export function createMockDb(store: MockStore = createMockStore()): {
       // SELECT 1 (health check)
       if (/^select\s+1$/i.test(sql)) {
         return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      }
+
+      // Advisory locks
+      if (/pg_try_advisory_lock/i.test(sql)) {
+        const key = Number(params[0]);
+        if (store.advisory_locks.has(key)) {
+          return { rows: [{ locked: false }], rowCount: 1 };
+        }
+        store.advisory_locks.add(key);
+        return { rows: [{ locked: true }], rowCount: 1 };
+      }
+
+      if (/pg_advisory_unlock/i.test(sql)) {
+        const key = Number(params[0]);
+        store.advisory_locks.delete(key);
+        return { rows: [{ unlocked: true }], rowCount: 1 };
       }
 
       // 1. VIDEOS
@@ -442,6 +477,152 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [], rowCount: count, command: 'UPDATE' };
       }
 
+      // 5c. NOTIFICATIONS
+      if (
+        (sql.includes('insert into "social"."notifications"') ||
+          sql.includes('insert into social.notifications') ||
+          sql.includes('INSERT INTO social.notifications')) &&
+        sql.includes('unnest')
+      ) {
+        // Fanout insert: SELECT u.id, u.subscriber_id, $1::uuid, 'VIDEO_PUBLISHED', $2::uuid, NULL, $3 FROM unnest($4::uuid[], $5::uuid[])
+        const actorId = String(params[0]);
+        const videoId = String(params[1]);
+        const createdAt = params[2] instanceof Date ? params[2] : new Date(String(params[2]));
+        const ids = (params[3] as string[]) || [];
+        const userIds = (params[4] as string[]) || [];
+
+        const newlyInserted: { id: string }[] = [];
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          const userId = userIds[i];
+          if (userId === actorId) continue;
+          const dedupKey = `${userId}::VIDEO_PUBLISHED::${videoId}`;
+          const existing = store.notifications.some(
+            (n) =>
+              `${n.user_id}::${n.kind}::${n.comment_id || n.video_id || n.actor_id}` === dedupKey,
+          );
+          if (!existing) {
+            store.notifications.push({
+              id,
+              user_id: userId,
+              actor_id: actorId,
+              kind: 'VIDEO_PUBLISHED',
+              video_id: videoId,
+              comment_id: null,
+              read_at: null,
+              created_at: createdAt,
+            });
+            newlyInserted.push({ id });
+          }
+        }
+        return { rows: newlyInserted, rowCount: newlyInserted.length };
+      }
+
+      if (
+        sql.includes('insert into "social"."notifications"') ||
+        sql.includes('insert into social.notifications') ||
+        sql.includes('INSERT INTO social.notifications')
+      ) {
+        const id = String(params[0]);
+        const userId = String(params[1]);
+        const kind = params[2] as NotificationKind;
+        const actorId = String(params[3]);
+        const videoId = params[4] ? String(params[4]) : null;
+        const commentId = params[5] ? String(params[5]) : null;
+
+        if (userId === actorId) {
+          const err = new Error('check_violation: notifications_not_self') as Error & {
+            code?: string;
+          };
+          err.code = '23514';
+          throw err;
+        }
+
+        const dedupKey = `${userId}::${kind}::${commentId || videoId || actorId}`;
+        const existing = store.notifications.some(
+          (n) =>
+            `${n.user_id}::${n.kind}::${n.comment_id || n.video_id || n.actor_id}` === dedupKey,
+        );
+        if (existing) {
+          return { rows: [], rowCount: 0 };
+        }
+
+        const newNotif = {
+          id,
+          user_id: userId,
+          actor_id: actorId,
+          kind,
+          video_id: videoId,
+          comment_id: commentId,
+          read_at: null,
+          created_at: new Date(),
+        };
+        store.notifications.push(newNotif);
+        return { rows: [newNotif], rowCount: 1 };
+      }
+
+      if (
+        (sql.includes('delete from social.notifications') ||
+          sql.includes('delete from "social"."notifications"') ||
+          sql.includes('DELETE FROM social.notifications')) &&
+        (sql.includes('created_at <') || sql.includes('created_at <='))
+      ) {
+        const retentionDays = Number(params[0] ?? 90);
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+        const toDelete = store.notifications
+          .filter((n) => n.created_at < cutoff)
+          .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+          .slice(0, 5000);
+
+        const deleteIds = new Set(toDelete.map((n) => n.id));
+        store.notifications = store.notifications.filter((n) => !deleteIds.has(n.id));
+        return { rows: [], rowCount: toDelete.length };
+      }
+
+      if (
+        sql.includes('update social.notifications') ||
+        sql.includes('update "social"."notifications"') ||
+        sql.includes('UPDATE social.notifications')
+      ) {
+        const userId = String(params[0]);
+        let count = 0;
+        const now = new Date();
+
+        if (sql.includes('ANY(') || sql.includes('id = ANY') || sql.includes('"id" in (')) {
+          const ids = (params[1] as string[]) || [];
+          const idSet = new Set(ids);
+          for (const n of store.notifications) {
+            if (n.user_id === userId && n.read_at === null && idSet.has(n.id)) {
+              n.read_at = now;
+              count++;
+            }
+          }
+        } else if (sql.includes('created_at <') || sql.includes('created_at <=')) {
+          const upToStr = String(params[1]);
+          const upToDate = new Date(upToStr);
+          const hasInterval1Ms = sql.includes("interval '1 millisecond'");
+          const cutoffMs = hasInterval1Ms ? upToDate.getTime() + 1 : upToDate.getTime();
+
+          for (const n of store.notifications) {
+            if (n.user_id === userId && n.read_at === null) {
+              const notifMs = n.created_at.getTime();
+              if (hasInterval1Ms) {
+                if (notifMs < cutoffMs) {
+                  n.read_at = now;
+                  count++;
+                }
+              } else {
+                if (notifMs <= cutoffMs) {
+                  n.read_at = now;
+                  count++;
+                }
+              }
+            }
+          }
+        }
+        return { rows: [], rowCount: count, command: 'UPDATE' };
+      }
+
       // 6. SELECT QUERIES
       // Select single video
       if (sql.includes('from "social"."videos"') || sql.includes('from social.videos')) {
@@ -485,6 +666,30 @@ export function createMockDb(store: MockStore = createMockStore()): {
           (vl) => vl.video_id === videoId && vl.user_id === userId,
         );
         return { rows: exists ? [{ one: 1 }] : [], rowCount: exists ? 1 : 0 };
+      }
+
+      // Subscriptions keyset paging (fanout)
+      if (
+        (sql.includes('from "social"."subscriptions"') ||
+          sql.includes('from social.subscriptions')) &&
+        sql.includes('"channel_id" = $1') &&
+        sql.includes('order by')
+      ) {
+        const channelId = String(params[0]);
+        let matched = store.subscriptions.filter((s) => s.channel_id === channelId);
+        if (sql.includes('"subscriber_id" > $2')) {
+          const lastId = String(params[1]);
+          matched = matched.filter((s) => s.subscriber_id > lastId);
+        }
+        matched.sort((a, b) => a.subscriber_id.localeCompare(b.subscriber_id));
+        const limitParam = params.find((p) => typeof p === 'number');
+        if (typeof limitParam === 'number') {
+          matched = matched.slice(0, limitParam);
+        }
+        return {
+          rows: matched.map((s) => ({ subscriber_id: s.subscriber_id })),
+          rowCount: matched.length,
+        };
       }
 
       // Check subscription
@@ -753,6 +958,105 @@ export function createMockDb(store: MockStore = createMockStore()): {
         });
 
         return { rows: mapped, rowCount: mapped.length };
+      }
+
+      // Notifications unread count
+      if (
+        /from\s+("?social"?\.)?"?notifications"?\s+n/i.test(sql) &&
+        /count\(\*\)::int/i.test(sql)
+      ) {
+        const userId = String(params[0]);
+        const matched = store.notifications.filter((n) => {
+          if (n.user_id !== userId) return false;
+          if (n.read_at !== null) return false;
+          if (n.video_id) {
+            const v = store.videos.find((vid) => vid.id === n.video_id);
+            if (!v || v.hidden || v.visibility === 'PRIVATE') return false;
+          }
+          if (n.comment_id) {
+            const c = store.comments.find((comm) => comm.id === n.comment_id);
+            if (!c || c.status !== 'VISIBLE') return false;
+          }
+          const p = store.public_profiles.find((prof) => prof.id === n.actor_id);
+          if (!p) return false;
+          return true;
+        });
+
+        const count = Math.min(matched.length, 101);
+        return { rows: [{ count }], rowCount: 1 };
+      }
+
+      // Notifications list (joined with profiles, videos, comments)
+      if (
+        sql.includes('from "social"."notifications" as "n"') ||
+        sql.includes('from social.notifications as n') ||
+        sql.includes('from social.notifications n')
+      ) {
+        const userId = String(params[0]);
+        const unreadOnly =
+          sql.includes('"n"."read_at" is null') ||
+          sql.includes('n.read_at IS NULL') ||
+          sql.includes('n.read_at is null');
+
+        let matched = store.notifications.filter((n) => {
+          if (n.user_id !== userId) return false;
+          if (unreadOnly && n.read_at !== null) return false;
+          if (n.video_id) {
+            const v = store.videos.find((vid) => vid.id === n.video_id);
+            if (!v || v.hidden || v.visibility === 'PRIVATE') return false;
+          }
+          if (n.comment_id) {
+            const c = store.comments.find((comm) => comm.id === n.comment_id);
+            if (!c || c.status !== 'VISIBLE') return false;
+          }
+          const p = store.public_profiles.find((prof) => prof.id === n.actor_id);
+          if (!p) return false;
+          return true;
+        });
+
+        if (sql.includes('n.created_at <') && sql.includes('n.id <')) {
+          // Cursor params: params contains [userId, cursorCreatedAt, cursorCreatedAt, cursorId, limit]
+          const cursorCreatedAt = new Date(String(params[1]));
+          const cursorId = String(params[3]);
+          matched = matched.filter((n) => {
+            if (n.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+            if (n.created_at.getTime() === cursorCreatedAt.getTime() && n.id < cursorId)
+              return true;
+            return false;
+          });
+        }
+
+        matched.sort(
+          (a, b) => b.created_at.getTime() - a.created_at.getTime() || b.id.localeCompare(a.id),
+        );
+
+        const limitParam = params.find((p) => typeof p === 'number' && p > 0 && p <= 101);
+        if (typeof limitParam === 'number') {
+          matched = matched.slice(0, limitParam);
+        }
+
+        const rows = matched.map((n) => {
+          const p = store.public_profiles.find((prof) => prof.id === n.actor_id);
+          const cursorMicros =
+            (n as any).created_at_micros ??
+            n.created_at.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z');
+          return {
+            id: n.id,
+            kind: n.kind,
+            actor_id: n.actor_id,
+            video_id: n.video_id,
+            comment_id: n.comment_id,
+            created_at: n.created_at,
+            read_at: n.read_at,
+            created_at_cursor: cursorMicros,
+            profile_id: p?.id,
+            profile_handle: p?.handle,
+            profile_display_name: p?.display_name,
+            profile_avatar_key: p?.avatar_key,
+          };
+        });
+
+        return { rows, rowCount: rows.length };
       }
 
       return { rows: [], rowCount: 0 };

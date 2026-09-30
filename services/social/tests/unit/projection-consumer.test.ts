@@ -106,12 +106,8 @@ describe('VideoProjectionConsumer unit tests', () => {
 
   it('calls m.nak(5000) on database error during video.ready', async () => {
     const mockDb = {
-      insertInto: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({
-          onConflict: vi.fn().mockReturnValue({
-            execute: vi.fn().mockRejectedValue(new Error('DB connection lost')),
-          }),
-        }),
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockRejectedValue(new Error('DB connection lost')),
       }),
     };
     const mockNats = {} as any;
@@ -173,13 +169,32 @@ describe('VideoProjectionConsumer unit tests', () => {
   });
 
   it('calls m.ack() on successful projection processing', async () => {
-    const mockDb = {
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue({
+                id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+                owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+                hidden: false,
+                visibility: 'PUBLIC',
+              }),
+            }),
+          }),
+        }),
+      }),
       insertInto: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           onConflict: vi.fn().mockReturnValue({
             execute: vi.fn().mockResolvedValue([]),
           }),
         }),
+      }),
+    };
+    const mockDb = {
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
       }),
     };
     const mockNats = {} as any;
@@ -315,7 +330,24 @@ describe('VideoProjectionConsumer unit tests', () => {
     const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
     const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
     const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
-    const mockDb = { insertInto: insertIntoMock };
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue(undefined),
+            }),
+          }),
+        }),
+      }),
+      insertInto: insertIntoMock,
+    };
+    const mockDb = {
+      insertInto: insertIntoMock,
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
+      }),
+    };
     const mockNats = {} as any;
     const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
 
@@ -366,7 +398,29 @@ describe('VideoProjectionConsumer unit tests', () => {
     const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
     const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
     const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
-    const mockDb = { insertInto: insertIntoMock };
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue({
+                id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+                owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+                hidden: false,
+                visibility: 'PUBLIC',
+              }),
+            }),
+          }),
+        }),
+      }),
+      insertInto: insertIntoMock,
+    };
+    const mockDb = {
+      insertInto: insertIntoMock,
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
+      }),
+    };
     const mockNats = {} as any;
     const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
 
@@ -406,6 +460,71 @@ describe('VideoProjectionConsumer unit tests', () => {
     expect(doUpdateSetMock).toHaveBeenCalledWith({
       owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
     });
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT fan out on video.ready without visibility when previous video was PRIVATE', async () => {
+    const executeMock = vi.fn().mockResolvedValue([]);
+    const doUpdateSetMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
+    const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
+    const fanoutSpy = vi.fn();
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue({
+                id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+                owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+                hidden: false,
+                visibility: 'PRIVATE',
+              }),
+            }),
+          }),
+        }),
+      }),
+      insertInto: insertIntoMock,
+    };
+    const mockDb = {
+      insertInto: insertIntoMock,
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
+      }),
+    };
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
+    (consumer as any).fanoutVideoPublished = fanoutSpy;
+
+    onConflictMock.mockImplementation((cb: (oc: any) => any) => {
+      const oc = {
+        column: vi.fn().mockReturnValue({
+          doUpdateSet: doUpdateSetMock,
+        }),
+      };
+      return cb(oc);
+    });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(fanoutSpy).not.toHaveBeenCalled();
     expect(mockMsg.ack).toHaveBeenCalledTimes(1);
   });
 
@@ -460,7 +579,29 @@ describe('VideoProjectionConsumer unit tests', () => {
     const whereMock = vi.fn().mockReturnValue({ execute: executeMock });
     const setMock = vi.fn().mockReturnValue({ where: whereMock });
     const updateTableMock = vi.fn().mockReturnValue({ set: setMock });
-    const mockDb = { updateTable: updateTableMock };
+    const trx = {
+      selectFrom: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            forUpdate: vi.fn().mockReturnValue({
+              executeTakeFirst: vi.fn().mockResolvedValue({
+                id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+                owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+                hidden: false,
+                visibility: 'PUBLIC',
+              }),
+            }),
+          }),
+        }),
+      }),
+      updateTable: updateTableMock,
+    };
+    const mockDb = {
+      updateTable: updateTableMock,
+      transaction: vi.fn().mockReturnValue({
+        execute: vi.fn().mockImplementation((fn: any) => fn(trx)),
+      }),
+    };
     const mockNats = {} as any;
     const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
 
