@@ -295,3 +295,10 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Thêm một bảng lớn nhất của schema `social`. Kênh có N subscriber tạo N hàng mỗi video; ở quy mô beta (≤ 10⁵ subscriber mỗi kênh) mỗi lô fan-out vẫn nằm trong `ack_wait 30s` của consumer. Vượt mức này thì chuyển fan-out sang job riêng, hoặc fan-out on read cho kênh lớn.
 - Người mới subscribe không nhận thông báo cho video đã ra trước đó (đúng ý đồ).
 - Hướng mở rộng: push qua realtime-gw (room `user:{id}`), Web Push / e-mail tổng hợp, cài đặt tắt từng loại, gom nhóm ("A và 5 người khác đã comment").
+**Bổ sung (2026-10-01, N2: gợi ý realtime).**
+- realtime-gw gửi message `notification.hint {kind}` vào room `user:{id}` của người nhận, suy ra từ event đã có. Không cần event mới và không đụng social-svc:
+  - `social.comment.created` → `VIDEO_COMMENT` (cho chủ video) hoặc `COMMENT_REPLY` (cho tác giả comment cha), cùng điều kiện với N1;
+  - `social.subscription.changed` với `subscribed=true` → `NEW_SUBSCRIBER` (cho chủ kênh).
+- Gợi ý không mang id hay nội dung. Client chỉ gọi lại `getUnreadNotificationCount`. Như vậy quy tắc lọc (ẩn, PRIVATE, actor bị khóa, trùng lặp) vẫn chỉ nằm ở social-svc, và một gợi ý thừa chỉ tốn một request.
+- `VIDEO_PUBLISHED` không có gợi ý: fan-out tới mọi subscriber qua WebSocket quá tốn. Web vẫn poll, nhưng khi socket đang kết nối thì giãn chu kỳ từ 60 s lên 5 phút (N2-web, Antigravity 1).
+- Event tới realtime-gw sau khi outbox relay đã publish, tức là sau khi transaction ghi thông báo đã commit. Vì vậy request đếm lại luôn thấy thông báo mới.

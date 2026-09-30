@@ -158,7 +158,8 @@
             "video.failed",
             "comment.created",
             "comment.reply",
-            "like.count"
+            "like.count",
+            "notification.hint"
           ]
         },
         "data": {
@@ -313,6 +314,30 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "notification.hint",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event"
+            ]
+          },
+          "then": {
+            "properties": {
+              "room": {
+                "pattern": "^user:",
+                "type": "string"
+              },
+              "data": {
+                "$ref": "#/$defs/notificationHint"
+              }
+            }
+          }
         }
       ]
     },
@@ -428,6 +453,23 @@
         "like_count": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "notificationHint": {
+      "type": "object",
+      "description": "Task N2 (ADR-023 addendum): something that may have created an in-app notification for this user happened. Carries no notification id or content: the client refetches getUnreadNotificationCount (and the list if open). Hints can be spurious (e.g. a re-subscribe that was deduplicated); never show UI from the hint alone.",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "VIDEO_COMMENT",
+            "COMMENT_REPLY",
+            "NEW_SUBSCRIBER"
+          ]
         }
       }
     }
