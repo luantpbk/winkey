@@ -166,6 +166,8 @@ spec:
       kind: Rule
       priority: 95
       middlewares:
+        - name: internal-media-allowlist
+          namespace: default
         - name: strip-user-headers
           namespace: default
       services:

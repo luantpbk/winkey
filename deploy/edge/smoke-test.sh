@@ -343,13 +343,39 @@ echo "[11/11] Checking SEC1 media access control and signed URLs..."
 SEC1_VID="${SEC1_VIDEO_ID:-01a0f0dd-7b6c-79f6-b75a-c89121e474cf}"
 
 echo "  [11a] Verifying internal media access is strictly not accessible from public host..."
-INT_RESP=$(curl -sS -i -H 'Host: media-auth.internal' "${BASE_URL}/internal/media-access/${SEC1_VID}" || true)
-INT_CODE=$(echo "$INT_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
-if [ "$INT_CODE" = "204" ]; then
-    echo "FAILED: Internal media access returned HTTP 204 via public host!" >&2
+# Test 1: Spoofed Host header via public domain (must return 404, 444, or closed connection)
+HOST_RESP=$(curl -sS -i -H 'Host: media-auth.internal' "${BASE_URL}/internal/media-access/${SEC1_VID}" 2>&1 || true)
+HOST_CODE=$(echo "$HOST_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+if [ "$HOST_CODE" = "200" ] || [ "$HOST_CODE" = "204" ]; then
+    echo "FAILED: Spoofed Host header returned HTTP $HOST_CODE (must be 404, 444, or closed)!" >&2
     exit 1
 fi
-echo "  Public isolation OK: returned HTTP ${INT_CODE} (strictly not 204)."
+if [ -n "$HOST_CODE" ] && [ "$HOST_CODE" != "404" ] && [ "$HOST_CODE" != "444" ]; then
+    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $HOST_CODE!" >&2
+    exit 1
+fi
+echo "  Spoofed Host test OK: returned '${HOST_CODE:-closed}' (allowed: 404/444/closed)."
+
+# Test 2: Direct SNI resolve to public IP with media-auth.internal (must fail TLS handshake or return 404/444/closed)
+RESOLVE_RESP=$(curl -sS -i -k --resolve "media-auth.internal:443:${PUBLIC_IP}" "https://media-auth.internal/internal/media-access/${SEC1_VID}" 2>&1 || true)
+RESOLVE_CODE=$(echo "$RESOLVE_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+if [ "$RESOLVE_CODE" = "200" ] || [ "$RESOLVE_CODE" = "204" ]; then
+    echo "FAILED: --resolve media-auth.internal returned HTTP $RESOLVE_CODE (must be 404, 444, or closed)!" >&2
+    exit 1
+fi
+if [ -n "$RESOLVE_CODE" ] && [ "$RESOLVE_CODE" != "404" ] && [ "$RESOLVE_CODE" != "444" ]; then
+    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $RESOLVE_CODE!" >&2
+    exit 1
+fi
+echo "  TLS SNI resolve test OK: returned '${RESOLVE_CODE:-handshake rejected/closed}' (allowed: 404/444/closed)."
+
+# Test 3: Direct internal path on public host (must return 404)
+INT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/internal/media-access/${SEC1_VID}" || true)
+if [ "$INT_CODE" != "404" ]; then
+    echo "FAILED: Direct internal path returned HTTP $INT_CODE (expected 404)!" >&2
+    exit 1
+fi
+echo "  Direct path test OK: returned HTTP 404."
 
 echo "  [11b] Authenticating as video owner (sec1-tester@winkey.vn)..."
 OWNER_LOGIN_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/auth/login" \

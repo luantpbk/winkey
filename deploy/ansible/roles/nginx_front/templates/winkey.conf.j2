@@ -39,6 +39,14 @@ server {
 {% if with_tls | bool %}
 # --- HTTPS (Port 443) ---
 
+# Default server block: reject unknown hosts, direct IP access, and unrouted SNI on 443
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+    return 444;
+}
+
 # 1. Main site: web app & API /v1/*
 server {
     listen 443 ssl http2;
@@ -130,7 +138,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/{{ nginx_front.cert_name }}/privkey.pem;
 
     client_max_body_size 2m;
-    set $media_link_secret "{{ media_link_secret }}";
+    include /etc/nginx/winkey-media-secret.conf;
 
     # 1. Signed media URLs: for non-public videos (owner, moderator, admin)
     location ~ "^/s/(?<exp>\d+)/(?<sig>[A-Za-z0-9_-]+)/(?<path>v/(?<vid>[0-9a-f-]{36})/.+)$" {
@@ -216,6 +224,8 @@ server {
         internal;
         proxy_pass http://winkey_traefik/internal/media-access/$auth_vid;
         proxy_set_header Host media-auth.internal;
+        proxy_set_header X-Real-IP {{ tailscale_ipv4 }};
+        proxy_set_header X-Forwarded-For {{ tailscale_ipv4 }};
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         proxy_cache winkey_media_auth;
