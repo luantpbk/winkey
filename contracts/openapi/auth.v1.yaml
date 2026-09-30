@@ -316,7 +316,10 @@ paths:
         - Valid bearer token → `204` with `X-User-Id` and `X-User-Roles`.
         - Invalid or expired token → `401`.
 
-        Stateless: signature and claims are checked in memory, no database access.
+        Signature and claims are checked in memory, no database access. Task A4 (ADR-019): then ONE Valkey
+        round trip checks the revocation keys; a token whose session (`sid`) was revoked, or whose `iat` is not
+        after the user's revocation cutoff (suspension, role change, account deletion), → `401`. If Valkey does
+        not answer within 50 ms the check is skipped (fail-open, counted in a metric).
         The gateway MUST strip client-supplied `X-User-Id` / `X-User-Roles` before calling upstreams.
       security: []
       parameters:
