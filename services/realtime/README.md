@@ -20,7 +20,25 @@ Implements:
 - **Rooms & Authorization**:
   - `video:{video_id}`: Any user who can view the video (verified against `video-svc` `GET /v1/videos/{video_id}` with ≤ 60s cache).
   - `upload:{video_id}`: Authenticated only. Events are delivered only if `event.data.owner_id === connection.user_id` or role is `moderator`/`admin`.
-  - `user:{user_id}`: Automatically joined upon authenticated connection. Receives personal events (`video.ready`, `video.failed`, `comment.reply` excluding self-replies).
+  - `user:{user_id}`: Automatically joined upon authenticated connection. Receives personal events (`video.ready`, `video.failed`, `comment.reply` excluding self-replies, and `notification.hint` for in-app notification refresh).
+- **Event to Message Mapping (N2 / contracts/realtime/README.md)**:
+
+| Source (NATS) | Condition | Outgoing Message | Target Room |
+|---|---|---|---|
+| `rt.video.*.progress` (core NATS) | — | `video.progress {video_id, stage, percent}` | `upload:{video_id}` |
+| `video.ready` (JetStream `VIDEO`) | — | `video.ready {video_id}` | `upload:{video_id}`, `user:{owner_id}` |
+| `video.failed` (JetStream `VIDEO`) | — | `video.failed {video_id, reason, message, retryable}` | `upload:{video_id}`, `user:{owner_id}` |
+| `social.comment.created` (JetStream `SOCIAL`) | — | `comment.created {comment_id, video_id, parent_id}` | `video:{video_id}` |
+| `social.comment.created` | `parent_author_id != null && parent_author_id != author_id` | `comment.reply {comment_id, video_id, parent_id}` | `user:{parent_author_id}` |
+| `social.video.like_changed` (JetStream `SOCIAL`) | — | `like.count {video_id, like_count}` | `video:{video_id}` |
+| `social.comment.created` | N2: `parent_id == null && video_owner_id != author_id` | `notification.hint {kind: VIDEO_COMMENT}` | `user:{video_owner_id}` |
+| `social.comment.created` | N2: `parent_author_id != null && parent_author_id != author_id` | `notification.hint {kind: COMMENT_REPLY}` | `user:{parent_author_id}` |
+| `social.subscription.changed` (JetStream `SOCIAL`) | N2: `subscribed == true && subscriber_id != channel_id` | `notification.hint {kind: NEW_SUBSCRIBER}` | `user:{channel_id}` |
+
+- Hints carry no IDs or content (`{kind}`); the client refreshes `getUnreadNotificationCount`.
+- Hints are never sent to the actor themself.
+- `VIDEO_PUBLISHED` carries no realtime hint (client polls REST).
+- Outgoing frames are validated against `contracts/realtime/server.schema.json`; invalid frames are dropped and metered.
 - **Limits**:
   - 50 rooms per connection (exceeding returns `TOO_MANY_ROOMS`). Internal auto-joined `user:{me}` room does not count against client subscription slots.
   - 5 connections per user (6th connection closed with code `4429`). Currently tracked per pod in memory for the single-replica deployment; can transition to Valkey-backed session counters when scaled out.
@@ -67,6 +85,8 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
 | `realtime_revoked_closes_total` | Counter | — | Total number of WebSocket connections closed due to user revocation (code 4401). |
 | `realtime_revocation_sweep_errors_total` | Counter | — | Total number of revocation sweep errors (e.g. Valkey unavailable). |
+| `realtime_notification_hints_total` | Counter | `kind` | Total number of notification hints sent by kind (`VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`). |
+| `realtime_invalid_server_frames_total` | Counter | — | Total number of outgoing server frames dropped due to schema validation failure. |
 | Standard Node.js runtime metrics | Various | `service="realtime-gw"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
 
 ## Running Locally

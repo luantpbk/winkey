@@ -1,5 +1,4 @@
 import type { Redis } from 'ioredis';
-import { createRegistry, Counter } from '@winkey/metrics';
 import type { ConnectionManager } from '../websocket/connection-manager.js';
 
 export interface LoggerLike {
@@ -22,20 +21,9 @@ export interface SweepResult {
   error?: boolean;
 }
 
-// Prometheus metrics
-export const realtimeRegistry = createRegistry('realtime-gw');
-
-export const revokedClosesCounter = new Counter({
-  name: 'realtime_revoked_closes_total',
-  help: 'Total number of WebSocket connections closed due to user revocation',
-  registers: [realtimeRegistry],
-});
-
-export const sweepErrorsCounter = new Counter({
-  name: 'realtime_revocation_sweep_errors_total',
-  help: 'Total number of revocation sweep errors (e.g. Valkey unavailable)',
-  registers: [realtimeRegistry],
-});
+// Prometheus metrics (re-exported from ../metrics.js)
+import { realtimeRegistry, revokedClosesCounter, sweepErrorsCounter } from '../metrics.js';
+export { realtimeRegistry, revokedClosesCounter, sweepErrorsCounter };
 
 export const CHUNK_SIZE = 500;
 export const WARN_THROTTLE_MS = 60_000; // Log warning at most once per minute
