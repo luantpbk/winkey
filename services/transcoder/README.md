@@ -13,7 +13,7 @@ It follows ADR-003 and ADR-015: **standalone binary + FFmpeg, no inbound ports f
    Security: `-protocol_whitelist file,pipe`, local input only, timeout `max(10m, 3 × duration)`, container images run as non-root, metadata/chapters are stripped.
    Progress: `-progress pipe:1`, parsed from `out_time_us`.
 6. Poster: `v/{id}/a{n}/thumb/poster.jpg` at 10 % of the duration, at most 1280 px wide (never upscaled).
-6b. **Storyboard** (V5a, seek preview; best effort): one ffmpeg call over the source with `fps=1/{interval}`, letter-boxed to 160×90 (aspect kept, black bars), `tile=10x10`, JPEG about quality 75 → `v/{id}/a{n}/storyboard/sheet-001.jpg` (…-002 …) and `storyboard.vtt`. `interval = max(2 s, duration / 200)` (at most 200 frames, so at most 2 sheets), cue `i` is `i × interval → min((i+1) × interval, duration)` with the payload `sheet-NNN.jpg#xywh=X,Y,160,90` — **relative** names, so the signed prefix of SEC1 (`/s/{exp}/{sig}/…`) applies to the sheets. A video shorter than one interval still gets one cue. The GPU decoder (`-hwaccel cuda`) is used only when the HLS step used it (an x264 fallback means CPU, and a failing GPU decode is retried on the CPU); the CPU path is the default. **Any failure is logged at warn with the video id and the job goes on without a storyboard** (`storyboard_key` is NULL in `media.videos` and `null` in `video.ready`); only a shutdown interrupts the job. Budget `max(2 min, duration)`. Measured cost: see *Storyboard cost* below.
+6b. **Storyboard** (V5a, seek preview; best effort): one ffmpeg call over the **smallest HLS rendition of at least 90 px** (its local playlist, CPU, key frames only; the source when no rendition qualifies) with `fps=1/{interval}`, letter-boxed to 160×90 (aspect kept, black bars), `tile=10x10`, JPEG about quality 75 → `v/{id}/a{n}/storyboard/sheet-001.jpg` (…-002 …) and `storyboard.vtt`. `interval = max(2 s, duration / 200)` (at most 200 frames, so at most 2 sheets), cue `i` is `i × interval → min((i+1) × interval, duration)` with the payload `sheet-NNN.jpg#xywh=X,Y,160,90` — **relative** names, so the signed prefix of SEC1 (`/s/{exp}/{sig}/…`) applies to the sheets. A video shorter than one interval still gets one cue. **Any failure is logged at warn with the video id and the job goes on without a storyboard** (`storyboard_key` is NULL in `media.videos` and `null` in `video.ready`); only a shutdown interrupts the job. Budget `max(2 min, duration)`. Measured cost: see *Storyboard cost* below (0.42 s on the benchmark clip).
 7. Upload to `winkey-media` under `v/{video_id}/a{attempt}/` with 8 parallel uploads, correct `Content-Type` and `Cache-Control: public, max-age=31536000, immutable`; `master.m3u8` is uploaded **last**.
 8. One transaction: replace `video_renditions`, set duration/width/height/keys (including `storyboard_key`, in the same `UPDATE` that makes the row READY), `PROCESSING → READY`, `published_at = coalesce(published_at, now())`, job `SUCCEEDED`, outbox `video.ready`. Then ack, then delete older attempts' prefixes.
 
@@ -94,16 +94,18 @@ go run ./cmd/transcoder
 
 ## Storyboard cost
 
-The step decodes the whole source once (a single ffmpeg call), so its cost grows with the decode work, not with the encode ladder. Measured with `TestStoryboardOverhead` on a **Windows / amd64 laptop, 4 CPUs, x264 `veryfast` (CPU path)**, a 120 s 1080p30 clip at about 8 Mb/s, three full pipeline runs (baseline, with storyboard, baseline):
+The storyboard is read from the **smallest HLS rendition that is at least 90 px high** (its local playlist under `out/hls/`, `-protocol_whitelist file`, CPU decode, `-skip_frame nokey`): the renditions have a key frame every 2 s, which is the storyboard interval for any video up to 400 s, so only about one small frame per tile is decoded instead of every frame of the source. When no rendition qualifies (a source under 90 px high) the source is read, every frame. There is no GPU branch: decoding a handful of 480p key frames is cheaper than starting NVDEC. For an interval that is not a multiple of 2 s the frame is the last key frame before the slot, at most 2 s early, which is fine for a seek preview.
+
+Measured with `TestStoryboardOverhead` on a **Windows / amd64 laptop, 4 CPUs, x264 `veryfast`**, a 120 s 1080p30 clip at about 8 Mb/s, three full pipeline runs (baseline, with storyboard, baseline). The first design (reading the source) cost 13.0 s and +10.1 %; reading the 480p rendition:
 
 | | wall time |
 |---|---|
-| job without storyboard | 2 m 00.7 s and 2 m 04.9 s (mean 2 m 02.8 s) |
-| job with storyboard | 2 m 15.2 s |
-| storyboard step alone | 13.0 s (about 9× realtime), 60 frames, 1 sheet |
-| overhead | **+10.1 % on the whole job**, 10.8 % of the HLS encode (2 m 00.7 s) |
+| job without storyboard | 2 m 01.8 s and 1 m 57.9 s (mean 1 m 59.9 s) |
+| job with storyboard | 2 m 02.8 s |
+| **storyboard step alone** | **0.42 s** (60 frames, 1 sheet) = 0.4 % of the HLS encode (2 m 00.9 s) |
+| whole job | +2.4 %, which is inside the run-to-run noise (the two baselines differ by 3.3 %); the step itself is 0.35 % of the job |
 
-That is right at the ~10 % budget on the slowest plausible host (4 CPUs, all of them busy with x264 and then with the decode). The overhead is the decode of the source, so it is lower where decode is cheaper relative to encode: a GPU host (NVDEC + NVENC, `-hwaccel cuda`) and slower x264 presets. If a real edge node measures above the budget, the cheap fix is to read the lowest HLS rendition (854×480, a keyframe every 2 s, `-skip_frame nokey`) instead of the source; that needs no contract change. It has not been measured on gpu-01 or on arm64 edge nodes.
+Not measured on gpu-01 or on arm64 edge nodes.
 
 ## Test
 

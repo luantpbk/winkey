@@ -92,62 +92,140 @@ func TestProcessUploadsTheStoryboard(t *testing.T) {
 	}
 }
 
-// The number of frames the track promises must equal what ffmpeg really delivers, for any duration.
+// runClip runs the whole pipeline on a generated clip and returns the storyboard objects it uploaded.
+func runClip(t *testing.T, tools job.Tools, w, h int, rate string, seconds float64, hook func(job.StoryboardFunc) job.StoryboardFunc) (vtt string, sheets map[string][]byte, f *testutil.Flow) {
+	t.Helper()
+	clip := filepath.Join(t.TempDir(), "clip.mp4")
+	if b, err := exec.Command(tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+		fmt.Sprintf("testsrc2=size=%dx%d:rate=%s", w, h, rate),
+		"-t", fmt.Sprint(seconds), "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast", clip).CombinedOutput(); err != nil {
+		t.Fatalf("clip: %v\n%s", err, b)
+	}
+	f = testutil.NewFlow(t, tools, media.EncoderX264, clip)
+	if hook != nil {
+		f.Pipeline.Storyboard = hook(tools.Storyboard)
+	}
+	res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3})
+	if res.Action != job.ActionAck || res.Stats == nil || !res.Stats.Storyboard {
+		t.Fatalf("%.2fs %dx%d: %+v", seconds, w, h, res)
+	}
+	prefix := fmt.Sprintf("v/%s/a1/storyboard/", f.Video.ID)
+	sheets = map[string][]byte{}
+	for _, k := range f.Objs.Keys(testutil.MediaBucket) {
+		if name, ok := strings.CutPrefix(k, prefix); ok {
+			o, _ := f.Objs.Get(testutil.MediaBucket, k)
+			if name == "storyboard.vtt" {
+				vtt = string(o.Data)
+			} else {
+				sheets[name] = o.Data
+			}
+		}
+	}
+	return vtt, sheets, f
+}
+
+// The number of frames the track promises must equal what ffmpeg really delivers from the key frames
+// of the HLS rendition, for any duration (the pipeline reads the rendition, not the source).
 func TestStoryboardFramesMatchWhatFfmpegDelivers(t *testing.T) {
 	tools := testutil.ToolsFromEnv(t)
-	dir := t.TempDir()
-	for _, dur := range []float64{0.4, 0.8, 1, 2, 2.9, 3, 5, 7.5, 11.96, 12, 12.04, 12.08, 12.5, 13.9, 30} {
-		clip := filepath.Join(dir, fmt.Sprintf("c%v.mp4", dur))
+	for _, dur := range []float64{2, 2.9, 3, 5, 7.5, 11.96, 12, 12.04, 12.08, 12.5, 13.9, 30} {
+		vtt, sheets, _ := runClip(t, tools, 320, 180, "25", dur, nil)
+		lit, _ := litTiles(t, sheets["sheet-001.jpg"])
+		if cues := strings.Count(vtt, "#xywh="); lit != cues || len(sheets) != 1 {
+			t.Errorf("%vs: the track lists %d frames, the sheet holds %d (%d sheets)", dur, cues, lit, len(sheets))
+		}
+	}
+}
+
+// Sources at other frame rates, and a video long enough for an interval above 2 s: the key frames of the
+// rendition are 2 s apart, so an interval that is not a multiple of 2 s takes the last key frame before each slot.
+func TestStoryboardFramesMatchForOtherRatesAndLongIntervals(t *testing.T) {
+	tools := testutil.ToolsFromEnv(t)
+	for _, c := range []struct {
+		rate string
+		dur  float64
+	}{{"24", 9.7}, {"30000/1001", 21.3}, {"12", 61}, {"5", 405.7}} { // 405.7 s: interval 2.029 s, 200 frames, 2 sheets
+		vtt, sheets, _ := runClip(t, tools, 160, 90, c.rate, c.dur, nil)
+		total := 0
+		for _, data := range sheets {
+			lit, _ := litTiles(t, data)
+			total += lit
+		}
+		if cues := strings.Count(vtt, "#xywh="); total != cues {
+			t.Errorf("%s fps, %vs: the track lists %d frames, the sheets hold %d", c.rate, c.dur, cues, total)
+		}
+	}
+}
+
+// A video shorter than one interval still gets its one frame. (The HLS step does not produce a playlist for
+// clips this short, so this reads the source, as the pipeline does when there is no rendition to read.)
+func TestStoryboardOfAVideoShorterThanOneInterval(t *testing.T) {
+	tools := testutil.ToolsFromEnv(t)
+	for _, dur := range []float64{0.4, 0.8, 1.2, 1.9} {
+		clip := filepath.Join(t.TempDir(), "short.mp4")
 		if b, err := exec.Command(tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
 			"-t", fmt.Sprint(dur), "-c:v", "libx264", "-preset", "ultrafast", clip).CombinedOutput(); err != nil {
-			t.Fatalf("%v\n%s", err, b)
+			t.Fatalf("%v: %s", err, b)
 		}
 		info, err := tools.Probe(context.Background(), clip)
 		if err != nil {
 			t.Fatal(err)
 		}
-		out := filepath.Join(dir, fmt.Sprintf("o%v", dur))
-		r, err := tools.Storyboard(context.Background(), clip, out, info.DurationSec, false)
-		if err != nil {
-			t.Fatalf("%vs: %v", dur, err)
+		out := t.TempDir()
+		r, err := tools.Storyboard(context.Background(), job.StoryboardInput{Path: clip}, out, info.DurationSec)
+		if err != nil || r.Frames != 1 || r.Sheets != 1 {
+			t.Fatalf("%vs: %+v %v", dur, r, err)
 		}
 		data, _ := os.ReadFile(filepath.Join(out, "sheet-001.jpg"))
-		if lit, _ := litTiles(t, data); lit != r.Frames {
-			t.Errorf("%vs (probed %.3f): the track lists %d frames, the sheet holds %d", dur, info.DurationSec, r.Frames, lit)
+		if lit, _ := litTiles(t, data); lit != 1 {
+			t.Errorf("%vs: %d lit tiles", dur, lit)
 		}
 	}
 }
 
 func TestStoryboardOfALongVideoUsesTwoSheets(t *testing.T) {
 	tools := testutil.ToolsFromEnv(t)
-	dir := t.TempDir()
-	clip := filepath.Join(dir, "long.mp4") // 250 s: interval 2 s, 125 frames, 2 sheets
-	if b, err := exec.Command(tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=5",
-		"-t", "250", "-c:v", "libx264", "-preset", "ultrafast", clip).CombinedOutput(); err != nil {
-		t.Fatalf("%v\n%s", err, b)
+	vtt, sheets, _ := runClip(t, tools, 160, 90, "5", 250, nil) // interval 2 s, 125 frames, 2 sheets
+	if len(sheets) != 2 {
+		t.Fatalf("%d sheets", len(sheets))
 	}
-	info, err := tools.Probe(context.Background(), clip)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r, err := tools.Storyboard(context.Background(), clip, filepath.Join(dir, "sb"), info.DurationSec, false)
-	if err != nil || r.Frames != 125 || r.Sheets != 2 {
-		t.Fatalf("%+v %v", r, err)
-	}
-	s1, _ := os.ReadFile(filepath.Join(dir, "sb", "sheet-001.jpg"))
-	s2, _ := os.ReadFile(filepath.Join(dir, "sb", "sheet-002.jpg"))
-	if l1, _ := litTiles(t, s1); l1 != 100 {
+	if l1, _ := litTiles(t, sheets["sheet-001.jpg"]); l1 != 100 {
 		t.Errorf("sheet 1: %d lit tiles", l1)
 	}
-	if l2, _ := litTiles(t, s2); l2 != 25 {
+	if l2, _ := litTiles(t, sheets["sheet-002.jpg"]); l2 != 25 {
 		t.Errorf("sheet 2: %d lit tiles", l2)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sb", "sheet-003.jpg")); err == nil {
-		t.Error("an extra sheet must not be kept")
+	if !regexp.MustCompile(`(?m)^sheet-002\.jpg#xywh=0,0,160,90$`).MatchString(vtt) || strings.Count(vtt, "#xywh=") != 125 {
+		t.Errorf("vtt has %d cues", strings.Count(vtt, "#xywh="))
 	}
-	vtt, _ := os.ReadFile(filepath.Join(dir, "sb", "storyboard.vtt"))
-	if !regexp.MustCompile(`(?m)^sheet-002\.jpg#xywh=0,0,160,90$`).Match(vtt) || strings.Count(string(vtt), "#xywh=") != 125 {
-		t.Errorf("vtt has %d cues", strings.Count(string(vtt), "#xywh="))
+}
+
+// The input is the smallest rendition of at least 90 px (its playlist, key frames only); a source too small for
+// any rendition is read directly.
+func TestStoryboardReadsTheSmallestRenditionOrTheSource(t *testing.T) {
+	tools := testutil.ToolsFromEnv(t)
+	var got job.StoryboardInput
+	record := func(next job.StoryboardFunc) job.StoryboardFunc {
+		return func(ctx context.Context, in job.StoryboardInput, dir string, dur float64) (job.StoryboardResult, error) {
+			got = in
+			return next(ctx, in, dir, dur)
+		}
+	}
+	runClip(t, tools, 1920, 1080, "30", 6, record) // ladder 1080p / 720p / 480p
+	if want := filepath.Join("hls", "480p", "index.m3u8"); !strings.HasSuffix(got.Path, want) || !got.KeyframesOnly {
+		t.Errorf("1080p source: %+v, want the %s playlist with key frames only", got, want)
+	}
+	runClip(t, tools, 320, 180, "30", 4, record) // one rendition at its own size
+	if !strings.HasSuffix(got.Path, filepath.Join("hls", "180p", "index.m3u8")) && !strings.HasSuffix(got.Path, "index.m3u8") {
+		t.Errorf("small source: %+v", got)
+	}
+	// 160x64: no rendition reaches 90 px, so the source is read (every frame, not only key frames).
+	vtt, sheets, _ := runClip(t, tools, 160, 64, "25", 5, record)
+	if filepath.Base(got.Path) != "source" || got.KeyframesOnly {
+		t.Errorf("tiny source: %+v", got)
+	}
+	if lit, _ := litTiles(t, sheets["sheet-001.jpg"]); lit != strings.Count(vtt, "#xywh=") || lit != 3 {
+		t.Errorf("tiny source: %d lit tiles for %d cues", lit, strings.Count(vtt, "#xywh="))
 	}
 }
 
@@ -180,7 +258,7 @@ func TestProcessWithoutStoryboardWhenFfmpegFails(t *testing.T) {
 	var logs bytes.Buffer
 	f.Pipeline.Log = slog.New(slog.NewJSONHandler(&logs, nil))
 	calls := 0
-	f.Pipeline.Storyboard = func(ctx context.Context, input, dir string, dur float64, hw bool) (job.StoryboardResult, error) {
+	f.Pipeline.Storyboard = func(ctx context.Context, _ job.StoryboardInput, dir string, dur float64) (job.StoryboardResult, error) {
 		calls++
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.WriteFile(filepath.Join(dir, "sheet-001.jpg"), []byte("half written"), 0o644) // debris must not be uploaded
@@ -211,10 +289,10 @@ func TestToolsStoryboardFailsOnUnreadableInput(t *testing.T) {
 	tools := testutil.ToolsFromEnv(t)
 	junk := filepath.Join(t.TempDir(), "junk")
 	_ = os.WriteFile(junk, []byte("not a video"), 0o644)
-	if _, err := tools.Storyboard(context.Background(), junk, filepath.Join(t.TempDir(), "sb"), 10, false); err == nil {
+	if _, err := tools.Storyboard(context.Background(), job.StoryboardInput{Path: junk}, filepath.Join(t.TempDir(), "sb"), 10); err == nil {
 		t.Fatal("want an error")
 	}
-	if _, err := tools.Storyboard(context.Background(), junk, t.TempDir(), 0, false); err == nil {
+	if _, err := tools.Storyboard(context.Background(), job.StoryboardInput{Path: junk}, t.TempDir(), 0); err == nil {
 		t.Fatal("an unknown duration must be refused")
 	}
 }
@@ -223,7 +301,7 @@ func TestToolsStoryboardFailsOnUnreadableInput(t *testing.T) {
 func TestProcessShutdownDuringStoryboardIsNotSwallowed(t *testing.T) {
 	f, _ := newFlow(t, media.EncoderX264, testutil.ClipSmall)
 	ctx, cancel := context.WithCancel(context.Background())
-	f.Pipeline.Storyboard = func(ctx context.Context, _, _ string, _ float64, _ bool) (job.StoryboardResult, error) {
+	f.Pipeline.Storyboard = func(ctx context.Context, _ job.StoryboardInput, _ string, _ float64) (job.StoryboardResult, error) {
 		cancel()
 		return job.StoryboardResult{}, ctx.Err()
 	}

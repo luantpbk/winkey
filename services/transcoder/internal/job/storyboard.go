@@ -20,21 +20,40 @@ type StoryboardResult struct {
 	Interval float64 // seconds between frames
 }
 
-// StoryboardFunc produces the storyboard of the local file input in dir (sheet-NNN.jpg +
-// storyboard.vtt). Pipeline.Storyboard may replace it (tests); the default is Tools.Storyboard.
-type StoryboardFunc func(ctx context.Context, input, dir string, durationSec float64, hwDecode bool) (StoryboardResult, error)
+// StoryboardInput is what the storyboard is made from.
+type StoryboardInput struct {
+	Path string
+	// KeyframesOnly decodes only key frames (-skip_frame nokey). It is right for the HLS renditions
+	// of this worker, whose key frames are exactly 2 s apart and never further apart than the
+	// storyboard interval; it is wrong for an arbitrary source, whose GOP is unknown.
+	KeyframesOnly bool
+}
 
-// storyboardTimeout is the time budget of the single ffmpeg run: decoding the whole video
-// once, max(2 min, duration). A slow storyboard must not hold up a video that is already
-// encoded, so the budget is short; the step is best effort.
+// StoryboardFunc produces the storyboard of in in dir (sheet-NNN.jpg + storyboard.vtt).
+// Pipeline.Storyboard may replace it (tests); the default is Tools.Storyboard.
+type StoryboardFunc func(ctx context.Context, in StoryboardInput, dir string, durationSec float64) (StoryboardResult, error)
+
+// storyboardInput picks the input of the storyboard: the local playlist of the SMALLEST
+// rendition that is at least 90 px high (a few key frames of a small picture instead of every
+// frame of the source: this is what keeps the step cheap), or the source file when no rendition
+// qualifies.
+func storyboardInput(rs []media.Rendition, hlsDir, source string) StoryboardInput {
+	if r, ok := media.StoryboardRendition(rs); ok {
+		return StoryboardInput{Path: filepath.Join(hlsDir, r.Name, "index.m3u8"), KeyframesOnly: true}
+	}
+	return StoryboardInput{Path: source}
+}
+
+// storyboardTimeout is the time budget of the single ffmpeg run, max(2 min, duration). A slow
+// storyboard must not hold up a video that is already encoded, so it is short; the step is best effort.
 func storyboardTimeout(durationSec float64) time.Duration {
 	return max(2*time.Minute, time.Duration(durationSec*float64(time.Second)))
 }
 
-// Storyboard writes the seek-preview storyboard (task V5a) of input into dir with ONE ffmpeg
-// call and a WebVTT track whose cues point at the sheets by relative name. It verifies that
-// every sheet the track refers to exists; sheets ffmpeg wrote beyond that are removed.
-func (t Tools) Storyboard(ctx context.Context, input, dir string, durationSec float64, hwDecode bool) (StoryboardResult, error) {
+// Storyboard writes the seek-preview storyboard (task V5a) into dir with ONE ffmpeg call on the CPU and
+// a WebVTT track whose cues point at the sheets by relative name. It verifies that every sheet the
+// track refers to exists; sheets ffmpeg wrote beyond that are removed.
+func (t Tools) Storyboard(ctx context.Context, in StoryboardInput, dir string, durationSec float64) (StoryboardResult, error) {
 	if durationSec <= 0 {
 		return StoryboardResult{}, errors.New("storyboard: unknown duration")
 	}
@@ -48,7 +67,7 @@ func (t Tools) Storyboard(ctx context.Context, input, dir string, durationSec fl
 	rctx, cancel := context.WithTimeout(ctx, storyboardTimeout(durationSec))
 	defer cancel()
 	var errTail tailBuffer
-	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildStoryboardArgs(input, dir, interval, hwDecode)...)
+	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildStoryboardArgs(in.Path, dir, interval, in.KeyframesOnly)...)
 	cmd.Stderr = &errTail
 	cmd.WaitDelay = 10 * time.Second
 	if err := cmd.Run(); err != nil {
@@ -83,19 +102,14 @@ func (t Tools) Storyboard(ctx context.Context, input, dir string, durationSec fl
 // storyboard.vtt, or "" when there is no storyboard: any failure is logged at warn (with the
 // video id, which the logger carries) and the job goes on. Only a cancelled context (shutdown)
 // is an error, so an interrupted job is given back like at any other step.
-func (p *Pipeline) buildStoryboard(ctx context.Context, source, outDir, prefix string, durationSec float64, hw bool, logger *slog.Logger) (key string, took time.Duration, err error) {
+func (p *Pipeline) buildStoryboard(ctx context.Context, in StoryboardInput, outDir, prefix string, durationSec float64, logger *slog.Logger) (key string, took time.Duration, err error) {
 	gen := p.Storyboard
 	if gen == nil {
 		gen = p.Tools.Storyboard
 	}
 	dir := filepath.Join(outDir, "storyboard")
 	start := time.Now()
-	_, gerr := gen(ctx, source, dir, durationSec, hw)
-	if gerr != nil && hw && ctx.Err() == nil { // the GPU decoder is optional here: try the CPU
-		logger.WarnContext(ctx, "storyboard with hardware decode failed; retrying on the CPU", "error", gerr)
-		_ = os.RemoveAll(dir)
-		_, gerr = gen(ctx, source, dir, durationSec, false)
-	}
+	_, gerr := gen(ctx, in, dir, durationSec)
 	took = time.Since(start)
 	if ctx.Err() != nil {
 		return "", took, ctx.Err()

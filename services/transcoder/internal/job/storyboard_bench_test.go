@@ -50,7 +50,7 @@ func TestStoryboardOverhead(t *testing.T) {
 	run := func(withStoryboard bool) (job.Stats, time.Duration) {
 		f := testutil.NewFlow(t, tools, media.EncoderX264, clip)
 		if !withStoryboard {
-			f.Pipeline.Storyboard = func(context.Context, string, string, float64, bool) (job.StoryboardResult, error) {
+			f.Pipeline.Storyboard = func(context.Context, job.StoryboardInput, string, float64) (job.StoryboardResult, error) {
 				return job.StoryboardResult{}, fmt.Errorf("baseline: storyboard skipped")
 			}
 		}

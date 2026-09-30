@@ -309,11 +309,10 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		return Stats{}, err
 	}
 
-	// 6b. Seek-preview storyboard (V5a): best effort, the video is READY without it. The GPU
-	// decoder is used only when the HLS step used it (an x264 fallback means CPU).
+	// 6b. Seek-preview storyboard (V5a): best effort, the video is READY without it. It reads the
+	// smallest HLS rendition on the CPU (or the source when none qualifies), which keeps it cheap.
 	prefix := fmt.Sprintf("v/%s/a%d/", v.ID, b.Attempt)
-	hwDecode := encoder == media.EncoderNVENC && !p.Cfg.NoHWDecode
-	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, source, outDir, prefix, info.DurationSec, hwDecode, log)
+	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, storyboardInput(rs, hlsDir, source), outDir, prefix, info.DurationSec, log)
 	if err != nil {
 		return Stats{}, err
 	}

@@ -73,16 +73,30 @@ func vttTime(sec float64) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", ms/3_600_000, ms/60_000%60, ms/1000%60, ms%1000)
 }
 
+// StoryboardMinSourceHeight is the smallest rendition worth reading: a tile is 90 px high.
+const StoryboardMinSourceHeight = StoryboardTileH
+
+// StoryboardRendition picks the rendition the storyboard is read from: the one with the smallest
+// height that is still at least 90 px. ok is false when none qualifies (the source is read then).
+func StoryboardRendition(rs []Rendition) (best Rendition, ok bool) {
+	for _, r := range rs {
+		if r.Height >= StoryboardMinSourceHeight && (!ok || r.Height < best.Height) {
+			best, ok = r, true
+		}
+	}
+	return best, ok
+}
+
 // BuildStoryboardArgs returns the ffmpeg arguments for ONE call that writes every sheet
 // (outDir/sheet-001.jpg, ...): one frame per interval, letter-boxed to 160x90 (aspect
-// kept, black bars), tiled 10x10. eof_action=pass delivers the frame of a video shorter than one
+// kept, black bars), tiled 10x10, decoded on the CPU. keyframesOnly (-skip_frame nokey) is for the HLS
+// renditions of this worker, which have a key frame every 2 s. eof_action=pass delivers the frame of a video shorter than one
 // interval; the closing format=yuvj420p is what the JPEG encoder of recent ffmpeg versions accepts
-// (it refuses limited-range YUV, which many sources carry). hwDecode adds -hwaccel cuda for runs where the HLS step
-// decoded on the GPU; the CPU path is the default and works everywhere.
-func BuildStoryboardArgs(input, outDir string, interval float64, hwDecode bool) []string {
+// (it refuses limited-range YUV, which many sources carry).
+func BuildStoryboardArgs(input, outDir string, interval float64, keyframesOnly bool) []string {
 	a := []string{"-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-protocol_whitelist", "file"}
-	if hwDecode {
-		a = append(a, "-hwaccel", "cuda")
+	if keyframesOnly {
+		a = append(a, "-skip_frame", "nokey")
 	}
 	vf := fmt.Sprintf("fps=fps=1/%s:eof_action=pass,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,tile=%dx%d,format=yuvj420p",
 		strconv.FormatFloat(interval, 'f', -1, 64),

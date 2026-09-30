@@ -1,6 +1,7 @@
 package media
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -138,21 +139,47 @@ func TestStoryboardVTTIsContiguousAndRelative(t *testing.T) {
 }
 
 func TestBuildStoryboardArgs(t *testing.T) {
-	a := strings.Join(BuildStoryboardArgs(`C:\in\source`, `C:\out\storyboard`, 2, false), " ")
+	// Paths are built for the OS the test runs on and compared in the slash form ffmpeg gets.
+	in := filepath.Join(t.TempDir(), "in", "source")
+	out := filepath.Join(t.TempDir(), "storyboard")
+	a := strings.Join(BuildStoryboardArgs(in, out, 2, false), " ")
 	for _, want := range []string{
-		"-i C:/in/source", "-an", "-protocol_whitelist file",
+		"-i " + filepath.ToSlash(in), "-an", "-protocol_whitelist file",
 		"fps=fps=1/2:eof_action=pass,scale=160:90:force_original_aspect_ratio=decrease,pad=160:90:(ow-iw)/2:(oh-ih)/2,tile=10x10,format=yuvj420p",
-		"-q:v 6", "C:/out/storyboard/sheet-%03d.jpg",
+		"-q:v 6", filepath.ToSlash(out) + "/sheet-%03d.jpg",
 	} {
 		if !strings.Contains(a, want) {
 			t.Errorf("missing %q in %s", want, a)
 		}
 	}
-	if strings.Contains(a, "hwaccel") {
-		t.Error("the CPU path must not use hwaccel")
+	if strings.Contains(a, "hwaccel") || strings.Contains(a, "skip_frame") {
+		t.Errorf("a plain source is decoded on the CPU, every frame: %s", a)
 	}
-	if hw := strings.Join(BuildStoryboardArgs("in", "out", 2.005, true), " "); !strings.Contains(hw, "-hwaccel cuda") ||
-		!strings.Contains(hw, "fps=fps=1/2.005:") || strings.Index(hw, "-hwaccel") > strings.Index(hw, "-i in") {
-		t.Errorf("hw args: %s", hw)
+	// HLS renditions: key frames only, an input option (before -i); still no GPU.
+	k := strings.Join(BuildStoryboardArgs(in, out, 2.005, true), " ")
+	if i := strings.Index(k, "-skip_frame nokey"); i < 0 || i > strings.Index(k, "-i ") ||
+		!strings.Contains(k, "fps=fps=1/2.005:") || strings.Contains(k, "hwaccel") {
+		t.Errorf("key frame args: %s", k)
+	}
+}
+
+func TestStoryboardRenditionIsTheSmallestOfAtLeast90px(t *testing.T) {
+	r := func(name string, h int) Rendition { return Rendition{Name: name, Height: h} }
+	for _, c := range []struct {
+		rs   []Rendition
+		want string
+	}{
+		{[]Rendition{r("1080p", 1080), r("720p", 720), r("480p", 480)}, "480p"},
+		{[]Rendition{r("480p", 480), r("1080p", 1080)}, "480p"}, // order does not matter
+		{[]Rendition{r("360p", 360)}, "360p"},
+		{[]Rendition{r("90p", 90)}, "90p"},
+		{[]Rendition{r("64p", 64)}, ""},                     // too small: read the source
+		{[]Rendition{r("720p", 720), r("64p", 64)}, "720p"}, // a small one is skipped
+		{nil, ""},
+	} {
+		got, ok := StoryboardRendition(c.rs)
+		if (c.want == "") == ok || got.Name != c.want && ok {
+			t.Errorf("%+v: %q %v, want %q", c.rs, got.Name, ok, c.want)
+		}
 	}
 }
