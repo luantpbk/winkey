@@ -13,6 +13,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
 | `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
 | `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
+| `GET /internal/media-access/{id}` | none | **Infrastructure only** (task SEC1, ADR-017): nginx `auth_request`. `204` if the public may fetch the video media, `403` otherwise. See *Media access*. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
 
@@ -116,6 +117,26 @@ Both statements repeat the predicate of the partial indexes literally, `status =
 | `video_search_total{mode}` | counter | `fts`, `trgm` (fallback), `empty` (no result), `rate_limited` |
 | `video_search_seconds` | histogram | Time spent in the database for one search page |
 
+### Media access (SEC1, ADR-017)
+
+Media is served by nginx on `media.winkey.vn`. A video is **publicly watchable** when it is `READY`, `PUBLIC` or `UNLISTED`, `moderation_state = VISIBLE` and its owner is in `auth.public_profiles` (`domain.PubliclyWatchable`; the SQL of `Store.MediaPublic` says the same).
+
+**Plain URLs** (`MEDIA_BASE_URL/v/{id}/…`) work only for publicly watchable videos: nginx asks `GET /internal/media-access/{video_id}` and caches the answer 30 s per id.
+
+**Signed URLs.** For a video that is *not* publicly watchable, the callers allowed to see it (owner, moderator, admin) get `playback.hls_url` / `thumbnail_url` (and the studio `thumbnail_url`) as
+
+```
+MEDIA_BASE_URL + "/s/" + {expires} + "/" + {sig} + "/" + {object key}
+expires = now + 6 h (Unix seconds), also returned as playback.expires_at (RFC 3339)
+sig     = base64url-without-padding( md5( "{expires}/v/{video_id}/ {MEDIA_LINK_SECRET}" ) )
+```
+
+which is exactly what nginx checks with `secure_link_md5 "$secure_link_expires/v/$vid/ $media_link_secret"` (the space before the secret is part of the string). There is one signing function (`api.signMediaURL`) and a golden test with a fixed secret, time and id. Publicly watchable videos keep plain URLs, no `expires_at`, and stay cacheable; a response carrying signed URLs is `Cache-Control: private, no-store` (this now also applies to a READY PUBLIC video whose owner is no longer active, which a moderator can still open). The player refetches the video before `expires_at`. A signed link is shareable for 6 hours (bound to the video, not the user); MD5 is nginx's only `secure_link` hash, acceptable because the secret comes last and links expire.
+
+**`MEDIA_LINK_SECRET`**: required, at least 32 bytes; the same value as the nginx of `media.winkey.vn` (Ansible, vault, never git). It is never logged and never echoed by config validation. Rotating it invalidates outstanding signed URLs (clients refetch) - rotate both sides together.
+
+**`GET /internal/media-access/{video_id}`**: `204` if publicly watchable, `403` for everything else **including unknown ids** (never `404`, so it does not reveal what exists), `400` for a malformed id (canonical UUID only). No body, no identity headers read, ONE primary-key query joined to `auth.public_profiles`, `Cache-Control: max-age=30` on both answers. It is mounted outside `/v1` and **must never be routed publicly**: Traefik exposes it only for the internal Host `media-auth.internal` (SEC1-b). It is hot, so it is logged at debug (`httpx.AccessLog` logs every `/internal/*` route at debug, errors at error); metric `video_media_access_total{result=allow|deny}`.
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).
@@ -139,6 +160,7 @@ With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent rec
 | `DATABASE_URL` | required | PostgreSQL (role `media_svc`) |
 | `NATS_URL` | required | JetStream for the outbox relay |
 | `MEDIA_BASE_URL` | required | Prefix for playback/thumbnail/avatar URLs, e.g. `https://media.winkey.vn` |
+| `MEDIA_LINK_SECRET` | required | ≥ 32 bytes; signs media URLs of non-public videos, shared with nginx; never logged |
 | `CURSOR_SECRET` | required | ≥ 16 characters; signs pagination cursors; same value on every replica |
 | `S3_MEDIA_BUCKET` | `winkey-media` | Bucket named in `video.deleted` |
 | `VALKEY_URL` | empty (disabled) | e.g. `redis://valkey:6379/0` |

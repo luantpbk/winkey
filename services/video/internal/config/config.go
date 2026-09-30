@@ -23,6 +23,10 @@ type Config struct {
 	MediaBaseURL string `env:"MEDIA_BASE_URL,required"`
 	MediaBucket  string `env:"S3_MEDIA_BUCKET" default:"winkey-media"` // named in video.deleted
 
+	// MediaLinkSecret signs media URLs of videos the public cannot watch (ADR-017). It is
+	// shared with the nginx of media.winkey.vn; at least 32 bytes; never logged.
+	MediaLinkSecret string `env:"MEDIA_LINK_SECRET,required"`
+
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
 
@@ -55,6 +59,9 @@ func Load() (Config, error) {
 func (c Config) Validate() error {
 	if len(c.CursorSecret) < 16 {
 		return errors.New("CURSOR_SECRET must be at least 16 characters")
+	}
+	if len(c.MediaLinkSecret) < 32 {
+		return errors.New("MEDIA_LINK_SECRET must be at least 32 bytes")
 	}
 	if _, err := views.ParseCIDRs(c.TrustProxyCIDRs); err != nil {
 		return fmt.Errorf("TRUST_PROXY_CIDRS: %w", err)

@@ -151,3 +151,31 @@ func TestOptionalAuthenticate(t *testing.T) {
 		}
 	}
 }
+
+// /internal/* routes are hot and infrastructure only (nginx auth_request): one line per
+// request would flood the log, so they are logged at debug; failures still at error.
+func TestInternalRoutesLogAtDebug(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewRouter("t", obs.NewLoggerTo(&buf, "t", "info"))
+	r.Get("/internal/x/{id}", func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(204)
+	})
+	r.Get("/public", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
+
+	do(r, "GET", "/internal/x/1", nil, "")
+	if buf.Len() != 0 {
+		t.Fatalf("an internal request was logged at info:\n%s", buf.String())
+	}
+	do(r, "GET", "/public", nil, "")
+	if !strings.Contains(buf.String(), `"route":"/public"`) {
+		t.Fatalf("public requests are still logged:\n%s", buf.String())
+	}
+	buf.Reset()
+
+	debug := NewRouter("t", obs.NewLoggerTo(&buf, "t", "debug"))
+	debug.Get("/internal/x/{id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(500) })
+	do(debug, "GET", "/internal/x/1", nil, "")
+	if !strings.Contains(buf.String(), `"level":"error"`) {
+		t.Fatalf("a failing internal request must be logged as an error:\n%s", buf.String())
+	}
+}

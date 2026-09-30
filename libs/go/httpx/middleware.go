@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -133,6 +134,9 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 				return
 			}
 			lvl := slog.LevelInfo
+			if strings.HasPrefix(route, "/internal/") { // hot, infrastructure only (nginx auth_request)
+				lvl = slog.LevelDebug
+			}
 			if sw.status >= 500 {
 				lvl = slog.LevelError
 			}

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -43,8 +44,11 @@ type Handler struct {
 	Cache        domain.Cache // may be nil
 	MediaBaseURL string       // e.g. https://media.winkey.vn
 	MediaBucket  string       // bucket named in video.deleted
-	CursorSecret []byte
-	Log          *slog.Logger
+	// MediaLinkSecret signs media URLs of videos the public cannot watch (SEC1, ADR-017); never logged.
+	MediaLinkSecret []byte
+	Now             func() time.Time // default time.Now; tests fix it
+	CursorSecret    []byte
+	Log             *slog.Logger
 
 	// View counter (task C3). Views nil disables counting: reports get 202 {counted:false}.
 	Views          ViewCounter
@@ -59,6 +63,8 @@ type Handler struct {
 
 // Routes mounts the API on r.
 func (h *Handler) Routes(r chi.Router) {
+	// Infrastructure only (nginx auth_request). Never routed publicly; no identity headers are read.
+	r.Get("/internal/media-access/{video_id}", h.mediaAccess)
 	r.Group(func(r chi.Router) { // anonymous callers allowed
 		r.Use(httpx.OptionalAuthenticate)
 		r.Get("/v1/videos", h.listVideos)

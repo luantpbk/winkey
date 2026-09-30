@@ -14,15 +14,16 @@ import (
 // memStore is an in-memory domain.Store with the same semantics as the
 // PostgreSQL one (filters, ordering, keyset comparison).
 type memStore struct {
-	mu        sync.Mutex
-	videos    map[uuid.UUID]domain.Video
-	progress  map[uuid.UUID]float64
-	raw       map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
-	errs      map[uuid.UUID]string    // owner-safe failure messages
-	deleted   []domain.DeletedEvent
-	moderated []domain.ModeratedEvent // video.moderated events, in order
-	gets      int
-	lists     int
+	mu          sync.Mutex
+	videos      map[uuid.UUID]domain.Video
+	progress    map[uuid.UUID]float64
+	raw         map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
+	errs        map[uuid.UUID]string    // owner-safe failure messages
+	deleted     []domain.DeletedEvent
+	moderated   []domain.ModeratedEvent // video.moderated events, in order
+	gets        int
+	mediaChecks int
+	lists       int
 
 	searches  []domain.SearchQuery
 	suggests  []string
@@ -102,6 +103,7 @@ func (s *memStore) ListStudio(_ context.Context, q domain.StudioQuery) ([]domain
 			ID: v.ID, Title: v.Title, Visibility: v.Visibility, Status: v.Status, Progress: s.progress[v.ID],
 			DurationMs: v.DurationMs, CreatedAt: v.CreatedAt, ThumbnailKey: v.ThumbnailKey,
 			ModerationState: v.ModerationState, ModerationReason: v.ModerationReason, ModeratedAt: v.ModeratedAt,
+			OwnerActive: !v.Owner.Missing,
 		}
 		if msg, ok := s.errs[v.ID]; ok {
 			item.Error = &msg
@@ -226,4 +228,12 @@ func (s *memStore) SuggestTitles(_ context.Context, q string, limit int) ([]stri
 		return nil, nil
 	}
 	return s.suggestFn(q, limit)
+}
+
+func (s *memStore) MediaPublic(_ context.Context, id uuid.UUID) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mediaChecks++
+	v, ok := s.videos[id]
+	return ok && v.PubliclyWatchable(), nil
 }
