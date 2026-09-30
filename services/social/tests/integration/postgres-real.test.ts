@@ -1927,11 +1927,25 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
         ON CONFLICT DO NOTHING;
       `);
 
-    // Insert 10 valid notifications
+    // Insert 10 valid notifications with 10 distinct active actors
+    const filterActors: string[] = [];
     for (let i = 0; i < 10; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf1${String(i).padStart(2, '0')}`;
+      filterActors.push(
+        `('${actId}', 'filter_actor_${i}@winkey.vn', 'fact_${i}', 'Filter Actor ${i}', 'ACTIVE')`,
+      );
+    }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${filterActors.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
+    for (let i = 0; i < 10; i++) {
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf1${String(i).padStart(2, '0')}`;
       await pool.query(`
           INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
-          VALUES ('${uuidv7()}', '${filterRecipient}', '${n1UserA}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i + 1} minutes')
+          VALUES ('${uuidv7()}', '${filterRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i + 1} minutes')
           ON CONFLICT DO NOTHING;
         `);
     }
@@ -1964,13 +1978,25 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
         ON CONFLICT (id) DO NOTHING;
       `);
 
+    const cursorActorRows: string[] = [];
+    const cursorNotifRows: string[] = [];
     for (let i = 0; i < 45; i++) {
-      await pool.query(`
-          INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
-          VALUES ('${uuidv7()}', '${cursorRecipient}', '${n1UserA}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${45 - i} seconds')
-          ON CONFLICT DO NOTHING;
-        `);
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc${String(i).padStart(3, '0')}`;
+      cursorActorRows.push(
+        `('${actId}', 'cursor_act_${i}@winkey.vn', 'c_act_${i}', 'Cursor Actor ${i}', 'ACTIVE')`,
+      );
+      cursorNotifRows.push(
+        `('${uuidv7()}', '${cursorRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${45 - i} seconds')`,
+      );
     }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${cursorActorRows.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES ${cursorNotifRows.join(',')}
+        ON CONFLICT DO NOTHING;
+      `);
 
     const page1Res = await app.inject({
       method: 'GET',
@@ -2039,13 +2065,25 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
         ON CONFLICT (id) DO NOTHING;
       `);
 
+    const countActorRows: string[] = [];
+    const countNotifRows: string[] = [];
     for (let i = 0; i < 101; i++) {
-      await pool.query(`
-          INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
-          VALUES ('${uuidv7()}', '${countRecipient}', '${n1UserA}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i} seconds')
-          ON CONFLICT DO NOTHING;
-        `);
+      const actId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be${String(i).padStart(3, '0')}`;
+      countActorRows.push(
+        `('${actId}', 'count_act_${i}@winkey.vn', 'cnt_act_${i}', 'Count Actor ${i}', 'ACTIVE')`,
+      );
+      countNotifRows.push(
+        `('${uuidv7()}', '${countRecipient}', '${actId}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '${i} seconds')`,
+      );
     }
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ${countActorRows.join(',')}
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
+        VALUES ${countNotifRows.join(',')}
+        ON CONFLICT DO NOTHING;
+      `);
 
     const count101Res = await app.inject({
       method: 'GET',
@@ -2170,11 +2208,17 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(Number(remainingUnread.rows[0].count)).toBe(0);
 
     // 8g. Microsecond precision: row at .123456Z marked read by up_to .123Z
+    const microActor = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bf999';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES ('${microActor}', 'micro_act@winkey.vn', 'micro_act', 'Micro Actor', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
     const microTestId = uuidv7();
     await pool.query(
       `INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
        VALUES ($1, $2, $3, 'NEW_SUBSCRIBER', NULL, NULL, '2026-09-30 10:00:00.123456+00')`,
-      [microTestId, countRecipient, n1UserA],
+      [microTestId, countRecipient, microActor],
     );
     const microMarkRes = await app.inject({
       method: 'POST',
@@ -2190,13 +2234,25 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(checkMicroRow.rows[0].read_at).not.toBeNull();
 
     // 9. Janitor: deletes only rows older than retention and only one of two concurrent runs gets the lock
+    const janitorRecipient = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd500';
+    const janitorActor1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd501';
+    const janitorActor2 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd502';
+    await pool.query(`
+        INSERT INTO auth.users (id, email, handle, display_name, status)
+        VALUES
+          ('${janitorRecipient}', 'jan_rcp@winkey.vn', 'jan_rcp', 'Janitor Recipient', 'ACTIVE'),
+          ('${janitorActor1}', 'jan_act1@winkey.vn', 'jan_act1', 'Janitor Actor 1', 'ACTIVE'),
+          ('${janitorActor2}', 'jan_act2@winkey.vn', 'jan_act2', 'Janitor Actor 2', 'ACTIVE')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+
     const janitorOldId = uuidv7();
     const janitorNewId = uuidv7();
     await pool.query(`
         INSERT INTO social.notifications (id, user_id, actor_id, kind, video_id, comment_id, created_at)
         VALUES
-          ('${janitorOldId}', '${n1Owner}', '${n1UserA}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '95 days'),
-          ('${janitorNewId}', '${n1Owner}', '${n1UserA}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '10 days')
+          ('${janitorOldId}', '${janitorRecipient}', '${janitorActor1}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '95 days'),
+          ('${janitorNewId}', '${janitorRecipient}', '${janitorActor2}', 'NEW_SUBSCRIBER', NULL, NULL, now() - interval '10 days')
         ON CONFLICT DO NOTHING;
       `);
 
