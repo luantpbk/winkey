@@ -335,6 +335,7 @@ describe('Realtime Protocol & Client Architecture (Task U2)', () => {
 
     await waitFor(() => {
       expect(client.getIsConnected()).toBe(true);
+      expect(serverSocket).not.toBeNull();
     });
 
     // Send completely invalid JSON frame
@@ -518,6 +519,14 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     // Initial state: PROCESSING (10%)
     expect(await screen.findByText(/10%/)).toBeDefined();
 
+    // Wait for serverSocket to be ready and subscribed to the upload room
+    await waitFor(() => {
+      expect(serverSocket).not.toBeNull();
+      expect(
+        receivedServerFrames.some((f) => f.type === 'subscribe' && f.room === `upload:${videoId}`),
+      ).toBe(true);
+    });
+
     // Server sends video.progress 65%
     act(() => {
       serverSocket.send(
@@ -537,6 +546,10 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
 
     // Updated to 65% without page reload
     expect(await screen.findByText(/65%/)).toBeDefined();
+
+    await waitFor(() => {
+      expect(serverSocket).not.toBeNull();
+    });
 
     // Server sends video.ready
     act(() => {
@@ -580,6 +593,9 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     await waitFor(() => {
       expect(client.getIsConnected()).toBe(true);
       expect(serverSocket).not.toBeNull();
+      expect(
+        receivedServerFrames.some((f) => f.type === 'subscribe' && f.room === `video:${videoId}`),
+      ).toBe(true);
     });
 
     expect(await screen.findByText('5')).toBeDefined();
@@ -630,6 +646,9 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     await waitFor(() => {
       expect(client.getIsConnected()).toBe(true);
       expect(serverSocket).not.toBeNull();
+      expect(
+        receivedServerFrames.some((f) => f.type === 'subscribe' && f.room === `video:${videoId}`),
+      ).toBe(true);
     });
 
     await waitFor(() => {
@@ -709,6 +728,7 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
 
     // Verify 1 subscribe frame was sent, 0 unsubscribe
     await waitFor(() => {
+      expect(serverSocket).not.toBeNull();
       expect(
         receivedServerFrames.filter((f) => f.type === 'subscribe' && f.room === `upload:${videoId}`)
           .length,
@@ -719,6 +739,7 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     // Send 5 video.progress events with different percentages
     const percents = [25, 40, 55, 70, 85];
     for (const pct of percents) {
+      await waitFor(() => expect(serverSocket).not.toBeNull());
       act(() => {
         serverSocket.send(
           JSON.stringify({
@@ -745,6 +766,7 @@ describe('Studio & Social Realtime Integration (Task U2)', () => {
     expect(receivedServerFrames.filter((f) => f.type === 'unsubscribe').length).toBe(0);
 
     // Now send video.ready
+    await waitFor(() => expect(serverSocket).not.toBeNull());
     act(() => {
       serverSocket.send(
         JSON.stringify({

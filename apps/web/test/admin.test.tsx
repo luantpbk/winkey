@@ -327,6 +327,46 @@ describe('Admin & Moderation UI (Task U4)', () => {
         expect(screen.getByText('You cannot report your own content.')).toBeDefined();
       });
     });
+
+    it('unmounts cleanly right after successful report submit with fake timers', async () => {
+      const handleClose = vi.fn();
+      vi.spyOn(api.social, 'POST').mockResolvedValue({
+        data: { id: 'rep-new-123', created_at: '2026-09-30T10:00:00Z' },
+        error: undefined,
+        response: { status: 201 } as Response,
+      });
+
+      const { unmount } = render(
+        <ReportDialog
+          isOpen={true}
+          onClose={handleClose}
+          targetType="VIDEO"
+          targetId="video-target-1"
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText('Spam or unwanted commercial content'));
+
+      vi.useFakeTimers();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Submit Report' }));
+        await vi.advanceTimersByTimeAsync(50);
+      });
+
+      expect(
+        screen.getByText('Thank you for reporting. Our moderation team will review this content.'),
+      ).toBeDefined();
+
+      // Unmount while 1800ms timer is pending
+      unmount();
+
+      // Advance past delay
+      await vi.advanceTimersByTimeAsync(3000);
+
+      // handleClose should NOT have been called after unmount, and no errors thrown
+      expect(handleClose).not.toHaveBeenCalled();
+    });
   });
 
   describe('3. Moderation Queue & Two-Step Moderation (ADR-016)', () => {
@@ -865,6 +905,60 @@ describe('Admin & Moderation UI (Task U4)', () => {
       // Assert that "Result for ABC" remains and "Result for AB" was ignored
       expect(screen.getByText('Result for ABC')).toBeDefined();
       expect(screen.queryByText('Result for AB')).toBeNull();
+    });
+
+    it('unmounts cleanly right after successful action with fake timers: no error, no state update', async () => {
+      vi.spyOn(api.auth, 'GET').mockResolvedValue({
+        data: { items: [mockTargetUser], next_cursor: null },
+        error: undefined,
+        response: { status: 200 } as Response,
+      });
+
+      vi.spyOn(api.auth, 'PUT').mockResolvedValue({
+        data: {
+          id: mockTargetUser.id,
+          email: mockTargetUser.email,
+          handle: mockTargetUser.handle,
+          display_name: mockTargetUser.display_name,
+          roles: ['viewer', 'creator', 'moderator'],
+          status: 'ACTIVE',
+          created_at: '2026-01-01T00:00:00Z',
+        },
+        error: undefined,
+        response: { status: 200 } as Response,
+      });
+
+      const { unmount } = render(<UserManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Target Creator')).toBeDefined();
+      });
+
+      // Open Edit Roles modal
+      fireEvent.click(screen.getByText('Edit Roles'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save Roles' })).toBeDefined();
+      });
+
+      // Switch to fake timers before triggering submit and timer
+      vi.useFakeTimers();
+
+      // Submit role changes
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Save Roles' }));
+        await vi.advanceTimersByTimeAsync(50);
+      });
+
+      expect(screen.getByText('User roles updated successfully.')).toBeDefined();
+
+      // Unmount immediately while 1200ms timer is pending
+      unmount();
+
+      // Advance time past the 1200ms close/fetch timer
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Teardown succeeds with zero unhandled rejection or ReferenceError: window is not defined
     });
   });
 
