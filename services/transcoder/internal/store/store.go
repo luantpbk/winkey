@@ -97,17 +97,19 @@ type readyRendition struct {
 }
 
 type readyEvent struct {
-	VideoID      string           `json:"video_id"`
-	OwnerID      string           `json:"owner_id"`
-	JobID        string           `json:"job_id"`
-	Attempt      int              `json:"attempt"`
-	Encoder      string           `json:"encoder"`
-	HLSMasterKey string           `json:"hls_master_key"`
-	ThumbnailKey string           `json:"thumbnail_key"`
-	DurationMs   int              `json:"duration_ms"`
-	Width        int              `json:"width"`
-	Height       int              `json:"height"`
-	Renditions   []readyRendition `json:"renditions"`
+	VideoID      string `json:"video_id"`
+	OwnerID      string `json:"owner_id"`
+	JobID        string `json:"job_id"`
+	Attempt      int    `json:"attempt"`
+	Encoder      string `json:"encoder"`
+	HLSMasterKey string `json:"hls_master_key"`
+	ThumbnailKey string `json:"thumbnail_key"`
+	// StoryboardKey is null (not absent) when there is no storyboard (contract: null or absent).
+	StoryboardKey *string          `json:"storyboard_key"`
+	DurationMs    int              `json:"duration_ms"`
+	Width         int              `json:"width"`
+	Height        int              `json:"height"`
+	Renditions    []readyRendition `json:"renditions"`
 }
 
 func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error) {
@@ -117,13 +119,17 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
+	var storyboardKey *string // NULL when there is none; set in the same UPDATE that makes the row READY
+	if r.StoryboardKey != "" {
+		storyboardKey = &r.StoryboardKey
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE media.videos SET
 			status = 'READY', duration_ms = $2, width = $3, height = $4,
-			hls_master_key = $5, thumbnail_key = $6,
+			hls_master_key = $5, thumbnail_key = $6, storyboard_key = $7,
 			published_at = coalesce(published_at, now()), error = NULL
 		WHERE id = $1 AND status = 'PROCESSING'`,
-		r.VideoID, r.DurationMs, r.Width, r.Height, r.MasterKey, r.ThumbKey)
+		r.VideoID, r.DurationMs, r.Width, r.Height, r.MasterKey, r.ThumbKey, storyboardKey)
 	if err != nil {
 		return false, fmt.Errorf("mark ready: %w", err)
 	}
@@ -137,6 +143,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 		VideoID: r.VideoID.String(), OwnerID: r.OwnerID.String(), JobID: r.JobID.String(),
 		Attempt: r.Attempt, Encoder: r.Encoder, HLSMasterKey: r.MasterKey, ThumbnailKey: r.ThumbKey,
 		DurationMs: r.DurationMs, Width: r.Width, Height: r.Height,
+		StoryboardKey: storyboardKey,
 	}
 	for i, rd := range r.Renditions {
 		if _, err := tx.Exec(ctx, `

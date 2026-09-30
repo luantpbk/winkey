@@ -58,6 +58,7 @@ type Video struct {
 	NoThumbnail bool
 	Description string // default "about it"
 	Hidden      bool   // moderation_state HIDDEN (reason "spam")
+	Storyboard  bool   // READY videos get storyboard_key v/{id}/a1/storyboard/storyboard.vtt
 }
 
 // SeedVideo inserts the video, its renditions (when READY) and jobs.
@@ -90,12 +91,16 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 	}
 	ready := v.Status == "READY"
 
-	var master, thumb *string
+	var master, thumb, storyboard *string
 	var dur, w, h *int
 	var pub *time.Time
 	if ready {
 		m, th := fmt.Sprintf("v/%s/a1/hls/master.m3u8", v.ID), fmt.Sprintf("v/%s/a1/thumb/poster.jpg", v.ID)
 		master, thumb = &m, &th
+		if v.Storyboard {
+			sb := fmt.Sprintf("v/%s/a1/storyboard/storyboard.vtt", v.ID)
+			storyboard = &sb
+		}
 		d, ww, hh := 61000, 1920, 1080
 		dur, w, h, pub = &d, &ww, &hh, &v.Published
 		if v.NoThumbnail {
@@ -134,8 +139,8 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 		if ready {
 			if _, err := pool.Exec(ctx, `
 				UPDATE media.videos SET status = 'READY', duration_ms = $2, width = $3, height = $4,
-				       hls_master_key = $5, thumbnail_key = $6, published_at = $7 WHERE id = $1`,
-				v.ID, *dur, *w, *h, *master, *thumb, *pub); err != nil {
+				       hls_master_key = $5, thumbnail_key = $6, published_at = $7, storyboard_key = $8 WHERE id = $1`,
+				v.ID, *dur, *w, *h, *master, *thumb, *pub, storyboard); err != nil {
 				t.Fatalf("seed video ready: %v", err)
 			}
 		}

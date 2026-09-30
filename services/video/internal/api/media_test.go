@@ -232,3 +232,62 @@ func TestMediaAccess(t *testing.T) {
 		t.Errorf("POST: %d", w.Code)
 	}
 }
+
+func withStoryboard(v *domain.Video) {
+	key := "v/" + v.ID.String() + "/a1/storyboard/storyboard.vtt"
+	v.StoryboardKey = &key
+}
+
+// V5a: playback.storyboard_url follows the same rule as hls_url (plain for publicly watchable
+// videos, signed with the same expiry otherwise) and is null, not absent, when there is none.
+func TestPlaybackStoryboardURL(t *testing.T) {
+	e := newEnv(t, false)
+	pub := e.video(alice, withStoryboard)
+	private := e.video(alice, visibility(domain.VisPrivate), withStoryboard)
+	hidden := e.video(alice, withStoryboard, func(v *domain.Video) { v.ModerationState = domain.ModHidden })
+	none := e.video(alice)
+	noneSigned := e.video(alice, visibility(domain.VisPrivate))
+	exp := testNow.Add(mediaLinkTTL)
+
+	body := func(u *who, v domain.Video) (videoJSON, string) {
+		w := e.req(u, "GET", "/v1/videos/"+v.ID.String(), "")
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+		return decode[videoJSON](t, w), w.Body.String()
+	}
+
+	if out, _ := body(anon, pub); out.Playback.StoryboardURL == nil || *out.Playback.StoryboardURL != mediaBase+"/"+*pub.StoryboardKey {
+		t.Fatalf("public: %v", out.Playback.StoryboardURL)
+	}
+	for name, c := range map[string]struct {
+		u *who
+		v domain.Video
+	}{"private / owner": {alice, private}, "private / moderator": {mod, private}, "hidden / owner": {alice, hidden}} {
+		out, _ := body(c.u, c.v)
+		want := signMediaURL(mediaBase, []byte(testLinkSecret), c.v.ID, *c.v.StoryboardKey, exp.Unix())
+		if out.Playback.StoryboardURL == nil || *out.Playback.StoryboardURL != want {
+			t.Errorf("%s: %v, want %s", name, out.Playback.StoryboardURL, want)
+		}
+		if out.Playback.ExpiresAt == nil || !out.Playback.ExpiresAt.Equal(exp) ||
+			!strings.HasPrefix(*out.Playback.StoryboardURL, mediaBase+"/s/1790877600/") { // same expiry as hls_url
+			t.Errorf("%s: expiry %v %s", name, out.Playback.ExpiresAt, *out.Playback.StoryboardURL)
+		}
+	}
+	// The sheets are named relative to the track, so they live under the same signed prefix.
+	out, _ := body(alice, private)
+	dir := (*out.Playback.StoryboardURL)[:strings.LastIndex(*out.Playback.StoryboardURL, "/")+1]
+	if !strings.HasPrefix(dir, mediaBase+"/s/") || !strings.HasSuffix(dir, "/v/"+private.ID.String()+"/a1/storyboard/") {
+		t.Errorf("sheet directory %s", dir)
+	}
+
+	for name, c := range map[string]struct {
+		u *who
+		v domain.Video
+	}{"public without storyboard": {anon, none}, "private without storyboard": {alice, noneSigned}} {
+		out, raw := body(c.u, c.v)
+		if out.Playback.StoryboardURL != nil || !strings.Contains(raw, `"storyboard_url":null`) {
+			t.Errorf("%s: %v in %s", name, out.Playback.StoryboardURL, raw)
+		}
+	}
+}

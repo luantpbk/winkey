@@ -196,16 +196,42 @@ func TestEndToEndX264(t *testing.T) {
 			s.waitStatus(t, id, "READY", 3*time.Minute)
 
 			var master, thumb string
+			var storyboard *string
 			var durMs, w, h int
 			var published *time.Time
-			if err := s.pg.Pool.QueryRow(ctx, `SELECT hls_master_key, thumbnail_key, duration_ms, width, height, published_at
-				FROM media.videos WHERE id=$1`, id).Scan(&master, &thumb, &durMs, &w, &h, &published); err != nil {
+			if err := s.pg.Pool.QueryRow(ctx, `SELECT hls_master_key, thumbnail_key, storyboard_key, duration_ms, width, height, published_at
+				FROM media.videos WHERE id=$1`, id).Scan(&master, &thumb, &storyboard, &durMs, &w, &h, &published); err != nil {
 				t.Fatal(err)
 			}
 			prefix := "v/" + id.String() + "/a1/"
 			if master != prefix+"hls/master.m3u8" || thumb != prefix+"thumb/poster.jpg" || published == nil ||
 				w != c.W && w != c.H || durMs < (c.Seconds-1)*1000 {
 				t.Fatalf("row: master=%s thumb=%s dur=%d %dx%d published=%v", master, thumb, durMs, w, h, published)
+			}
+
+			// V5a: the storyboard key is in the row that became READY, and sheets + track are in Garage
+			// with the right content types.
+			if storyboard == nil || *storyboard != prefix+"storyboard/storyboard.vtt" {
+				t.Fatalf("storyboard_key = %v", storyboard)
+			}
+			cl0 := s.g.S3Client()
+			vtt, err := cl0.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(testkit.MediaBucket), Key: storyboard})
+			if err != nil {
+				t.Fatal(err)
+			}
+			vttBody, _ := io.ReadAll(vtt.Body)
+			if aws.ToString(vtt.ContentType) != "text/vtt" || aws.ToString(vtt.CacheControl) != "public, max-age=31536000, immutable" ||
+				!bytes.HasPrefix(vttBody, []byte("WEBVTT\n\n00:00:00.000 --> ")) {
+				t.Errorf("vtt: %q %q %.60q", aws.ToString(vtt.ContentType), aws.ToString(vtt.CacheControl), vttBody)
+			}
+			sheetKey := prefix + "storyboard/sheet-001.jpg"
+			sheet, err := cl0.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(testkit.MediaBucket), Key: &sheetKey})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sheetBody, _ := io.ReadAll(sheet.Body)
+			if aws.ToString(sheet.ContentType) != "image/jpeg" || len(sheetBody) < 1000 || sheetBody[0] != 0xFF || sheetBody[1] != 0xD8 {
+				t.Errorf("sheet: %q, %d bytes", aws.ToString(sheet.ContentType), len(sheetBody))
 			}
 
 			// master.m3u8 has three variants; every playlist is readable with ffprobe over HTTP from Garage.
@@ -246,8 +272,13 @@ func TestEndToEndX264(t *testing.T) {
 				VideoID string `json:"video_id"`
 				OwnerID string `json:"owner_id"`
 				Encoder string `json:"encoder"`
+				// V5a
+				StoryboardKey *string `json:"storyboard_key"`
 			}
 			_ = json.Unmarshal(ready[0].Data, &data)
+			if data.StoryboardKey == nil || *data.StoryboardKey != *storyboard {
+				t.Errorf("video.ready storyboard_key = %v, want %s", data.StoryboardKey, *storyboard)
+			}
 			if data.VideoID != id.String() || data.OwnerID != owner.String() || data.Encoder != "x264" {
 				t.Fatalf("video.ready data: %+v", data)
 			}

@@ -94,7 +94,7 @@ func TestMediaAccessAndSignedURLsOverTheWholeMatrix(t *testing.T) {
 					u      testutil.User
 					active bool
 				}{{active, true}, {suspended, false}, {deleted, false}} {
-					v := testutil.Video{Owner: o.u.ID, Status: status, Visibility: vis, Hidden: hidden}
+					v := testutil.Video{Owner: o.u.ID, Status: status, Visibility: vis, Hidden: hidden, Storyboard: status == "READY"}
 					if status == "PROCESSING" {
 						v.Attempts = []float32{20}
 					}
@@ -150,9 +150,10 @@ func TestMediaAccessAndSignedURLsOverTheWholeMatrix(t *testing.T) {
 			}
 			v := js[struct {
 				Playback *struct {
-					HLSURL       string     `json:"hls_url"`
-					ThumbnailURL string     `json:"thumbnail_url"`
-					ExpiresAt    *time.Time `json:"expires_at"`
+					HLSURL        string     `json:"hls_url"`
+					ThumbnailURL  string     `json:"thumbnail_url"`
+					StoryboardURL *string    `json:"storyboard_url"`
+					ExpiresAt     *time.Time `json:"expires_at"`
 				} `json:"playback"`
 			}](t, body)
 			if (v.Playback != nil) != r.hasPlayback {
@@ -161,6 +162,11 @@ func TestMediaAccessAndSignedURLsOverTheWholeMatrix(t *testing.T) {
 			}
 			if v.Playback == nil {
 				continue
+			}
+			// V5a: the storyboard follows hls_url, plain or signed.
+			if sb := v.Playback.StoryboardURL; sb == nil || strings.Contains(*sb, signedFrom) != r.signedNeeded ||
+				!strings.HasSuffix(*sb, "/v/"+r.id+"/a1/storyboard/storyboard.vtt") {
+				t.Errorf("%s / %s: storyboard_url %v, want signed=%v", r.label, a.roles, sb, r.signedNeeded)
 			}
 			signed := strings.Contains(v.Playback.HLSURL, signedFrom)
 			if signed != r.signedNeeded || strings.Contains(v.Playback.ThumbnailURL, signedFrom) != r.signedNeeded || (v.Playback.ExpiresAt != nil) != r.signedNeeded {
