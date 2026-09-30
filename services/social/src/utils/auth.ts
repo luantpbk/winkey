@@ -62,3 +62,23 @@ export function requireAuth(request: FastifyRequest): {
     isModeratorOrAdmin: caller.isModeratorOrAdmin,
   };
 }
+
+export interface VideoAccessTarget {
+  owner_id: string;
+  hidden: boolean;
+  visibility?: string | null;
+}
+
+/**
+ * Task C4 & A2: A video is "closed" for a caller when:
+ * - Moderator or admin: always open (false).
+ * - Video is hidden by moderation: closed to everyone else including owner (true).
+ * - Video is PRIVATE: open only to video owner.
+ * - UNLISTED behaves like PUBLIC.
+ */
+export function isVideoClosedForCaller(video: VideoAccessTarget, caller: CallerIdentity): boolean {
+  if (caller.isModeratorOrAdmin) return false;
+  if (video.hidden) return true;
+  const isOwner = caller.userId !== null && caller.userId === video.owner_id;
+  return video.visibility === 'PRIVATE' && !isOwner;
+}

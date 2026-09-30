@@ -6,7 +6,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildLikeRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
-import { getCaller, requireAuth, isValidUuid } from '../utils/auth.js';
+import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 
 export interface LikesRouteOptions {
   db: Kysely<Database>;
@@ -33,11 +33,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count', 'hidden'])
+        .select(['id', 'owner_id', 'like_count', 'hidden', 'visibility'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+      if (!video || isVideoClosedForCaller(video, caller)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 
@@ -84,11 +84,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count', 'hidden'])
+        .select(['id', 'owner_id', 'like_count', 'hidden', 'visibility'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+      if (!video || isVideoClosedForCaller(video, caller)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 
@@ -168,11 +168,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count', 'hidden'])
+        .select(['id', 'owner_id', 'like_count', 'hidden', 'visibility'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+      if (!video || isVideoClosedForCaller(video, caller)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 

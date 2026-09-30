@@ -488,4 +488,148 @@ describe('Social Service Flow (In-Memory)', () => {
     });
     expect(modReportVideo.statusCode).toBe(201);
   });
+
+  it('Task C4: PRIVATE video restricts comments/likes to owner, moderators, admins; UNLISTED behaves like PUBLIC; visibility changes reopen', async () => {
+    const privVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9880';
+    mockStore.videos.push({
+      id: privVideoId,
+      owner_id: ownerId,
+      like_count: 3,
+      comment_count: 1,
+      hidden: false,
+      visibility: 'PRIVATE',
+      created_at: new Date(),
+    });
+
+    const privCommentId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9881';
+    mockStore.comments.push({
+      id: privCommentId,
+      video_id: privVideoId,
+      author_id: ownerId,
+      parent_id: null,
+      body: 'Owner comment on private video',
+      status: 'VISIBLE',
+      reply_count: 0,
+      created_at: new Date(),
+      edited_at: null,
+      updated_at: new Date(),
+    });
+
+    const outsiderHeaders = { 'x-user-id': strangerId, 'x-user-roles': 'viewer' };
+    const ownerHeaders = { 'x-user-id': ownerId, 'x-user-roles': 'viewer' };
+    const modHeaders = { 'x-user-id': authorId, 'x-user-roles': 'moderator' };
+    const adminHeaders = { 'x-user-id': authorId, 'x-user-roles': 'admin' };
+
+    // 1. Outsider gets 404 on PRIVATE video endpoints
+    const outCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: outsiderHeaders,
+    });
+    expect(outCommentsRes.statusCode).toBe(404);
+
+    const outPostRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: outsiderHeaders,
+      payload: { body: 'Outsider comment attempt' },
+    });
+    expect(outPostRes.statusCode).toBe(404);
+
+    const outGetSingleComment = await app.inject({
+      method: 'GET',
+      url: `/v1/comments/${privCommentId}`,
+      headers: outsiderHeaders,
+    });
+    expect(outGetSingleComment.statusCode).toBe(404);
+
+    const outGetLike = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/like`,
+      headers: outsiderHeaders,
+    });
+    expect(outGetLike.statusCode).toBe(404);
+
+    const outPutLike = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${privVideoId}/like`,
+      headers: outsiderHeaders,
+    });
+    expect(outPutLike.statusCode).toBe(404);
+
+    const outDelLike = await app.inject({
+      method: 'DELETE',
+      url: `/v1/videos/${privVideoId}/like`,
+      headers: outsiderHeaders,
+    });
+    expect(outDelLike.statusCode).toBe(404);
+
+    // 2. Owner has full access to their PRIVATE video
+    const ownerCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: ownerHeaders,
+    });
+    expect(ownerCommentsRes.statusCode).toBe(200);
+
+    const ownerLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/like`,
+      headers: ownerHeaders,
+    });
+    expect(ownerLikeRes.statusCode).toBe(200);
+
+    // 3. Moderator has access to PRIVATE video
+    const modCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: modHeaders,
+    });
+    expect(modCommentsRes.statusCode).toBe(200);
+
+    // 4. Admin has access to PRIVATE video
+    const adminCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: adminHeaders,
+    });
+    expect(adminCommentsRes.statusCode).toBe(200);
+
+    // 5. UNLISTED video behaves like PUBLIC (outsider can access)
+    const unlistedVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9882';
+    mockStore.videos.push({
+      id: unlistedVideoId,
+      owner_id: ownerId,
+      like_count: 0,
+      comment_count: 0,
+      hidden: false,
+      visibility: 'UNLISTED',
+      created_at: new Date(),
+    });
+
+    const unlistedCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${unlistedVideoId}/comments`,
+      headers: outsiderHeaders,
+    });
+    expect(unlistedCommentsRes.statusCode).toBe(200);
+
+    const unlistedLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${unlistedVideoId}/like`,
+      headers: outsiderHeaders,
+    });
+    expect(unlistedLikeRes.statusCode).toBe(200);
+
+    // 6. Visibility changes from PRIVATE to PUBLIC: reopens video for outsider
+    const video = mockStore.videos.find((v) => v.id === privVideoId)!;
+    video.visibility = 'PUBLIC';
+
+    const reopenedCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privVideoId}/comments`,
+      headers: outsiderHeaders,
+    });
+    expect(reopenedCommentsRes.statusCode).toBe(200);
+  });
 });

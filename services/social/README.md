@@ -27,10 +27,12 @@ Part of **Task C1**, owned by **Antigravity 3**.
 - **Moderation Queue & Resolution (Task A2)**:
   - `GET /v1/moderation/reports`: Cases grouped by `(target_type, target_id)` with `open_count`, reasons histogram, earliest report time, and the 5 most recent reports (including reporter public profile). Sorted by oldest open case first; cursor pagination. Requires `moderator` or `admin` in `X-User-Roles`.
   - `PUT /v1/moderation/cases/{target_type}/{target_id}/resolution`: Atomic batch update of all OPEN reports on a target to `ACTIONED` or `DISMISSED` with optional note and `resolved_by`. Returns `404` if no open reports exist.
-- **Projection Consumer & Hidden Videos (Task A2)**:
-  - Durable pull consumer `social-videos` on JetStream stream `VIDEO` listening to `video.ready`, `video.deleted`, and `video.moderated`.
+- **Projection Consumer & Video Visibility (Task A2 & Task C4)**:
+  - Durable pull consumer `social-videos` on JetStream stream `VIDEO` listening to `video.ready`, `video.deleted`, `video.moderated`, and `video.visibility_changed`.
   - Ingests `video.moderated` events, setting `social.videos.hidden = (state === 'HIDDEN')`.
-  - Hidden video rule: When a video is hidden, its comment and like endpoints answer `404` for regular users; moderators and admins retain full access.
+  - Ingests `video.ready` (upserting optional `visibility`: `PUBLIC`, `UNLISTED`, `PRIVATE`) and `video.visibility_changed` (`UPDATE social.videos SET visibility WHERE id`, acking unknown videos).
+  - Unified access control rule: Moderator/admin always has access; hidden video is closed to all callers (including owner); PRIVATE video is open to owner and closed to outsiders; UNLISTED behaves like PUBLIC.
+  - Closed videos answer `404` (`VIDEO_NOT_FOUND`) on every comment and like endpoint; `UNLISTED` behaves like `PUBLIC`.
 - **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.
 

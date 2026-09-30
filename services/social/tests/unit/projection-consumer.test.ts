@@ -280,4 +280,212 @@ describe('VideoProjectionConsumer unit tests', () => {
     expect(whereMock).toHaveBeenCalledWith('id', '=', '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010');
     expect(mockMsg.ack).toHaveBeenCalledTimes(1);
   });
+
+  it('calls m.term() on video.ready with invalid visibility', async () => {
+    const mockDb = {} as any;
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb, natsConnection: mockNats });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+            visibility: 'INVALID_VISIBILITY',
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(mockMsg.term).toHaveBeenCalledTimes(1);
+    expect(mockMsg.ack).not.toHaveBeenCalled();
+  });
+
+  it('handles video.ready with visibility present and upserts with visibility', async () => {
+    const executeMock = vi.fn().mockResolvedValue([]);
+    const doUpdateSetMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
+    const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
+    const mockDb = { insertInto: insertIntoMock };
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
+
+    onConflictMock.mockImplementation((cb: (oc: any) => any) => {
+      const oc = {
+        column: vi.fn().mockReturnValue({
+          doUpdateSet: doUpdateSetMock,
+        }),
+      };
+      return cb(oc);
+    });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+            visibility: 'PRIVATE',
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(mockDb.insertInto).toHaveBeenCalledWith('social.videos');
+    expect(valuesMock).toHaveBeenCalledWith({
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+      owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+      visibility: 'PRIVATE',
+    });
+    expect(doUpdateSetMock).toHaveBeenCalledWith({
+      owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+      visibility: 'PRIVATE',
+    });
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles video.ready without visibility and does not overwrite visibility on conflict', async () => {
+    const executeMock = vi.fn().mockResolvedValue([]);
+    const doUpdateSetMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const onConflictMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const valuesMock = vi.fn().mockReturnValue({ onConflict: onConflictMock });
+    const insertIntoMock = vi.fn().mockReturnValue({ values: valuesMock });
+    const mockDb = { insertInto: insertIntoMock };
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
+
+    onConflictMock.mockImplementation((cb: (oc: any) => any) => {
+      const oc = {
+        column: vi.fn().mockReturnValue({
+          doUpdateSet: doUpdateSetMock,
+        }),
+      };
+      return cb(oc);
+    });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(mockDb.insertInto).toHaveBeenCalledWith('social.videos');
+    expect(valuesMock).toHaveBeenCalledWith({
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+      owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+    });
+    // On conflict, only owner_id is updated; existing visibility is preserved
+    expect(doUpdateSetMock).toHaveBeenCalledWith({
+      owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+    });
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls m.term() on video.visibility_changed with invalid UUID or visibility', async () => {
+    const mockDb = {} as any;
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb, natsConnection: mockNats });
+
+    const mockMsg1 = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.visibility_changed',
+          data: {
+            video_id: 'invalid-id',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+            visibility: 'PUBLIC',
+          },
+        }),
+      ),
+      subject: 'video.visibility_changed',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+    await consumer.processMessage(mockMsg1 as any);
+    expect(mockMsg1.term).toHaveBeenCalledTimes(1);
+
+    const mockMsg2 = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.visibility_changed',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+            visibility: 'INVALID',
+          },
+        }),
+      ),
+      subject: 'video.visibility_changed',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+    await consumer.processMessage(mockMsg2 as any);
+    expect(mockMsg2.term).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls m.ack() on successful video.visibility_changed processing', async () => {
+    const executeMock = vi.fn().mockResolvedValue([]);
+    const whereMock = vi.fn().mockReturnValue({ execute: executeMock });
+    const setMock = vi.fn().mockReturnValue({ where: whereMock });
+    const updateTableMock = vi.fn().mockReturnValue({ set: setMock });
+    const mockDb = { updateTable: updateTableMock };
+    const mockNats = {} as any;
+    const consumer = new VideoProjectionConsumer({ db: mockDb as any, natsConnection: mockNats });
+
+    const mockMsg = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.visibility_changed',
+          data: {
+            video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+            owner_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001',
+            visibility: 'PRIVATE',
+          },
+        }),
+      ),
+      subject: 'video.visibility_changed',
+      term: vi.fn(),
+      ack: vi.fn(),
+      nak: vi.fn(),
+    };
+
+    await consumer.processMessage(mockMsg as any);
+    expect(mockDb.updateTable).toHaveBeenCalledWith('social.videos');
+    expect(setMock).toHaveBeenCalledWith({ visibility: 'PRIVATE' });
+    expect(whereMock).toHaveBeenCalledWith('id', '=', '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010');
+    expect(mockMsg.ack).toHaveBeenCalledTimes(1);
+  });
 });

@@ -7,7 +7,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildCommentRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
-import { getCaller, requireAuth, isValidUuid } from '../utils/auth.js';
+import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 
@@ -43,11 +43,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     // Verify video exists
     const video = await db
       .selectFrom('social.videos')
-      .select(['id', 'owner_id', 'hidden'])
+      .select(['id', 'owner_id', 'hidden', 'visibility'])
       .where('id', '=', video_id)
       .executeTakeFirst();
 
-    if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+    if (!video || isVideoClosedForCaller(video, caller)) {
       throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
     }
 
@@ -211,11 +211,11 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     // Check video exists
     const video = await db
       .selectFrom('social.videos')
-      .select(['id', 'owner_id', 'hidden'])
+      .select(['id', 'owner_id', 'hidden', 'visibility'])
       .where('id', '=', video_id)
       .executeTakeFirst();
 
-    if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+    if (!video || isVideoClosedForCaller(video, caller)) {
       throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
     }
 
@@ -365,6 +365,7 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
           'c.edited_at',
           'v.owner_id as video_owner_id',
           'v.hidden as video_hidden',
+          'v.visibility as video_visibility',
           'p.id as profile_id',
           'p.handle as profile_handle',
           'p.display_name as profile_display_name',
@@ -373,7 +374,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         .where('c.id', '=', comment_id)
         .executeTakeFirst();
 
-      if (!comment || (comment.video_hidden && !caller.isModeratorOrAdmin)) {
+      if (
+        !comment ||
+        isVideoClosedForCaller(
+          {
+            owner_id: comment.video_owner_id,
+            hidden: comment.video_hidden,
+            visibility: comment.video_visibility,
+          },
+          caller,
+        )
+      ) {
         throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
       }
 
@@ -455,11 +466,28 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     const current = await db
       .selectFrom('social.comments as c')
       .innerJoin('social.videos as v', 'v.id', 'c.video_id')
-      .select(['c.id', 'c.author_id', 'c.status', 'v.hidden as video_hidden'])
+      .select([
+        'c.id',
+        'c.author_id',
+        'c.status',
+        'v.owner_id as video_owner_id',
+        'v.hidden as video_hidden',
+        'v.visibility as video_visibility',
+      ])
       .where('c.id', '=', comment_id)
       .executeTakeFirst();
 
-    if (!current || (current.video_hidden && !caller.isModeratorOrAdmin)) {
+    if (
+      !current ||
+      isVideoClosedForCaller(
+        {
+          owner_id: current.video_owner_id,
+          hidden: current.video_hidden,
+          visibility: current.video_visibility,
+        },
+        caller,
+      )
+    ) {
       throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
     }
     if (current.author_id !== caller.userId) {
@@ -550,11 +578,22 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
           'c.status',
           'v.owner_id as video_owner_id',
           'v.hidden as video_hidden',
+          'v.visibility as video_visibility',
         ])
         .where('c.id', '=', comment_id)
         .executeTakeFirst();
 
-      if (!comment || (comment.video_hidden && !caller.isModeratorOrAdmin)) {
+      if (
+        !comment ||
+        isVideoClosedForCaller(
+          {
+            owner_id: comment.video_owner_id,
+            hidden: comment.video_hidden,
+            visibility: comment.video_visibility,
+          },
+          caller,
+        )
+      ) {
         throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
       }
 
@@ -619,11 +658,26 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     const parent = await db
       .selectFrom('social.comments as c')
       .innerJoin('social.videos as v', 'v.id', 'c.video_id')
-      .select(['c.id', 'v.owner_id as video_owner_id', 'v.hidden as video_hidden'])
+      .select([
+        'c.id',
+        'v.owner_id as video_owner_id',
+        'v.hidden as video_hidden',
+        'v.visibility as video_visibility',
+      ])
       .where('c.id', '=', comment_id)
       .executeTakeFirst();
 
-    if (!parent || (parent.video_hidden && !caller.isModeratorOrAdmin)) {
+    if (
+      !parent ||
+      isVideoClosedForCaller(
+        {
+          owner_id: parent.video_owner_id,
+          hidden: parent.video_hidden,
+          visibility: parent.video_visibility,
+        },
+        caller,
+      )
+    ) {
       throw ProblemError.notFound('Parent comment not found', 'COMMENT_NOT_FOUND');
     }
 
