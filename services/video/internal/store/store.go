@@ -142,7 +142,7 @@ func (p *Postgres) ListStudio(ctx context.Context, q domain.StudioQuery) ([]doma
 		var progress float32
 		if err := rows.Scan(&s.ID, &s.Title, &s.Visibility, &s.Status, &progress, &s.Error,
 			&s.DurationMs, &s.CreatedAt, &s.ThumbnailKey,
-			&s.ModerationState, &s.ModerationReason, &s.ModeratedAt); err != nil {
+			&s.ModerationState, &s.ModerationReason, &s.ModeratedAt, &s.OwnerActive); err != nil {
 			return nil, err
 		}
 		s.Progress = float64(progress)
@@ -156,8 +156,9 @@ func studioSQL(q domain.StudioQuery) (string, []any) {
 	sb.WriteString(`
 		SELECT v.id, v.title, v.visibility::text, v.status::text, coalesce(j.progress, 0), v.error,
 		       v.duration_ms, v.created_at, v.thumbnail_key,
-		       v.moderation_state::text, v.moderation_reason, v.moderated_at
+		       v.moderation_state::text, v.moderation_reason, v.moderated_at, p.id IS NOT NULL
 		FROM media.videos v
+		LEFT JOIN auth.public_profiles p ON p.id = v.owner_id
 		LEFT JOIN LATERAL (
 		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
 		) j ON true
@@ -173,6 +174,25 @@ func studioSQL(q domain.StudioQuery) (string, []any) {
 	}
 	sb.WriteString(" ORDER BY v.created_at DESC, v.id DESC LIMIT " + arg(q.Limit))
 	return sb.String(), args
+}
+
+// MediaPublic answers mediaAccess (task SEC1) with one primary-key lookup joined to
+// auth.public_profiles. Keep it in step with domain.PubliclyWatchable.
+func (p *Postgres) MediaPublic(ctx context.Context, id uuid.UUID) (bool, error) {
+	var ok bool
+	err := p.Pool.QueryRow(ctx, `
+		SELECT true
+		FROM media.videos v
+		JOIN auth.public_profiles p ON p.id = v.owner_id
+		WHERE v.id = $1 AND v.status = 'READY' AND v.visibility IN ('PUBLIC', 'UNLISTED')
+		  AND v.moderation_state = 'VISIBLE'`, id).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("media access: %w", err)
+	}
+	return ok, nil
 }
 
 func (p *Postgres) UpdateVideo(ctx context.Context, id, ownerID uuid.UUID, u domain.Update) (domain.Video, error) {

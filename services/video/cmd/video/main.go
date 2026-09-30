@@ -123,7 +123,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 	(&api.Handler{
 		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
-		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
+		MediaLinkSecret: []byte(cfg.MediaLinkSecret),
+		Views:           viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
 		Limiter: limiter, SearchRateLimit: cfg.SearchRateLimit, SuggestRateLimit: cfg.SuggestRateLimit,
 	}).Routes(router)
 

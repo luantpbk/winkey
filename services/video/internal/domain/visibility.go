@@ -53,7 +53,21 @@ func CanView(video Video, viewer Viewer) bool {
 // IsPublicReady reports whether the video is PUBLIC, READY and not hidden: the
 // only case in which the response may be cached publicly.
 func IsPublicReady(video Video) bool {
-	return video.Status == StatusReady && video.Visibility == VisPublic && !video.Hidden()
+	return video.Status == StatusReady && video.Visibility == VisPublic && !video.Hidden() && !video.Owner.Missing
+}
+
+// PubliclyWatchable reports whether the public may fetch the media of a video
+// (task SEC1, ADR-017): READY, PUBLIC or UNLISTED, not hidden by a moderator and
+// its owner still ACTIVE. It is the rule behind mediaAccess; the SQL of
+// Store.MediaPublic must say the same. Media URLs of every other video are signed.
+func PubliclyWatchable(status, visibility, moderationState string, ownerActive bool) bool {
+	return status == StatusReady && (visibility == VisPublic || visibility == VisUnlisted) &&
+		moderationState != ModHidden && ownerActive
+}
+
+// PubliclyWatchable is the rule above applied to a loaded video.
+func (v Video) PubliclyWatchable() bool {
+	return PubliclyWatchable(v.Status, v.Visibility, v.ModerationState, !v.Owner.Missing)
 }
 
 // SeesModeration reports whether the viewer gets the `moderation` object of

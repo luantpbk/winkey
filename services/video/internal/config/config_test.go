@@ -19,6 +19,7 @@ func valid() map[string]string {
 	return map[string]string{
 		"DATABASE_URL": "postgres://x", "NATS_URL": "nats://x",
 		"MEDIA_BASE_URL": "https://media.winkey.vn", "CURSOR_SECRET": "0123456789abcdef",
+		"MEDIA_LINK_SECRET": "0123456789abcdef0123456789abcdef",
 	}
 }
 
@@ -33,7 +34,7 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestRequiredAndSecretLength(t *testing.T) {
-	for _, name := range []string{"DATABASE_URL", "NATS_URL", "MEDIA_BASE_URL", "CURSOR_SECRET"} {
+	for _, name := range []string{"DATABASE_URL", "NATS_URL", "MEDIA_BASE_URL", "CURSOR_SECRET", "MEDIA_LINK_SECRET"} {
 		env := valid()
 		delete(env, name)
 		if _, err := load(env); err == nil || !strings.Contains(err.Error(), name) {
@@ -91,5 +92,23 @@ func TestSearchRateLimits(t *testing.T) {
 				t.Errorf("%s=%s accepted", name, bad)
 			}
 		}
+	}
+}
+
+func TestMediaLinkSecretNeedsAtLeast32BytesAndIsNeverEchoed(t *testing.T) {
+	for _, n := range []int{1, 16, 31} {
+		e := valid()
+		e["MEDIA_LINK_SECRET"] = strings.Repeat("Q7", n)[:n]
+		_, err := load(e)
+		if err == nil || !strings.Contains(err.Error(), "MEDIA_LINK_SECRET") {
+			t.Errorf("%d bytes accepted: %v", n, err)
+		} else if strings.Contains(err.Error(), e["MEDIA_LINK_SECRET"]) {
+			t.Errorf("the error repeats the secret: %v", err)
+		}
+	}
+	e := valid()
+	e["MEDIA_LINK_SECRET"] = strings.Repeat("s", 32)
+	if c, err := load(e); err != nil || c.MediaLinkSecret != strings.Repeat("s", 32) {
+		t.Fatalf("%v", err)
 	}
 }

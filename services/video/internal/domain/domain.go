@@ -108,6 +108,9 @@ type StudioItem struct {
 	ModerationState  string
 	ModerationReason *string
 	ModeratedAt      *time.Time
+
+	// OwnerActive is false when the owner is not in auth.public_profiles (suspended, deleted).
+	OwnerActive bool
 }
 
 // Position is a keyset position: the sort timestamp and id of the last item
@@ -194,6 +197,9 @@ type Store interface {
 	// video.moderated. changed is false for a no-op (same state again: nothing is
 	// written, no event). ErrNotFound if the video does not exist.
 	ModerateVideo(ctx context.Context, id, moderatorID uuid.UUID, state string, reason *string) (v Video, changed bool, err error)
+	// MediaPublic reports whether the public may fetch the video's media
+	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
+	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)
 	// SearchVideos runs one page of the public video search (task SR1).
 	SearchVideos(ctx context.Context, q SearchQuery) (SearchResult, error)
 	// SuggestTitles returns up to limit distinct titles of public videos for a search box.

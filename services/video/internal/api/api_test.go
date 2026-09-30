@@ -22,6 +22,11 @@ import (
 
 const mediaBase = "https://media.winkey.vn"
 
+// Fixed for the golden and signed-URL tests (SEC1).
+const testLinkSecret = "test-media-link-secret-0123456789abcdef"
+
+var testNow = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
 var spec *contract.Spec
 
 type who struct {
@@ -51,7 +56,8 @@ func newEnv(t *testing.T, withCache bool) *env {
 	e := &env{t: t, store: newMemStore(), spec: contract.Load(t)}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := &Handler{Store: e.store, MediaBaseURL: mediaBase + "/", MediaBucket: "winkey-media",
-		CursorSecret: []byte("test-cursor-secret-123456"), Log: log}
+		CursorSecret: []byte("test-cursor-secret-123456"), Log: log,
+		MediaLinkSecret: []byte(testLinkSecret), Now: func() time.Time { return testNow }}
 	if withCache {
 		e.cache = newMemCache()
 		h.Cache = e.cache
@@ -204,7 +210,7 @@ func TestVisibilityMatrix(t *testing.T) {
 		{"PROCESSING", processing, all(404, 404, 200, 200, 200), "private, no-store"},
 		{"FAILED", failed, all(404, 404, 200, 200, 200), "private, no-store"},
 		{"UPLOADING", uploading, all(404, 404, 200, 200, 200), "private, no-store"},
-		{"owner no longer ACTIVE", suspendedOwner, all(404, 404, 200, 200, 200), "public, max-age=30"},
+		{"owner no longer ACTIVE", suspendedOwner, all(404, 404, 200, 200, 200), "private, no-store"}, // signed URLs: per viewer
 	}
 	for _, c := range cases {
 		for u, want := range c.want {

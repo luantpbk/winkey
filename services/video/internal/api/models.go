@@ -26,6 +26,7 @@ type renditionJSON struct {
 type playbackJSON struct {
 	HLSURL       string          `json:"hls_url"`
 	ThumbnailURL string          `json:"thumbnail_url"`
+	ExpiresAt    *time.Time      `json:"expires_at,omitempty"` // only with signed URLs (SEC1)
 	Renditions   []renditionJSON `json:"renditions"`
 }
 
@@ -140,9 +141,14 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	// playback is null unless the video is READY (and has its keys, which the
 	// database guarantees for READY rows).
 	if v.Status == domain.StatusReady && v.HLSMasterKey != nil && v.ThumbnailKey != nil {
-		pb := &playbackJSON{
-			HLSURL: h.mediaURL(*v.HLSMasterKey), ThumbnailURL: h.mediaURL(*v.ThumbnailKey),
-			Renditions: make([]renditionJSON, 0, len(v.Renditions)),
+		pb := &playbackJSON{Renditions: make([]renditionJSON, 0, len(v.Renditions))}
+		if v.PubliclyWatchable() {
+			pb.HLSURL, pb.ThumbnailURL = h.mediaURL(*v.HLSMasterKey), h.mediaURL(*v.ThumbnailKey)
+		} else { // only the owner, moderators and admins get here: signed, short lived (ADR-017)
+			exp := h.mediaExpiry()
+			pb.HLSURL, pb.ThumbnailURL = h.signedMediaURL(v.ID, *v.HLSMasterKey, exp), h.signedMediaURL(v.ID, *v.ThumbnailKey, exp)
+			at := exp.UTC()
+			pb.ExpiresAt = &at
 		}
 		for _, r := range v.Renditions {
 			pb.Renditions = append(pb.Renditions, renditionJSON{Name: r.Name, Width: r.Width, Height: r.Height, BitrateKbps: r.BitrateKbps})
@@ -164,9 +170,14 @@ func (h *Handler) studio(s domain.StudioItem) studioJSON {
 	if s.Status == domain.StatusReady {
 		p = 100
 	}
+	thumb := h.mediaURLPtr(s.ThumbnailKey)
+	if thumb != nil && !domain.PubliclyWatchable(s.Status, s.Visibility, s.ModerationState, s.OwnerActive) {
+		u := h.signedMediaURL(s.ID, *s.ThumbnailKey, h.mediaExpiry())
+		thumb = &u
+	}
 	return studioJSON{
 		ID: s.ID.String(), Title: s.Title, Visibility: s.Visibility, Status: s.Status, Progress: p,
-		Error: s.Error, DurationMs: s.DurationMs, CreatedAt: s.CreatedAt.UTC(), ThumbnailURL: h.mediaURLPtr(s.ThumbnailKey),
+		Error: s.Error, DurationMs: s.DurationMs, CreatedAt: s.CreatedAt.UTC(), ThumbnailURL: thumb,
 		Moderation: moderation(s.ModerationState, s.ModerationReason, s.ModeratedAt),
 	}
 }

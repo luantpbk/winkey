@@ -55,6 +55,7 @@ func newSearchEnv(t *testing.T, lim Limiter) *searchEnv {
 	log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h := &Handler{Store: e.store, MediaBaseURL: mediaBase, MediaBucket: "winkey-media",
 		CursorSecret: []byte("test-cursor-secret-123456"), Log: log, Limiter: lim,
+		MediaLinkSecret: []byte(testLinkSecret), Now: func() time.Time { return testNow },
 		SearchRateLimit: 3, SuggestRateLimit: 5}
 	r := httpx.NewRouter("video-test", log)
 	h.Routes(r)
