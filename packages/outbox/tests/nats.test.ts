@@ -87,5 +87,5 @@ describe('natsOptionsFromUrl integration test (NATS with auth)', () => {
     // 3. Connection with wrong password fails
     const wrongPassUrl = `nats://testapp:wrongpassword@${natsHost}:${natsPort}`;
     await expect(connect(natsOptionsFromUrl(wrongPassUrl))).rejects.toThrow();
-  });
+  }, 60_000);
 });
