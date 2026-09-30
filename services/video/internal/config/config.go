@@ -36,6 +36,10 @@ type Config struct {
 	ViewFlushLockTTL  time.Duration `env:"VIEW_FLUSH_LOCK_TTL" default:"2m"`
 	ViewDedupTTL      time.Duration `env:"VIEW_DEDUP_TTL" default:"30m"`
 	ViewRateLimit     int           `env:"VIEW_RATE_LIMIT" default:"60"`
+
+	// Search (SR1): requests per client IP per minute. Needs VALKEY_URL.
+	SearchRateLimit  int `env:"SEARCH_RATE_LIMIT" default:"60"`
+	SuggestRateLimit int `env:"SUGGEST_RATE_LIMIT" default:"120"`
 }
 
 // Load reads and validates the environment.
@@ -57,6 +61,9 @@ func (c Config) Validate() error {
 	}
 	if c.ViewFlushInterval <= 0 || c.ViewFlushLockTTL <= 0 || c.ViewDedupTTL <= 0 || c.ViewRateLimit <= 0 {
 		return errors.New("VIEW_FLUSH_INTERVAL, VIEW_FLUSH_LOCK_TTL, VIEW_DEDUP_TTL and VIEW_RATE_LIMIT must be positive")
+	}
+	if c.SearchRateLimit <= 0 || c.SuggestRateLimit <= 0 {
+		return errors.New("SEARCH_RATE_LIMIT and SUGGEST_RATE_LIMIT must be positive")
 	}
 	return nil
 }

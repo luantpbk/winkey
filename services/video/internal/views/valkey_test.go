@@ -448,3 +448,31 @@ func TestSharedFlusherIsSafeForConcurrentUse(t *testing.T) {
 		t.Fatalf("view_count +%d, want +30", db.total(video))
 	}
 }
+
+func TestAllowScopedKeepsOneCounterPerScopeAndIP(t *testing.T) {
+	r := newRig(t, time.Minute)
+	ctx := context.Background()
+	const ip = "203.0.113.9"
+	for i := 1; i <= 2; i++ {
+		if ok, _, err := r.v.AllowScoped(ctx, "search", ip, 2, time.Minute); err != nil || !ok {
+			t.Fatalf("search %d: ok=%v err=%v", i, ok, err)
+		}
+	}
+	if ok, retry, err := r.v.AllowScoped(ctx, "search", ip, 2, time.Minute); err != nil || ok || retry <= 0 {
+		t.Fatalf("3rd search: ok=%v retry=%v err=%v", ok, retry, err)
+	}
+	// Other scopes, the view counter's own limit and other IPs are untouched.
+	if ok, _, _ := r.v.AllowScoped(ctx, "suggest", ip, 2, time.Minute); !ok {
+		t.Fatal("suggest shares the search counter")
+	}
+	if ok, _, _ := r.v.Allow(ctx, ip, 1, time.Minute); !ok {
+		t.Fatal("the view limit shares the search counter")
+	}
+	if ok, _, _ := r.v.AllowScoped(ctx, "search", "203.0.113.10", 2, time.Minute); !ok {
+		t.Fatal("another IP shares the counter")
+	}
+	r.srv.Stop(t)
+	if _, _, err := r.v.AllowScoped(ctx, "search", ip, 2, time.Minute); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Valkey down: %v", err)
+	}
+}

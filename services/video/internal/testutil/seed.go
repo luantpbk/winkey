@@ -56,6 +56,8 @@ type Video struct {
 	RawKey      string
 	Attempts    []float32 // progress of transcode_jobs attempts 1..n (the last one is the latest)
 	NoThumbnail bool
+	Description string // default "about it"
+	Hidden      bool   // moderation_state HIDDEN (reason "spam")
 }
 
 // SeedVideo inserts the video, its renditions (when READY) and jobs.
@@ -79,6 +81,9 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 	}
 	if v.Created.IsZero() {
 		v.Created = v.Published.Add(-time.Hour)
+	}
+	if v.Description == "" {
+		v.Description = "about it"
 	}
 	if v.RawKey == "" {
 		v.RawKey = v.Owner.String() + "/" + v.ID.String() + "/source"
@@ -107,9 +112,9 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 		INSERT INTO media.videos (id, owner_id, title, description, visibility, status, raw_bucket, raw_key,
 		                          content_type, size_bytes, duration_ms, width, height, hls_master_key,
 		                          thumbnail_key, error, view_count, published_at, created_at)
-		VALUES ($1, $2, $3, 'about it', $4::media.visibility, 'UPLOADING', 'winkey-raw', $5,
+		VALUES ($1, $2, $3, $9, $4::media.visibility, 'UPLOADING', 'winkey-raw', $5,
 		        'video/mp4', 1000, NULL, NULL, NULL, NULL, NULL, $6, $7, NULL, $8)`,
-		v.ID, v.Owner, v.Title, v.Visibility, v.RawKey, errMsg, v.ViewCount, v.Created); err != nil {
+		v.ID, v.Owner, v.Title, v.Visibility, v.RawKey, errMsg, v.ViewCount, v.Created, v.Description); err != nil {
 		t.Fatalf("seed video: %v", err)
 	}
 	switch v.Status {
@@ -152,6 +157,12 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 				v.ID, n, d[0], d[1], d[2], fmt.Sprintf("v/%s/a1/hls/%s/index.m3u8", v.ID, n)); err != nil {
 				t.Fatalf("seed rendition: %v", err)
 			}
+		}
+	}
+	if v.Hidden {
+		if _, err := pool.Exec(ctx, `UPDATE media.videos SET moderation_state = 'HIDDEN', moderation_reason = 'spam',
+			moderated_by = owner_id, moderated_at = now() WHERE id = $1`, v.ID); err != nil {
+			t.Fatalf("seed hidden: %v", err)
 		}
 	}
 	for i, p := range v.Attempts {

@@ -99,6 +99,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 	var viewCounter api.ViewCounter
 	var viewFlusher *views.Flusher
+	var limiter api.Limiter // search rate limits; needs Valkey
 	if cfg.ValkeyURL != "" {
 		rc, err := cache.NewClient(cfg.ValkeyURL)
 		if err != nil {
@@ -106,11 +107,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 		defer func() { _ = rc.Close() }()
 		vv := views.NewValkey(rc, cfg.ViewDedupTTL)
-		viewCounter = vv
+		viewCounter, limiter = vv, vv
 		viewFlusher = &views.Flusher{V: vv, DB: st, Interval: cfg.ViewFlushInterval, LockTTL: cfg.ViewFlushLockTTL, Log: log}
 		log.Info("view counter enabled", "flush_interval", cfg.ViewFlushInterval.String(), "dedup_ttl", cfg.ViewDedupTTL.String())
 	} else {
-		log.Warn("VALKEY_URL is empty: views are not counted")
+		log.Warn("VALKEY_URL is empty: views are not counted and search is not rate limited")
 	}
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
 
@@ -123,6 +124,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
 		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
+		Limiter: limiter, SearchRateLimit: cfg.SearchRateLimit, SuggestRateLimit: cfg.SuggestRateLimit,
 	}).Routes(router)
 
 	srv := &http.Server{

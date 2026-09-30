@@ -23,6 +23,11 @@ type memStore struct {
 	moderated []domain.ModeratedEvent // video.moderated events, in order
 	gets      int
 	lists     int
+
+	searches  []domain.SearchQuery
+	suggests  []string
+	searchFn  func(domain.SearchQuery) (domain.SearchResult, error)
+	suggestFn func(string, int) ([]string, error)
 }
 
 func newMemStore() *memStore {
@@ -199,4 +204,26 @@ func (c *memCache) Invalidate(_ context.Context, id uuid.UUID) {
 	defer c.mu.Unlock()
 	c.inval++
 	delete(c.m, id)
+}
+
+// SearchVideos and SuggestTitles delegate to scripts set by the test (the real
+// matching is exercised on PostgreSQL in internal/integration).
+func (s *memStore) SearchVideos(_ context.Context, q domain.SearchQuery) (domain.SearchResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.searches = append(s.searches, q)
+	if s.searchFn == nil {
+		return domain.SearchResult{}, nil
+	}
+	return s.searchFn(q)
+}
+
+func (s *memStore) SuggestTitles(_ context.Context, q string, limit int) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suggests = append(s.suggests, q)
+	if s.suggestFn == nil {
+		return nil, nil
+	}
+	return s.suggestFn(q, limit)
 }

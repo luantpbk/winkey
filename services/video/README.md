@@ -13,6 +13,8 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
 | `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
 | `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
+| `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
+| `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
 
 ### Visibility (who sees what by id)
 
@@ -88,6 +90,32 @@ Delivery is *at least once*: a crash after the PostgreSQL commit and before the 
 | `video_view_flush_seconds` | histogram | Flush passes that had a batch to apply |
 | `video_view_flush_errors_total` | counter | Failed flush steps (each is retried on the next tick) |
 
+### Search
+
+`GET /v1/search?q=` and `GET /v1/search/suggest?q=` (task SR1, migration 000007). Results never depend on the caller (optional auth is only there so a signed-in client is not rejected): a video is a result exactly when it is in the public feed.
+
+**Folding happens in SQL**, never in Go: the query text is passed as `$1` and folded with `public.winkey_fold($1)` (lower-case + `unaccent`, so `ha noi` finds `Hà Nội`, `da lat` finds `Đà Lạt`), the same `IMMUTABLE` function the index expressions use, so the expressions match the indexes.
+
+1. **Full text**: `v.search_vector @@ plainto_tsquery('simple', public.winkey_fold($1))`, ranked by `ts_rank_cd(v.search_vector, …)` (title weight A beats description weight B). Every word must match.
+2. **Typo fallback**, only when the **first** page of step 1 is empty: `public.winkey_fold(v.title) % public.winkey_fold($1)` with `SET LOCAL pg_trgm.similarity_threshold = 0.3` (per transaction), ranked by `similarity()`.
+
+Both statements repeat the predicate of the partial indexes literally, `status = 'READY' AND visibility = 'PUBLIC' AND moderation_state = 'VISIBLE'`, so the planner can use `videos_search_fts` / `videos_search_title_trgm`, and inner-join `auth.public_profiles` like the feed (owners who are not ACTIVE are not listed). One statement per page, no per-item lookup. A test runs `EXPLAIN (FORMAT JSON)` on both statements and requires a Bitmap Index Scan on the partial index (with sequential scans discouraged, because a test table is tiny), plus a control that the same statement *without* the moderation predicate does not use it, so drift in the folding or the predicate fails the build.
+
+**Paging.** Order `(rank DESC, published_at DESC, id DESC)`; the keyset condition compares the rank expression, so items with an equal rank (identical titles) are neither skipped nor repeated. The cursor is HMAC-signed like the others and carries the **mode** (`fts` or `trgm`, so page 2 never switches modes), the **rank as float4 bits** (exact), `published_at` in microseconds, the id and the **page number**. The MAC covers the trimmed `q`: a cursor replayed with another `q`, on another endpoint or with another secret is `400 INVALID_CURSOR`. At most **10 pages** are served per query; the 10th has `next_cursor: null`. `limit` 1-100 (default 24).
+
+**Input.** `q` is trimmed; 1-100 characters for search, 2-50 for suggest (characters, not bytes); invalid UTF-8 or a NUL byte → `400`.
+
+**Suggest.** Up to 8 titles, distinct by folded title: prefix matches (`winkey_fold(title) LIKE folded_q || '%'`, with `\`, `%` and `_` in `q` escaped, so they are text) first, then trigram similarity (threshold 0.3); ties by similarity, then `view_count`.
+
+**Rate limit** per client IP (same `TRUST_PROXY_CIDRS` rules as the view counter), one Valkey counter per endpoint: 60/min for search (`SEARCH_RATE_LIMIT`), 120/min for suggest (`SUGGEST_RATE_LIMIT`), over it `429` + `Retry-After`. The limit is checked first (before validation and PostgreSQL) and **fails open** when Valkey is down or `VALKEY_URL` is empty. `Cache-Control: public, max-age=30` (search) / `60` (suggest) on `200`.
+
+**Logging.** The text of `q` is user input and is never logged (the request log records the path only): the handler logs `q_len`, the mode, the page and the hit count at debug level.
+
+| Metric | Type | |
+|---|---|---|
+| `video_search_total{mode}` | counter | `fts`, `trgm` (fallback), `empty` (no result), `rate_limited` |
+| `video_search_seconds` | histogram | Time spent in the database for one search page |
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).
@@ -116,6 +144,8 @@ With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent rec
 | `VALKEY_URL` | empty (disabled) | e.g. `redis://valkey:6379/0` |
 | `CACHE_TTL` | `30s` | |
 | `TRUST_PROXY_CIDRS`, `VIEW_RATE_LIMIT`, `VIEW_DEDUP_TTL`, `VIEW_FLUSH_INTERVAL`, `VIEW_FLUSH_LOCK_TTL` | see *View counter* | View counter (needs `VALKEY_URL`) |
+| `SEARCH_RATE_LIMIT` | `60` | Searches per client IP per minute (needs `VALKEY_URL`) |
+| `SUGGEST_RATE_LIMIT` | `120` | Suggestions per client IP per minute (needs `VALKEY_URL`) |
 | `HTTP_ADDR` | `:8080` | |
 | `LOG_LEVEL` | `info` | |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Tracing is a no-op when unset |

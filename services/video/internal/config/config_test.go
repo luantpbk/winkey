@@ -77,3 +77,19 @@ func TestViewCounterSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchRateLimits(t *testing.T) {
+	c, err := load(valid())
+	if err != nil || c.SearchRateLimit != 60 || c.SuggestRateLimit != 120 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	for _, name := range []string{"SEARCH_RATE_LIMIT", "SUGGEST_RATE_LIMIT"} {
+		for _, bad := range []string{"0", "-5"} {
+			e := valid()
+			e[name] = bad
+			if _, err := load(e); err == nil {
+				t.Errorf("%s=%s accepted", name, bad)
+			}
+		}
+	}
+}
