@@ -41,7 +41,7 @@ spec:
               cd /tmp/pkg
               npm install --no-save ajv@8.17.1 ajv-formats@3.0.1
               cp -a /tmp/pkg/node_modules/. /target/
-              chown -R 1000:1000 /target
+              chmod -R a+rX /target 2>/dev/null || true
           volumeMounts:
             - name: node-modules
               mountPath: /target
