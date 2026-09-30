@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import type { Comment } from '@winkey/api-client';
 import { CommentComposer } from './comment-composer';
@@ -19,12 +20,65 @@ export function CommentSection({ videoId }: CommentSectionProps) {
   const tRef = useRef(t);
   tRef.current = t;
 
+  const searchParams = useSearchParams();
+  const targetCommentId = searchParams?.get('comment') || null;
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [newCommentsCount, setNewCommentsCount] = useState<number>(0);
+
+  // Target comment deep-link state (?comment={comment_id})
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const [autoExpandMap, setAutoExpandMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!targetCommentId) {
+      setHighlightedCommentId(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function resolveComment() {
+      try {
+        const { data, response } = await api.social.GET('/v1/comments/{comment_id}', {
+          params: { path: { comment_id: targetCommentId! } },
+        });
+
+        if (isCancelled) return;
+
+        if (response.ok && data) {
+          if (data.parent_id) {
+            // Reply: expand the parent thread and highlight reply
+            setAutoExpandMap((prev) => ({ ...prev, [data.parent_id!]: data.id }));
+            setHighlightedCommentId(data.id);
+          } else {
+            // Top-level comment: ensure in list and highlight
+            setComments((prev) => {
+              if (prev.some((c) => c.id === data.id)) return prev;
+              return [data, ...prev];
+            });
+            setHighlightedCommentId(data.id);
+          }
+        } else {
+          setHighlightedCommentId(targetCommentId);
+        }
+      } catch {
+        if (!isCancelled) {
+          setHighlightedCommentId(targetCommentId);
+        }
+      }
+    }
+
+    void resolveComment();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [targetCommentId]);
 
   const fetchComments = useCallback(
     async (cursor?: string | null, isInitial = false) => {
@@ -187,6 +241,8 @@ export function CommentSection({ videoId }: CommentSectionProps) {
             <CommentItem
               key={c.id}
               comment={c}
+              highlightedCommentId={highlightedCommentId}
+              autoExpandReplyId={autoExpandMap[c.id]}
               onCommentUpdated={(updated) => {
                 setComments((prev) =>
                   prev.map((item) => (item.id === updated.id ? updated : item)),

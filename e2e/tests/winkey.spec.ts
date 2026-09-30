@@ -944,4 +944,68 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       saveScreenshot(fname);
     }
   });
+
+  test('N1-web: In-app notification bell flow (sign in -> badge 3 -> click VIDEO_COMMENT -> watch page highlighted -> badge 2 -> mark all -> badge hidden)', async ({
+    page,
+  }) => {
+    // Reset notification state
+    await page.request.post('http://localhost:3000/v1/test/reset-notifications').catch(() => {});
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Bell button is visible, badge shows 3
+    const bellButton = page.locator('[data-testid="notification-bell-button"]');
+    await expect(bellButton).toBeVisible({ timeout: 10000 });
+    const badge = page.locator('[data-testid="notification-badge"]');
+    await expect(badge).toHaveText('3', { timeout: 10000 });
+
+    // 3. Open notification dropdown
+    await bellButton.click();
+    const dropdown = page.locator('[role="dialog"][aria-label="Thông báo"]');
+    await expect(dropdown).toBeVisible({ timeout: 5000 });
+
+    // 4. Click a VIDEO_COMMENT item
+    const commentItem = page.locator(
+      '[data-testid="notification-item-0192f5e4-9000-7000-8000-000000000001"]',
+    );
+    await expect(commentItem).toBeVisible({ timeout: 5000 });
+    await commentItem.click();
+
+    // 5. Lands on watch page with comment highlighted
+    await page.waitForURL(
+      (url) => url.pathname.includes('/watch/') && url.search.includes('comment='),
+      {
+        timeout: 15000,
+      },
+    );
+    const highlightedComment = page.locator(
+      '[data-testid="comment-item-0192f5e4-7c1a-7b3e-9d2a-c00000000001"]',
+    );
+    await expect(highlightedComment).toBeVisible({ timeout: 15000 });
+    await expect(highlightedComment).toHaveAttribute('data-highlighted', 'true', {
+      timeout: 10000,
+    });
+
+    // 6. Badge shows 2
+    await expect(badge).toHaveText('2', { timeout: 10000 });
+
+    // 7. Click bell again -> click "Đánh dấu đã đọc tất cả" -> badge hidden
+    await bellButton.click();
+    await expect(dropdown).toBeVisible({ timeout: 5000 });
+    const markAllBtn = dropdown.locator('button', { hasText: 'Đánh dấu đã đọc tất cả' });
+    await expect(markAllBtn).toBeVisible({ timeout: 5000 });
+    await markAllBtn.click();
+
+    // Badge is hidden
+    await expect(badge).toBeHidden({ timeout: 10000 });
+  });
 });

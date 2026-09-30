@@ -121,7 +121,9 @@ export function WatchClientSection({ video }: { video: Video }) {
       </div>
 
       {/* Comments Section */}
-      <CommentSection videoId={video.id} />
+      <React.Suspense fallback={null}>
+        <CommentSection videoId={video.id} />
+      </React.Suspense>
 
       {/* Report Video Dialog */}
       <ReportDialog

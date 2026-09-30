@@ -37,6 +37,9 @@ import type {
   PlaybackHeartbeatBatch,
   PlaybackSample,
   PlaybackHeartbeatResult,
+  Notification,
+  NotificationPage,
+  MarkNotificationsReadRequest,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -140,6 +143,99 @@ export function resetModerationMocks() {
   mockSubscriptionVideosOverride = null;
   mockHeartbeat429 = false;
   mockRecordedHeartbeats = [];
+  resetNotificationMocks();
+}
+
+const initialMockNotifications: Notification[] = [
+  {
+    id: '0192f5e4-9000-7000-8000-000000000001',
+    kind: 'VIDEO_COMMENT',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+    read_at: null,
+    created_at: '2026-09-20T10:00:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000002',
+    kind: 'COMMENT_REPLY',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000002',
+    read_at: null,
+    created_at: '2026-09-20T09:30:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000003',
+    kind: 'VIDEO_PUBLISHED',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: null,
+    read_at: null,
+    created_at: '2026-09-20T09:00:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000004',
+    kind: 'NEW_SUBSCRIBER',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: null,
+    comment_id: null,
+    read_at: '2026-09-19T08:00:00Z',
+    created_at: '2026-09-19T08:00:00Z',
+  },
+];
+
+let dynamicNotifications: Notification[] = [...initialMockNotifications];
+let mockNotificationsCapped = false;
+let mockNotificationsEmpty = false;
+let mockNotificationsError = false;
+
+export function setMockNotificationsCapped(val: boolean) {
+  mockNotificationsCapped = val;
+}
+export function getMockNotificationsCapped(): boolean {
+  return mockNotificationsCapped;
+}
+export function setMockNotificationsEmpty(val: boolean) {
+  mockNotificationsEmpty = val;
+}
+export function getMockNotificationsEmpty(): boolean {
+  return mockNotificationsEmpty;
+}
+export function setMockNotificationsError(val: boolean) {
+  mockNotificationsError = val;
+}
+export function setDynamicNotifications(notifications: Notification[]) {
+  dynamicNotifications = [...notifications];
+}
+export function getDynamicNotifications(): Notification[] {
+  return dynamicNotifications;
+}
+export function resetNotificationMocks() {
+  dynamicNotifications = initialMockNotifications.map((n) => ({ ...n }));
+  mockNotificationsCapped = false;
+  mockNotificationsEmpty = false;
+  mockNotificationsError = false;
 }
 
 const initialMockComments: Comment[] = [
@@ -2683,5 +2779,122 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
 
     const page: AuditEntryPage = { items, next_cursor: null };
     return HttpResponse.json(page);
+  }),
+
+  // --- Task N1: Notifications (ADR-023) ---
+  http.get('*/v1/notifications/unread-count', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsEmpty) {
+      return HttpResponse.json({ count: 0, capped: false });
+    }
+    if (mockNotificationsCapped) {
+      return HttpResponse.json({ count: 101, capped: true });
+    }
+    const unread = dynamicNotifications.filter((n) => !n.read_at);
+    if (unread.length > 100) {
+      return HttpResponse.json({ count: 100, capped: true });
+    }
+    return HttpResponse.json({ count: unread.length, capped: false });
+  }),
+
+  http.get('*/v1/notifications', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsEmpty) {
+      const page: NotificationPage = { items: [], next_cursor: null };
+      return HttpResponse.json(page);
+    }
+    const url = new URL(request.url);
+    const unreadOnly = url.searchParams.get('unread') === 'true';
+    const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+    const cursor = url.searchParams.get('cursor');
+
+    let filtered = dynamicNotifications;
+    if (unreadOnly) {
+      filtered = filtered.filter((n) => !n.read_at);
+    }
+
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = filtered.findIndex((n) => n.id === cursor);
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const items = filtered.slice(startIndex, startIndex + limit);
+    const nextItem = filtered[startIndex + limit];
+    const nextCursor = nextItem ? nextItem.id : null;
+
+    const page: NotificationPage = { items, next_cursor: nextCursor };
+    return HttpResponse.json(page);
+  }),
+
+  http.post('*/v1/notifications/read', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsError) {
+      return HttpResponse.json(
+        {
+          type: '/problems/internal',
+          title: 'Internal Server Error',
+          status: 500,
+          code: 'INTERNAL_ERROR',
+        },
+        { status: 500 },
+      );
+    }
+    const body = (await request.json()) as MarkNotificationsReadRequest;
+    const now = new Date().toISOString();
+
+    if (body.ids && body.ids.length > 0) {
+      const idSet = new Set(body.ids);
+      dynamicNotifications = dynamicNotifications.map((n) =>
+        idSet.has(n.id) && !n.read_at ? { ...n, read_at: now } : n,
+      );
+    } else if (body.up_to) {
+      const upToTime = new Date(body.up_to).getTime();
+      dynamicNotifications = dynamicNotifications.map((n) =>
+        new Date(n.created_at).getTime() <= upToTime && !n.read_at ? { ...n, read_at: now } : n,
+      );
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/test/reset-notifications', async () => {
+    resetNotificationMocks();
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

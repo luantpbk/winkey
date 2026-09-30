@@ -57,6 +57,12 @@ export type LikeState = SocialComponents['schemas']['LikeState'];
 export type SubscriptionState = SocialComponents['schemas']['SubscriptionState'];
 export type Subscription = SocialComponents['schemas']['Subscription'];
 export type SubscriptionPage = SocialComponents['schemas']['SubscriptionPage'];
+export type NotificationKind = SocialComponents['schemas']['NotificationKind'];
+export type Notification = SocialComponents['schemas']['Notification'];
+export type NotificationPage = SocialComponents['schemas']['NotificationPage'];
+export type UnreadCount = SocialComponents['schemas']['UnreadCount'];
+export type MarkNotificationsReadRequest =
+  SocialComponents['schemas']['MarkNotificationsReadRequest'];
 
 export type AdminUser = AuthComponents['schemas']['AdminUser'];
 export type AdminUserPage = AuthComponents['schemas']['AdminUserPage'];
