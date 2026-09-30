@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import type { PlaybackHeartbeatBatch } from '../../packages/api-client/src';
 
 test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -125,6 +126,97 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     const viewsAfter = await getRecordedViews();
     const finalCount = Math.max(viewsAfter.length, responseViewCount);
     expect(finalCount).toBe(1);
+  });
+
+  test('PL2: Play watch page ~35s, capture start + heartbeat samples with valid OpenAPI schema (Task U8)', async ({
+    page,
+  }) => {
+    test.setTimeout(75000);
+
+    const capturedBatches: PlaybackHeartbeatBatch[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/v1/playback/heartbeats') && req.method() === 'POST') {
+        try {
+          const data = req.postDataJSON() as PlaybackHeartbeatBatch;
+          capturedBatches.push(data);
+        } catch {
+          // ignore non-json
+        }
+      }
+    });
+
+    const targetVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+    await page.goto(`/watch/${targetVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible();
+
+    // Trigger play and simulate forward playback in real browser time for ~32s
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('play'));
+        v.dispatchEvent(new Event('playing'));
+
+        // Emit timeupdate every 1 second
+        (
+          window as unknown as { __playbackInterval?: ReturnType<typeof setInterval> }
+        ).__playbackInterval = setInterval(() => {
+          const current = (v.currentTime || 0) + 1;
+          Object.defineProperty(v, 'currentTime', {
+            value: current,
+            configurable: true,
+            writable: true,
+          });
+          v.dispatchEvent(new Event('timeupdate'));
+        }, 1000);
+      }
+    });
+
+    // Wait for at least one start and one heartbeat sample to be captured
+    await expect
+      .poll(
+        () => {
+          const allSamples = capturedBatches.flatMap((b) => b.samples || []);
+          const hasStart = allSamples.some((s) => s.kind === 'start');
+          const hasHeartbeat = allSamples.some((s) => s.kind === 'heartbeat');
+          return hasStart && hasHeartbeat;
+        },
+        { timeout: 45000, intervals: [1000] },
+      )
+      .toBe(true);
+
+    // Stop timer
+    await page.evaluate(() => {
+      const win = window as unknown as { __playbackInterval?: ReturnType<typeof setInterval> };
+      if (win.__playbackInterval) {
+        clearInterval(win.__playbackInterval);
+      }
+    });
+
+    // Validate captured samples conform to PlaybackHeartbeatBatch / PlaybackSample schema
+    const allSamples = capturedBatches.flatMap((b) => b.samples);
+    const startSample = allSamples.find((s) => s.kind === 'start');
+    const heartbeatSample = allSamples.find((s) => s.kind === 'heartbeat');
+
+    expect(startSample).toBeDefined();
+    expect(startSample!.video_id).toBe(targetVideoId);
+    expect(startSample!.seq).toBe(0);
+    expect(startSample!.client).toBe('web');
+    expect(typeof startSample!.startup_ms).toBe('number');
+    expect(startSample!.playback_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(new Date(startSample!.sent_at).toISOString()).toBe(startSample!.sent_at);
+
+    expect(heartbeatSample).toBeDefined();
+    expect(heartbeatSample!.video_id).toBe(targetVideoId);
+    expect(heartbeatSample!.seq).toBeGreaterThanOrEqual(1);
+    expect(heartbeatSample!.client).toBe('web');
+    expect(heartbeatSample!.playback_id).toBe(startSample!.playback_id);
+    expect(heartbeatSample!.watched_ms).toBeGreaterThanOrEqual(15000);
+    expect(typeof heartbeatSample!.rebuffer_ms).toBe('number');
+    expect(typeof heartbeatSample!.rebuffer_count).toBe('number');
+    expect(new Date(heartbeatSample!.sent_at).toISOString()).toBe(heartbeatSample!.sent_at);
   });
 
   test('Flow 2: Register -> upload file -> appears in studio', async ({ page }) => {

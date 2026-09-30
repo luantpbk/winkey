@@ -18,6 +18,7 @@ import { QualityMenu, type QualityLevel } from './quality-menu';
 import { CcMenu } from './cc-menu';
 import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
+import { PlaybackTracker } from '../../lib/video/playback-tracker';
 
 export interface VideoPlayerProps {
   videoId?: string;
@@ -105,11 +106,39 @@ export function VideoPlayer({
   const lastSavedTimeRef = useRef<number>(0);
 
   // View counter hook
-  const { onPlay, onTimeUpdate, onSeeking, onSeeked, onEnded } = useViewCounter({
+  const { onPlay, onTimeUpdate, onSeeking, onSeeked, onEnded, playbackIdRef } = useViewCounter({
     videoId: videoId || '',
     durationMs,
     onRecordView,
   });
+
+  // Playback tracker for QoE / analytics (R1)
+  const trackerRef = useRef<PlaybackTracker | null>(null);
+
+  useEffect(() => {
+    if (!videoId) {
+      if (trackerRef.current) {
+        trackerRef.current.destroy();
+        trackerRef.current = null;
+      }
+      return;
+    }
+
+    if (trackerRef.current) {
+      trackerRef.current.destroy();
+    }
+
+    const tracker = new PlaybackTracker({
+      videoId,
+      playbackId: playbackIdRef.current,
+    });
+    trackerRef.current = tracker;
+
+    return () => {
+      tracker.destroy();
+      trackerRef.current = null;
+    };
+  }, [videoId, playbackIdRef]);
 
   // LocalStorage progress helper
   const getStorageKey = useCallback(() => {
@@ -335,12 +364,21 @@ export function VideoPlayer({
           });
         });
         setQualityLevels(levels);
+        if (data.levels && data.levels.length > 0) {
+          const first = data.levels[0];
+          const renditionName = first.height ? `${first.height}p` : first.name || null;
+          const bitrateKbps = first.bitrate ? Math.round(first.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
+        }
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         const lvl = hls.levels[data.level];
         if (lvl) {
           setCurrentHeight(lvl.height);
+          const renditionName = lvl.height ? `${lvl.height}p` : lvl.name || null;
+          const bitrateKbps = lvl.bitrate ? Math.round(lvl.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
         }
       });
 
@@ -359,6 +397,9 @@ export function VideoPlayer({
 
         if (data.fatal) {
           if (recoverAttemptsRef.current >= 3 || data.type === Hls.ErrorTypes.OTHER_ERROR) {
+            const errCode =
+              (data as unknown as { details?: string }).details || data.type || 'fatalError';
+            trackerRef.current?.recordError(errCode, videoRef.current?.currentTime);
             hls.destroy();
             hlsRef.current = null;
             setHasError(true);
@@ -395,6 +436,8 @@ export function VideoPlayer({
           });
         });
         setQualityLevels(levels);
+        const first = renditions[0];
+        trackerRef.current?.setRendition(`${first.height}p`, first.bitrate_kbps);
       }
     } else {
       setIsUsingHls(false);
@@ -414,12 +457,24 @@ export function VideoPlayer({
   }, [setupMedia]);
 
   // Quality switch handler
-  const handleSelectLevel = useCallback((levelIndex: number) => {
-    setCurrentLevel(levelIndex);
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = levelIndex;
-    }
-  }, []);
+  const handleSelectLevel = useCallback(
+    (levelIndex: number) => {
+      setCurrentLevel(levelIndex);
+      if (hlsRef.current) {
+        hlsRef.current.currentLevel = levelIndex;
+        if (levelIndex >= 0 && hlsRef.current.levels[levelIndex]) {
+          const lvl = hlsRef.current.levels[levelIndex];
+          const renditionName = lvl.height ? `${lvl.height}p` : lvl.name || null;
+          const bitrateKbps = lvl.bitrate ? Math.round(lvl.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
+        }
+      } else if (renditions && renditions[levelIndex]) {
+        const r = renditions[levelIndex];
+        trackerRef.current?.setRendition(`${r.height}p`, r.bitrate_kbps);
+      }
+    },
+    [renditions],
+  );
 
   // Controls auto-hide
   const scheduleControlsHide = useCallback(() => {
@@ -464,6 +519,7 @@ export function VideoPlayer({
         case 'KeyK':
           e.preventDefault();
           if (video.paused) {
+            trackerRef.current?.recordPlayRequest();
             void video.play();
           } else {
             video.pause();
@@ -527,6 +583,13 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     setIsPlaying(true);
+    trackerRef.current?.recordPlayRequest();
+    onPlay(video.currentTime);
+  };
+
+  const handlePlayingEvent = () => {
+    const video = videoRef.current;
+    if (!video) return;
 
     if (!hasFirstFrameRef.current) {
       hasFirstFrameRef.current = true;
@@ -540,7 +603,7 @@ export function VideoPlayer({
       rebufferStartTimeRef.current = null;
     }
 
-    onPlay(video.currentTime);
+    trackerRef.current?.recordPlaying(video.currentTime);
   };
 
   const handleTimeUpdateEvent = () => {
@@ -557,6 +620,7 @@ export function VideoPlayer({
 
     savePlaybackPosition(video.currentTime, false);
     onTimeUpdate(video.currentTime);
+    trackerRef.current?.recordTimeUpdate(video.currentTime);
   };
 
   const handlePauseEvent = () => {
@@ -565,16 +629,19 @@ export function VideoPlayer({
     setIsPlaying(false);
     setShowControls(true);
     savePlaybackPosition(video.currentTime, true);
+    trackerRef.current?.recordPause();
   };
 
   const handleSeekingEvent = () => {
     onSeeking();
+    trackerRef.current?.recordSeeking();
   };
 
   const handleSeekedEvent = () => {
     const video = videoRef.current;
     if (!video) return;
     onSeeked(video.currentTime);
+    trackerRef.current?.recordSeeked(video.currentTime);
   };
 
   const handleWaitingEvent = () => {
@@ -582,6 +649,7 @@ export function VideoPlayer({
       rebufferCountRef.current += 1;
       rebufferStartTimeRef.current = performance.now();
     }
+    trackerRef.current?.recordWaiting();
   };
 
   const handleEndedEvent = () => {
@@ -589,6 +657,8 @@ export function VideoPlayer({
     setShowControls(true);
     clearPlaybackPosition();
     onEnded();
+    const video = videoRef.current;
+    trackerRef.current?.recordEnded(video?.currentTime);
   };
 
   const handleVideoError = () => {
@@ -597,6 +667,10 @@ export function VideoPlayer({
       void refreshSignedUrls();
       return;
     }
+    const video = videoRef.current;
+    const mediaError = video?.error;
+    const errCode = mediaError ? `media_error_${mediaError.code}` : 'video_error';
+    trackerRef.current?.recordError(errCode, video?.currentTime);
     setHasError(true);
     setErrorMessage('Lỗi tải video. Vui lòng kiểm tra kết nối mạng và thử lại.');
   };
@@ -605,6 +679,7 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
+      trackerRef.current?.recordPlayRequest();
       void video.play();
     } else {
       video.pause();
@@ -646,6 +721,7 @@ export function VideoPlayer({
           applySubtitleMode(selectedSubtitleLang);
         }}
         onPlay={handlePlayEvent}
+        onPlaying={handlePlayingEvent}
         onPause={handlePauseEvent}
         onTimeUpdate={handleTimeUpdateEvent}
         onSeeking={handleSeekingEvent}
