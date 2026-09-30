@@ -197,6 +197,11 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [entry], rowCount: 1 };
       }
 
+      // 4c. pg_advisory_xact_lock
+      if (sql.includes('pg_advisory_xact_lock')) {
+        return { rows: [{ pg_advisory_xact_lock: null }], rowCount: 1 };
+      }
+
       // 5. SELECT FROM "auth"."users"
       if (sql.includes('count(*)') && sql.includes('"auth"."users"')) {
         const cnt = store.users.filter(

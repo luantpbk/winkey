@@ -304,6 +304,7 @@ export const adminRoute: FastifyPluginAsync<{
 
       // Safeguard: cannot remove the last admin
       if (lockedTarget.roles.includes('admin') && !newRoles.includes('admin')) {
+        await sql`SELECT pg_advisory_xact_lock(hashtext('auth.last_admin'))`.execute(trx);
         const adminCountRes = await trx
           .selectFrom('auth.users')
           .select(sql<number>`count(*)::int`.as('cnt'))

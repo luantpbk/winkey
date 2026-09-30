@@ -6,8 +6,8 @@ import pg from 'pg';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
-import { getDb } from '../../src/db/client.js';
-import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
+import { getDb, registerArrayParsers } from '../../src/db/client.js';
+import type { RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 import { version as uuidVersion } from 'uuid';
 import type { FastifyInstance } from 'fastify';
@@ -97,8 +97,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         };
         pool = new pg.Pool({ connectionString: dbUrl });
         isReady = true;
-      } catch {
-        // testcontainers not available or Docker not running
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[postgres-real.test.ts] testcontainers failed to start: ${msg}`);
       }
     }
 
@@ -116,6 +117,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     const repoRoot = findRepoRoot();
     await applyMigrations(pool, path.join(repoRoot, 'db', 'migrations'));
 
+    // 4b. Register custom enum array parsers so auth.role[] is parsed as string[]
+    await registerArrayParsers(pool);
+
     // 5. Initialize Fastify app with real DB
     const keys = getTestKeys();
     const env = getEnv({
@@ -126,7 +130,10 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
 
     const { db } = getDb(dbUrl, pool);
-    const rateLimiter = new ValkeyRateLimiter();
+    const rateLimiter: RateLimiter = {
+      consume: async () => {},
+      close: async () => {},
+    };
 
     app = await buildApp({
       env,
@@ -166,6 +173,8 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     const body = regRes.json();
     expect(body.user.email).toBe('alice_real@winkey.vn');
     expect(body.user.handle).toBe('alice_real');
+    expect(Array.isArray(body.user.roles)).toBe(true);
+    expect(body.user.roles).toEqual(['viewer', 'creator']);
     expect(regRes.headers['set-cookie']).toContain(REFRESH_COOKIE_NAME + '=');
 
     // Verify outbox row written in the SAME transaction
@@ -228,8 +237,25 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(okRes.statusCode).toBe(200);
-    expect(okRes.json().access_token).toBeDefined();
+    const body = okRes.json();
+    expect(body.access_token).toBeDefined();
     expect(okRes.headers['set-cookie']).toContain(REFRESH_COOKIE_NAME + '=');
+
+    // Regression check: roles must be an array, NOT a postgres enum string '{viewer,creator}'
+    expect(Array.isArray(body.user.roles)).toBe(true);
+    expect(body.user.roles).toEqual(['viewer', 'creator']);
+
+    // Regression check: verify forwardAuth works with the access token without 500 TypeError
+    const verifyRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/verify',
+      headers: {
+        authorization: `Bearer ${body.access_token}`,
+      },
+    });
+    expect(verifyRes.statusCode).toBe(200);
+    expect(verifyRes.headers['x-user-id']).toBe(body.user.id);
+    expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
 
     // Login with wrong password
     const wrongRes = await app.inject({

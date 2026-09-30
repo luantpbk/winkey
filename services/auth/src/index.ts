@@ -1,7 +1,7 @@
 import { connect as connectNats, type NatsConnection } from 'nats';
 import { Redis } from 'ioredis';
 import { getEnv } from './config/env.js';
-import { getDb, closeDb } from './db/client.js';
+import { getDb, closeDb, registerArrayParsers } from './db/client.js';
 import { initializeKeys } from './crypto/jwt.js';
 import { OutboxRelay } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
@@ -14,7 +14,8 @@ async function main() {
   await initializeKeys(env);
 
   // 2. Connect to database
-  const { db } = getDb(env.DATABASE_URL);
+  const { db, pool } = getDb(env.DATABASE_URL);
+  await registerArrayParsers(pool);
 
   // 3. Connect to NATS JetStream
   let natsConnection: NatsConnection | null = null;
