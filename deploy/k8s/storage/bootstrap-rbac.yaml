@@ -1,0 +1,55 @@
+# RBAC for Garage bootstrap Job
+# Allows the bootstrap Job to interact with garage pod and write credentials to Secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garage-bootstrap-sa
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage-bootstrap
+    app.kubernetes.io/part-of: winkey
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: garage-bootstrap-role
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage-bootstrap
+    app.kubernetes.io/part-of: winkey
+rules:
+  - apiGroups: ['']
+    resources: ['pods', 'pods/exec']
+    resourceNames: ['garage-0']
+    verbs: ['get', 'create']
+  - apiGroups: ['']
+    resources: ['pods']
+    verbs: ['list', 'watch']
+  - apiGroups: ['']
+    resources: ['secrets']
+    resourceNames:
+      - 'garage-key-upload-svc'
+      - 'garage-key-transcoder'
+      - 'garage-key-video-svc'
+      - 'garage-key-pg-backup'
+    verbs: ['get', 'update', 'patch']
+  - apiGroups: ['']
+    resources: ['secrets']
+    verbs: ['create']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-bootstrap-rolebinding
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage-bootstrap
+    app.kubernetes.io/part-of: winkey
+subjects:
+  - kind: ServiceAccount
+    name: garage-bootstrap-sa
+    namespace: default
+roleRef:
+  kind: Role
+  name: garage-bootstrap-role
+  apiGroup: rbac.authorization.k8s.io

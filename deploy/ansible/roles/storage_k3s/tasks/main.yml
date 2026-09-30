@@ -1,0 +1,74 @@
+---
+# Role: storage_k3s
+# Deploys Garage S3 StatefulSet, ConfigMap, Secrets, and bootstrap Job to k3s via Kustomize (task STO)
+
+- name: Check if garage-rpc-secret exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret garage-rpc-secret -n default
+  register: rpc_secret_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create garage-rpc-secret if missing
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    SECRET=$(openssl rand -hex 32) &&
+    /usr/local/bin/k3s kubectl create secret generic garage-rpc-secret -n default --from-literal=rpc_secret="$SECRET"
+  args:
+    executable: /bin/bash
+  when: rpc_secret_check.rc != 0
+
+- name: Check if garage-admin-token exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get secret garage-admin-token -n default
+  register: admin_token_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create garage-admin-token if missing
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    TOKEN=$(openssl rand -hex 32) &&
+    /usr/local/bin/k3s kubectl create secret generic garage-admin-token -n default --from-literal=admin_token="$TOKEN"
+  args:
+    executable: /bin/bash
+  when: admin_token_check.rc != 0
+
+- name: Sync Garage storage manifests to node
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../k8s/storage/"
+    dest: /var/lib/rancher/k3s/storage-manifests/
+    mode: "0644"
+  register: storage_manifests_sync
+
+- name: Check if garage StatefulSet exists
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get statefulset garage -n default
+  register: garage_sts_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Check for drift in Garage storage manifests
+  ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/storage-manifests/
+  register: storage_drift_check
+  changed_when: storage_drift_check.rc == 1
+  failed_when: storage_drift_check.rc > 1
+  check_mode: false
+
+- name: Recreate garage-bootstrap Job when manifests changed or drift detected
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete job garage-bootstrap -n default --ignore-not-found
+  when: storage_manifests_sync.changed or storage_drift_check.rc == 1
+
+- name: Apply Garage storage kustomization
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/storage-manifests/
+  when: storage_manifests_sync.changed or garage_sts_check.rc != 0 or storage_drift_check.rc == 1
+
+- name: Wait for Garage StatefulSet rollout
+  ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status statefulset/garage -n default --timeout=120s
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for garage-bootstrap Job completion
+  ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=complete job/garage-bootstrap -n default --timeout=180s
+  changed_when: false
+  when: not ansible_check_mode

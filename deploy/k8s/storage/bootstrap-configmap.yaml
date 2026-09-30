@@ -1,0 +1,242 @@
+# ConfigMap holding the idempotent bootstrap script for Garage
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-bootstrap-script
+  namespace: default
+  labels:
+    app.kubernetes.io/name: garage-bootstrap
+    app.kubernetes.io/part-of: winkey
+data:
+  bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    GARAGE_CMD="kubectl exec -n default garage-0 -- /garage -c /etc/garage/garage.toml"
+    S3_ENDPOINT="http://garage-s3.default.svc.cluster.local:3900"
+
+    echo "==> [1/7] Waiting for Garage pod (garage-0) to become Ready..."
+    kubectl wait --for=condition=Ready pod/garage-0 -n default --timeout=180s
+
+    echo "==> [2/7] Verifying Garage RPC connectivity..."
+    RPC_READY=0
+    for i in $(seq 1 30); do
+        if $GARAGE_CMD status >/dev/null 2>&1; then
+            RPC_READY=1
+            echo "Garage RPC status OK."
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$RPC_READY" -ne 1 ]; then
+        echo "ERROR: Garage RPC did not become ready in time." >&2
+        exit 1
+    fi
+
+    echo "==> [3/7] Retrieving Garage Node ID..."
+    NODE_ID=""
+    for i in $(seq 1 30); do
+        RAW_NODE=$($GARAGE_CMD node id -q 2>/dev/null || true)
+        if [ -n "$RAW_NODE" ]; then
+            NODE_ID=$(echo "$RAW_NODE" | cut -d'@' -f1 | tr -d '[:space:]')
+            if [ -n "$NODE_ID" ]; then
+                break
+            fi
+        fi
+        sleep 1
+    done
+
+    if [ -z "$NODE_ID" ]; then
+        echo "ERROR: Failed to retrieve Garage node ID." >&2
+        exit 1
+    fi
+    echo "Found Garage Node ID: $NODE_ID"
+
+    echo "==> [4/7] Configuring cluster layout (zone: edge-1, capacity: 70G)..."
+    $GARAGE_CMD layout assign -z edge-1 -c 70G "$NODE_ID" || true
+    LAYOUT_SHOW=$($GARAGE_CMD layout show 2>&1 || true)
+    if echo "$LAYOUT_SHOW" | grep -qi "staged"; then
+        echo "Staged layout changes detected. Applying layout..."
+        CUR_VER=$(echo "$LAYOUT_SHOW" | grep -iE 'current.*version' | grep -oE '[0-9]+' | head -n1 || echo "0")
+        NEXT_VER=$((CUR_VER + 1))
+        $GARAGE_CMD layout apply --version "$NEXT_VER"
+        echo "Layout applied (version $NEXT_VER)."
+    else
+        echo "Cluster layout already active and up to date."
+    fi
+
+    echo "==> [5/7] Ensuring buckets exist (winkey-raw, winkey-media, winkey-pg-backup)..."
+    for BUCKET in winkey-raw winkey-media winkey-pg-backup; do
+        if ! $GARAGE_CMD bucket info "$BUCKET" >/dev/null 2>&1; then
+            echo "  Creating bucket: $BUCKET"
+            $GARAGE_CMD bucket create "$BUCKET"
+        else
+            echo "  Bucket $BUCKET already exists."
+        fi
+    done
+
+    echo "==> [6/7] Managing least-privilege consumer keys and k8s Secrets..."
+    ensure_consumer_key() {
+        local KEY_NAME="$1"
+        local INFO
+        INFO=$($GARAGE_CMD key info --show-secret "$KEY_NAME" 2>/dev/null || true)
+        if ! echo "$INFO" | grep -qi "Key ID:"; then
+            echo "  Creating access key: $KEY_NAME" >&2
+            $GARAGE_CMD key create "$KEY_NAME" >/dev/null
+            INFO=$($GARAGE_CMD key info --show-secret "$KEY_NAME")
+        else
+            echo "  Access key $KEY_NAME already exists." >&2
+        fi
+        local KEY_ID
+        local SECRET_KEY
+        KEY_ID=$(echo "$INFO" | grep -i "Key ID:" | awk '{print $NF}' | tr -d '[:space:]')
+        SECRET_KEY=$(echo "$INFO" | grep -i "Secret key:" | awk '{print $NF}' | tr -d '[:space:]')
+        echo "${KEY_ID}:${SECRET_KEY}"
+    }
+
+    # Consumer 1: upload-svc (read+write on winkey-raw, owner to read/set bucket metadata)
+    UPLOAD_CREDS=$(ensure_consumer_key "upload-svc")
+    UPLOAD_KEY_ID=$(echo "$UPLOAD_CREDS" | cut -d: -f1)
+    UPLOAD_SECRET_KEY=$(echo "$UPLOAD_CREDS" | cut -d: -f2)
+    $GARAGE_CMD bucket allow winkey-raw --read --write --owner --key upload-svc
+    kubectl create secret generic garage-key-upload-svc -n default \
+      --from-literal=AWS_ACCESS_KEY_ID="$UPLOAD_KEY_ID" \
+      --from-literal=AWS_SECRET_ACCESS_KEY="$UPLOAD_SECRET_KEY" \
+      --from-literal=S3_ACCESS_KEY_ID="$UPLOAD_KEY_ID" \
+      --from-literal=S3_SECRET_ACCESS_KEY="$UPLOAD_SECRET_KEY" \
+      --from-literal=S3_REGION="garage" \
+      --from-literal=S3_ENDPOINT="$S3_ENDPOINT" \
+      --from-literal=S3_PUBLIC_ENDPOINT="https://s3.winkey.vn" \
+      --from-literal=S3_RAW_BUCKET="winkey-raw" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "  Updated Secret garage-key-upload-svc."
+
+    # Consumer 2: transcoder (read on winkey-raw, read+write on winkey-media)
+    TRANSCODER_CREDS=$(ensure_consumer_key "transcoder")
+    TRANSCODER_KEY_ID=$(echo "$TRANSCODER_CREDS" | cut -d: -f1)
+    TRANSCODER_SECRET_KEY=$(echo "$TRANSCODER_CREDS" | cut -d: -f2)
+    $GARAGE_CMD bucket allow winkey-raw --read --key transcoder
+    $GARAGE_CMD bucket allow winkey-media --read --write --key transcoder
+    kubectl create secret generic garage-key-transcoder -n default \
+      --from-literal=AWS_ACCESS_KEY_ID="$TRANSCODER_KEY_ID" \
+      --from-literal=AWS_SECRET_ACCESS_KEY="$TRANSCODER_SECRET_KEY" \
+      --from-literal=S3_ACCESS_KEY_ID="$TRANSCODER_KEY_ID" \
+      --from-literal=S3_SECRET_ACCESS_KEY="$TRANSCODER_SECRET_KEY" \
+      --from-literal=S3_REGION="garage" \
+      --from-literal=S3_ENDPOINT="$S3_ENDPOINT" \
+      --from-literal=S3_RAW_BUCKET="winkey-raw" \
+      --from-literal=S3_MEDIA_BUCKET="winkey-media" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "  Updated Secret garage-key-transcoder."
+
+    # Consumer 3: video-svc (read+write on winkey-media, owner for cleanup)
+    VIDEO_CREDS=$(ensure_consumer_key "video-svc")
+    VIDEO_KEY_ID=$(echo "$VIDEO_CREDS" | cut -d: -f1)
+    VIDEO_SECRET_KEY=$(echo "$VIDEO_CREDS" | cut -d: -f2)
+    $GARAGE_CMD bucket allow winkey-media --read --write --owner --key video-svc
+    kubectl create secret generic garage-key-video-svc -n default \
+      --from-literal=AWS_ACCESS_KEY_ID="$VIDEO_KEY_ID" \
+      --from-literal=AWS_SECRET_ACCESS_KEY="$VIDEO_SECRET_KEY" \
+      --from-literal=S3_ACCESS_KEY_ID="$VIDEO_KEY_ID" \
+      --from-literal=S3_SECRET_ACCESS_KEY="$VIDEO_SECRET_KEY" \
+      --from-literal=S3_REGION="garage" \
+      --from-literal=S3_ENDPOINT="$S3_ENDPOINT" \
+      --from-literal=S3_MEDIA_BUCKET="winkey-media" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "  Updated Secret garage-key-video-svc."
+
+    # Consumer 4: pg-backup (read+write on winkey-pg-backup)
+    BACKUP_CREDS=$(ensure_consumer_key "pg-backup")
+    BACKUP_KEY_ID=$(echo "$BACKUP_CREDS" | cut -d: -f1)
+    BACKUP_SECRET_KEY=$(echo "$BACKUP_CREDS" | cut -d: -f2)
+    $GARAGE_CMD bucket allow winkey-pg-backup --read --write --owner --key pg-backup
+    kubectl create secret generic garage-key-pg-backup -n default \
+      --from-literal=AWS_ACCESS_KEY_ID="$BACKUP_KEY_ID" \
+      --from-literal=AWS_SECRET_ACCESS_KEY="$BACKUP_SECRET_KEY" \
+      --from-literal=S3_ACCESS_KEY_ID="$BACKUP_KEY_ID" \
+      --from-literal=S3_SECRET_ACCESS_KEY="$BACKUP_SECRET_KEY" \
+      --from-literal=S3_REGION="garage" \
+      --from-literal=S3_ENDPOINT="$S3_ENDPOINT" \
+      --from-literal=S3_BACKUP_BUCKET="winkey-pg-backup" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "  Updated Secret garage-key-pg-backup."
+
+    echo "==> [7/7] Website hosting, CORS, and smoke test object..."
+    $GARAGE_CMD bucket website --allow winkey-media
+    echo "  Website enabled on winkey-media."
+
+    # Split CORS rules for winkey-raw so Garage returns single matching origin per request
+    cat <<'EOF' > /tmp/cors-raw.json
+    {
+      "CORSRules": [
+        {
+          "AllowedOrigins": ["https://winkey.vn"],
+          "AllowedMethods": ["PUT", "GET", "HEAD"],
+          "AllowedHeaders": ["*"],
+          "ExposeHeaders": ["ETag"],
+          "MaxAgeSeconds": 3600
+        },
+        {
+          "AllowedOrigins": ["https://www.winkey.vn"],
+          "AllowedMethods": ["PUT", "GET", "HEAD"],
+          "AllowedHeaders": ["*"],
+          "ExposeHeaders": ["ETag"],
+          "MaxAgeSeconds": 3600
+        }
+      ]
+    }
+    EOF
+
+    export AWS_DEFAULT_REGION="garage"
+    export AWS_ACCESS_KEY_ID="$UPLOAD_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$UPLOAD_SECRET_KEY"
+
+    aws --endpoint-url="$S3_ENDPOINT" \
+      s3api put-bucket-cors --bucket winkey-raw --cors-configuration file:///tmp/cors-raw.json
+    echo "  CORS applied to winkey-raw (split origins)."
+
+    # Operations on winkey-media (using video-svc owner key)
+    export AWS_ACCESS_KEY_ID="$VIDEO_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$VIDEO_SECRET_KEY"
+
+    # Remove bucket CORS on winkey-media so nginx vhost serves Access-Control-Allow-Origin: * exclusively
+    aws --endpoint-url="$S3_ENDPOINT" \
+      s3api delete-bucket-cors --bucket winkey-media
+    echo "  Cleaned bucket CORS on winkey-media (handled by nginx front proxy)."
+
+    # Upload smoke test object for media proxy_cache verification
+    echo "Hello from Winkey Media Storage" > /tmp/hello.txt
+    aws --endpoint-url="$S3_ENDPOINT" \
+      s3 cp /tmp/hello.txt s3://winkey-media/v/smoke/hello.txt \
+      --content-type "text/plain" \
+      --cache-control "public, max-age=31536000, immutable"
+    echo "  Uploaded v/smoke/hello.txt to winkey-media."
+
+    # Lifecycle configuration on winkey-raw (switch back to upload-svc owner key)
+    export AWS_ACCESS_KEY_ID="$UPLOAD_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$UPLOAD_SECRET_KEY"
+
+    cat <<'EOF' > /tmp/lifecycle-raw.json
+    {
+      "Rules": [
+        {
+          "ID": "AbortIncompleteMultipartUploads",
+          "Status": "Enabled",
+          "Filter": { "Prefix": "" },
+          "AbortIncompleteMultipartUpload": {
+            "DaysAfterInitiation": 1
+          }
+        }
+      ]
+    }
+    EOF
+    echo "  Applying lifecycle configuration to winkey-raw..."
+    if aws --endpoint-url="$S3_ENDPOINT" s3api put-bucket-lifecycle-configuration --bucket winkey-raw --lifecycle-configuration file:///tmp/lifecycle-raw.json; then
+        echo "  Lifecycle configuration applied to winkey-raw."
+        aws --endpoint-url="$S3_ENDPOINT" s3api get-bucket-lifecycle-configuration --bucket winkey-raw
+    else
+        echo "  Notice: PutBucketLifecycleConfiguration failed (see error above)."
+    fi
+
+    echo "==> Garage bootstrap completed successfully."
