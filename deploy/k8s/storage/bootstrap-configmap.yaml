@@ -196,15 +196,16 @@ data:
       s3api put-bucket-cors --bucket winkey-raw --cors-configuration file:///tmp/cors-raw.json
     echo "  CORS applied to winkey-raw (split origins)."
 
-    # Remove bucket CORS on winkey-media so nginx vhost serves Access-Control-Allow-Origin: * exclusively
-    aws --endpoint-url="$S3_ENDPOINT" \
-      s3api delete-bucket-cors --bucket winkey-media 2>/dev/null || true
-    echo "  Cleaned bucket CORS on winkey-media (handled by nginx front proxy)."
-
-    # Upload smoke test object for media proxy_cache verification (using video-svc key)
+    # Operations on winkey-media (using video-svc owner key)
     export AWS_ACCESS_KEY_ID="$VIDEO_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$VIDEO_SECRET_KEY"
 
+    # Remove bucket CORS on winkey-media so nginx vhost serves Access-Control-Allow-Origin: * exclusively
+    aws --endpoint-url="$S3_ENDPOINT" \
+      s3api delete-bucket-cors --bucket winkey-media
+    echo "  Cleaned bucket CORS on winkey-media (handled by nginx front proxy)."
+
+    # Upload smoke test object for media proxy_cache verification
     echo "Hello from Winkey Media Storage" > /tmp/hello.txt
     aws --endpoint-url="$S3_ENDPOINT" \
       s3 cp /tmp/hello.txt s3://winkey-media/v/smoke/hello.txt \
@@ -235,7 +236,7 @@ data:
         echo "  Lifecycle configuration applied to winkey-raw."
         aws --endpoint-url="$S3_ENDPOINT" s3api get-bucket-lifecycle-configuration --bucket winkey-raw
     else
-        echo "  Notice: Garage does not support S3 PutBucketLifecycleConfiguration (see error above)."
+        echo "  Notice: PutBucketLifecycleConfiguration failed (see error above)."
     fi
 
     echo "==> Garage bootstrap completed successfully."
