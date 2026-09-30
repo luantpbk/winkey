@@ -14,6 +14,7 @@
     "test:prod-deps": "node ../../packages/outbox/scripts/test-prod-deps.mjs @winkey/realtime"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "@winkey/outbox": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

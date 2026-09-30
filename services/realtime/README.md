@@ -30,6 +30,15 @@ Implements:
   - Heartbeat: Server pings every 25s; no pong in 60s closes connection with code `4408`.
   - SIGTERM: Closes all connections with code `1001` within 10s.
 
+- **Revocation Sweeper (Task A5, ADR-019 addendum)**:
+  - `realtime-gw` runs a periodic background sweeper every `REVOCATION_SWEEP_MS` (default 30000 ms / 30s).
+  - Collects distinct `userId`s of active authenticated connections and queries `auth:revoked:user:{userId}` cutoff timestamps via ONE `MGET` (chunked in batches of 500 IDs).
+  - Any connection with `authenticatedAt <= cutoff` is closed with code `4401` and reason `'session revoked'`.
+  - Anonymous connections are ignored and never checked.
+  - Sockets established with a new ticket after the cutoff (`authenticatedAt > cutoff`) connect normally and stay open.
+  - **Single session logout does not close sockets**: WebSocket tickets carry no `sid` (per ADR-019 addendum). Single-session logout (`auth:revoked:sid:{sid}`) does not affect WebSockets; only user-wide revocations (`auth:revoked:user:{userId}`, written on account suspension, role changes, or account deletion) close open sockets.
+  - **Fail-Open Policy**: If Valkey is down, unreachable, or returns an error, the sweep is skipped without closing sockets, `realtime_revocation_sweep_errors_total` increments, and a warning is logged at most once per minute. Ticket values are never logged.
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -43,6 +52,14 @@ Implements:
 | `LOG_LEVEL` | Pino log level (`fatal`, `error`, `warn`, `info`, `debug`, `trace`) | `info` |
 | `HEARTBEAT_INTERVAL_MS` | WebSocket ping interval in ms | `25000` |
 | `HEARTBEAT_TIMEOUT_MS` | WebSocket pong timeout in ms (closes 4408) | `60000` |
+| `REVOCATION_SWEEP_MS` | Revocation sweeper interval in ms (checks `auth:revoked:user:{id}`) | `30000` |
+
+## Metrics
+
+Exposed via `@opentelemetry/api`:
+- `realtime_revoked_closes_total`: Total number of WebSocket connections closed due to user revocation (code 4401).
+- `realtime_revocation_sweep_errors_total`: Total number of revocation sweep errors (e.g. Valkey unavailable).
+- Number of active connections (anonymous / authenticated), rooms, and dropped message counts.
 
 ## Running Locally
 
