@@ -29,6 +29,9 @@ import type {
   ReportTargetType,
   ReportReason,
   ReportStatus,
+  UpdateMeRequest,
+  ChangePasswordRequest,
+  DeleteMeRequest,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -414,6 +417,9 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/refresh', async ({ cookies, request }) => {
+    if (!currentUser) {
+      return new HttpResponse(null, { status: 401 });
+    }
     const cookieHeader = request.headers.get('cookie') || '';
     const rt = cookies.wk_rt || cookieHeader;
     for (const u of Object.values(mockUsers)) {
@@ -421,9 +427,6 @@ export const handlers = [
         currentUser = u;
         break;
       }
-    }
-    if (!currentUser) {
-      currentUser = mockUsers.creator;
     }
 
     return HttpResponse.json({
@@ -458,6 +461,262 @@ export const handlers = [
       );
     }
     return HttpResponse.json(caller);
+  }),
+
+  http.patch('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as UpdateMeRequest;
+    if (!body || (body.display_name === undefined && body.handle === undefined)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'At least one field is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (body.display_name !== undefined) {
+      if (body.display_name.trim().length === 0 || body.display_name.length > 50) {
+        return HttpResponse.json(
+          {
+            type: '/problems/bad-request',
+            title: 'Validation Error',
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            errors: [{ field: 'display_name', message: 'Tên hiển thị phải từ 1 đến 50 ký tự' }],
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.handle !== undefined) {
+      const handleRegex = /^[A-Za-z0-9_.]{3,30}$/;
+      if (!handleRegex.test(body.handle)) {
+        return HttpResponse.json(
+          {
+            type: '/problems/bad-request',
+            title: 'Validation Error',
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            errors: [
+              {
+                field: 'handle',
+                message: 'Handle chỉ gồm chữ, số, dấu chấm hoặc gạch dưới (3-30 ký tự)',
+              },
+            ],
+          },
+          { status: 400 },
+        );
+      }
+
+      // Check handle collision (case-insensitive) across mock users
+      const lower = body.handle.toLowerCase();
+      const collision = Object.values(mockUsers).find(
+        (u) => u.id !== caller.id && u.handle.toLowerCase() === lower,
+      );
+      if (collision) {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Handle already taken',
+            status: 409,
+            code: 'HANDLE_TAKEN',
+            detail: 'This handle is already taken by another account.',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    const updatedUser: User = {
+      ...caller,
+      ...(body.display_name !== undefined ? { display_name: body.display_name.trim() } : {}),
+      ...(body.handle !== undefined ? { handle: body.handle } : {}),
+    };
+
+    // Update in mock fixtures
+    for (const key of Object.keys(mockUsers)) {
+      if (mockUsers[key].id === caller.id) {
+        mockUsers[key] = updatedUser;
+      }
+    }
+    const adminIdx = dynamicAdminUsers.findIndex((u) => u.id === caller.id);
+    if (adminIdx !== -1) {
+      dynamicAdminUsers[adminIdx] = {
+        ...dynamicAdminUsers[adminIdx],
+        display_name: updatedUser.display_name,
+        handle: updatedUser.handle,
+      };
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = updatedUser;
+    }
+
+    return HttpResponse.json(updatedUser);
+  }),
+
+  http.put('*/v1/auth/me/password', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as ChangePasswordRequest;
+    if (
+      !body ||
+      !body.new_password ||
+      body.new_password.length < 8 ||
+      body.new_password.length > 128
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Validation Error',
+          status: 400,
+          code: 'VALIDATION_ERROR',
+          errors: [{ field: 'new_password', message: 'Mật khẩu phải từ 8 đến 128 ký tự' }],
+        },
+        { status: 400 },
+      );
+    }
+
+    if (caller.has_password) {
+      if (!body.current_password || body.current_password === 'wrongpassword') {
+        return HttpResponse.json(
+          {
+            type: '/problems/forbidden',
+            title: 'Invalid credentials',
+            status: 403,
+            code: 'INVALID_CREDENTIALS',
+            detail: 'Current password does not match.',
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // Update caller has_password
+    const updatedUser: User = {
+      ...caller,
+      has_password: true,
+    };
+    for (const key of Object.keys(mockUsers)) {
+      if (mockUsers[key].id === caller.id) {
+        mockUsers[key] = updatedUser;
+      }
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = updatedUser;
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as DeleteMeRequest;
+    if (!body.confirm_handle || body.confirm_handle.toLowerCase() !== caller.handle.toLowerCase()) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Confirmation mismatch',
+          status: 400,
+          code: 'CONFIRMATION_MISMATCH',
+          detail: 'Confirm handle does not match your current handle.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (caller.has_password) {
+      if (!body.password || body.password === 'wrongpassword') {
+        return HttpResponse.json(
+          {
+            type: '/problems/forbidden',
+            title: 'Invalid credentials',
+            status: 403,
+            code: 'INVALID_CREDENTIALS',
+            detail: 'Password does not match.',
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // Check last admin
+    if (caller.roles.includes('admin')) {
+      const activeAdmins = dynamicAdminUsers.filter(
+        (u) => u.roles.includes('admin') && u.status !== 'DELETED',
+      );
+      if (activeAdmins.length <= 1) {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Last admin',
+            status: 409,
+            code: 'LAST_ADMIN',
+            detail: 'You are the last admin; give the admin role to someone else first.',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Soft delete
+    const adminIdx = dynamicAdminUsers.findIndex((u) => u.id === caller.id);
+    if (adminIdx !== -1) {
+      dynamicAdminUsers[adminIdx] = {
+        ...dynamicAdminUsers[adminIdx],
+        status: 'DELETED',
+      };
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = null;
+    }
+
+    return new HttpResponse(null, {
+      status: 204,
+      headers: {
+        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
+      },
+    });
   }),
 
   http.get('*/v1/users/:handle', async ({ params }) => {

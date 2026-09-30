@@ -7,6 +7,7 @@
     "library": "Thư viện",
     "history": "Lịch sử xem",
     "settings": "Cài đặt",
+    "accountSettings": "Cài đặt tài khoản",
     "signIn": "Đăng nhập",
     "register": "Đăng ký",
     "signOut": "Đăng xuất",
@@ -295,6 +296,72 @@
       "updateCommentState": "Không thể cập nhật trạng thái kiểm duyệt bình luận.",
       "resolveCase": "Không thể đóng case kiểm duyệt.",
       "actionReasonRequired": "Lý do xử lý là bắt buộc khi ẩn video."
+    }
+  },
+  "settings": {
+    "account": {
+      "title": "Cài đặt tài khoản",
+      "description": "Quản lý thông tin hồ sơ, mật khẩu và an toàn tài khoản của bạn.",
+      "profile": {
+        "title": "Thông tin hồ sơ",
+        "description": "Cập nhật tên hiển thị công khai và định danh (@handle) kênh của bạn.",
+        "displayName": "Tên hiển thị",
+        "displayNamePlaceholder": "Nhập tên hiển thị của bạn",
+        "handle": "Tên định danh (Handle)",
+        "handlePlaceholder": "dinh_danh_cua_ban",
+        "handleHelp": "Chỉ dùng chữ cái, chữ số, dấu gạch dưới và dấu chấm (3–30 ký tự).",
+        "email": "Địa chỉ Email",
+        "emailHelp": "Địa chỉ email không thể thay đổi.",
+        "save": "Lưu thay đổi",
+        "saving": "Đang lưu...",
+        "success": "Cập nhật hồ sơ thành công.",
+        "noChanges": "Không có thay đổi nào."
+      },
+      "password": {
+        "title": "Đổi mật khẩu",
+        "setTitle": "Đặt mật khẩu",
+        "description": "Đảm bảo tài khoản sử dụng mật khẩu mạnh để bảo vệ tài khoản an toàn.",
+        "setDescription": "Bạn đã đăng nhập bằng Google. Hãy đặt mật khẩu để có thể đăng nhập bằng cả email và mật khẩu.",
+        "currentPassword": "Mật khẩu hiện tại",
+        "currentPasswordPlaceholder": "Nhập mật khẩu hiện tại",
+        "newPassword": "Mật khẩu mới",
+        "newPasswordPlaceholder": "Tối thiểu 8 ký tự",
+        "confirmPassword": "Xác nhận mật khẩu mới",
+        "confirmPasswordPlaceholder": "Nhập lại mật khẩu mới",
+        "save": "Đổi mật khẩu",
+        "setSave": "Đặt mật khẩu",
+        "saving": "Đang cập nhật...",
+        "success": "Đã đổi mật khẩu. Các thiết bị khác đã đăng xuất.",
+        "setSuccess": "Đặt mật khẩu thành công. Các thiết bị khác đã đăng xuất."
+      },
+      "dangerZone": {
+        "title": "Khu vực nguy hiểm",
+        "description": "Xóa vĩnh viễn tài khoản cùng toàn bộ video, bình luận và dữ liệu cá nhân của bạn.",
+        "deleteButton": "Xóa tài khoản",
+        "modalTitle": "Xác nhận xóa tài khoản",
+        "modalWarning": "Hành động này không thể hoàn tác. Toàn bộ video, bình luận và thông tin hồ sơ của bạn sẽ bị xóa vĩnh viễn khỏi hệ thống.",
+        "confirmHandleInstruction": "Để xác nhận, vui lòng nhập chính xác handle của bạn {handle}:",
+        "confirmHandlePlaceholder": "Nhập handle để xác nhận",
+        "passwordLabel": "Nhập mật khẩu của bạn để xác nhận:",
+        "passwordPlaceholder": "Mật khẩu hiện tại của bạn",
+        "cancel": "Hủy bỏ",
+        "confirm": "Xóa vĩnh viễn tài khoản",
+        "deleting": "Đang xóa...",
+        "success": "Tài khoản của bạn đã được xóa thành công."
+      },
+      "errors": {
+        "handleTaken": "Handle này đã có người sử dụng. Vui lòng chọn handle khác.",
+        "tooManyChanges": "Bạn đã thay đổi quá nhiều lần. Vui lòng thử lại sau.",
+        "invalidHandle": "Handle phải từ 3–30 ký tự và chỉ chứa chữ cái, số, dấu gạch dưới hoặc dấu chấm.",
+        "displayNameRequired": "Tên hiển thị là bắt buộc (1–50 ký tự).",
+        "invalidCredentials": "Mật khẩu hiện tại không chính xác.",
+        "passwordMismatch": "Mật khẩu mới không trùng khớp.",
+        "passwordLength": "Mật khẩu phải từ 8 đến 128 ký tự.",
+        "confirmationMismatch": "Handle bạn nhập không khớp với handle hiện tại.",
+        "lastAdmin": "Bạn là quản trị viên cuối cùng; hãy cấp quyền admin cho người khác trước.",
+        "rateLimit": "Quá nhiều yêu cầu. Vui lòng chờ giây lát rồi thử lại.",
+        "generic": "Đã xảy ra lỗi không mong muốn. Vui lòng thử lại."
+      }
     }
   }
 }

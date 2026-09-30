@@ -469,6 +469,82 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(suspendDialog).not.toBeVisible({ timeout: 10000 });
   });
 
+  test('U5: Account settings: update display name, change password, delete account', async ({
+    page,
+  }) => {
+    // 1. Visit login with return_to parameter
+    await page.goto('/login?return_to=/settings/account');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. Log in as creator
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    // Verify redirected back to /settings/account after login
+    await page.waitForURL(/\/settings\/account/);
+    await expect(page.locator('h1')).toBeVisible();
+
+    // 3. Profile: update display name
+    const profileForm = page.locator('form').filter({ has: page.locator('input#displayName') });
+    const displayNameInput = profileForm.locator('input#displayName');
+    await expect(displayNameInput).toHaveValue('Winkey Official Creator');
+    await displayNameInput.fill('Winkey Premium Creator');
+
+    await profileForm.locator('button[type="submit"]').click();
+
+    // Verify toast notification
+    await expect(page.locator('div[role="status"]').first()).toBeVisible({ timeout: 10000 });
+
+    // Open user menu in top-bar and verify updated display name appears
+    const avatarBtn = page.locator('header button').last();
+    await avatarBtn.click();
+    await expect(page.locator('header')).toContainText('Winkey Premium Creator');
+
+    // 4. Password: change password
+    const passwordForm = page.locator('form').filter({ has: page.locator('input#newPassword') });
+    const currentPasswordInput = passwordForm.locator('input#currentPassword');
+    const newPasswordInput = passwordForm.locator('input#newPassword');
+    const confirmPasswordInput = passwordForm.locator('input#confirmPassword');
+
+    await currentPasswordInput.fill('Password123!');
+    await newPasswordInput.fill('BrandNewPassword123!');
+    await confirmPasswordInput.fill('BrandNewPassword123!');
+
+    await passwordForm.locator('button[type="submit"]').click();
+
+    // Verify toast notification
+    await expect(page.locator('div[role="status"]').first()).toBeVisible({ timeout: 10000 });
+
+    // Verify user is still authenticated
+    await expect(avatarBtn).toBeVisible();
+
+    // 5. Danger Zone: delete account
+    const deleteButton = page.getByRole('button', { name: /Delete Account|Xóa tài khoản/ });
+    await deleteButton.click();
+
+    const deleteDialog = page.locator('[role="dialog"]');
+    await expect(deleteDialog).toBeVisible();
+
+    // Fill handle and password
+    const confirmHandleInput = deleteDialog.locator('input#confirmHandle');
+    const deletePasswordInput = deleteDialog.locator('input#deletePassword');
+    const confirmDeleteBtn = deleteDialog.locator('button[type="submit"]');
+
+    await expect(confirmDeleteBtn).toBeDisabled();
+
+    await confirmHandleInput.fill('winkey_creator');
+    await deletePasswordInput.fill('BrandNewPassword123!');
+    await expect(confirmDeleteBtn).toBeEnabled();
+
+    await confirmDeleteBtn.click();
+
+    // Verify redirected to home and session cleared
+    await page.waitForURL(/\/(en|vi)?$/);
+    await expect(page.locator('header')).toContainText(/Sign In|Đăng nhập/i);
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
     test.setTimeout(180000);
 
@@ -487,6 +563,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       { path: '/upload', slug: 'upload' },
       { path: '/studio', slug: 'studio' },
       { path: '/admin', slug: 'admin' },
+      { path: '/settings/account', slug: 'account-settings' },
     ];
 
     const screenshotDir = path.join(process.cwd(), 'screenshots');
