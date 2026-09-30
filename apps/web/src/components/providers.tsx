@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../lib/auth/auth-context';
 import { MswProvider } from '../mocks/msw-provider';
 import { ThemeProvider } from './theme-provider';
+import { ToastProvider } from './ui/toast';
+import { RealtimeProvider } from '../lib/realtime/realtime-context';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -24,7 +26,11 @@ export function Providers({ children }: { children: ReactNode }) {
     <MswProvider>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <RealtimeProvider>{children}</RealtimeProvider>
+            </ToastProvider>
+          </AuthProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </MswProvider>

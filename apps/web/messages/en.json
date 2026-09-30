@@ -139,6 +139,12 @@
     "replyError": "Failed to post reply. Please try again.",
     "unknownError": "An error occurred. Please try again.",
     "anonymousUser": "Anonymous user",
-    "commentOptions": "Comment options"
+    "commentOptions": "Comment options",
+    "newCommentsPill": "{count, plural, =1 {1 new comment} other {# new comments}}",
+    "videoReadyToastTitle": "Your video is ready",
+    "videoReadyToastDesc": "Processing complete. Ready to watch now.",
+    "commentReplyToastTitle": "New reply",
+    "commentReplyToastDesc": "Someone replied to your comment.",
+    "viewVideo": "Watch now"
   }
 }

@@ -268,6 +268,104 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     }
   });
 
+  test('U2: Studio realtime: video.progress and video.ready update state in real time without page reload', async ({
+    page,
+  }) => {
+    const videoId = '018f3a22-7f91-7d9a-9e12-000000000099';
+    let socketServer: any = null;
+
+    // Route WebSocket connections to mock realtime-gw
+    await page.routeWebSocket('**/v1/realtime*', (ws) => {
+      socketServer = ws;
+      ws.onMessage(() => {
+        // Realtime subscribe / ping frames
+      });
+
+      // Send welcome frame matching contract
+      ws.send(
+        JSON.stringify({
+          type: 'welcome',
+          connection_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          user_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          heartbeat_interval_ms: 25000,
+        }),
+      );
+    });
+
+    // Mock GET /v1/videos/me returning video in PROCESSING stage
+    await page.route('**/v1/videos/me*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              id: videoId,
+              title: 'Realtime E2E Processing Video',
+              visibility: 'PUBLIC',
+              status: 'PROCESSING',
+              progress: 15,
+              error: null,
+              duration_ms: 60000,
+              created_at: new Date().toISOString(),
+              thumbnail_url: null,
+            },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 10,
+        }),
+      });
+    });
+
+    // Navigate to studio
+    await page.goto('/studio');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Initial state: 15% progress is visible
+    await expect(page.locator('text=15%')).toBeVisible({ timeout: 15000 });
+
+    // 2. Server sends video.progress (70%) over WebSocket
+    await expect
+      .poll(() => socketServer !== null, { message: 'Waiting for WebSocket connection' })
+      .toBe(true);
+
+    socketServer.send(
+      JSON.stringify({
+        type: 'event',
+        room: `upload:${videoId}`,
+        event: 'video.progress',
+        data: {
+          video_id: videoId,
+          stage: 'TRANSCODING',
+          percent: 70,
+        },
+        ts: new Date().toISOString(),
+      }),
+    );
+
+    // Verify 70% appears without page reload
+    await expect(page.locator('text=70%')).toBeVisible({ timeout: 10000 });
+
+    // 3. Server sends video.ready over WebSocket
+    socketServer.send(
+      JSON.stringify({
+        type: 'event',
+        room: `upload:${videoId}`,
+        event: 'video.ready',
+        data: {
+          video_id: videoId,
+        },
+        ts: new Date().toISOString(),
+      }),
+    );
+
+    // Verify status changes to Ready / Sẵn sàng without page reload
+    await expect(
+      page.locator('text=Sẵn sàng, text=Ready, span:has-text("Sẵn sàng")').first(),
+    ).toBeVisible({ timeout: 10000 });
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
     test.setTimeout(180000);
 

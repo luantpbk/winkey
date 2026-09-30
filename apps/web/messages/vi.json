@@ -139,6 +139,12 @@
     "replyError": "Không thể gửi câu trả lời. Vui lòng thử lại.",
     "unknownError": "Đã có lỗi xảy ra. Vui lòng thử lại.",
     "anonymousUser": "Người dùng ẩn danh",
-    "commentOptions": "Tùy chọn bình luận"
+    "commentOptions": "Tùy chọn bình luận",
+    "newCommentsPill": "{count, plural, =1 {1 bình luận mới} other {# bình luận mới}}",
+    "videoReadyToastTitle": "Video của bạn đã sẵn sàng",
+    "videoReadyToastDesc": "Quá trình mã hóa hoàn tất. Bạn có thể xem ngay.",
+    "commentReplyToastTitle": "Có phản hồi mới",
+    "commentReplyToastDesc": "Có người vừa trả lời bình luận của bạn.",
+    "viewVideo": "Xem ngay"
   }
 }

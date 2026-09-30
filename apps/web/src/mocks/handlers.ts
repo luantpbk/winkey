@@ -1128,4 +1128,26 @@ export const handlers = [
     };
     return HttpResponse.json(resp);
   }),
+
+  // --- Realtime: Ticket ---
+  http.post('*/v1/realtime/ticket', async () => {
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    return HttpResponse.json(
+      {
+        ticket: `mock-ticket-${Date.now()}`,
+        expires_in: 30,
+      },
+      { status: 201, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }),
 ];

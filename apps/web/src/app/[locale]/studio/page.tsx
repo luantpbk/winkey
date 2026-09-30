@@ -19,9 +19,12 @@ import {
   Clock,
 } from 'lucide-react';
 
+import { useRealtime } from '../../../lib/realtime/realtime-context';
+
 export default function StudioPage() {
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
+  const { client, isConnected } = useRealtime();
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['studio', 'videos'],
@@ -36,16 +39,91 @@ export default function StudioPage() {
 
   const videos = data?.items || [];
 
-  // Polling every 5s while any video is UPLOADED or PROCESSING
+  // Realtime subscription for pending videos (UPLOADED / PROCESSING)
   useEffect(() => {
-    const processingVideos = videos.filter(
+    const pendingVideos = videos.filter(
       (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
     );
 
-    if (processingVideos.length === 0) return;
+    const unsubs = pendingVideos.map((video) => {
+      const room = `upload:${video.id}`;
+      return client.subscribe(
+        room,
+        (event) => {
+          if (event.event === 'video.progress') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'PROCESSING',
+                        progress: event.data.percent,
+                      }
+                    : item,
+                ),
+              };
+            });
+          } else if (event.event === 'video.ready') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'READY',
+                        progress: 100,
+                      }
+                    : item,
+                ),
+              };
+            });
+          } else if (event.event === 'video.failed') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'FAILED',
+                        error: event.data.message || event.data.reason,
+                      }
+                    : item,
+                ),
+              };
+            });
+          }
+        },
+        () => {
+          // Re-fetch REST state after socket reconnects
+          refetch();
+        },
+      );
+    });
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, [videos, client, queryClient, refetch]);
+
+  // Fallback slow poll (30 s) ONLY while the socket is disconnected
+  useEffect(() => {
+    if (isConnected) return; // No polling when connected!
+
+    const pendingVideos = videos.filter(
+      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
+    );
+
+    if (pendingVideos.length === 0) return;
 
     const interval = setInterval(async () => {
-      for (const video of processingVideos) {
+      for (const video of pendingVideos) {
         try {
           const { data: statusData } = await api.upload.GET('/v1/uploads/{video_id}', {
             params: { path: { video_id: video.id } },
@@ -70,13 +148,13 @@ export default function StudioPage() {
             });
           }
         } catch (pollErr) {
-          console.warn('Polling upload status failed:', pollErr);
+          console.warn('Fallback polling upload status failed:', pollErr);
         }
       }
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [videos, queryClient]);
+  }, [isConnected, videos, queryClient]);
 
   const handleDelete = async (videoId: string) => {
     if (!confirm('Bạn có chắc muốn xóa video này?')) return;
