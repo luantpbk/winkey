@@ -1,14 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginForm() {
   const t = useTranslations('auth');
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get('return_to');
+  const safeReturnTo =
+    returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -27,7 +32,7 @@ export default function LoginPage() {
     setIsSubmitting(false);
 
     if (res.success) {
-      router.push('/');
+      router.push(safeReturnTo);
     } else if (res.error) {
       if (res.error.errors && res.error.errors.length > 0) {
         const errorsMap: Record<string, string> = {};
@@ -126,7 +131,7 @@ export default function LoginPage() {
 
         {/* Continue with Google */}
         <a
-          href="/v1/auth/oauth/google?return_to=/"
+          href={`/v1/auth/oauth/google?return_to=${encodeURIComponent(safeReturnTo)}`}
           className="flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 px-4 text-sm font-semibold text-gray-800 dark:text-gray-200 hover:bg-[#282828] dark:hover:bg-[#282828] hover:bg-gray-100 transition"
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -158,5 +163,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

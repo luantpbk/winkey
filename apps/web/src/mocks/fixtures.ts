@@ -18,6 +18,7 @@ export const mockUsers: Record<string, User> = {
     avatar_url:
       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
     roles: ['viewer', 'creator'],
+    has_password: true,
     created_at: '2026-01-01T00:00:00Z',
   },
   tech_guy: {
@@ -29,6 +30,7 @@ export const mockUsers: Record<string, User> = {
     avatar_url:
       'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
     roles: ['viewer', 'creator'],
+    has_password: true,
     created_at: '2026-01-15T00:00:00Z',
   },
   admin: {
@@ -40,6 +42,7 @@ export const mockUsers: Record<string, User> = {
     avatar_url:
       'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
     roles: ['viewer', 'admin'],
+    has_password: true,
     created_at: '2026-01-01T00:00:00Z',
   },
   moderator: {
@@ -51,6 +54,7 @@ export const mockUsers: Record<string, User> = {
     avatar_url:
       'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80',
     roles: ['viewer', 'moderator'],
+    has_password: true,
     created_at: '2026-01-05T00:00:00Z',
   },
   plain_viewer: {
@@ -61,6 +65,7 @@ export const mockUsers: Record<string, User> = {
     display_name: 'Simple Viewer',
     avatar_url: null,
     roles: ['viewer'],
+    has_password: true,
     created_at: '2026-02-01T00:00:00Z',
   },
   spammer: {
@@ -71,6 +76,18 @@ export const mockUsers: Record<string, User> = {
     display_name: 'Spammer Bot',
     avatar_url: null,
     roles: ['viewer'],
+    has_password: true,
+    created_at: '2026-03-01T00:00:00Z',
+  },
+  google_user: {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c08',
+    email: 'google_user@winkey.vn',
+    email_verified: true,
+    handle: 'google_user',
+    display_name: 'Google OAuth User',
+    avatar_url: null,
+    roles: ['viewer'],
+    has_password: false,
     created_at: '2026-03-01T00:00:00Z',
   },
 };

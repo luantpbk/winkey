@@ -7,6 +7,7 @@
     "library": "Library",
     "history": "History",
     "settings": "Settings",
+    "accountSettings": "Account settings",
     "signIn": "Sign In",
     "register": "Register",
     "signOut": "Sign Out",
@@ -295,6 +296,72 @@
       "updateCommentState": "Failed to update comment moderation state.",
       "resolveCase": "Failed to resolve moderation case.",
       "actionReasonRequired": "Action reason is required when hiding a video."
+    }
+  },
+  "settings": {
+    "account": {
+      "title": "Account Settings",
+      "description": "Manage your profile details, password, and account security.",
+      "profile": {
+        "title": "Profile Details",
+        "description": "Update your public display name and channel handle.",
+        "displayName": "Display Name",
+        "displayNamePlaceholder": "Your display name",
+        "handle": "Handle",
+        "handlePlaceholder": "your_handle",
+        "handleHelp": "Only letters, numbers, underscores, and periods (3–30 characters).",
+        "email": "Email Address",
+        "emailHelp": "Email address cannot be changed.",
+        "save": "Save Changes",
+        "saving": "Saving...",
+        "success": "Profile updated successfully.",
+        "noChanges": "No changes made."
+      },
+      "password": {
+        "title": "Change Password",
+        "setTitle": "Set a Password",
+        "description": "Ensure your account is using a long, random password to stay secure.",
+        "setDescription": "You signed in with Google. Set a password to also sign in with email and password.",
+        "currentPassword": "Current Password",
+        "currentPasswordPlaceholder": "Enter current password",
+        "newPassword": "New Password",
+        "newPasswordPlaceholder": "At least 8 characters",
+        "confirmPassword": "Confirm New Password",
+        "confirmPasswordPlaceholder": "Re-enter new password",
+        "save": "Change Password",
+        "setSave": "Set Password",
+        "saving": "Updating...",
+        "success": "Password changed. Other devices were signed out.",
+        "setSuccess": "Password set successfully. Other devices were signed out."
+      },
+      "dangerZone": {
+        "title": "Danger Zone",
+        "description": "Permanently remove your personal data, videos, comments, and account.",
+        "deleteButton": "Delete Account",
+        "modalTitle": "Delete Account Confirmation",
+        "modalWarning": "This action cannot be undone. All your videos, comments, and profile data will be permanently removed.",
+        "confirmHandleInstruction": "To confirm, please type your handle {handle}:",
+        "confirmHandlePlaceholder": "Type your handle to confirm",
+        "passwordLabel": "Enter your password to confirm:",
+        "passwordPlaceholder": "Your current password",
+        "cancel": "Cancel",
+        "confirm": "Permanently Delete Account",
+        "deleting": "Deleting...",
+        "success": "Your account has been deleted."
+      },
+      "errors": {
+        "handleTaken": "This handle is already taken by another account.",
+        "tooManyChanges": "Too many changes. Please try again later.",
+        "invalidHandle": "Handle must be 3–30 characters and contain only letters, numbers, dots, and underscores.",
+        "displayNameRequired": "Display name is required (1–50 characters).",
+        "invalidCredentials": "Incorrect current password.",
+        "passwordMismatch": "New passwords do not match.",
+        "passwordLength": "Password must be between 8 and 128 characters.",
+        "confirmationMismatch": "The handle you typed does not match your current handle.",
+        "lastAdmin": "You are the last admin; give the admin role to someone else first.",
+        "rateLimit": "Too many requests. Please wait a moment and try again.",
+        "generic": "An unexpected error occurred. Please try again."
+      }
     }
   }
 }

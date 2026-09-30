@@ -17,6 +17,8 @@ interface AuthContextType {
   register: (data: RegisterRequest) => Promise<{ success: boolean; error?: Problem }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateUser: (user: User) => void;
+  clearSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -123,6 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateUser = (updatedUser: User) => {
+    setUser(updatedUser);
+  };
+
+  const clearSession = () => {
+    tokenStore.clear();
+    setUser(null);
+  };
+
   const isCreator = !!user?.roles?.includes('creator');
   const isModerator = !!user?.roles?.includes('moderator');
   const isAdmin = !!user?.roles?.includes('admin');
@@ -142,6 +153,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         refresh,
+        updateUser,
+        clearSession,
       }}
     >
       {children}
