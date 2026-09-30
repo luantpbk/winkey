@@ -1,6 +1,6 @@
 # video-svc
 
-Video metadata, public feed, watch-page data and the creator's studio list. Implements [`contracts/openapi/video.v1.yaml`](../../contracts/openapi/video.v1.yaml); emits `video.deleted` and `video.moderated` through the transactional outbox (ADR-008). Owner: Sonnet 5.5 (task S1).
+Video metadata, public feed, watch-page data and the creator's studio list. Implements [`contracts/openapi/video.v1.yaml`](../../contracts/openapi/video.v1.yaml); emits `video.deleted`, `video.moderated` and `video.visibility_changed` through the transactional outbox (ADR-008). Owner: Sonnet 5.5 (task S1).
 
 ## Endpoints
 
@@ -8,7 +8,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 |---|---|---|
 | `GET /v1/videos` | optional | Public feed: **READY + PUBLIC** only, newest first, keyset pagination on `(published_at DESC, id DESC)` (partial index `media.videos_public_feed`). `limit` 1-100 (default 24), `cursor`, `owner_id` (channel page). UNLISTED and PRIVATE videos are never listed, not even for their owner (the studio is for that). |
 | `GET /v1/videos/{id}` | optional | Watch page. Visibility below. `Cache-Control: public, max-age=30` for PUBLIC READY, `private, no-store` otherwise. `playback` is `null` unless READY. |
-| `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. |
+| `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. When the visibility **actually changes** it also enqueues `video.visibility_changed`: see *Events*. |
 | `DELETE /v1/videos/{id}` | required | Owner, moderator or admin. **One transaction**: delete the row (cascades to renditions and jobs) + enqueue `video.deleted` (`raw_bucket`, `raw_key`, `media_bucket`, `media_prefix = v/{id}/`). The transcoder's media janitor purges the objects. |
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
 | `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
@@ -29,6 +29,16 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | **HIDDEN** by a moderator (any visibility) | **404** | 200, `Cache-Control: private, no-store` |
 
 A video the caller may not see is always **404, never 403**, so ids cannot be probed. PATCH and DELETE follow the same rule first (404), then answer **403** for a visible video the caller may not change. Identity comes only from `X-User-Id` / `X-User-Roles`; on the two optional routes a missing `X-User-Id` is an anonymous request and a malformed one is a 401.
+
+### Events (transactional outbox, stream `VIDEO`)
+
+| Event | Emitted when | `data` |
+|---|---|---|
+| `video.deleted` | `DELETE /v1/videos/{id}` removes the row | `video_id`, `owner_id`, `raw_bucket`, `raw_key`, `media_bucket`, `media_prefix` |
+| `video.moderated` | `PUT .../moderation` **changes** the state | `video_id`, `owner_id`, `state`, `moderator_id` |
+| `video.visibility_changed` (task C4) | `PATCH /v1/videos/{id}` **changes** the visibility | `video_id`, `owner_id`, `visibility` (the new value) |
+
+`video.visibility_changed`: `UpdateVideo` runs in ONE transaction. It locks the row (`FOR UPDATE`), applies the update with `RETURNING visibility`, and enqueues the event in the same transaction only when the value differs from the one it replaced, so the change and its event commit together or not at all (an outbox failure rolls the whole update back, a `500`). **No event** for a no-op (the same visibility again), for an edit of `title`/`description` only, or for a request that fails (`400`, `401`, `403`, `404`); several concurrent identical requests produce one event (the lock serialises them). social-svc projects it into `social.videos.visibility` to close comments and likes of a `PRIVATE` video. `video.ready` (written by the transcoder) carries the visibility the row has when it becomes READY.
 
 ### Owner profile, media URLs
 

@@ -195,18 +195,43 @@ func (p *Postgres) MediaPublic(ctx context.Context, id uuid.UUID) (bool, error) 
 	return ok, nil
 }
 
+// UpdateVideo edits the metadata in ONE transaction: the row is locked (FOR UPDATE) so the old
+// visibility read here is the one the UPDATE replaces, the change and, when the visibility really
+// changed, the video.visibility_changed outbox row (ADR-008, task C4) commit together or not at all.
 func (p *Postgres) UpdateVideo(ctx context.Context, id, ownerID uuid.UUID, u domain.Update) (domain.Video, error) {
-	tag, err := p.Pool.Exec(ctx, `
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return domain.Video{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var before string
+	err = tx.QueryRow(ctx, `SELECT visibility::text FROM media.videos WHERE id = $1 AND owner_id = $2 FOR UPDATE`, id, ownerID).Scan(&before)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Video{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Video{}, fmt.Errorf("update video: lock: %w", err)
+	}
+	var after string
+	if err := tx.QueryRow(ctx, `
 		UPDATE media.videos SET
 			title       = coalesce($3, title),
 			description = coalesce($4, description),
 			visibility  = coalesce($5::media.visibility, visibility)
-		WHERE id = $1 AND owner_id = $2`, id, ownerID, u.Title, u.Description, u.Visibility)
-	if err != nil {
+		WHERE id = $1 AND owner_id = $2
+		RETURNING visibility::text`, id, ownerID, u.Title, u.Description, u.Visibility).Scan(&after); err != nil {
 		return domain.Video{}, fmt.Errorf("update video: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return domain.Video{}, domain.ErrNotFound
+	if after != before {
+		if err := outbox.Enqueue(ctx, tx, "media", "video.visibility_changed", domain.VisibilityChangedEvent{
+			VideoID: id.String(), OwnerID: ownerID.String(), Visibility: after,
+		}); err != nil {
+			return domain.Video{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Video{}, fmt.Errorf("commit: %w", err)
 	}
 	return p.GetVideo(ctx, id)
 }

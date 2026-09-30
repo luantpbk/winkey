@@ -104,6 +104,9 @@ type readyEvent struct {
 	Encoder      string `json:"encoder"`
 	HLSMasterKey string `json:"hls_master_key"`
 	ThumbnailKey string `json:"thumbnail_key"`
+	// Visibility is the visibility when the video became READY (task C4), read from the row that
+	// the same UPDATE switched to READY.
+	Visibility string `json:"visibility"`
 	// StoryboardKey is null (not absent) when there is no storyboard (contract: null or absent).
 	StoryboardKey *string          `json:"storyboard_key"`
 	DurationMs    int              `json:"duration_ms"`
@@ -123,18 +126,20 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	if r.StoryboardKey != "" {
 		storyboardKey = &r.StoryboardKey
 	}
-	tag, err := tx.Exec(ctx, `
+	var visibility string
+	err = tx.QueryRow(ctx, `
 		UPDATE media.videos SET
 			status = 'READY', duration_ms = $2, width = $3, height = $4,
 			hls_master_key = $5, thumbnail_key = $6, storyboard_key = $7,
 			published_at = coalesce(published_at, now()), error = NULL
-		WHERE id = $1 AND status = 'PROCESSING'`,
-		r.VideoID, r.DurationMs, r.Width, r.Height, r.MasterKey, r.ThumbKey, storyboardKey)
+		WHERE id = $1 AND status = 'PROCESSING'
+		RETURNING visibility::text`,
+		r.VideoID, r.DurationMs, r.Width, r.Height, r.MasterKey, r.ThumbKey, storyboardKey).Scan(&visibility)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // no longer PROCESSING (deleted meanwhile): nothing is written
+	}
 	if err != nil {
 		return false, fmt.Errorf("mark ready: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return false, nil
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM media.video_renditions WHERE video_id = $1`, r.VideoID); err != nil {
 		return false, fmt.Errorf("clear renditions: %w", err)
@@ -143,7 +148,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 		VideoID: r.VideoID.String(), OwnerID: r.OwnerID.String(), JobID: r.JobID.String(),
 		Attempt: r.Attempt, Encoder: r.Encoder, HLSMasterKey: r.MasterKey, ThumbnailKey: r.ThumbKey,
 		DurationMs: r.DurationMs, Width: r.Width, Height: r.Height,
-		StoryboardKey: storyboardKey,
+		StoryboardKey: storyboardKey, Visibility: visibility,
 	}
 	for i, rd := range r.Renditions {
 		if _, err := tx.Exec(ctx, `
