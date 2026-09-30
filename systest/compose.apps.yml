@@ -1,0 +1,199 @@
+services:
+  auth-svc:
+    build:
+      context: ..
+      dockerfile: services/auth/Dockerfile
+    container_name: auth-svc
+    ports:
+      - '127.0.0.1:3001:3001'
+    environment:
+      NODE_ENV: production
+      HTTP_PORT: '3001'
+      DATABASE_URL: postgres://${AUTH_SVC_USER:-auth_svc}:${AUTH_SVC_PASSWORD:-auth_svc}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      JWT_KID: winkey-auth-key-1
+      JWT_ISSUER: https://winkey.vn
+      PUBLIC_ORIGIN: http://127.0.0.1:8080
+      MEDIA_BASE_URL: http://127.0.0.1:8081
+      COOKIE_SECRET: ${COOKIE_SECRET:-winkey-dev-cookie-secret-min-32-chars-long!}
+      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,0.0.0.0/0
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:3001/readyz\').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  upload-svc:
+    build:
+      context: ..
+      dockerfile: services/upload/Dockerfile
+    container_name: upload-svc
+    ports:
+      - '127.0.0.1:3002:3002'
+    environment:
+      HTTP_ADDR: ':3002'
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://${MEDIA_SVC_USER:-media_svc}:${MEDIA_SVC_PASSWORD:-media_svc}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      S3_ENDPOINT: http://garage:3900
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:3900
+      S3_REGION: garage
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-GK000000000000000000000000}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      S3_RAW_BUCKET: winkey-raw
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1:3002/readyz | grep -q "OK" || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      garage-bootstrap:
+        condition: service_completed_successfully
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  video-svc:
+    build:
+      context: ..
+      dockerfile: services/video/Dockerfile
+    container_name: video-svc
+    ports:
+      - '127.0.0.1:3003:3003'
+    environment:
+      HTTP_ADDR: ':3003'
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://${MEDIA_SVC_USER:-media_svc}:${MEDIA_SVC_PASSWORD:-media_svc}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379/0
+      MEDIA_BASE_URL: http://127.0.0.1:8081
+      S3_MEDIA_BUCKET: winkey-media
+      MEDIA_LINK_SECRET: ${MEDIA_LINK_SECRET:-dev-only-media-link-secret-0123456789abcdef}
+      CURSOR_SECRET: dev-only-change-me-0123456789
+      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,0.0.0.0/0
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1:3003/readyz | grep -q "OK" || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  social-svc:
+    build:
+      context: ..
+      dockerfile: services/social/Dockerfile
+    container_name: social-svc
+    ports:
+      - '127.0.0.1:3004:3004'
+    environment:
+      NODE_ENV: production
+      HTTP_PORT: '3004'
+      DATABASE_URL: postgres://social_svc:social_svc@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      MEDIA_BASE_URL: http://127.0.0.1:8081
+      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,0.0.0.0/0
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:3004/readyz\').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  realtime-svc:
+    build:
+      context: ..
+      dockerfile: services/realtime/Dockerfile
+    container_name: realtime-svc
+    ports:
+      - '127.0.0.1:8003:8003'
+    environment:
+      NODE_ENV: production
+      HTTP_PORT: '8003'
+      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,0.0.0.0/0
+      VALKEY_URL: redis://valkey:6379
+      NATS_URL: nats://nats:4222
+      VIDEO_SVC_URL: http://video-svc:3003
+      LOG_LEVEL: info
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(\'http://127.0.0.1:8003/readyz\').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      valkey:
+        condition: service_healthy
+      nats-bootstrap:
+        condition: service_completed_successfully
+      video-svc:
+        condition: service_healthy
+
+  transcoder:
+    build:
+      context: ..
+      dockerfile: services/transcoder/Dockerfile.cpu
+    container_name: transcoder
+    ports:
+      - '127.0.0.1:8081:8081'
+    environment:
+      HTTP_ADDR: ':8081'
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://${MEDIA_SVC_USER:-media_svc}:${MEDIA_SVC_PASSWORD:-media_svc}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      S3_ENDPOINT: http://garage:3900
+      S3_REGION: garage
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-GK000000000000000000000000}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      S3_RAW_BUCKET: winkey-raw
+      S3_MEDIA_BUCKET: winkey-media
+      ENCODER: x264
+      X264_PRESET: veryfast
+      WORKER_CONCURRENCY: '1'
+      UPLOAD_PARALLELISM: '4'
+      SCRATCH_DIR: /scratch
+      FFMPEG_PATH: /usr/local/bin/ffmpeg
+      FFPROBE_PATH: /usr/local/bin/ffprobe
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1:8081/readyz | grep -q "OK" || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      garage-bootstrap:
+        condition: service_completed_successfully
+      nats-bootstrap:
+        condition: service_completed_successfully
