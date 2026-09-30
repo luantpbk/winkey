@@ -31,7 +31,7 @@ services:
       start_period: 15s
 
   analytics-worker:
-    image: ghcr.io/luantpbk/winkey-analytics-worker:0.1.0@sha256:bafeea74c2fae69e7cf3475c74eb734b41940989b5a452ef29b87c7423bfca80
+    image: '${ANALYTICS_WORKER_IMAGE:?ANALYTICS_WORKER_IMAGE must be set in .env to the image digest published by CI (ghcr.io/luantpbk/winkey-analytics-worker@sha256:...)}'
     container_name: winkey-analytics-worker
     restart: unless-stopped
     network_mode: 'host'

@@ -58,9 +58,13 @@ Set `CLICKHOUSE_PASSWORD` in `.env`.
 
 Retrieve the NATS `analytics` user password from `edge-1`:
 ```bash
-sudo kubectl get secret nats-auth -n default -o jsonpath='{.data.analytics_password}' | base64 -d
-```
 Set `NATS_ANALYTICS_PASSWORD` in `.env`.
+
+Set `ANALYTICS_WORKER_IMAGE` in `.env` to the pinned digest published by the CI images workflow (e.g. from GitHub Packages):
+```bash
+# Example format:
+ANALYTICS_WORKER_IMAGE=ghcr.io/luantpbk/winkey-analytics-worker@sha256:<sha256-from-ci-build>
+```
 
 ### Step 3: Start the Stack
 ```bash
@@ -126,26 +130,14 @@ docker compose up -d
 ClickHouse tables (`playback_events`, `video_qoe_hourly`) include automatic TTLs (90 days for raw playback events, 2 years for hourly aggregates per ADR-022).
 
 ### On-Demand / Scheduled Native Backup
+The `backups` disk (`/var/lib/clickhouse/backup/`) and `<allowed_disk>backups</allowed_disk>` are pre-configured in `config.d/storage.xml`.
+
 To take a full backup of database `winkey` directly to the NVMe backup partition (`/srv/winkey-analytics/backup`):
 
 ```bash
 BACKUP_ID="backup_$(date +%Y%m%d_%H%M%S)"
 curl -s -u "winkey:<CLICKHOUSE_PASSWORD>" "http://127.0.0.1:8123/" \
   --data-binary "BACKUP DATABASE winkey TO Disk('backups', '${BACKUP_ID}')"
-```
-
-To configure ClickHouse disk for backups, add `config.d/backup_disk.xml`:
-```xml
-<clickhouse>
-    <storage_configuration>
-        <disks>
-            <backups>
-                <type>local</type>
-                <path>/var/lib/clickhouse/backup/</path>
-            </backups>
-        </disks>
-    </storage_configuration>
-</clickhouse>
 ```
 
 Alternatively, backup tables using SQL export:
