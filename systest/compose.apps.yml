@@ -1,7 +1,7 @@
 services:
   auth-svc:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/auth/Dockerfile
     container_name: auth-svc
     ports:
@@ -42,7 +42,7 @@ services:
 
   upload-svc:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/upload/Dockerfile
     container_name: upload-svc
     ports:
@@ -70,7 +70,7 @@ services:
 
   video-svc:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/video/Dockerfile
     container_name: video-svc
     ports:
@@ -98,7 +98,7 @@ services:
 
   social-svc:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/social/Dockerfile
     container_name: social-svc
     ports:
@@ -134,7 +134,7 @@ services:
 
   realtime-svc:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/realtime/Dockerfile
     container_name: realtime-svc
     ports:
@@ -168,7 +168,7 @@ services:
 
   transcoder:
     build:
-      context: ..
+      context: ../..
       dockerfile: services/transcoder/Dockerfile.cpu
     container_name: transcoder
     ports:
