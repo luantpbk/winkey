@@ -21,6 +21,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/obs"
 	"github.com/luantpbk/winkey/libs/go/outbox"
 	"github.com/luantpbk/winkey/libs/go/s3x"
+	"github.com/luantpbk/winkey/services/video/internal/analytics"
 	"github.com/luantpbk/winkey/services/video/internal/api"
 	"github.com/luantpbk/winkey/services/video/internal/cache"
 	"github.com/luantpbk/winkey/services/video/internal/config"
@@ -127,6 +128,21 @@ func run(cfg config.Config, log *slog.Logger) error {
 		trendingJob = &trending.Job{Pool: pool, Interval: cfg.TrendingInterval, Log: log}
 	}
 	subConsumer := &subscriptions.Consumer{JS: js, Store: st, Log: log}
+	var analyticsPub analytics.Publisher
+	if cfg.AnalyticsEnabled {
+		// A separate JetStream context: bounded in-flight window and an error handler that counts what the stream
+		// refused (no stream yet, no space). The main one keeps its defaults.
+		ajs, err := jetstream.New(nc, analytics.JetStreamOptions(func(_ string, err error) {
+			log.Debug("analytics sample refused by the stream", "error", err)
+			analytics.CountPublishError()
+		})...)
+		if err != nil {
+			return fmt.Errorf("jetstream (analytics): %w", err)
+		}
+		analyticsPub = analytics.NewJetStreamPublisher(ajs)
+	} else {
+		log.Info("ANALYTICS_ENABLED=false: playback heartbeats are accepted and dropped")
+	}
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
 
 	outbox.SetProducer(service)
@@ -138,6 +154,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
 		MediaLinkSecret: []byte(cfg.MediaLinkSecret), Objects: objects.New(s3c),
+		Analytics: analyticsPub, AnalyticsSalt: []byte(cfg.AnalyticsViewerSalt),
 		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
 		Limiter: limiter, SearchRateLimit: cfg.SearchRateLimit, SuggestRateLimit: cfg.SuggestRateLimit,
 	}).Routes(router)

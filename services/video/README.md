@@ -18,6 +18,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PUT /v1/videos/{id}/subtitles/{lang}` | required | Owner only: create or replace the WebVTT track of one language (task V5b). `201` created / `200` replaced, `SubtitleTrack`; `400` `INVALID_WEBVTT` / `SUBTITLE_TOO_LARGE` / `VALIDATION_ERROR`, `403`, `404`, `409` `TOO_MANY_SUBTITLES` / `VIDEO_FAILED`. See *Subtitles*. |
 | `DELETE /v1/videos/{id}/subtitles/{lang}` | required | Owner only: remove a track. `204`, `403`, `404` (also when there is no track for that language). |
 | `GET /v1/feed/subscriptions` | required | The newest public videos of the channels the caller follows (task R2-b): see *Subscription feed*. `VideoPage`, `limit`, `cursor`; `401` without identity; `Cache-Control: private, no-store`. |
+| `POST /v1/playback/heartbeats` | optional | Player QoE and watch-time samples (task R1, ADR-022): see *Playback analytics*. `202 {accepted}`, `400`, `413`, `429`. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
 
@@ -222,6 +223,21 @@ Limit
 A user that follows thousands of channels makes the query heavier (thousands of small index scans); accepted for the beta (ADR-021), fan-out on write is the way out later.
 
 **NATS permission.** Creating the durable is a JetStream API call (`$JS.API.CONSUMER.*.SOCIAL.*`); the k3s `nats-auth` Secret (`deploy/k8s/data/secrets.sh`) lets the user `video` publish `$JS.API.>`, so it is allowed, and a pull consumer receives its messages on the caller's `_INBOX.>` (also allowed), not on the event subject. Nothing has to change for this to work. For symmetry with the like consumer (whose subject is in the `video` user's `subscribe` list) `social.subscription.changed` could be added there; it is not needed and I have not opened an issue for it.
+
+### Playback analytics (R1, ADR-022)
+
+`POST /v1/playback/heartbeats` takes a batch of 1 to 20 samples of the playbacks a player is running (`start` when the first frame shows, `heartbeat` about every 30 s, `end` when it stops; counters are **deltas** since the previous sample of the same playback) and publishes one `analytics.playback` v1 event per kept sample to the JetStream stream `ANALYTICS`; `analytics-worker` (`services/analytics`) writes them to ClickHouse on gpu-01. It never changes `view_count` (that stays with `recordView`, C3).
+
+- **Order of checks**: rate limit (30 requests per minute per client IP, scope `heartbeat`, the limiter and `TRUST_PROXY_CIDRS` rules of `recordView`; `429` + `Retry-After`; fails open without Valkey) -> body at most **16 KiB** (`413 PAYLOAD_TOO_LARGE`) -> strict JSON (unknown fields, trailing data: `400 INVALID_JSON`) -> per-field validation of `PlaybackSample` (`400 VALIDATION_ERROR` naming `samples[i].field`; a single bad sample refuses the WHOLE batch and nothing is published) -> the lookup below. With `ANALYTICS_ENABLED=false` the answer is `202 {accepted: 0}` after validation, without lookup or publish.
+- **Which samples are kept**: only those of a video that exists, is `READY` and that the caller may read (the `getVideo` rules: an outsider needs a public or unlisted, not hidden, active-owner video; the owner, moderators and admins also read private and hidden ones). The others are dropped silently (`video_analytics_samples_total{result="dropped_invalid_video"}`), the response only says how many were accepted. The videos of a batch are read with **one** query (`VideosForPlayback`, distinct ids) after the watch-page cache has been asked for each of them.
+- **The event** (`contracts/events/analytics.playback.schema.json`): `event_id` = UUIDv5 of the fixed namespace `7c1f6a2e-4b9d-5e83-a0d4-2f8b1c6e9a35` and `"<playback_id>:<seq>"`, also sent as the `Nats-Msg-Id` header, so a sample the client sends again is de-duplicated by JetStream within the stream's window and later by ClickHouse; `owner_id` = the channel of the video; `received_at` = the server clock (UTC, what ClickHouse buckets on); `sent_at` = the client's; `viewer_key` = `hex(HMAC-SHA256(ANALYTICS_VIEWER_SALT, viewer))` where viewer is `u:<user id>` when authenticated and otherwise the anonymous hash of the view counter (`viewerKey`, the same function: it hashes IP + user agent, which is why the same anonymous viewer keeps one key); `authenticated`; `country` is always null. **The IP address and the user agent are never put in the event or its message id** (tests assert this, and the schema forbids extra fields).
+- **Publishing** is asynchronous with a bounded window of 2000 unacknowledged messages on its own JetStream context: a handler waits at most to put the message on the wire. A refusal when handing over (window full), or later from the stream (no stream yet, no space, timeout), drops the sample and counts `publish_error` (a sample refused later was counted `published` first); it is never a `5xx`. If the video lookup itself fails the batch is dropped (`dropped_lookup_error`) with a `202`.
+- **Metric**: `video_analytics_samples_total{result}` = `published`, `dropped_invalid_video`, `publish_error`, `dropped_lookup_error`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANALYTICS_VIEWER_SALT` | required | At least 32 bytes, a secret, never logged; fail fast at start. Changing it makes every viewer a new one |
+| `ANALYTICS_ENABLED` | `true` | `false`: heartbeats are accepted and dropped |
 
 ### Moderation
 

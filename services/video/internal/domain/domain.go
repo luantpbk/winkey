@@ -275,6 +275,10 @@ type Store interface {
 	// ListTrending reads media.trending by rank, joined to the videos and re-applying the public-feed predicate
 	// (a video made PRIVATE or HIDDEN since the last recompute is not returned) in ONE query.
 	ListTrending(ctx context.Context, q TrendingQuery) ([]TrendingItem, error)
+	// VideosForPlayback reads, with ONE query for all ids, what the visibility rules need of each video that
+	// exists (ID, OwnerID, Status, Visibility, ModerationState, Owner.Missing). Unknown ids are absent from the
+	// result. Task R1 (playback heartbeats).
+	VideosForPlayback(ctx context.Context, ids []uuid.UUID) ([]Video, error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)

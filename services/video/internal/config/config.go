@@ -39,6 +39,11 @@ type Config struct {
 	TrendingEnabled  bool          `env:"TRENDING_ENABLED" default:"true"`
 	TrendingInterval time.Duration `env:"TRENDING_INTERVAL" default:"10m"`
 
+	// Player analytics (R1, ADR-022). The salt of the viewer key (a secret, never logged); with ANALYTICS_ENABLED
+	// false the heartbeat endpoint answers 202 {accepted: 0} without publishing.
+	AnalyticsViewerSalt string `env:"ANALYTICS_VIEWER_SALT,required"`
+	AnalyticsEnabled    bool   `env:"ANALYTICS_ENABLED" default:"true"`
+
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
 
@@ -74,6 +79,9 @@ func (c Config) Validate() error {
 	}
 	if c.TrendingEnabled && c.TrendingInterval < time.Second {
 		return errors.New("TRENDING_INTERVAL must be at least 1s when TRENDING_ENABLED is true")
+	}
+	if len(c.AnalyticsViewerSalt) < 32 {
+		return errors.New("ANALYTICS_VIEWER_SALT must be at least 32 bytes")
 	}
 	if len(c.MediaLinkSecret) < 32 {
 		return errors.New("MEDIA_LINK_SECRET must be at least 32 bytes")
