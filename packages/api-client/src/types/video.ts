@@ -121,6 +121,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/videos/{video_id}/subtitles/{lang}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                /** @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `en-US`). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create or replace the subtitle track of one language (owner only).
+         * @description Only the owner (moderators and admins included: `403` unless they own the video). Any status except
+         *     `FAILED` (`409`); a track can be prepared while the video is processing.
+         *
+         *     `content` is validated server-side, otherwise `400` with `code`:
+         *     - `SUBTITLE_TOO_LARGE`: more than 524288 bytes of UTF-8;
+         *     - `INVALID_WEBVTT`: not valid UTF-8, contains NUL, the first line (after an optional BOM) is not
+         *       `WEBVTT` optionally followed by a space or tab and text, no cue, a cue timing that is not
+         *       `[HH:]MM:SS.mmm --> [HH:]MM:SS.mmm` or whose end is not after its start. `detail` names the line.
+         *     The stored file is normalised (BOM removed, CRLF/CR → LF) and served as `text/vtt; charset=utf-8`
+         *     with the same immutable Cache-Control as other media. Every upload gets a NEW object key
+         *     (`v/{video_id}/subtitles/{lang}-{uuidv7}.vtt`); the previous object is removed after the commit,
+         *     best effort. At most 20 tracks per video: a new language beyond that → `409` `TOO_MANY_SUBTITLES`.
+         *     No event is emitted.
+         */
+        put: operations["putSubtitle"];
+        post?: never;
+        /** Remove the subtitle track of one language (owner only). The object is removed best effort. */
+        delete: operations["deleteSubtitle"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/media-access/{video_id}": {
         parameters: {
             query?: never;
@@ -224,6 +261,11 @@ export interface components {
              * @description Present only for signed URLs; when they stop working (task SEC1).
              */
             expires_at?: string;
+            /**
+             * @description Subtitle tracks (task V5b), sorted by `lang`. video-svc always sends it (empty when there is none);
+             *     optional only so that older servers stay valid.
+             */
+            subtitles?: components["schemas"]["SubtitleTrack"][];
             renditions: components["schemas"]["Rendition"][];
         };
         Video: {
@@ -305,6 +347,28 @@ export interface components {
             reason: string | null;
             /** Format: date-time */
             moderated_at: string | null;
+        };
+        SubtitleTrack: {
+            lang: string;
+            /** @description Shown in the player menu, e.g. `Tiếng Việt`. */
+            label: string;
+            /**
+             * @description `AUTO` is reserved for auto-captions (V5c); only `UPLOAD` exists today.
+             * @enum {string}
+             */
+            source: "UPLOAD" | "AUTO";
+            /**
+             * Format: uri
+             * @description The `.vtt` file. Signed like `Playback.hls_url` when the video is not publicly watchable (SEC1).
+             */
+            url: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PutSubtitleRequest: {
+            label: string;
+            /** @description The whole WebVTT file. The byte limit (524288 bytes of UTF-8) is checked server-side. */
+            content: string;
         };
         ModerateVideoRequest: {
             /** @enum {string} */
@@ -397,6 +461,15 @@ export interface components {
         TooManyRequests: {
             headers: {
                 "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Resource is in a state that does not allow this operation. */
+        Conflict: {
+            headers: {
                 [name: string]: unknown;
             };
             content: {
@@ -605,6 +678,81 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    putSubtitle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                /** @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `en-US`). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutSubtitleRequest"];
+            };
+        };
+        responses: {
+            /** @description Track replaced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleTrack"];
+                };
+            };
+            /** @description Track created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleTrack"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteSubtitle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                /** @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `en-US`). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown video, video the caller may not see, or no track for this language. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     mediaAccess: {
