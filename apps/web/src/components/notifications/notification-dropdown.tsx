@@ -17,9 +17,16 @@ import { Link } from '../../i18n/routing';
 export interface NotificationDropdownProps {
   isOpen: boolean;
   onClose: () => void;
+  containerRef?: React.RefObject<HTMLElement | null>;
+  triggerRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
-export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownProps) {
+export function NotificationDropdown({
+  isOpen,
+  onClose,
+  containerRef,
+  triggerRef,
+}: NotificationDropdownProps) {
   const t = useTranslations('notifications');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -132,20 +139,140 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
     markReadMutation.mutate({ up_to: newestCreatedAt });
   };
 
+  // Focus management: focus first item on open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const focusFirstItem = () => {
+      if (!dropdownRef.current) return;
+      const items = dropdownRef.current.querySelectorAll<HTMLElement>(
+        '[data-testid^="notification-item-"]',
+      );
+      if (items.length > 0) {
+        // If focus is already on one of the notification items, do not steal it
+        const currentActive = document.activeElement as HTMLElement | null;
+        const isAlreadyOnAnItem = currentActive && Array.from(items).includes(currentActive);
+        if (!isAlreadyOnAnItem) {
+          items[0].focus();
+        }
+      } else {
+        const focusables = dropdownRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (
+          focusables.length > 0 &&
+          (!document.activeElement || !dropdownRef.current.contains(document.activeElement))
+        ) {
+          focusables[0].focus();
+        }
+      }
+    };
+
+    focusFirstItem();
+    const timer = setTimeout(focusFirstItem, 50);
+    return () => clearTimeout(timer);
+  }, [isOpen, isLoading, notifications.length]);
+
   // Keyboard navigation & click outside
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         onClose();
+        triggerRef?.current?.focus();
+        return;
+      }
+
+      if (!dropdownRef.current) return;
+
+      const isInside =
+        dropdownRef.current.contains(e.target as Node) ||
+        (document.activeElement && dropdownRef.current.contains(document.activeElement));
+
+      if (!isInside) return;
+
+      const items = Array.from(
+        dropdownRef.current.querySelectorAll<HTMLElement>('[data-testid^="notification-item-"]'),
+      );
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (items.length === 0) return;
+        const activeIndex = items.indexOf(document.activeElement as HTMLElement);
+        if (activeIndex === -1) {
+          items[0].focus();
+        } else {
+          const nextIndex = (activeIndex + 1) % items.length;
+          items[nextIndex].focus();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (items.length === 0) return;
+        const activeIndex = items.indexOf(document.activeElement as HTMLElement);
+        if (activeIndex === -1) {
+          items[items.length - 1].focus();
+        } else {
+          const prevIndex = (activeIndex - 1 + items.length) % items.length;
+          items[prevIndex].focus();
+        }
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const focusables = Array.from(
+          dropdownRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+
+        if (focusables.length === 0) return;
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+
+        if (e.shiftKey) {
+          if (
+            document.activeElement === first ||
+            !dropdownRef.current.contains(document.activeElement)
+          ) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (
+            document.activeElement === last ||
+            !dropdownRef.current.contains(document.activeElement)
+          ) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }
     };
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        onClose();
+      const target = e.target as Node;
+      // If click was on trigger button or inside trigger button, let button onClick handle the toggle
+      if (
+        triggerRef?.current &&
+        (triggerRef.current === target || triggerRef.current.contains(target))
+      ) {
+        return;
       }
+      // If click was inside container (bell + dropdown), do not close
+      if (containerRef?.current && containerRef.current.contains(target)) {
+        return;
+      }
+      // If click was inside dropdown, do not close
+      if (dropdownRef.current && dropdownRef.current.contains(target)) {
+        return;
+      }
+      onClose();
     };
 
     document.addEventListener('keydown', handleKeyDown);
@@ -155,7 +282,7 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, containerRef, triggerRef, notifications.length]);
 
   if (!isOpen) return null;
 

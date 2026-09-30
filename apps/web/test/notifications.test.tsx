@@ -400,6 +400,130 @@ describe('N1-web: Notifications System', () => {
       });
     });
 
+    it('clicking the bell button when open closes the dropdown (handles mousedown then click without reopening)', async () => {
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path) => {
+        if (path === '/v1/notifications/unread-count') {
+          return {
+            data: { count: 2, capped: false },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        if (path === '/v1/notifications') {
+          return {
+            data: { items: mockNotificationItems.slice(0, 2), next_cursor: null },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        return { response: new Response(null, { status: 404 }) } as any;
+      });
+
+      renderWithClient(<NotificationBell />);
+
+      const button = screen.getByTestId('notification-bell-button');
+      // 1. Click to open
+      fireEvent.click(button);
+      expect(await screen.findByRole('dialog')).toBeDefined();
+      expect(button.getAttribute('aria-expanded')).toBe('true');
+
+      // 2. Click the bell button again (simulating real browser mousedown then click)
+      fireEvent.mouseDown(button);
+      fireEvent.click(button);
+
+      // 3. Dropdown must be closed, NOT reopened
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(button.getAttribute('aria-expanded')).toBe('false');
+      });
+    });
+
+    it('focus management: focuses first item on open, ArrowDown/Up moves focus between items, Escape returns focus to bell', async () => {
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path) => {
+        if (path === '/v1/notifications/unread-count') {
+          return {
+            data: { count: 2, capped: false },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        if (path === '/v1/notifications') {
+          return {
+            data: { items: mockNotificationItems.slice(0, 2), next_cursor: null },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        return { response: new Response(null, { status: 404 }) } as any;
+      });
+
+      renderWithClient(<NotificationBell />);
+
+      const bellButton = screen.getByTestId('notification-bell-button');
+      bellButton.focus();
+      expect(document.activeElement).toBe(bellButton);
+
+      // Open dropdown
+      fireEvent.click(bellButton);
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toBeDefined();
+
+      const item1 = await screen.findByTestId('notification-item-notif-1');
+      const item2 = await screen.findByTestId('notification-item-notif-2');
+
+      // 1. Focus first item on open
+      await waitFor(() => {
+        expect(document.activeElement).toBe(item1);
+      });
+
+      // 2. ArrowDown moves focus to second item
+      fireEvent.keyDown(item1, { key: 'ArrowDown' });
+      expect(document.activeElement).toBe(item2);
+
+      // 3. ArrowUp moves focus back to first item
+      fireEvent.keyDown(item2, { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(item1);
+
+      // 4. Escape closes dropdown and returns focus to the bell button
+      fireEvent.keyDown(item1, { key: 'Escape' });
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(document.activeElement).toBe(bellButton);
+      });
+    });
+
+    it('focus management: Tab key is trapped inside the dropdown', async () => {
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path) => {
+        if (path === '/v1/notifications/unread-count') {
+          return {
+            data: { count: 2, capped: false },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        if (path === '/v1/notifications') {
+          return {
+            data: { items: mockNotificationItems.slice(0, 2), next_cursor: null },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        return { response: new Response(null, { status: 404 }) } as any;
+      });
+
+      renderWithClient(<NotificationBell />);
+
+      const bellButton = screen.getByTestId('notification-bell-button');
+      fireEvent.click(bellButton);
+      const markAllBtn = (await screen.findByText('Đánh dấu đã đọc tất cả')).closest('button')!;
+
+      const viewAllLink = screen.getByText('Xem tất cả');
+      viewAllLink.focus();
+      expect(document.activeElement).toBe(viewAllLink);
+
+      // Tab on last element wraps to first focusable element ("Đánh dấu đã đọc tất cả")
+      fireEvent.keyDown(viewAllLink, { key: 'Tab' });
+      expect(document.activeElement).toBe(markAllBtn);
+
+      // Shift+Tab on first element wraps to last element
+      fireEvent.keyDown(markAllBtn, { key: 'Tab', shiftKey: true });
+      expect(document.activeElement).toBe(viewAllLink);
+    });
+
     it('opening dropdown does NOT mark notifications as read', async () => {
       const postSpy = vi.spyOn(api.social, 'POST');
       vi.spyOn(api.social, 'GET').mockImplementation(async (path) => {
@@ -675,6 +799,52 @@ describe('N1-web: Notifications System', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Chưa có thông báo nào.')).toBeDefined();
+      });
+    });
+
+    it('on mark-all error the page query rolls back and self-heals via onSettled invalidation', async () => {
+      let getCallCount = 0;
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path) => {
+        if (path === '/v1/notifications') {
+          getCallCount++;
+          return {
+            data: { items: [...mockNotificationItems], next_cursor: null },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        if (path === '/v1/notifications/unread-count') {
+          return {
+            data: { count: 3, capped: false },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        return { response: new Response(null, { status: 404 }) } as any;
+      });
+
+      // Fail mark-all POST
+      vi.spyOn(api.social, 'POST').mockResolvedValue({
+        response: new Response(null, { status: 500 }),
+      } as any);
+
+      renderWithClient(<NotificationsPage />);
+
+      // Initial load
+      await waitFor(() => {
+        expect(screen.getByTestId('notification-item-notif-1')).toBeDefined();
+      });
+      const initialGets = getCallCount;
+
+      // Click "Đánh dấu đã đọc tất cả"
+      const markAllBtn = screen.getByText('Đánh dấu đã đọc tất cả');
+      fireEvent.click(markAllBtn);
+
+      // On error, mutation rolls back and onSettled triggers invalidation of ['notifications']
+      await waitFor(() => {
+        // Query invalidation causes refetch: getCallCount must increase
+        expect(getCallCount).toBeGreaterThan(initialGets);
+        // The unread status is preserved / restored
+        const item1 = screen.getByTestId('notification-item-notif-1');
+        expect(item1.getAttribute('data-unread')).toBe('true');
       });
     });
   });

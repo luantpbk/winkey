@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { Bell } from 'lucide-react';
@@ -14,6 +14,8 @@ export function NotificationBell() {
   const { isAuthenticated } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -44,14 +46,24 @@ export function NotificationBell() {
   const showBadge = count > 0;
   const badgeLabel = isCapped || count >= 100 ? '99+' : `${count}`;
 
+  const handleClose = () => {
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const handleToggle = () => {
+    setIsOpen((prev) => !prev);
+  };
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={handleToggle}
         aria-label={t('bellAriaLabel')}
         aria-expanded={isOpen}
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         data-testid="notification-bell-button"
         className="relative rounded-full p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition focus:outline-none focus:ring-2 focus:ring-red-600 cursor-pointer"
       >
@@ -66,7 +78,12 @@ export function NotificationBell() {
         )}
       </button>
 
-      <NotificationDropdown isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      <NotificationDropdown
+        isOpen={isOpen}
+        onClose={handleClose}
+        containerRef={containerRef}
+        triggerRef={triggerRef}
+      />
     </div>
   );
 }

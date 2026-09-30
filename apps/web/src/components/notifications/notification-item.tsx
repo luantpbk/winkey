@@ -95,6 +95,7 @@ export function NotificationItem({
     <Link
       href={targetUrl}
       onClick={handleClick}
+      tabIndex={0}
       data-testid={`notification-item-${notification.id}`}
       data-unread={isUnread ? 'true' : 'false'}
       className={`flex items-start gap-3 p-3 rounded-xl transition cursor-pointer select-none ${

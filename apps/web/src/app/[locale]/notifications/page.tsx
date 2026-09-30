@@ -98,7 +98,27 @@ export default function NotificationsPage() {
         'unread-count',
       ]);
 
+      const now = new Date().toISOString();
+
       if (payload.ids && payload.ids.length > 0) {
+        const idSet = new Set(payload.ids);
+        if (prevPageData) {
+          queryClient.setQueryData(
+            ['notifications', 'page', { unread: isUnreadOnly }],
+            (old: any) => {
+              if (!old?.pages) return old;
+              return {
+                ...old,
+                pages: old.pages.map((p: any) => ({
+                  ...p,
+                  items: p.items.map((item: any) =>
+                    idSet.has(item.id) && !item.read_at ? { ...item, read_at: now } : item,
+                  ),
+                })),
+              };
+            },
+          );
+        }
         if (prevUnreadCount && prevUnreadCount.count > 0) {
           queryClient.setQueryData<UnreadCount>(['notifications', 'unread-count'], {
             ...prevUnreadCount,
@@ -106,6 +126,26 @@ export default function NotificationsPage() {
           });
         }
       } else if (payload.up_to) {
+        const upToDate = new Date(payload.up_to).getTime();
+        if (prevPageData) {
+          queryClient.setQueryData(
+            ['notifications', 'page', { unread: isUnreadOnly }],
+            (old: any) => {
+              if (!old?.pages) return old;
+              return {
+                ...old,
+                pages: old.pages.map((p: any) => ({
+                  ...p,
+                  items: p.items.map((item: any) =>
+                    new Date(item.created_at).getTime() <= upToDate && !item.read_at
+                      ? { ...item, read_at: now }
+                      : item,
+                  ),
+                })),
+              };
+            },
+          );
+        }
         if (prevUnreadCount) {
           queryClient.setQueryData<UnreadCount>(['notifications', 'unread-count'], {
             count: 0,
@@ -129,6 +169,7 @@ export default function NotificationsPage() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
     },
   });
 
