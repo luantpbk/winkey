@@ -236,8 +236,8 @@ echo "[9/10] Checking realtime ticket issuance and WebSocket upgrade..."
 TICKET_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/realtime/ticket" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}")
 TICKET_CODE=$(echo "$TICKET_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
-if [ "$TICKET_CODE" != "200" ]; then
-    echo "FAILED: Expected HTTP 200 from /v1/realtime/ticket, got $TICKET_CODE!" >&2
+if [ "$TICKET_CODE" != "201" ] && [ "$TICKET_CODE" != "200" ]; then
+    echo "FAILED: Expected HTTP 201 from /v1/realtime/ticket, got $TICKET_CODE!" >&2
     echo "$TICKET_RESP"
     exit 1
 fi
