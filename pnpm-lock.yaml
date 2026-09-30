@@ -407,6 +407,9 @@ importers:
 
   services/realtime:
     dependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.1
       '@winkey/outbox':
         specifier: workspace:*
         version: link:../../packages/outbox
