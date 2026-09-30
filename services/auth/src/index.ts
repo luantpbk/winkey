@@ -3,7 +3,7 @@ import { Redis } from 'ioredis';
 import { getEnv } from './config/env.js';
 import { getDb, closeDb, registerArrayParsers } from './db/client.js';
 import { initializeKeys } from './crypto/jwt.js';
-import { OutboxRelay } from '@winkey/outbox';
+import { OutboxRelay, natsOptionsFromUrl } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
 import { RevocationService } from './revocation/revocation.js';
 import { buildApp } from './server.js';
@@ -21,7 +21,10 @@ async function main() {
   // 3. Connect to NATS JetStream
   let natsConnection: NatsConnection | null = null;
   try {
-    natsConnection = await connectNats({ servers: env.NATS_URL });
+    natsConnection = await connectNats({
+      ...natsOptionsFromUrl(env.NATS_URL),
+      name: 'auth-svc',
+    });
   } catch (err) {
     console.warn('Warning: Could not connect to NATS on startup. Outbox relay delayed:', err);
   }

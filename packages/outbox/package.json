@@ -8,13 +8,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./nats": {
+      "import": "./dist/nats.js",
+      "types": "./dist/nats.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:prod-deps": "node ./scripts/test-prod-deps.mjs"
   },
   "dependencies": {
     "nats": "^2.29.3",

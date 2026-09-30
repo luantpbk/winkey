@@ -1,4 +1,5 @@
 import { connect as connectNats } from 'nats';
+import { natsOptionsFromUrl } from '@winkey/outbox/nats';
 import { Redis } from 'ioredis';
 import pino from 'pino';
 import { getEnv } from './config/env.js';
@@ -15,15 +16,18 @@ async function main(): Promise<void> {
   logger.info({ env: env.NODE_ENV, port: env.HTTP_PORT }, 'Starting realtime-gw service...');
 
   // 1. Connect to NATS (fail fast so k8s restarts pod if NATS unavailable)
-  const natsConnection = await connectNats({ servers: env.NATS_URL });
-  logger.info({ url: env.NATS_URL }, 'Connected to NATS');
+  const natsConnection = await connectNats({
+    ...natsOptionsFromUrl(env.NATS_URL),
+    name: 'realtime-gw',
+  });
+  logger.info('Connected to NATS');
 
   // 2. Connect to Valkey / Redis
   const valkeyClient = new Redis(env.VALKEY_URL, {
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
   });
-  logger.info({ url: env.VALKEY_URL }, 'Connected to Valkey');
+  logger.info('Connected to Valkey');
 
   // 3. Components
   const ticketStore = new TicketStore(valkeyClient);
