@@ -26,9 +26,15 @@ function recordResult(id, name, status, durationMs, notes = '') {
 
 describe('Winkey End-to-End System Tests (QA1)', () => {
   after(() => {
-    console.log('\n========================================================================================');
-    console.log('                          SYSTEM TEST SUITE SUMMARY (QA1)                               ');
-    console.log('========================================================================================');
+    console.log(
+      '\n========================================================================================',
+    );
+    console.log(
+      '                          SYSTEM TEST SUITE SUMMARY (QA1)                               ',
+    );
+    console.log(
+      '========================================================================================',
+    );
     console.log(
       'ID'.padEnd(6) +
         '| Scenario'.padEnd(38) +
@@ -47,7 +53,9 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
           `| ${r.notes}`,
       );
     }
-    console.log('========================================================================================\n');
+    console.log(
+      '========================================================================================\n',
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -225,7 +233,13 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
 
     assert.equal(status, 'READY', `Video did not reach READY within 180s (current: ${status})`);
     const duration = Date.now() - startTime;
-    recordResult('S3', 'upload -> READY', 'PASSED', duration, `READY in ${(duration / 1000).toFixed(1)}s`);
+    recordResult(
+      'S3',
+      'upload -> READY',
+      'PASSED',
+      duration,
+      `READY in ${(duration / 1000).toFixed(1)}s`,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -267,7 +281,9 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
 
       ws.addEventListener('open', () => {
         // Subscribe to video room
-        ws.send(JSON.stringify({ type: 'subscribe', id: 'req-1', room: `video:${uploadedVideoId}` }));
+        ws.send(
+          JSON.stringify({ type: 'subscribe', id: 'req-1', room: `video:${uploadedVideoId}` }),
+        );
       });
 
       ws.addEventListener('message', (event) => {
@@ -294,7 +310,11 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
   it('S5: viewer playback HLS master, segment & storyboard VTT', async () => {
     const startTime = Date.now();
     const vidRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`);
-    assert.equal(vidRes.status, 200, `GET /v1/videos/${uploadedVideoId} failed: ${await vidRes.text()}`);
+    assert.equal(
+      vidRes.status,
+      200,
+      `GET /v1/videos/${uploadedVideoId} failed: ${await vidRes.text()}`,
+    );
     const video = await vidRes.json();
     assert.ok(video.playback, 'video playback object is missing');
     assert.ok(video.playback.hls_url, 'hls_url is missing');
@@ -370,7 +390,9 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
       }, 10000);
 
       ws.addEventListener('open', () => {
-        ws.send(JSON.stringify({ type: 'subscribe', id: 's6-sub', room: `video:${uploadedVideoId}` }));
+        ws.send(
+          JSON.stringify({ type: 'subscribe', id: 's6-sub', room: `video:${uploadedVideoId}` }),
+        );
       });
 
       ws.addEventListener('message', (event) => {
@@ -489,7 +511,10 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     });
     assert.equal(aVidRes.status, 200);
     const aVid = await aVidRes.json();
-    assert.ok(aVid.playback.hls_url.includes('/s/'), 'Owner did not get signed HLS URL for PRIVATE video');
+    assert.ok(
+      aVid.playback.hls_url.includes('/s/'),
+      'Owner did not get signed HLS URL for PRIVATE video',
+    );
     assert.ok(aVid.playback.expires_at, 'expires_at missing from signed playback response');
 
     // 4. Creator A sets back to PUBLIC
@@ -579,7 +604,10 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
         note: 'Inappropriate spam video',
       }),
     });
-    assert.ok(reportRes.status === 200 || reportRes.status === 201, `Report failed: ${await reportRes.text()}`);
+    assert.ok(
+      reportRes.status === 200 || reportRes.status === 201,
+      `Report failed: ${await reportRes.text()}`,
+    );
 
     // 4. Moderator M views cases
     const modCases = await fetch(`${GATEWAY_URL}/v1/moderation/reports`, {
@@ -599,14 +627,17 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     assert.equal(hideRes.status, 200, `Hide video failed: ${await hideRes.text()}`);
 
     // 6. Moderator M resolves case
-    const resCase = await fetch(`${GATEWAY_URL}/v1/moderation/cases/VIDEO/${uploadedVideoId}/resolution`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${moderatorToken}`,
+    const resCase = await fetch(
+      `${GATEWAY_URL}/v1/moderation/cases/VIDEO/${uploadedVideoId}/resolution`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${moderatorToken}`,
+        },
+        body: JSON.stringify({ status: 'ACTIONED', note: 'Video hidden' }),
       },
-      body: JSON.stringify({ status: 'ACTIONED', note: 'Video hidden' }),
-    });
+    );
     assert.equal(resCase.status, 200, `Resolve case failed: ${await resCase.text()}`);
 
     // 7. Owner A gets 404 on comments of hidden video
@@ -703,7 +734,11 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const checkToken1 = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
       headers: { Authorization: `Bearer ${token1}` },
     });
-    assert.equal(checkToken1.status, 200, 'Session 1 token should remain valid after password change');
+    assert.equal(
+      checkToken1.status,
+      200,
+      'Session 1 token should remain valid after password change',
+    );
 
     // 5. Admin M suspends Viewer B
     const suspRes = await fetch(`${GATEWAY_URL}/v1/admin/users/${viewerUser.id}/suspension`, {
@@ -720,7 +755,11 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
     const checkViewerToken = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
       headers: { Authorization: `Bearer ${viewerToken}` },
     });
-    assert.equal(checkViewerToken.status, 401, 'Suspended user existing token should be revoked immediately (401)');
+    assert.equal(
+      checkViewerToken.status,
+      401,
+      'Suspended user existing token should be revoked immediately (401)',
+    );
 
     // 7. Suspended Viewer B login attempt -> 403
     const suspLogin = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
@@ -731,7 +770,11 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
         password: 'Password123!',
       }),
     });
-    assert.equal(suspLogin.status, 403, `Suspended user login returned ${suspLogin.status} instead of 403`);
+    assert.equal(
+      suspLogin.status,
+      403,
+      `Suspended user login returned ${suspLogin.status} instead of 403`,
+    );
 
     recordResult('S10', 'account password & A4 revocation', 'PASSED', Date.now() - startTime);
   });
@@ -803,7 +846,11 @@ describe('Winkey End-to-End System Tests (QA1)', () => {
       }),
     });
 
-    assert.equal(subRes.status, 201, `Upload subtitles returned ${subRes.status} instead of 201: ${await subRes.text()}`);
+    assert.equal(
+      subRes.status,
+      201,
+      `Upload subtitles returned ${subRes.status} instead of 201: ${await subRes.text()}`,
+    );
 
     // GET video and verify playback.subtitles
     const vidRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
