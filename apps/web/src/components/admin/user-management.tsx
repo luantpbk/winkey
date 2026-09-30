@@ -21,6 +21,7 @@ import {
 import type { AdminUser, Role, UserStatus, Problem } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
+import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 function toLocalInputValue(dateInput: string | Date): string {
   const d = new Date(dateInput);
@@ -35,6 +36,7 @@ function toLocalInputValue(dateInput: string | Date): string {
 }
 
 export function UserManagement() {
+  const safeTimeout = useSafeTimeout();
   const t = useTranslations('admin.users');
   const tErrors = useTranslations('admin.errors');
   const tErrorsRef = useRef(tErrors);
@@ -238,7 +240,7 @@ export function UserManagement() {
       error: null,
       success: null,
     });
-    setTimeout(() => {
+    safeTimeout(() => {
       suspendInputRef.current?.focus();
     }, 50);
   };
@@ -294,7 +296,7 @@ export function UserManagement() {
           isSubmitting: false,
           success: t('suspendSuccess'),
         }));
-        setTimeout(() => {
+        safeTimeout(() => {
           closeSuspendModal();
           fetchUsers();
         }, 1200);
@@ -420,7 +422,7 @@ export function UserManagement() {
           isSubmitting: false,
           success: t('rolesSuccess'),
         }));
-        setTimeout(() => {
+        safeTimeout(() => {
           closeRolesModal();
           fetchUsers();
         }, 1200);

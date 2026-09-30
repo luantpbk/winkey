@@ -7,6 +7,7 @@ import type { ReportReason, ReportTargetType } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useRouter, usePathname } from '../../i18n/routing';
+import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 export interface ReportDialogProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export function ReportDialog({
   targetId,
   targetTitle,
 }: ReportDialogProps) {
+  const safeTimeout = useSafeTimeout();
   const t = useTranslations('reports');
   const { isAuthenticated } = useAuth();
   const router = useRouter();
@@ -57,7 +59,7 @@ export function ReportDialog({
       setNote('');
       setFeedback(null);
       setIsSubmitting(false);
-      setTimeout(() => {
+      safeTimeout(() => {
         initialFocusRef.current?.focus();
       }, 50);
     }
@@ -105,12 +107,12 @@ export function ReportDialog({
 
       if (response.status === 201) {
         setFeedback({ type: 'success', message: t('success') });
-        setTimeout(() => {
+        safeTimeout(() => {
           onClose();
         }, 1800);
       } else if (response.status === 200 || response.status === 409) {
         setFeedback({ type: 'warning', message: t('alreadyReported') });
-        setTimeout(() => {
+        safeTimeout(() => {
           onClose();
         }, 2500);
       } else if (response.status === 400) {

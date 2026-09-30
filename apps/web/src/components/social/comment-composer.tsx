@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useRouter, usePathname } from '../../i18n/routing';
+import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 export interface CommentComposerProps {
   placeholder?: string;
@@ -24,6 +25,7 @@ export function CommentComposer({
   onCancel,
   onSubmit,
 }: CommentComposerProps) {
+  const safeTimeout = useSafeTimeout();
   const t = useTranslations('social');
   const router = useRouter();
   const pathname = usePathname();
@@ -57,7 +59,7 @@ export function CommentComposer({
       if (res.success) {
         setText('');
         // Return focus to textarea after successful submission
-        setTimeout(() => {
+        safeTimeout(() => {
           textareaRef.current?.focus();
         }, 50);
       } else if (res.error) {

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 import { Link } from '../../i18n/routing';
 import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 export interface ToastItem {
   id: string;
@@ -22,6 +23,7 @@ interface ToastContextType {
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const safeTimeout = useSafeTimeout();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const dismissToast = useCallback((id: string) => {
@@ -37,14 +39,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
       const duration = toast.duration ?? 5000;
       if (duration > 0) {
-        setTimeout(() => {
+        safeTimeout(() => {
           dismissToast(id);
         }, duration);
       }
 
       return id;
     },
-    [dismissToast],
+    [dismissToast, safeTimeout],
   );
 
   return (
