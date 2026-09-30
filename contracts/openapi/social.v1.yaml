@@ -20,6 +20,10 @@ info:
     - Task A2: a video hidden by a moderator (`video.moderated` with `state: HIDDEN`, projected into
       `social.videos.hidden`) answers `404` on its comment and like endpoints for everyone except
       moderators and admins, until `state: VISIBLE` arrives. Existing comments and likes are kept.
+    - Task C4: a `PRIVATE` video (visibility projected into `social.videos.visibility` from `video.ready` and
+      `video.visibility_changed`) answers `404` on its comment and like endpoints for everyone except the
+      video owner, moderators and admins. `UNLISTED` behaves like `PUBLIC`. Rows projected before C4 are
+      `PUBLIC` until an event says otherwise.
     - Task A2: `/v1/reports` and `/v1/moderation/*` also go to social-svc (gateway: `PathPrefix`).
   license:
     name: Proprietary

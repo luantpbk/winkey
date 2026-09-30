@@ -30,6 +30,10 @@ configMapGenerator:
       - migrations/000006_moderation.down.sql
       - migrations/000007_search.up.sql
       - migrations/000007_search.down.sql
+      - migrations/000008_storyboard.up.sql
+      - migrations/000008_storyboard.down.sql
+      - migrations/000009_social_visibility.up.sql
+      - migrations/000009_social_visibility.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

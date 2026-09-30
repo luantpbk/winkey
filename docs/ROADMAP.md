@@ -48,26 +48,27 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | PL1 | Player: hls.js, ABR, chọn chất lượng, phím tắt, nhớ vị trí, đo QoE · ✅ (#59) | Antigravity 1 | S1 | TB |
 | U3 | Web social: comment 2 cấp, like, subscribe trên trang xem/kênh. [Brief](prompts/antigravity-1_U3_social-ui.md) · ✅ (#69) | Antigravity 1 | C1 ✅, PL1 ✅ | TB |
 | I1 | Ansible: hardening, Tailscale, k3s (edge-1 ✅ qua I1-e1; edge-2/3 sau). gpu-01: worker transcoder ngoài k3s (ADR-015): driver NVIDIA, FFmpeg NVENC, service | Antigravity 2 | I0 | **Cao** |
-| STO | Garage (1 node RF 1 bây giờ, ×3 RF 2 sau), bucket + CORS (`ExposeHeaders: ETag`) + web endpoint, key theo từng service. [Brief](prompts/antigravity-2_STO_garage.md) | Antigravity 2 | I1, EDGE ✅ | **Cao** |
-| DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) | Antigravity 2 | I1 | **Cao** |
+| STO | Garage (1 node RF 1 bây giờ, ×3 RF 2 sau), bucket + CORS (`ExposeHeaders: ETag`) + web endpoint, key theo từng service. [Brief](prompts/antigravity-2_STO_garage.md) · ✅ (#67) | Antigravity 2 | I1, EDGE ✅ | **Cao** |
+| DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) · ✅ (#81) | Antigravity 2 | I1 | **Cao** |
 | EDGE ✅ (#39) | Traefik: routing, forwardAuth, **xóa header định danh trên mọi route**, rate limit; edge-1: nginx host (TLS Certbot, media `proxy_cache`, cấu hình upload s3) theo ADR-014; mở NATS/PG/Garage cho tailnet qua NodePort 30422/30432/30900 trên IP Tailscale (ADR-015) | Antigravity 2 | I1, A1 | **Cao** |
-| I2 | Helm chart cho từng service + pipeline deploy (GitOps: Argo CD hoặc Flux) | Antigravity 2 | I1 | TB |
+| I2 | Deploy mọi service lên k3s edge-1: kustomize + Ansible role (như STO/DATA; Helm/GitOps để sau khi có nhiều node), image pin digest, Secrets, route Traefik đầy đủ. [Brief](prompts/antigravity-2_I2_apps.md) | Antigravity 2 | DATA ✅ | TB |
 | Q1 | E2E Playwright: đăng ký → upload → READY → xem; k6 smoke | Antigravity 1 | U1, V2, A1 | TB |
 
 ### P2 — Beta
 | ID | Task | Owner | Phụ thuộc |
 |---|---|---|---|
 | A2 | RBAC + moderation backend: `/v1/admin/*` (auth-svc), báo cáo + hàng đợi `/v1/reports`, `/v1/moderation/*` (social-svc). Contract + migration 000006, ADR-016, [brief](prompts/antigravity-3_A2_moderation.md) · ✅ (#72) | Antigravity 3 | A1 ✅, C1 ✅ |
-| A3 | auth-svc: tự quản lý tài khoản — sửa tên hiển thị/handle, đặt/đổi mật khẩu (đăng xuất thiết bị khác), xóa tài khoản (ẩn danh hóa, giải phóng email/handle). Contract `updateMe`/`changePassword`/`deleteMe`, [brief](prompts/antigravity-3_A3_account-self-service.md) | Antigravity 3 | A2 ✅ |
+| A3 | auth-svc: tự quản lý tài khoản — sửa tên hiển thị/handle, đặt/đổi mật khẩu (đăng xuất thiết bị khác), xóa tài khoản (ẩn danh hóa, giải phóng email/handle). Contract `updateMe`/`changePassword`/`deleteMe`, [brief](prompts/antigravity-3_A3_account-self-service.md) · ✅ (#80) | Antigravity 3 | A2 ✅ |
 | S4 | video-svc: `moderateVideo` + event `video.moderated`, ẩn video HIDDEN với người ngoài. [Brief](prompts/sonnet_S4_video-moderation.md)  · ✅ (#71) | Sonnet 5.5 | S1 ✅ |
 | U4 | Web admin/moderation UI (danh sách user, đổi role, khóa, hàng đợi báo cáo, nút báo cáo) | Antigravity 1 | A2 ✅, S4 ✅ |
 | C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) · ✅ (#48) | Antigravity 3 | A1 ✅ |
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) · ✅ (#57) | Antigravity 3 | C1 ✅ |
 | C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) · ✅ (#52) | Sonnet 5.5 | S1 ✅ |
+| C4 | social-svc biết visibility của video: video `PRIVATE` trả 404 comment/like cho người ngoài. Migration 000009, event `video.visibility_changed`, `video.ready.visibility`. C4-a social-svc (Antigravity 3), C4-b producer (Sonnet, sau V5a). [Brief](prompts/antigravity-3_C4_social-visibility.md) | Antigravity 3 + Sonnet | C1 ✅, SEC1-a ✅ |
 | U2 | Creator Studio realtime + like/comment realtime trên trang xem. [Brief](prompts/antigravity-1_U2_studio-realtime.md) | Antigravity 1 | C2 ✅ |
 | SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm`. Contract `searchVideos`/`suggestSearch`, migration 000007, [brief](prompts/sonnet_SR1_search.md) · ✅ (#75, #78) | Sonnet 5.5 | S1 ✅ |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |
-| SEC1 | Chặn tải media của video không công khai (ADR-017): SEC1-a video-svc ký URL `/s/{exp}/{sig}/…` + `mediaAccess` (Sonnet); SEC1-b nginx `secure_link` + `auth_request` cache 30 s, route Traefik nội bộ (Antigravity 2, sau I2). [Brief](prompts/sonnet_SEC1_media-access.md) | Opus (thiết kế ✅) → Sonnet / Antigravity 2 | EDGE ✅, A2 ✅, S4 ✅ |
+| SEC1 | Chặn tải media của video không công khai (ADR-017): SEC1-a video-svc ký URL `/s/{exp}/{sig}/…` + `mediaAccess` (Sonnet); SEC1-b nginx `secure_link` + `auth_request` cache 30 s, route Traefik nội bộ (Antigravity 2, sau I2). [Brief](prompts/sonnet_SEC1_media-access.md) · SEC1-a ✅ (#82) | Opus (thiết kế ✅) → Sonnet / Antigravity 2 | EDGE ✅, A2 ✅, S4 ✅ |
 
 ### P3 — V1
 | ID | Task | Owner |
@@ -75,5 +76,6 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | R1 | Analytics: heartbeat xem → JetStream → ClickHouse (gpu-01) | Antigravity 2 + Sonnet |
 | R2 | Recommendation v1: candidate (trending, co-view, subscription) + ranking; khung A/B | Opus (thiết kế) + Sonnet |
 | V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
-| V5 | Thumbnail sprite, phụ đề WebVTT, auto-caption (Whisper trên GPU) | Sonnet |
+| V5a | Storyboard xem trước khi tua: sprite 160×90 + WebVTT `#xywh`, migration 000008, `Playback.storyboard_url`. [Brief](prompts/sonnet_V5a_storyboard.md) | Sonnet |
+| V5b | Phụ đề WebVTT, auto-caption (Whisper trên GPU) | Sonnet |
 | LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |

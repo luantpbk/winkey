@@ -33,7 +33,11 @@ export interface paths {
         delete: operations["deleteVideo"];
         options?: never;
         head?: never;
-        /** Edit metadata (owner only). */
+        /**
+         * Edit metadata (owner only).
+         * @description Task C4: when `visibility` actually changes, `video.visibility_changed` is written to the outbox in the
+         *     same transaction (not emitted for a no-op or for other fields).
+         */
         patch: operations["updateVideo"];
         trace?: never;
     };
@@ -208,6 +212,13 @@ export interface components {
             hls_url: string;
             /** Format: uri */
             thumbnail_url: string;
+            /**
+             * Format: uri
+             * @description WebVTT seek-preview track (task V5a): cues point at sprite sheets with `#xywh=x,y,w,h`, relative to
+             *     this URL. Null when the video has no storyboard. Signed like `hls_url` when the video is not
+             *     publicly watchable (task SEC1).
+             */
+            storyboard_url?: string | null;
             /**
              * Format: date-time
              * @description Present only for signed URLs; when they stop working (task SEC1).

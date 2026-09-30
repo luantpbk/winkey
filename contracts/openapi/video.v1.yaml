@@ -102,6 +102,9 @@ paths:
       tags: [videos]
       operationId: updateVideo
       summary: Edit metadata (owner only).
+      description: |
+        Task C4: when `visibility` actually changes, `video.visibility_changed` is written to the outbox in the
+        same transaction (not emitted for a no-op or for other fields).
       security:
         - bearerAuth: []
       requestBody:
@@ -396,6 +399,13 @@ components:
         thumbnail_url:
           type: string
           format: uri
+        storyboard_url:
+          type: [string, 'null']
+          format: uri
+          description: |
+            WebVTT seek-preview track (task V5a): cues point at sprite sheets with `#xywh=x,y,w,h`, relative to
+            this URL. Null when the video has no storyboard. Signed like `hls_url` when the video is not
+            publicly watchable (task SEC1).
         expires_at:
           type: string
           format: date-time
