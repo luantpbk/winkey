@@ -53,6 +53,18 @@ export function setMockCurrentUser(user: User | null) {
 export function getMockCurrentUser(): User | null {
   return currentUser;
 }
+export function callerFromRequest(request: Request): User | null {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    for (const u of Object.values(mockUsers)) {
+      if (token.includes(u.id)) {
+        return u;
+      }
+    }
+  }
+  return currentUser;
+}
 export function setDynamicAdminUsers(users: AdminUser[]) {
   dynamicAdminUsers = [...users];
 }
@@ -387,7 +399,7 @@ export const handlers = [
 
     return HttpResponse.json(
       {
-        access_token: `mock_jwt_token_${currentUser.id}`,
+        access_token: `mock-access-${currentUser.id}`,
         token_type: 'Bearer',
         expires_in: 900,
         user: currentUser,
@@ -395,7 +407,7 @@ export const handlers = [
       {
         status: 200,
         headers: {
-          'Set-Cookie': 'wk_rt=mock_refresh_token; HttpOnly; Path=/v1/auth; SameSite=Strict',
+          'Set-Cookie': `wk_rt=mock-refresh-${currentUser.id}; HttpOnly; Path=/; SameSite=Lax`,
         },
       },
     );
@@ -403,29 +415,19 @@ export const handlers = [
 
   http.post('*/v1/auth/refresh', async ({ cookies, request }) => {
     const cookieHeader = request.headers.get('cookie') || '';
-    const roleCookie =
-      cookies.wk_mock_role ||
-      (cookieHeader.includes('wk_mock_role=admin')
-        ? 'admin'
-        : cookieHeader.includes('wk_mock_role=moderator') ||
-            cookieHeader.includes('wk_mock_role=mod')
-          ? 'moderator'
-          : cookieHeader.includes('wk_mock_role=creator')
-            ? 'creator'
-            : undefined);
-
-    if (roleCookie === 'admin') {
-      currentUser = mockUsers.admin;
-    } else if (roleCookie === 'moderator' || roleCookie === 'mod') {
-      currentUser = mockUsers.moderator;
-    } else if (roleCookie === 'creator') {
-      currentUser = mockUsers.creator;
-    } else if (!currentUser) {
+    const rt = cookies.wk_rt || cookieHeader;
+    for (const u of Object.values(mockUsers)) {
+      if (rt && rt.includes(u.id)) {
+        currentUser = u;
+        break;
+      }
+    }
+    if (!currentUser) {
       currentUser = mockUsers.creator;
     }
 
     return HttpResponse.json({
-      access_token: `mock_jwt_token_refreshed_${currentUser.id}`,
+      access_token: `mock-access-${currentUser.id}`,
       token_type: 'Bearer',
       expires_in: 900,
       user: currentUser,
@@ -437,35 +439,14 @@ export const handlers = [
     return new HttpResponse(null, {
       status: 204,
       headers: {
-        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/v1/auth; Max-Age=0',
+        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
       },
     });
   }),
 
-  http.get('*/v1/auth/me', async ({ cookies, request }) => {
-    if (!currentUser) {
-      const cookieHeader = request.headers.get('cookie') || '';
-      const roleCookie =
-        cookies.wk_mock_role ||
-        (cookieHeader.includes('wk_mock_role=admin')
-          ? 'admin'
-          : cookieHeader.includes('wk_mock_role=moderator') ||
-              cookieHeader.includes('wk_mock_role=mod')
-            ? 'moderator'
-            : cookieHeader.includes('wk_mock_role=creator')
-              ? 'creator'
-              : undefined);
-
-      if (roleCookie === 'admin') {
-        currentUser = mockUsers.admin;
-      } else if (roleCookie === 'moderator' || roleCookie === 'mod') {
-        currentUser = mockUsers.moderator;
-      } else if (roleCookie === 'creator') {
-        currentUser = mockUsers.creator;
-      }
-    }
-
-    if (!currentUser) {
+  http.get('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
       return HttpResponse.json(
         {
           type: '/problems/unauthorized',
@@ -476,7 +457,7 @@ export const handlers = [
         { status: 401 },
       );
     }
-    return HttpResponse.json(currentUser);
+    return HttpResponse.json(caller);
   }),
 
   http.get('*/v1/users/:handle', async ({ params }) => {
@@ -1317,10 +1298,8 @@ export const handlers = [
 
   // --- Task U4: Moderation Queue ---
   http.get('*/v1/moderation/reports', async ({ request }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1353,10 +1332,8 @@ export const handlers = [
   http.put(
     '*/v1/moderation/cases/:target_type/:target_id/resolution',
     async ({ params, request }) => {
-      if (
-        !currentUser ||
-        (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-      ) {
+      const caller = callerFromRequest(request);
+      if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
         return HttpResponse.json(
           {
             type: '/problems/forbidden',
@@ -1392,7 +1369,7 @@ export const handlers = [
           ...dynamicModerationCases[caseIndex],
           status: body.status,
           resolution: {
-            resolved_by: currentUser.id,
+            resolved_by: caller.id,
             note: body.note || null,
             resolved_at: new Date().toISOString(),
           },
@@ -1405,10 +1382,8 @@ export const handlers = [
   ),
 
   http.put('*/v1/videos/:id/moderation', async ({ params, request }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1474,10 +1449,8 @@ export const handlers = [
   }),
 
   http.put('*/v1/comments/:id/moderation', async ({ params, request }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1526,10 +1499,8 @@ export const handlers = [
 
   // --- Task U4: Admin Users Management ---
   http.get('*/v1/admin/users', async ({ request }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1565,11 +1536,9 @@ export const handlers = [
     return HttpResponse.json(page);
   }),
 
-  http.get('*/v1/admin/users/:id', async ({ params }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+  http.get('*/v1/admin/users/:id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1596,7 +1565,8 @@ export const handlers = [
   }),
 
   http.put('*/v1/admin/users/:id/roles', async ({ params, request }) => {
-    if (!currentUser || !currentUser.roles.includes('admin')) {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles.includes('admin')) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1608,7 +1578,7 @@ export const handlers = [
       );
     }
     const targetId = params.id as string;
-    if (currentUser.id === targetId) {
+    if (caller.id === targetId) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1679,10 +1649,10 @@ export const handlers = [
     dynamicAuditEntries.unshift({
       id: `audit-${Date.now()}`,
       actor: {
-        id: currentUser.id,
-        handle: currentUser.handle,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
       },
       action: 'USER_ROLES_CHANGED',
       target_user_id: targetId,
@@ -1694,10 +1664,8 @@ export const handlers = [
   }),
 
   http.put('*/v1/admin/users/:id/suspension', async ({ params, request }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1709,7 +1677,7 @@ export const handlers = [
       );
     }
     const targetId = params.id as string;
-    if (currentUser.id === targetId) {
+    if (caller.id === targetId) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1762,7 +1730,7 @@ export const handlers = [
       );
     }
 
-    if (!currentUser.roles.includes('admin') && target.roles.includes('moderator')) {
+    if (!caller.roles.includes('admin') && target.roles.includes('moderator')) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1798,10 +1766,10 @@ export const handlers = [
     dynamicAuditEntries.unshift({
       id: `audit-${Date.now()}`,
       actor: {
-        id: currentUser.id,
-        handle: currentUser.handle,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
       },
       action: 'USER_SUSPENDED',
       target_user_id: targetId,
@@ -1812,11 +1780,9 @@ export const handlers = [
     return HttpResponse.json(dynamicAdminUsers[userIndex]);
   }),
 
-  http.delete('*/v1/admin/users/:id/suspension', async ({ params }) => {
-    if (
-      !currentUser ||
-      (!currentUser.roles.includes('moderator') && !currentUser.roles.includes('admin'))
-    ) {
+  http.delete('*/v1/admin/users/:id/suspension', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1828,7 +1794,7 @@ export const handlers = [
       );
     }
     const targetId = params.id as string;
-    if (currentUser.id === targetId) {
+    if (caller.id === targetId) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1878,7 +1844,7 @@ export const handlers = [
       );
     }
 
-    if (!currentUser.roles.includes('admin') && target.roles.includes('moderator')) {
+    if (!caller.roles.includes('admin') && target.roles.includes('moderator')) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',
@@ -1900,10 +1866,10 @@ export const handlers = [
     dynamicAuditEntries.unshift({
       id: `audit-${Date.now()}`,
       actor: {
-        id: currentUser.id,
-        handle: currentUser.handle,
-        display_name: currentUser.display_name,
-        avatar_url: currentUser.avatar_url,
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
       },
       action: 'USER_UNSUSPENDED',
       target_user_id: targetId,
@@ -1916,7 +1882,8 @@ export const handlers = [
 
   // --- Task U4: Audit Log ---
   http.get('*/v1/admin/audit-log', async ({ request }) => {
-    if (!currentUser || !currentUser.roles.includes('admin')) {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles.includes('admin')) {
       return HttpResponse.json(
         {
           type: '/problems/forbidden',

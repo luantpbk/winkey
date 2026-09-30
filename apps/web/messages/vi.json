@@ -282,6 +282,19 @@
       "reason": "Lý do: {reason}",
       "until": "Hạn: {until}",
       "loadMore": "Xem thêm nhật ký"
+    },
+    "errors": {
+      "fetchUsers": "Không thể tải danh sách người dùng.",
+      "fetchUsersNetwork": "Lỗi kết nối mạng khi tải danh sách người dùng.",
+      "suspendUser": "Không thể khóa tài khoản người dùng.",
+      "unsuspendUser": "Không thể mở khóa tài khoản người dùng.",
+      "updateRoles": "Không thể cập nhật vai trò người dùng.",
+      "fetchQueue": "Không thể tải hàng đợi báo cáo.",
+      "fetchQueueNetwork": "Lỗi kết nối mạng khi tải hàng đợi báo cáo.",
+      "updateVideoState": "Không thể cập nhật trạng thái kiểm duyệt video.",
+      "updateCommentState": "Không thể cập nhật trạng thái kiểm duyệt bình luận.",
+      "resolveCase": "Không thể đóng case kiểm duyệt.",
+      "actionReasonRequired": "Lý do xử lý là bắt buộc khi ẩn video."
     }
   }
 }

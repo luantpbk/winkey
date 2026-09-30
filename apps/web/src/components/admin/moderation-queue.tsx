@@ -44,6 +44,7 @@ interface ModerationModalState {
 export function ModerationQueue() {
   const t = useTranslations('admin.queue');
   const tReports = useTranslations('reports');
+  const tErrors = useTranslations('admin.errors');
 
   const [cases, setCases] = useState<ModerationCase[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -107,13 +108,13 @@ export function ModerationQueue() {
         });
 
         if (apiError || !data) {
-          setError('Failed to fetch moderation queue.');
+          setError(tErrors('fetchQueue'));
         } else {
           setCases((prev) => (append ? [...prev, ...data.items] : data.items));
           setNextCursor(data.next_cursor);
         }
       } catch {
-        setError('Network error loading moderation queue.');
+        setError(tErrors('fetchQueueNetwork'));
       } finally {
         setIsLoading(false);
         setIsLoadingMore(false);
@@ -180,7 +181,7 @@ export function ModerationQueue() {
 
       if (videoError) {
         const problem = videoError as { detail?: string } | undefined;
-        throw new Error(problem?.detail || 'Failed to update video moderation state.');
+        throw new Error(problem?.detail || tErrors('updateVideoState'));
       }
       return true;
     }
@@ -195,7 +196,7 @@ export function ModerationQueue() {
 
       if (commentError) {
         const problem = commentError as { detail?: string } | undefined;
-        throw new Error(problem?.detail || 'Failed to update comment moderation state.');
+        throw new Error(problem?.detail || tErrors('updateCommentState'));
       }
       return true;
     }
@@ -223,7 +224,7 @@ export function ModerationQueue() {
 
     if (resolveError) {
       const problem = resolveError as { detail?: string } | undefined;
-      throw new Error(problem?.detail || 'Failed to resolve moderation case.');
+      throw new Error(problem?.detail || tErrors('resolveCase'));
     }
   };
 
@@ -239,7 +240,7 @@ export function ModerationQueue() {
     ) {
       setModalState((prev) => ({
         ...prev,
-        errorMessage: 'Action reason is required when hiding a video.',
+        errorMessage: tErrors('actionReasonRequired'),
       }));
       return;
     }

@@ -60,14 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setUser(data.user);
-        if (typeof document !== 'undefined') {
-          const role = data.user.roles.includes('admin')
-            ? 'admin'
-            : data.user.roles.includes('moderator')
-              ? 'moderator'
-              : 'creator';
-          document.cookie = `wk_mock_role=${role}; path=/; max-age=86400; SameSite=Lax`;
-        }
         return { success: true };
       }
 
@@ -100,9 +92,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setUser(data.user);
-        if (typeof document !== 'undefined') {
-          document.cookie = 'wk_mock_role=creator; path=/; max-age=86400; SameSite=Lax';
-        }
         return { success: true };
       }
 
@@ -131,9 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       tokenStore.clear();
       setUser(null);
-      if (typeof document !== 'undefined') {
-        document.cookie = 'wk_mock_role=; path=/; max-age=0; SameSite=Lax';
-      }
     }
   };
 

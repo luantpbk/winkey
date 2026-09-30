@@ -365,9 +365,14 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       page.locator('main button[type="submit"]').click(),
     ]);
     expect(loginRes.status()).toBe(200);
-    await page
-      .context()
-      .addCookies([{ name: 'wk_mock_role', value: 'moderator', domain: 'localhost', path: '/' }]);
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c04',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
 
     // 2. Navigate to /admin
     await page.goto('/admin');
@@ -411,9 +416,14 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       page.locator('main button[type="submit"]').click(),
     ]);
     expect(adminLoginRes.status()).toBe(200);
-    await page
-      .context()
-      .addCookies([{ name: 'wk_mock_role', value: 'admin', domain: 'localhost', path: '/' }]);
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
 
     // 2. Navigate to /admin
     await page.goto('/admin');

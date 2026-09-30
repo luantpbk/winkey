@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { notFound } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdminPage from '../src/app/[locale]/admin/page';
@@ -12,6 +12,12 @@ import StudioPage from '../src/app/[locale]/studio/page';
 import { api } from '../src/lib/api-client';
 import type { AdminUser, ModerationCase, AuditEntry, StudioVideo } from '@winkey/api-client';
 import enMessages from '../messages/en.json';
+import viMessages from '../messages/vi.json';
+
+let activeLocale: 'en' | 'vi' = 'en';
+export function setTestLocale(locale: 'en' | 'vi') {
+  activeLocale = locale;
+}
 
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
@@ -33,33 +39,55 @@ vi.mock('../src/lib/realtime/realtime-context', () => ({
   RealtimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// Mock next-intl dynamically using en.json
+// Mock next-intl dynamically using en.json / vi.json
+const translatorMap = new Map<string, (key: string, values?: Record<string, unknown>) => string>();
 vi.mock('next-intl', () => ({
-  useTranslations: (namespace?: string) => (key: string, values?: Record<string, unknown>) => {
-    // Handle parameterized / plural keys
-    if (key === 'openCount') return `${values?.count} open reports`;
-    if (key === 'firstReported') return `First reported: ${values?.time}`;
-    if (key === 'suspendedUntil') return `Suspended until: ${values?.date}`;
-    if (key === 'suspensionReason') return `Reason: ${values?.reason}`;
-    if (key === 'rolesFromTo') return `Roles: [${values?.from}] -> [${values?.to}]`;
-    if (key === 'hiddenByModerator') return `Hidden by a moderator: ${values?.reason}`;
-    if (key === 'reason' && namespace === 'admin.audit') return `Reason: ${values?.reason}`;
-    if (key === 'until' && namespace === 'admin.audit') return `Until: ${values?.until}`;
+  useTranslations: (namespace?: string) => {
+    const nsKey = namespace ?? '';
+    let fn = translatorMap.get(nsKey);
+    if (!fn) {
+      fn = (key: string, values?: Record<string, unknown>) => {
+        const isVi = activeLocale === 'vi';
+        // Handle parameterized / plural keys
+        if (key === 'openCount')
+          return isVi ? `${values?.count} báo cáo mở` : `${values?.count} open reports`;
+        if (key === 'firstReported')
+          return isVi ? `Báo cáo đầu tiên: ${values?.time}` : `First reported: ${values?.time}`;
+        if (key === 'suspendedUntil')
+          return isVi ? `Khóa đến: ${values?.date}` : `Suspended until: ${values?.date}`;
+        if (key === 'suspensionReason')
+          return isVi ? `Lý do: ${values?.reason}` : `Reason: ${values?.reason}`;
+        if (key === 'rolesFromTo')
+          return isVi
+            ? `Vai trò: [${values?.from}] -> [${values?.to}]`
+            : `Roles: [${values?.from}] -> [${values?.to}]`;
+        if (key === 'hiddenByModerator')
+          return isVi
+            ? `Bị ẩn bởi kiểm duyệt viên: ${values?.reason}`
+            : `Hidden by a moderator: ${values?.reason}`;
+        if (key === 'reason' && namespace === 'admin.audit')
+          return isVi ? `Lý do: ${values?.reason}` : `Reason: ${values?.reason}`;
+        if (key === 'until' && namespace === 'admin.audit')
+          return isVi ? `Hạn: ${values?.until}` : `Until: ${values?.until}`;
 
-    const fullPath = namespace ? `${namespace}.${key}` : key;
-    const parts = fullPath.split('.');
-    let cur: unknown = enMessages;
-    for (const p of parts) {
-      if (cur && typeof cur === 'object' && p in cur) {
-        cur = (cur as Record<string, unknown>)[p];
-      } else {
+        const fullPath = namespace ? `${namespace}.${key}` : key;
+        const parts = fullPath.split('.');
+        let cur: unknown = isVi ? viMessages : enMessages;
+        for (const p of parts) {
+          if (cur && typeof cur === 'object' && p in cur) {
+            cur = (cur as Record<string, unknown>)[p];
+          } else {
+            return key;
+          }
+        }
+        if (typeof cur === 'string') {
+          return cur;
+        }
         return key;
-      }
+      };
+      translatorMap.set(nsKey, fn);
     }
-    if (typeof cur === 'string') {
-      return cur;
-    }
-    return key;
+    return fn;
   },
 }));
 
@@ -117,6 +145,7 @@ describe('Admin & Moderation UI (Task U4)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockPush.mockReset();
+    activeLocale = 'en';
     mockUser = {
       id: 'admin-id-123',
       display_name: 'Admin User',
@@ -128,6 +157,7 @@ describe('Admin & Moderation UI (Task U4)', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -599,7 +629,8 @@ describe('Admin & Moderation UI (Task U4)', () => {
       fireEvent.click(screen.getByText('Unsuspend'));
       expect(screen.getByText('Are you sure you want to unsuspend this user?')).toBeDefined();
 
-      fireEvent.click(screen.getAllByRole('button', { name: 'Unsuspend' })[1]);
+      const modal = screen.getByRole('dialog');
+      fireEvent.click(within(modal).getByRole('button', { name: 'Unsuspend' }));
 
       await waitFor(() => {
         expect(unsuspendSpy).toHaveBeenCalledWith('/v1/admin/users/{user_id}/suspension', {
@@ -732,6 +763,108 @@ describe('Admin & Moderation UI (Task U4)', () => {
           screen.getByText('Cannot remove the Admin role from the last system Administrator.'),
         ).toBeDefined();
       });
+    });
+
+    it('displays Vietnamese error message on network failure when locale is vi', async () => {
+      setTestLocale('vi');
+      vi.spyOn(api.auth, 'GET').mockRejectedValueOnce(new Error('Network error'));
+
+      render(<UserManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Lỗi kết nối mạng khi tải danh sách người dùng.')).toBeDefined();
+      });
+    });
+
+    it('ignores stale search query responses (ab delayed, abc resolves first)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      let resolveAB!: (val: Awaited<ReturnType<typeof api.auth.GET>>) => void;
+      const promiseAB = new Promise<Awaited<ReturnType<typeof api.auth.GET>>>((resolve) => {
+        resolveAB = resolve;
+      });
+
+      const userABC: AdminUser = {
+        ...mockTargetUser,
+        id: 'user-abc',
+        display_name: 'Result for ABC',
+      };
+
+      const getSpy = vi.spyOn(api.auth, 'GET').mockImplementation(async (path, init) => {
+        const query = (init as { params?: { query?: { q?: string } } } | undefined)?.params?.query;
+        if (query?.q === 'ab') {
+          return promiseAB;
+        }
+        if (query?.q === 'abc') {
+          return {
+            data: { items: [userABC], next_cursor: null },
+            error: undefined,
+            response: { status: 200 } as Response,
+          };
+        }
+        return {
+          data: { items: [mockTargetUser], next_cursor: null },
+          error: undefined,
+          response: { status: 200 } as Response,
+        };
+      });
+
+      render(<UserManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Target Creator')).toBeDefined();
+      });
+
+      const searchInput = screen.getByPlaceholderText(
+        'Search by email, @handle, or display name...',
+      );
+
+      // 1. Type "ab" - delayed response
+      act(() => {
+        fireEvent.change(searchInput, { target: { value: 'ab' } });
+      });
+
+      // Advance debounce timer (300ms) to trigger "ab" request
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+
+      expect(getSpy).toHaveBeenCalledWith('/v1/admin/users', {
+        params: { query: { limit: 20, q: 'ab' } },
+      });
+
+      // 2. Type "abc" - resolves immediately
+      act(() => {
+        fireEvent.change(searchInput, { target: { value: 'abc' } });
+      });
+
+      // Advance debounce timer (300ms) to trigger "abc" request
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(350);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Result for ABC')).toBeDefined();
+      });
+
+      // 3. Now resolve "ab" request with stale data
+      const userAB: AdminUser = {
+        ...mockTargetUser,
+        id: 'user-ab',
+        display_name: 'Result for AB',
+      };
+      await act(async () => {
+        resolveAB({
+          data: { items: [userAB], next_cursor: null },
+          error: undefined,
+          response: { status: 200 } as Response,
+        });
+        await vi.advanceTimersByTimeAsync(50);
+      });
+
+      // Assert that "Result for ABC" remains and "Result for AB" was ignored
+      expect(screen.getByText('Result for ABC')).toBeDefined();
+      expect(screen.queryByText('Result for AB')).toBeNull();
     });
   });
 

@@ -282,6 +282,19 @@
       "reason": "Reason: {reason}",
       "until": "Until: {until}",
       "loadMore": "Load more entries"
+    },
+    "errors": {
+      "fetchUsers": "Failed to fetch users.",
+      "fetchUsersNetwork": "Network error loading users.",
+      "suspendUser": "Failed to suspend user.",
+      "unsuspendUser": "Failed to unsuspend user.",
+      "updateRoles": "Failed to update roles.",
+      "fetchQueue": "Failed to fetch moderation queue.",
+      "fetchQueueNetwork": "Network error loading moderation queue.",
+      "updateVideoState": "Failed to update video moderation state.",
+      "updateCommentState": "Failed to update comment moderation state.",
+      "resolveCase": "Failed to resolve moderation case.",
+      "actionReasonRequired": "Action reason is required when hiding a video."
     }
   }
 }

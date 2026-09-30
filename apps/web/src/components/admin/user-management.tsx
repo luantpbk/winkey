@@ -22,9 +22,25 @@ import type { AdminUser, Role, UserStatus, Problem } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
 
+function toLocalInputValue(dateInput: string | Date): string {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export function UserManagement() {
   const t = useTranslations('admin.users');
+  const tErrors = useTranslations('admin.errors');
+  const tErrorsRef = useRef(tErrors);
+  tErrorsRef.current = tErrors;
   const { user: currentUser, isAdmin, isModerator } = useAuth();
+  const requestIdRef = useRef(0);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -100,12 +116,13 @@ export function UserManagement() {
 
   const fetchUsers = useCallback(
     async (cursor?: string | null, append = false) => {
+      const requestId = ++requestIdRef.current;
       if (append) {
         setIsLoadingMore(true);
       } else {
         setIsLoading(true);
+        setError(null);
       }
-      setError(null);
 
       try {
         const queryParams: {
@@ -135,17 +152,25 @@ export function UserManagement() {
           params: { query: queryParams },
         });
 
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+
         if (apiError || !data) {
-          setError('Failed to fetch users.');
+          setError(tErrorsRef.current('fetchUsers'));
         } else {
           setUsers((prev) => (append ? [...prev, ...data.items] : data.items));
           setNextCursor(data.next_cursor);
         }
       } catch {
-        setError('Network error loading users.');
+        if (requestId === requestIdRef.current) {
+          setError(tErrorsRef.current('fetchUsersNetwork'));
+        }
       } finally {
-        setIsLoading(false);
-        setIsLoadingMore(false);
+        if (requestId === requestIdRef.current) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
       }
     },
     [debouncedQuery, roleFilter, statusFilter],
@@ -208,9 +233,7 @@ export function UserManagement() {
       targetUser: user,
       reason: user.suspension_reason || '',
       isIndefinite: !user.suspended_until,
-      untilLocal: user.suspended_until
-        ? new Date(user.suspended_until).toISOString().slice(0, 16)
-        : '',
+      untilLocal: user.suspended_until ? toLocalInputValue(user.suspended_until) : '',
       isSubmitting: false,
       error: null,
       success: null,
@@ -263,7 +286,7 @@ export function UserManagement() {
         setSuspendModal((prev) => ({
           ...prev,
           isSubmitting: false,
-          error: mapProblemError(apiError, 'Failed to suspend user.'),
+          error: mapProblemError(apiError, tErrors('suspendUser')),
         }));
       } else {
         setSuspendModal((prev) => ({
@@ -280,7 +303,7 @@ export function UserManagement() {
       setSuspendModal((prev) => ({
         ...prev,
         isSubmitting: false,
-        error: mapProblemError(err, 'Failed to suspend user.'),
+        error: mapProblemError(err, tErrors('suspendUser')),
       }));
     }
   };
@@ -316,7 +339,7 @@ export function UserManagement() {
         setUnsuspendConfirm((prev) => ({
           ...prev,
           isSubmitting: false,
-          error: mapProblemError(apiError, 'Failed to unsuspend user.'),
+          error: mapProblemError(apiError, tErrors('unsuspendUser')),
         }));
       } else {
         setUnsuspendConfirm({
@@ -331,7 +354,7 @@ export function UserManagement() {
       setUnsuspendConfirm((prev) => ({
         ...prev,
         isSubmitting: false,
-        error: mapProblemError(err, 'Failed to unsuspend user.'),
+        error: mapProblemError(err, tErrors('unsuspendUser')),
       }));
     }
   };
@@ -389,7 +412,7 @@ export function UserManagement() {
         setRolesModal((prev) => ({
           ...prev,
           isSubmitting: false,
-          error: mapProblemError(apiError, 'Failed to update roles.'),
+          error: mapProblemError(apiError, tErrors('updateRoles')),
         }));
       } else {
         setRolesModal((prev) => ({
@@ -406,7 +429,7 @@ export function UserManagement() {
       setRolesModal((prev) => ({
         ...prev,
         isSubmitting: false,
-        error: mapProblemError(err, 'Failed to update roles.'),
+        error: mapProblemError(err, tErrors('updateRoles')),
       }));
     }
   };
