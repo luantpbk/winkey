@@ -154,5 +154,19 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - **social-svc giữ báo cáo và hàng đợi** (`social.reports`, `/v1/reports`, `/v1/moderation/*`). Đóng một case chỉ ghi quyết định; hành động thật gọi endpoint của service sở hữu. Không có saga hay lệnh phân tán: giao diện moderator gọi hai request nối tiếp (hành động, rồi đóng case).
 - Phân quyền chỉ dựa vào `X-User-Roles` từ gateway (ADR-009). `moderator` xử lý viewer/creator và nội dung; chỉ `admin` đổi role, khóa `moderator` và đọc audit log. Không ai khóa được `admin` hoặc chính mình.
 - Role và trạng thái khóa lan tới service khác qua access token, nên **có hiệu lực trong ≤ 15 phút** (TTL access token). Khóa tài khoản thu hồi mọi refresh token ngay lập tức. Không thêm lần kiểm tra DB vào `verify` (vẫn stateless).
-- Video bị ẩn được đối xử như `PRIVATE` với người ngoài; object media không bị xóa. Chặn tải media bằng signed cookie để dành cho SEC1.
+- Video bị ẩn được đối xử như `PRIVATE` với người ngoài; object media không bị xóa. Việc chặn tải media thuộc SEC1, thiết kế ở ADR-017 (URL ký, không dùng cookie).
 **Hệ quả.** Không có bảng tổng hợp chung, nên audit của video và comment nằm ở cột `moderated_by/at` của từng bảng thay vì `auth.audit_log`. Người dùng bị khóa vẫn gọi được API tối đa 15 phút. Chấp nhận được ở P2; nếu cần chặn tức thì thì thêm denylist `sid` trong Valkey cho `verify` (việc sau).
+
+### ADR-017 — Chặn tải media của video không công khai (SEC1)
+**Bối cảnh.** Media được phục vụ qua `media.winkey.vn` (nginx host → Traefik → Garage web, ADR-014) mà không kiểm tra quyền. Ai biết URL (`/v/{video_id}/a{n}/hls/…`) vẫn tải được HLS của video `PRIVATE`, video bị ẩn (`HIDDEN`, ADR-016) hoặc video của tài khoản bị khóa/xóa. ID là UUIDv7 nên khó đoán, nhưng URL lộ ra (lịch sử trình duyệt, chia sẻ khi còn public) là đủ.
+**Quyết định.** Hai đường vào, cả hai do nginx trên host kiểm tra:
+- **Đường thường `/v/{video_id}/…`**: nginx gọi `auth_request` tới video-svc `GET /internal/media-access/{video_id}`. video-svc trả `204` khi video `READY` + `PUBLIC` hoặc `UNLISTED` + `moderation_state = VISIBLE` + chủ sở hữu còn trong `auth.public_profiles`; ngược lại trả `403`. nginx cache kết quả **30 giây theo `video_id`**, nên chi phí là 1 truy vấn / video / 30 s, không phải 1 truy vấn / segment. `auth_request` chạy trước khi đọc `proxy_cache`, nên segment đã cache cũng bị chặn ngay khi kết quả hết hạn.
+- **Đường ký `/s/{expires}/{sig}/v/{video_id}/…`**: dành cho người được xem video không công khai (chủ sở hữu, moderator, admin). video-svc trả `hls_url`/`thumbnail_url` đã ký trong `Playback`. nginx kiểm bằng `secure_link` (`sig` = base64url không padding của `md5("{expires}/v/{video_id}/ {MEDIA_LINK_SECRET}")`, `expires` = Unix giây, TTL 6 giờ), rồi bỏ tiền tố và phục vụ như đường thường nhưng **không** gọi `auth_request`. Playlist HLS dùng đường dẫn tương đối nên mọi variant/segment tự mang tiền tố ký.
+- Không dùng cookie: tránh CORS có credentials cho hls.js và cookie chéo subdomain.
+- `MEDIA_LINK_SECRET` (≥ 32 byte ngẫu nhiên) chỉ nằm ở hai nơi: Secret của video-svc và file cấu hình nginx do Ansible sinh (vault / biến môi trường, không vào git).
+- Endpoint `/internal/*` của video-svc **không được route public**. nginx gọi nó qua Traefik bằng Host nội bộ `media-auth.internal`, mà mọi vhost public đều ghi đè `Host`, nên client không chạm tới được.
+**Hệ quả.**
+- Chuyển video sang `PRIVATE` / `HIDDEN` chặn tải media trong ≤ 30 s, không cần xóa hay di chuyển object, không cần purge cache.
+- Link ký là **link chia sẻ được trong 6 giờ** (gắn với video, không gắn với người dùng). Chấp nhận được cho người xem có quyền; giảm TTL nếu cần.
+- `secure_link` của nginx chỉ hỗ trợ MD5; an toàn đủ dùng vì bí mật đứng cuối chuỗi và có hạn dùng. Nếu cần HMAC thật thì chuyển sang njs (việc sau).
+- Video-svc thêm một endpoint nóng; nó phải rẻ (1 truy vấn theo khóa chính, không log từng request ở mức info).
