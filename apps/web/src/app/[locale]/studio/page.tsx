@@ -174,6 +174,22 @@ export default function StudioPage() {
   };
 
   const renderStatusBadge = (video: StudioVideo) => {
+    if (video.moderation?.state === 'HIDDEN') {
+      return (
+        <div className="flex flex-col gap-1 max-w-xs">
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 border border-red-500/30 px-2.5 py-0.5 text-xs font-semibold text-red-400">
+            <AlertCircle className="h-3 w-3" />
+            {t('status.HIDDEN')}
+          </span>
+          {video.moderation.reason && (
+            <span className="text-[11px] text-red-400/90 leading-tight">
+              {t('hiddenByModerator', { reason: video.moderation.reason })}
+            </span>
+          )}
+        </div>
+      );
+    }
+
     switch (video.status) {
       case 'READY':
         return (
@@ -368,7 +384,7 @@ export default function StudioPage() {
                   {/* Actions */}
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      {video.status === 'READY' && (
+                      {video.status === 'READY' && video.moderation?.state !== 'HIDDEN' && (
                         <Link
                           href={`/watch/${video.id}`}
                           className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"

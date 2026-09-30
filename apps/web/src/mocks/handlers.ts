@@ -16,12 +16,84 @@ import type {
   SubscriptionState,
   CreateCommentRequest,
   EditCommentRequest,
+  AdminUser,
+  AdminUserPage,
+  ModerationCase,
+  ModerationCasePage,
+  AuditEntry,
+  AuditEntryPage,
+  ReportReceipt,
+  ResolveCaseResult,
+  Role,
+  UserStatus,
+  ReportTargetType,
+  ReportReason,
+  ReportStatus,
+  UpdateMeRequest,
+  ChangePasswordRequest,
+  DeleteMeRequest,
 } from '@winkey/api-client';
-import { mockUsers, mockPublicProfiles, mockVideos, mockStudioVideos } from './fixtures';
+import {
+  mockUsers,
+  mockPublicProfiles,
+  mockVideos,
+  mockStudioVideos,
+  mockAdminUsers,
+  mockModerationCases,
+  mockAuditEntries,
+} from './fixtures';
 
 let currentUser: User | null = mockUsers.creator;
 let dynamicVideos: Video[] = [...mockVideos];
 let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
+let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
+let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
+let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+export function setMockCurrentUser(user: User | null) {
+  currentUser = user;
+}
+export function getMockCurrentUser(): User | null {
+  return currentUser;
+}
+export function callerFromRequest(request: Request): User | null {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    for (const u of Object.values(mockUsers)) {
+      if (token.includes(u.id)) {
+        return u;
+      }
+    }
+  }
+  return currentUser;
+}
+export function setDynamicAdminUsers(users: AdminUser[]) {
+  dynamicAdminUsers = [...users];
+}
+export function getDynamicAdminUsers(): AdminUser[] {
+  return dynamicAdminUsers;
+}
+export function setDynamicModerationCases(cases: ModerationCase[]) {
+  dynamicModerationCases = [...cases];
+}
+export function getDynamicModerationCases(): ModerationCase[] {
+  return dynamicModerationCases;
+}
+export function setDynamicAuditEntries(entries: AuditEntry[]) {
+  dynamicAuditEntries = [...entries];
+}
+export function getDynamicAuditEntries(): AuditEntry[] {
+  return dynamicAuditEntries;
+}
+export function resetModerationMocks() {
+  currentUser = mockUsers.creator;
+  dynamicVideos = [...mockVideos];
+  dynamicStudioVideos = [...mockStudioVideos];
+  dynamicAdminUsers = [...mockAdminUsers];
+  dynamicModerationCases = [...mockModerationCases];
+  dynamicAuditEntries = [...mockAuditEntries];
+}
 
 const initialMockComments: Comment[] = [
   {
@@ -308,7 +380,7 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/login', async ({ request }) => {
-    const body = (await request.json()) as any;
+    const body = (await request.json()) as { email?: string; password?: string };
     if (body.password === 'wrongpassword') {
       const problem: Problem = {
         type: '/problems/unauthorized',
@@ -320,10 +392,17 @@ export const handlers = [
       return HttpResponse.json(problem, { status: 401 });
     }
 
-    currentUser = mockUsers.creator;
+    if (body.email === 'admin@winkey.vn') {
+      currentUser = mockUsers.admin;
+    } else if (body.email === 'mod@winkey.vn' || body.email === 'moderator@winkey.vn') {
+      currentUser = mockUsers.moderator;
+    } else {
+      currentUser = mockUsers.creator;
+    }
+
     return HttpResponse.json(
       {
-        access_token: `mock_jwt_token_${currentUser.id}`,
+        access_token: `mock-access-${currentUser.id}`,
         token_type: 'Bearer',
         expires_in: 900,
         user: currentUser,
@@ -331,19 +410,27 @@ export const handlers = [
       {
         status: 200,
         headers: {
-          'Set-Cookie': 'wk_rt=mock_refresh_token; HttpOnly; Path=/v1/auth; SameSite=Strict',
+          'Set-Cookie': `wk_rt=mock-refresh-${currentUser.id}; HttpOnly; Path=/; SameSite=Lax`,
         },
       },
     );
   }),
 
-  http.post('*/v1/auth/refresh', async () => {
+  http.post('*/v1/auth/refresh', async ({ cookies, request }) => {
     if (!currentUser) {
-      // Default to logged-in creator for smooth development experience
-      currentUser = mockUsers.creator;
+      return new HttpResponse(null, { status: 401 });
     }
+    const cookieHeader = request.headers.get('cookie') || '';
+    const rt = cookies.wk_rt || cookieHeader;
+    for (const u of Object.values(mockUsers)) {
+      if (rt && rt.includes(u.id)) {
+        currentUser = u;
+        break;
+      }
+    }
+
     return HttpResponse.json({
-      access_token: `mock_jwt_token_refreshed_${currentUser.id}`,
+      access_token: `mock-access-${currentUser.id}`,
       token_type: 'Bearer',
       expires_in: 900,
       user: currentUser,
@@ -355,13 +442,14 @@ export const handlers = [
     return new HttpResponse(null, {
       status: 204,
       headers: {
-        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/v1/auth; Max-Age=0',
+        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
       },
     });
   }),
 
-  http.get('*/v1/auth/me', async () => {
-    if (!currentUser) {
+  http.get('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
       return HttpResponse.json(
         {
           type: '/problems/unauthorized',
@@ -372,7 +460,263 @@ export const handlers = [
         { status: 401 },
       );
     }
-    return HttpResponse.json(currentUser);
+    return HttpResponse.json(caller);
+  }),
+
+  http.patch('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as UpdateMeRequest;
+    if (!body || (body.display_name === undefined && body.handle === undefined)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'At least one field is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (body.display_name !== undefined) {
+      if (body.display_name.trim().length === 0 || body.display_name.length > 50) {
+        return HttpResponse.json(
+          {
+            type: '/problems/bad-request',
+            title: 'Validation Error',
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            errors: [{ field: 'display_name', message: 'Tên hiển thị phải từ 1 đến 50 ký tự' }],
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.handle !== undefined) {
+      const handleRegex = /^[A-Za-z0-9_.]{3,30}$/;
+      if (!handleRegex.test(body.handle)) {
+        return HttpResponse.json(
+          {
+            type: '/problems/bad-request',
+            title: 'Validation Error',
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            errors: [
+              {
+                field: 'handle',
+                message: 'Handle chỉ gồm chữ, số, dấu chấm hoặc gạch dưới (3-30 ký tự)',
+              },
+            ],
+          },
+          { status: 400 },
+        );
+      }
+
+      // Check handle collision (case-insensitive) across mock users
+      const lower = body.handle.toLowerCase();
+      const collision = Object.values(mockUsers).find(
+        (u) => u.id !== caller.id && u.handle.toLowerCase() === lower,
+      );
+      if (collision) {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Handle already taken',
+            status: 409,
+            code: 'HANDLE_TAKEN',
+            detail: 'This handle is already taken by another account.',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    const updatedUser: User = {
+      ...caller,
+      ...(body.display_name !== undefined ? { display_name: body.display_name.trim() } : {}),
+      ...(body.handle !== undefined ? { handle: body.handle } : {}),
+    };
+
+    // Update in mock fixtures
+    for (const key of Object.keys(mockUsers)) {
+      if (mockUsers[key].id === caller.id) {
+        mockUsers[key] = updatedUser;
+      }
+    }
+    const adminIdx = dynamicAdminUsers.findIndex((u) => u.id === caller.id);
+    if (adminIdx !== -1) {
+      dynamicAdminUsers[adminIdx] = {
+        ...dynamicAdminUsers[adminIdx],
+        display_name: updatedUser.display_name,
+        handle: updatedUser.handle,
+      };
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = updatedUser;
+    }
+
+    return HttpResponse.json(updatedUser);
+  }),
+
+  http.put('*/v1/auth/me/password', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as ChangePasswordRequest;
+    if (
+      !body ||
+      !body.new_password ||
+      body.new_password.length < 8 ||
+      body.new_password.length > 128
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Validation Error',
+          status: 400,
+          code: 'VALIDATION_ERROR',
+          errors: [{ field: 'new_password', message: 'Mật khẩu phải từ 8 đến 128 ký tự' }],
+        },
+        { status: 400 },
+      );
+    }
+
+    if (caller.has_password) {
+      if (!body.current_password || body.current_password === 'wrongpassword') {
+        return HttpResponse.json(
+          {
+            type: '/problems/forbidden',
+            title: 'Invalid credentials',
+            status: 403,
+            code: 'INVALID_CREDENTIALS',
+            detail: 'Current password does not match.',
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // Update caller has_password
+    const updatedUser: User = {
+      ...caller,
+      has_password: true,
+    };
+    for (const key of Object.keys(mockUsers)) {
+      if (mockUsers[key].id === caller.id) {
+        mockUsers[key] = updatedUser;
+      }
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = updatedUser;
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/v1/auth/me', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const body = (await request.json()) as DeleteMeRequest;
+    if (!body.confirm_handle || body.confirm_handle.toLowerCase() !== caller.handle.toLowerCase()) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Confirmation mismatch',
+          status: 400,
+          code: 'CONFIRMATION_MISMATCH',
+          detail: 'Confirm handle does not match your current handle.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (caller.has_password) {
+      if (!body.password || body.password === 'wrongpassword') {
+        return HttpResponse.json(
+          {
+            type: '/problems/forbidden',
+            title: 'Invalid credentials',
+            status: 403,
+            code: 'INVALID_CREDENTIALS',
+            detail: 'Password does not match.',
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    // Check last admin
+    if (caller.roles.includes('admin')) {
+      const activeAdmins = dynamicAdminUsers.filter(
+        (u) => u.roles.includes('admin') && u.status !== 'DELETED',
+      );
+      if (activeAdmins.length <= 1) {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Last admin',
+            status: 409,
+            code: 'LAST_ADMIN',
+            detail: 'You are the last admin; give the admin role to someone else first.',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Soft delete
+    const adminIdx = dynamicAdminUsers.findIndex((u) => u.id === caller.id);
+    if (adminIdx !== -1) {
+      dynamicAdminUsers[adminIdx] = {
+        ...dynamicAdminUsers[adminIdx],
+        status: 'DELETED',
+      };
+    }
+    if (currentUser?.id === caller.id) {
+      currentUser = null;
+    }
+
+    return new HttpResponse(null, {
+      status: 204,
+      headers: {
+        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
+      },
+    });
   }),
 
   http.get('*/v1/users/:handle', async ({ params }) => {
@@ -1149,5 +1493,675 @@ export const handlers = [
       },
       { status: 201, headers: { 'Cache-Control': 'no-store' } },
     );
+  }),
+
+  // --- Task U4: Reporting ---
+  http.post('*/v1/reports', async ({ request }) => {
+    if (!currentUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const body = (await request.json()) as {
+      target_type: ReportTargetType;
+      target_id: string;
+      reason: ReportReason;
+      note?: string;
+    };
+
+    // Check self-reporting
+    const isSelfVideo =
+      body.target_type === 'VIDEO' &&
+      dynamicVideos.find((v) => v.id === body.target_id)?.owner.id === currentUser.id;
+    const isSelfComment =
+      body.target_type === 'COMMENT' &&
+      dynamicComments.find((c) => c.id === body.target_id)?.author?.id === currentUser.id;
+    const isSelfUser = body.target_type === 'USER' && body.target_id === currentUser.id;
+
+    if (isSelfVideo || isSelfComment || isSelfUser) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Cannot report self',
+          status: 400,
+          code: 'CANNOT_REPORT_SELF',
+          detail: 'You cannot report your own content.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      body.target_id === 'already-reported-target-id' ||
+      body.note?.includes('already-reported')
+    ) {
+      const receipt: ReportReceipt = {
+        id: '0192f5e4-already-reported-id',
+        created_at: '2026-09-28T10:00:00Z',
+      };
+      return HttpResponse.json(receipt, { status: 200 });
+    }
+
+    const receipt: ReportReceipt = {
+      id: `mock-report-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+    return HttpResponse.json(receipt, { status: 201 });
+  }),
+
+  // --- Task U4: Moderation Queue ---
+  http.get('*/v1/moderation/reports', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const statusParam = url.searchParams.get('status') as ReportStatus | null;
+    const targetTypeParam = url.searchParams.get('target_type');
+
+    let items = [...dynamicModerationCases];
+    if (statusParam) {
+      items = items.filter((c) => c.status === statusParam);
+    }
+    if (targetTypeParam && targetTypeParam !== 'ALL') {
+      items = items.filter((c) => c.target_type === targetTypeParam);
+    }
+
+    const page: ModerationCasePage = {
+      items,
+      next_cursor: null,
+    };
+    return HttpResponse.json(page);
+  }),
+
+  http.put(
+    '*/v1/moderation/cases/:target_type/:target_id/resolution',
+    async ({ params, request }) => {
+      const caller = callerFromRequest(request);
+      if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+        return HttpResponse.json(
+          {
+            type: '/problems/forbidden',
+            title: 'Forbidden',
+            status: 403,
+            code: 'FORBIDDEN',
+          },
+          { status: 403 },
+        );
+      }
+      const targetType = params.target_type as ReportTargetType;
+      const targetId = params.target_id as string;
+      const body = (await request.json()) as { status: 'ACTIONED' | 'DISMISSED'; note?: string };
+
+      if (targetId === 'fail-resolution-id') {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Case resolution failed',
+            status: 409,
+            code: 'RESOLUTION_ERROR',
+            detail: 'Database error closing case.',
+          },
+          { status: 409 },
+        );
+      }
+
+      const caseIndex = dynamicModerationCases.findIndex(
+        (c) => c.target_type === targetType && c.target_id === targetId,
+      );
+      if (caseIndex !== -1) {
+        dynamicModerationCases[caseIndex] = {
+          ...dynamicModerationCases[caseIndex],
+          status: body.status,
+          resolution: {
+            resolved_by: caller.id,
+            note: body.note || null,
+            resolved_at: new Date().toISOString(),
+          },
+        };
+      }
+
+      const result: ResolveCaseResult = { resolved_count: 1 };
+      return HttpResponse.json(result);
+    },
+  ),
+
+  http.put('*/v1/videos/:id/moderation', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const videoId = params.id as string;
+    const body = (await request.json()) as { state: 'VISIBLE' | 'HIDDEN'; reason?: string };
+
+    if (body.state === 'HIDDEN' && !body.reason) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Reason required',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Reason is required when hiding video.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const videoIndex = dynamicVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Video not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    dynamicVideos[videoIndex] = {
+      ...dynamicVideos[videoIndex],
+      moderation: {
+        state: body.state,
+        reason: body.state === 'HIDDEN' ? body.reason || null : null,
+        moderated_at: new Date().toISOString(),
+      },
+      visibility: body.state === 'HIDDEN' ? 'PRIVATE' : dynamicVideos[videoIndex].visibility,
+    };
+
+    const studioIdx = dynamicStudioVideos.findIndex((v) => v.id === videoId);
+    if (studioIdx !== -1) {
+      dynamicStudioVideos[studioIdx] = {
+        ...dynamicStudioVideos[studioIdx],
+        moderation: {
+          state: body.state,
+          reason: body.state === 'HIDDEN' ? body.reason || null : null,
+          moderated_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    return HttpResponse.json(dynamicVideos[videoIndex]);
+  }),
+
+  http.put('*/v1/comments/:id/moderation', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const commentId = params.id as string;
+    const body = (await request.json()) as { status: 'VISIBLE' | 'HIDDEN' };
+
+    const commentIndex = dynamicComments.findIndex((c) => c.id === commentId);
+    if (commentIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Comment not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (dynamicComments[commentIndex].status === 'DELETED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Comment deleted',
+          status: 409,
+          code: 'DELETED',
+        },
+        { status: 409 },
+      );
+    }
+
+    dynamicComments[commentIndex] = {
+      ...dynamicComments[commentIndex],
+      status: body.status,
+    };
+
+    return HttpResponse.json(dynamicComments[commentIndex]);
+  }),
+
+  // --- Task U4: Admin Users Management ---
+  http.get('*/v1/admin/users', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const q = url.searchParams.get('q')?.toLowerCase();
+    const role = url.searchParams.get('role') as Role | null;
+    const status = url.searchParams.get('status') as UserStatus | null;
+
+    let items = [...dynamicAdminUsers];
+    if (q && q.length >= 2) {
+      items = items.filter(
+        (u) =>
+          u.email.toLowerCase().includes(q) ||
+          u.handle.toLowerCase().includes(q) ||
+          u.display_name.toLowerCase().includes(q),
+      );
+    }
+    if (role) {
+      items = items.filter((u) => u.roles.includes(role));
+    }
+    if (status) {
+      items = items.filter((u) => u.status === status);
+    }
+
+    const page: AdminUserPage = { items, next_cursor: null };
+    return HttpResponse.json(page);
+  }),
+
+  http.get('*/v1/admin/users/:id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const user = dynamicAdminUsers.find((u) => u.id === params.id);
+    if (!user) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'User not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json(user);
+  }),
+
+  http.put('*/v1/admin/users/:id/roles', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Admin only',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const targetId = params.id as string;
+    if (caller.id === targetId) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate target',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+          detail: 'Cannot change your own roles.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const body = (await request.json()) as { roles: Role[] };
+    const userIndex = dynamicAdminUsers.findIndex((u) => u.id === targetId);
+    if (userIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'User not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (dynamicAdminUsers[userIndex].status === 'DELETED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'User deleted',
+          status: 409,
+          code: 'DELETED',
+          detail: 'User account has been deleted.',
+        },
+        { status: 409 },
+      );
+    }
+
+    // Check LAST_ADMIN
+    const currentAdmins = dynamicAdminUsers.filter(
+      (u) => u.status !== 'DELETED' && u.roles.includes('admin'),
+    );
+    if (
+      currentAdmins.length === 1 &&
+      currentAdmins[0].id === targetId &&
+      !body.roles.includes('admin')
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Cannot remove last admin',
+          status: 409,
+          code: 'LAST_ADMIN',
+          detail: 'Cannot remove admin role from the last system administrator.',
+        },
+        { status: 409 },
+      );
+    }
+
+    const oldRoles = dynamicAdminUsers[userIndex].roles;
+    const newRoles = body.roles.includes('viewer') ? body.roles : ['viewer' as Role, ...body.roles];
+    dynamicAdminUsers[userIndex] = {
+      ...dynamicAdminUsers[userIndex],
+      roles: newRoles,
+    };
+
+    dynamicAuditEntries.unshift({
+      id: `audit-${Date.now()}`,
+      actor: {
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+      },
+      action: 'USER_ROLES_CHANGED',
+      target_user_id: targetId,
+      details: { from: oldRoles, to: newRoles },
+      created_at: new Date().toISOString(),
+    });
+
+    return HttpResponse.json(dynamicAdminUsers[userIndex]);
+  }),
+
+  http.put('*/v1/admin/users/:id/suspension', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const targetId = params.id as string;
+    if (caller.id === targetId) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate self',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+          detail: 'Cannot suspend your own account.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const userIndex = dynamicAdminUsers.findIndex((u) => u.id === targetId);
+    if (userIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'User not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const target = dynamicAdminUsers[userIndex];
+    if (target.status === 'DELETED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'User deleted',
+          status: 409,
+          code: 'DELETED',
+          detail: 'User account has been deleted.',
+        },
+        { status: 409 },
+      );
+    }
+
+    if (target.roles.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate admin',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+          detail: 'Cannot suspend an administrator.',
+        },
+        { status: 403 },
+      );
+    }
+
+    if (!caller.roles.includes('admin') && target.roles.includes('moderator')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate moderator',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+          detail: 'Moderators cannot suspend other moderators.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const body = (await request.json()) as { reason: string; until?: string };
+    if (!body.reason) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Reason required',
+          status: 400,
+          code: 'BAD_REQUEST',
+        },
+        { status: 400 },
+      );
+    }
+
+    dynamicAdminUsers[userIndex] = {
+      ...target,
+      status: 'SUSPENDED',
+      suspension_reason: body.reason,
+      suspended_until: body.until || null,
+    };
+
+    dynamicAuditEntries.unshift({
+      id: `audit-${Date.now()}`,
+      actor: {
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+      },
+      action: 'USER_SUSPENDED',
+      target_user_id: targetId,
+      details: { reason: body.reason, until: body.until || null },
+      created_at: new Date().toISOString(),
+    });
+
+    return HttpResponse.json(dynamicAdminUsers[userIndex]);
+  }),
+
+  http.delete('*/v1/admin/users/:id/suspension', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const targetId = params.id as string;
+    if (caller.id === targetId) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate self',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+        },
+        { status: 403 },
+      );
+    }
+
+    const userIndex = dynamicAdminUsers.findIndex((u) => u.id === targetId);
+    if (userIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'User not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const target = dynamicAdminUsers[userIndex];
+    if (target.status === 'DELETED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'User deleted',
+          status: 409,
+          code: 'DELETED',
+        },
+        { status: 409 },
+      );
+    }
+
+    if (target.roles.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate admin',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+        },
+        { status: 403 },
+      );
+    }
+
+    if (!caller.roles.includes('admin') && target.roles.includes('moderator')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Cannot moderate moderator',
+          status: 403,
+          code: 'CANNOT_MODERATE_TARGET',
+        },
+        { status: 403 },
+      );
+    }
+
+    dynamicAdminUsers[userIndex] = {
+      ...target,
+      status: 'ACTIVE',
+      suspension_reason: null,
+      suspended_until: null,
+    };
+
+    dynamicAuditEntries.unshift({
+      id: `audit-${Date.now()}`,
+      actor: {
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+      },
+      action: 'USER_UNSUSPENDED',
+      target_user_id: targetId,
+      details: {},
+      created_at: new Date().toISOString(),
+    });
+
+    return HttpResponse.json(dynamicAdminUsers[userIndex]);
+  }),
+
+  // --- Task U4: Audit Log ---
+  http.get('*/v1/admin/audit-log', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Admin only',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const targetUserId = url.searchParams.get('target_user_id');
+
+    let items = [...dynamicAuditEntries];
+    if (targetUserId) {
+      items = items.filter((a) => a.target_user_id === targetUserId);
+    }
+
+    const page: AuditEntryPage = { items, next_cursor: null };
+    return HttpResponse.json(page);
   }),
 ];

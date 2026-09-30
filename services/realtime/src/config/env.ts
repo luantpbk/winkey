@@ -10,6 +10,7 @@ export const envSchema = z.object({
   LOG_LEVEL: z.string().default('info'),
   HEARTBEAT_INTERVAL_MS: z.coerce.number().default(25000),
   HEARTBEAT_TIMEOUT_MS: z.coerce.number().default(60000),
+  REVOCATION_SWEEP_MS: z.coerce.number().default(30000),
 });
 
 export type Env = z.infer<typeof envSchema>;

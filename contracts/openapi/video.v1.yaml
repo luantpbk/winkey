@@ -55,7 +55,13 @@ paths:
     get:
       tags: [videos]
       operationId: listVideos
-      summary: Public feed, newest first. Optional auth.
+      summary: Public feed, newest first (or trending with `sort=trending`). Optional auth.
+      description: |
+        Task R2-a (ADR-020) — `sort=trending` returns the current trending ranking (recomputed every 10 minutes
+        from views of the last 72 h), best first, only videos the public feed would show. At most 200 videos in
+        total; the cursor pages through that ranking. The ranking may be empty (no recent views): the client
+        then shows the newest feed. `owner_id` together with `sort=trending` → `400` `INVALID_SORT`.
+        Trending responses carry `Cache-Control: public, max-age=60`.
       security:
         - {}
         - bearerAuth: []
@@ -68,6 +74,14 @@ paths:
           description: Restrict to one creator (channel page).
           schema:
             $ref: './common.yaml#/components/schemas/Uuid'
+        - name: sort
+          in: query
+          required: false
+          description: '`newest` (default) or `trending` (task R2-a).'
+          schema:
+            type: string
+            enum: [newest, trending]
+            default: newest
       responses:
         '200':
           description: One page of videos.
@@ -371,6 +385,34 @@ paths:
             Cache-Control:
               schema:
                 type: string
+
+  /v1/feed/subscriptions:
+    get:
+      tags: [videos]
+      operationId: getSubscriptionFeed
+      summary: Newest videos of the channels the caller follows (task R2-b, ADR-021).
+      description: |
+        Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), newest first by `published_at`, of the
+        channels in the caller's subscriptions. video-svc answers from its own projection of
+        `social.subscription.changed`, so a new subscription shows up within seconds (eventual consistency).
+        No subscriptions → empty page. `Cache-Control: private, no-store`.
+        Gateway: `/v1/feed` goes to video-svc.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of videos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
 
   /v1/search:
     get:

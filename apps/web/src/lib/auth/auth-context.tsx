@@ -10,10 +10,15 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isCreator: boolean;
+  isModerator: boolean;
+  isAdmin: boolean;
+  canAccessAdmin: boolean;
   login: (credentials: LoginRequest) => Promise<{ success: boolean; error?: Problem }>;
   register: (data: RegisterRequest) => Promise<{ success: boolean; error?: Problem }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateUser: (user: User) => void;
+  clearSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -120,7 +125,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateUser = (updatedUser: User) => {
+    setUser(updatedUser);
+  };
+
+  const clearSession = () => {
+    tokenStore.clear();
+    setUser(null);
+  };
+
   const isCreator = !!user?.roles?.includes('creator');
+  const isModerator = !!user?.roles?.includes('moderator');
+  const isAdmin = !!user?.roles?.includes('admin');
+  const canAccessAdmin = isModerator || isAdmin;
 
   return (
     <AuthContext.Provider
@@ -129,10 +146,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isCreator,
+        isModerator,
+        isAdmin,
+        canAccessAdmin,
         login,
         register,
         logout,
         refresh,
+        updateUser,
+        clearSession,
       }}
     >
       {children}

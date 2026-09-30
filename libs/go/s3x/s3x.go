@@ -20,6 +20,7 @@
 package s3x
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -235,6 +236,20 @@ func (c *Client) UploadFile(ctx context.Context, bucket, key, srcPath string, op
 		in.CacheControl = &opt.CacheControl
 	}
 	_, err = c.internal.PutObject(ctx, in)
+	return mapErr("put object", err)
+}
+
+// PutBytes uploads an in-memory object with a single PutObject (small objects such as a
+// subtitle file; anything large belongs in UploadFile or a multipart upload).
+func (c *Client) PutBytes(ctx context.Context, bucket, key string, data []byte, opt PutOptions) error {
+	in := &s3.PutObjectInput{Bucket: &bucket, Key: &key, Body: bytes.NewReader(data), ContentLength: aws.Int64(int64(len(data)))}
+	if opt.ContentType != "" {
+		in.ContentType = &opt.ContentType
+	}
+	if opt.CacheControl != "" {
+		in.CacheControl = &opt.CacheControl
+	}
+	_, err := c.internal.PutObject(ctx, in)
 	return mapErr("put object", err)
 }
 

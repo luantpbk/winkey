@@ -10,6 +10,7 @@ import type { VideoClient } from '../video/video-client.js';
 export interface ConnectionMeta {
   userId: string | null;
   roles: string[];
+  authenticatedAt?: number | null;
 }
 
 export interface ConnectionManagerOptions {
@@ -31,6 +32,7 @@ class ManagedConnection {
   public readonly ws: WebSocket;
   public readonly userId: string | null;
   public readonly roles: string[];
+  public readonly authenticatedAt: number | null;
   public readonly rooms = new Set<string>();
 
   public lastPongReceivedAt: number;
@@ -51,6 +53,9 @@ class ManagedConnection {
     this.ws = ws;
     this.userId = meta.userId;
     this.roles = meta.roles;
+    this.authenticatedAt = meta.userId
+      ? (meta.authenticatedAt ?? Math.floor(Date.now() / 1000))
+      : null;
     this.lastPongReceivedAt = Date.now();
     this.onDefaultDropped = onDefaultDropped;
   }
@@ -524,6 +529,42 @@ export class ConnectionManager {
 
   getRoomCount(): number {
     return this.roomSubscriptions.size;
+  }
+
+  getDistinctAuthenticatedUserIds(): string[] {
+    return Array.from(this.userConnections.keys());
+  }
+
+  closeRevokedConnections(
+    userId: string,
+    cutoff: number,
+    code = 4401,
+    reason = 'session revoked',
+  ): number {
+    const connIds = this.userConnections.get(userId);
+    if (!connIds || connIds.size === 0) {
+      return 0;
+    }
+
+    // Identify connections belonging to userId whose authentication timestamp is <= cutoff
+    const toClose: ManagedConnection[] = [];
+    for (const id of connIds) {
+      const conn = this.connections.get(id);
+      if (conn && conn.authenticatedAt !== null && conn.authenticatedAt <= cutoff) {
+        toClose.push(conn);
+      }
+    }
+
+    for (const conn of toClose) {
+      conn.close(code, reason);
+      this.removeConnection(conn.id);
+    }
+
+    return toClose.length;
+  }
+
+  getConnection(connectionId: string): ManagedConnection | undefined {
+    return this.connections.get(connectionId);
   }
 
   async closeAll(code = 1001, reason = 'Server shutting down'): Promise<void> {

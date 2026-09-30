@@ -11,6 +11,7 @@ import { VideoClient } from './video/video-client.js';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
 import type { RealtimeEventConsumer } from './nats/consumer.js';
+import type { RevocationSweeper } from './revocation/revocation-sweeper.js';
 
 export interface BuildAppOptions {
   env?: Env;
@@ -21,6 +22,7 @@ export interface BuildAppOptions {
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
   eventConsumer?: RealtimeEventConsumer | null;
+  revocationSweeper?: RevocationSweeper | null;
 }
 
 export interface RealtimeServer {
@@ -28,6 +30,7 @@ export interface RealtimeServer {
   wss: WebSocketServer;
   connectionManager: ConnectionManager;
   ticketStore: TicketStore;
+  revocationSweeper?: RevocationSweeper | null;
   setShuttingDown: (val: boolean) => void;
 }
 
@@ -223,6 +226,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
       userMeta = {
         userId: redeemed.user_id,
         roles: redeemed.roles,
+        authenticatedAt: Math.floor(Date.now() / 1000),
       };
     }
 
@@ -233,6 +237,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
 
   app.addHook('onClose', async () => {
     isShuttingDown = true;
+    if (options.revocationSweeper) {
+      options.revocationSweeper.stop();
+    }
     await connectionManager.closeAll(1001, 'Server shutting down');
     wss.close();
   });
@@ -242,6 +249,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
     wss,
     connectionManager,
     ticketStore,
+    revocationSweeper: options.revocationSweeper,
     setShuttingDown: (val: boolean) => {
       isShuttingDown = val;
     },

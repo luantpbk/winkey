@@ -349,6 +349,202 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(videoRow.getByText(/Ready|Sẵn sàng/)).toBeVisible({ timeout: 10000 });
   });
 
+  test('U4: Moderator hides reported video & resolves case; Admin edits roles & suspends user', async ({
+    page,
+  }) => {
+    // --- Part 1: Moderator flow ---
+    // 1. Log in as moderator
+    await page.goto('/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.fill('input[type="email"]', 'mod@winkey.vn');
+    await page.fill('input[type="password"]', 'any-valid-password');
+
+    const [loginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      page.locator('main button[type="submit"]').click(),
+    ]);
+    expect(loginRes.status()).toBe(200);
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c04',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+
+    // 2. Navigate to /admin
+    await page.goto('/admin');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Expect Moderation Queue and Users tabs, but not Audit Log
+    await expect(page.getByText(/Admin & Moderation Panel|Bảng điều khiển quản trị/)).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText(/Moderation Queue|Hàng đợi báo cáo/)).toBeVisible();
+    await expect(page.getByText(/Audit Log|Nhật ký/)).not.toBeVisible();
+
+    // 3. Open moderation modal on the first case
+    const moderateBtn = page.getByRole('button', { name: /Moderate|Xử lý/ }).first();
+    await expect(moderateBtn).toBeVisible({ timeout: 10000 });
+    await moderateBtn.click();
+
+    // Fill action reason and confirm
+    const modal = page.locator('[role="dialog"]');
+    await expect(modal).toBeVisible();
+
+    const reasonInput = modal.locator('input#action-reason');
+    await reasonInput.fill('Inappropriate content and copyright violations');
+
+    const confirmBtn = modal.locator('button[type="submit"]');
+    await confirmBtn.click();
+
+    // Verify modal closes and resolution succeeds
+    await expect(modal).not.toBeVisible({ timeout: 10000 });
+
+    // --- Part 2: Admin flow ---
+    // 1. Log in as admin
+    await page.goto('/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    await page.fill('input[type="email"]', 'admin@winkey.vn');
+    await page.fill('input[type="password"]', 'any-valid-password');
+
+    const [adminLoginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      page.locator('main button[type="submit"]').click(),
+    ]);
+    expect(adminLoginRes.status()).toBe(200);
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+
+    // 2. Navigate to /admin
+    await page.goto('/admin');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Admin should see Audit Log tab
+    await expect(page.getByText(/Audit Log|Nhật ký/)).toBeVisible();
+
+    // Switch to Users tab
+    await page.getByText(/Users|Người dùng/).click();
+
+    // Search for a user
+    const searchInput = page.locator(
+      'main input[placeholder*="Search"], main input[placeholder*="Tìm"]',
+    );
+    await searchInput.fill('tech');
+    await page.waitForTimeout(500); // debounce 300ms
+
+    // Target row
+    const userRow = page.locator('tr:has-text("tech@winkey.vn")').first();
+    await expect(userRow).toBeVisible();
+
+    // 3. Edit roles: grant moderator role
+    await userRow.getByRole('button', { name: /Edit Roles|Đổi quyền/ }).click();
+    const rolesDialog = page.locator('[role="dialog"]');
+    await expect(rolesDialog).toBeVisible();
+
+    const modCheckbox = rolesDialog.locator('input[type="checkbox"]').nth(2); // moderator
+    await modCheckbox.check();
+
+    await rolesDialog.locator('button[type="submit"]').click();
+    await expect(rolesDialog).not.toBeVisible({ timeout: 10000 });
+
+    // 4. Suspend user with reason
+    await userRow.getByRole('button', { name: /Suspend|Khóa/ }).click();
+    const suspendDialog = page.locator('[role="dialog"]');
+    await expect(suspendDialog).toBeVisible();
+
+    const suspendReasonInput = suspendDialog.locator('input#suspend-reason-input');
+    await suspendReasonInput.fill('Repeated platform violations');
+
+    await suspendDialog.locator('button[type="submit"]').click();
+    await expect(suspendDialog).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test('U5: Account settings: update display name, change password, delete account', async ({
+    page,
+  }) => {
+    // 1. Visit login with return_to parameter
+    await page.goto('/login?return_to=/settings/account');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. Log in as creator
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    // Verify redirected back to /settings/account after login
+    await page.waitForURL(/\/settings\/account/);
+    await expect(page.locator('h1')).toBeVisible();
+
+    // 3. Profile: update display name
+    const profileForm = page.locator('form').filter({ has: page.locator('input#displayName') });
+    const displayNameInput = profileForm.locator('input#displayName');
+    await expect(displayNameInput).toHaveValue('Winkey Official Creator');
+    await displayNameInput.fill('Winkey Premium Creator');
+
+    await profileForm.locator('button[type="submit"]').click();
+
+    // Verify toast notification
+    await expect(page.locator('div[role="status"]').first()).toBeVisible({ timeout: 10000 });
+
+    // Open user menu in top-bar and verify updated display name appears
+    const avatarBtn = page.locator('header button').last();
+    await avatarBtn.click();
+    await expect(page.locator('header')).toContainText('Winkey Premium Creator');
+
+    // 4. Password: change password
+    const passwordForm = page.locator('form').filter({ has: page.locator('input#newPassword') });
+    const currentPasswordInput = passwordForm.locator('input#currentPassword');
+    const newPasswordInput = passwordForm.locator('input#newPassword');
+    const confirmPasswordInput = passwordForm.locator('input#confirmPassword');
+
+    await currentPasswordInput.fill('Password123!');
+    await newPasswordInput.fill('BrandNewPassword123!');
+    await confirmPasswordInput.fill('BrandNewPassword123!');
+
+    await passwordForm.locator('button[type="submit"]').click();
+
+    // Verify toast notification
+    await expect(page.locator('div[role="status"]').first()).toBeVisible({ timeout: 10000 });
+
+    // Verify user is still authenticated
+    await expect(avatarBtn).toBeVisible();
+
+    // 5. Danger Zone: delete account
+    const deleteButton = page.getByRole('button', { name: /Delete Account|Xóa tài khoản/ });
+    await deleteButton.click();
+
+    const deleteDialog = page.locator('[role="dialog"]');
+    await expect(deleteDialog).toBeVisible();
+
+    // Fill handle and password
+    const confirmHandleInput = deleteDialog.locator('input#confirmHandle');
+    const deletePasswordInput = deleteDialog.locator('input#deletePassword');
+    const confirmDeleteBtn = deleteDialog.locator('button[type="submit"]');
+
+    await expect(confirmDeleteBtn).toBeDisabled();
+
+    await confirmHandleInput.fill('winkey_creator');
+    await deletePasswordInput.fill('BrandNewPassword123!');
+    await expect(confirmDeleteBtn).toBeEnabled();
+
+    await confirmDeleteBtn.click();
+
+    // Verify redirected to home and session cleared
+    await page.waitForURL(/\/(en|vi)?$/);
+    await expect(page.locator('header')).toContainText(/Sign In|Đăng nhập/i);
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
     test.setTimeout(180000);
 
@@ -366,6 +562,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       { path: '/register', slug: 'register' },
       { path: '/upload', slug: 'upload' },
       { path: '/studio', slug: 'studio' },
+      { path: '/admin', slug: 'admin' },
+      { path: '/settings/account', slug: 'account-settings' },
     ];
 
     const screenshotDir = path.join(process.cwd(), 'screenshots');

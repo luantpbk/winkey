@@ -57,6 +57,9 @@ func (p *Postgres) GetVideo(ctx context.Context, id uuid.UUID) (domain.Video, er
 	if err := p.loadRenditions(ctx, &v); err != nil {
 		return domain.Video{}, err
 	}
+	if err := p.loadSubtitles(ctx, &v); err != nil {
+		return domain.Video{}, err
+	}
 	return v, nil
 }
 
@@ -327,9 +330,15 @@ func (p *Postgres) SetLikeCount(ctx context.Context, id uuid.UUID, count int64) 
 	return tag.RowsAffected() == 1, nil
 }
 
-// AddViews adds counted views to media.videos.view_count in ONE transaction
-// (a single statement). Deleted videos match no row. updated_at is bumped by
-// the set_updated_at trigger of the table; that cannot be avoided without a migration.
+// AddViews adds counted views to media.videos.view_count AND to the bucket of the current UTC hour in
+// media.video_views_hourly (task R2-a, ADR-020) in ONE statement, hence one transaction: a failure of
+// either leaves neither. The UPDATE goes first and its RETURNING feeds the upsert, so
+//   - only videos that still exist get a bucket (a deleted video matches no row and does not fail the batch), and
+//   - the UPDATE has row-locked them until commit, so a concurrent delete cannot remove one between the
+//     two writes (which would break the foreign key of the bucket).
+//
+// matched is the number of videos that were updated. updated_at is bumped by the set_updated_at trigger
+// of the table; that cannot be avoided without a migration.
 func (p *Postgres) AddViews(ctx context.Context, ids []uuid.UUID, counts []int64) (int, error) {
 	if len(ids) != len(counts) {
 		return 0, errors.New("add views: ids and counts differ in length")
@@ -337,8 +346,16 @@ func (p *Postgres) AddViews(ctx context.Context, ids []uuid.UUID, counts []int64
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	tag, err := p.Pool.Exec(ctx, `UPDATE media.videos v SET view_count = v.view_count + d.n
-FROM unnest($1::uuid[], $2::bigint[]) AS d(id, n) WHERE v.id = d.id`, ids, counts)
+	tag, err := p.Pool.Exec(ctx, `
+WITH upd AS (
+	UPDATE media.videos v SET view_count = v.view_count + d.n
+	FROM unnest($1::uuid[], $2::bigint[]) AS d(id, n)
+	WHERE v.id = d.id AND d.n > 0
+	RETURNING v.id, d.n
+)
+INSERT INTO media.video_views_hourly (video_id, hour, views)
+SELECT id, date_trunc('hour', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC', sum(n) FROM upd GROUP BY id
+ON CONFLICT (video_id, hour) DO UPDATE SET views = media.video_views_hourly.views + EXCLUDED.views`, ids, counts)
 	if err != nil {
 		return 0, fmt.Errorf("add views: %w", err)
 	}

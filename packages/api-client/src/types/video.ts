@@ -6,7 +6,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Public feed, newest first. Optional auth. */
+        /**
+         * Public feed, newest first (or trending with `sort=trending`). Optional auth.
+         * @description Task R2-a (ADR-020) — `sort=trending` returns the current trending ranking (recomputed every 10 minutes
+         *     from views of the last 72 h), best first, only videos the public feed would show. At most 200 videos in
+         *     total; the cursor pages through that ranking. The ranking may be empty (no recent views): the client
+         *     then shows the newest feed. `owner_id` together with `sort=trending` → `400` `INVALID_SORT`.
+         *     Trending responses carry `Cache-Control: public, max-age=60`.
+         */
         get: operations["listVideos"];
         put?: never;
         post?: never;
@@ -174,6 +181,30 @@ export interface paths {
          *     Traefik routes it only for the internal Host `media-auth.internal`; it is not reachable from the internet.
          */
         get: operations["mediaAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/feed/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Newest videos of the channels the caller follows (task R2-b, ADR-021).
+         * @description Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), newest first by `published_at`, of the
+         *     channels in the caller's subscriptions. video-svc answers from its own projection of
+         *     `social.subscription.changed`, so a new subscription shows up within seconds (eventual consistency).
+         *     No subscriptions → empty page. `Cache-Control: private, no-store`.
+         *     Gateway: `/v1/feed` goes to video-svc.
+         */
+        get: operations["getSubscriptionFeed"];
         put?: never;
         post?: never;
         delete?: never;
@@ -497,6 +528,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Restrict to one creator (channel page). */
                 owner_id?: components["schemas"]["Uuid"];
+                /** @description `newest` (default) or `trending` (task R2-a). */
+                sort?: "newest" | "trending";
             };
             header?: never;
             path?: never;
@@ -783,6 +816,32 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    getSubscriptionFeed: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of videos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     searchVideos: {

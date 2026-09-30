@@ -8,6 +8,7 @@ import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
+import type { RevocationService } from '../revocation/revocation.js';
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '').toLowerCase();
@@ -16,7 +17,8 @@ function normalizeOrigin(origin: string): string {
 export const logoutRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
-}> = async (fastify, { db, env }) => {
+  revocationService: RevocationService;
+}> = async (fastify, { db, env, revocationService }) => {
   fastify.post('/v1/auth/logout', async (request, reply) => {
     // 1. Reject if Origin is present and != PUBLIC_ORIGIN
     const origin = request.headers.origin;
@@ -50,10 +52,13 @@ export const logoutRoute: FastifyPluginAsync<{
       .where('revoked_at', 'is', null)
       .execute();
 
-    // 4. Clear cookie wk_rt
+    // 4. Revoke session in Valkey AFTER DB update (fail-safe)
+    await revocationService.revokeSession(token.family_id);
+
+    // 5. Clear cookie wk_rt
     reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
 
-    // 5. 204 No Content
+    // 6. 204 No Content
     return reply.status(204).send();
   });
 };

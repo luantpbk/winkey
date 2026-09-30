@@ -407,6 +407,18 @@ importers:
 
   services/realtime:
     dependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.1
+      '@winkey/outbox':
+        specifier: workspace:*
+        version: link:../../packages/outbox
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
       fastify:
         specifier: ^5.2.1
         version: 5.12.5
@@ -435,12 +447,6 @@ importers:
       '@types/ws':
         specifier: ^8.5.14
         version: 8.18.1
-      ajv:
-        specifier: ^8.17.1
-        version: 8.20.0
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.20.0)
       testcontainers:
         specifier: ^10.18.0
         version: 10.28.0(supports-color@10.2.2)

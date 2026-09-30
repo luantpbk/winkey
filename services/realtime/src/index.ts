@@ -1,4 +1,5 @@
 import { connect as connectNats } from 'nats';
+import { natsOptionsFromUrl } from '@winkey/outbox/nats';
 import { Redis } from 'ioredis';
 import pino from 'pino';
 import { getEnv } from './config/env.js';
@@ -7,6 +8,7 @@ import { TicketStore } from './tickets/ticket-store.js';
 import { VideoClient } from './video/video-client.js';
 import { ConnectionManager } from './websocket/connection-manager.js';
 import { RealtimeEventConsumer } from './nats/consumer.js';
+import { RevocationSweeper } from './revocation/revocation-sweeper.js';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -15,15 +17,18 @@ async function main(): Promise<void> {
   logger.info({ env: env.NODE_ENV, port: env.HTTP_PORT }, 'Starting realtime-gw service...');
 
   // 1. Connect to NATS (fail fast so k8s restarts pod if NATS unavailable)
-  const natsConnection = await connectNats({ servers: env.NATS_URL });
-  logger.info({ url: env.NATS_URL }, 'Connected to NATS');
+  const natsConnection = await connectNats({
+    ...natsOptionsFromUrl(env.NATS_URL),
+    name: 'realtime-gw',
+  });
+  logger.info('Connected to NATS');
 
   // 2. Connect to Valkey / Redis
   const valkeyClient = new Redis(env.VALKEY_URL, {
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
   });
-  logger.info({ url: env.VALKEY_URL }, 'Connected to Valkey');
+  logger.info('Connected to Valkey');
 
   // 3. Components
   const ticketStore = new TicketStore(valkeyClient);
@@ -35,7 +40,17 @@ async function main(): Promise<void> {
     logger,
   });
 
-  // 4. Start NATS Consumer
+  // 4. Revocation Sweeper
+  const revocationSweeper = new RevocationSweeper({
+    redis: valkeyClient,
+    connectionManager,
+    sweepIntervalMs: env.REVOCATION_SWEEP_MS,
+    logger,
+  });
+  revocationSweeper.start();
+  logger.info({ intervalMs: env.REVOCATION_SWEEP_MS }, 'Started revocation sweeper');
+
+  // 5. Start NATS Consumer
   const eventConsumer = new RealtimeEventConsumer({
     nats: natsConnection,
     connectionManager,
@@ -43,7 +58,7 @@ async function main(): Promise<void> {
   });
   await eventConsumer.start();
 
-  // 5. Build and listen HTTP app + WebSocket upgrade
+  // 6. Build and listen HTTP app + WebSocket upgrade
   const realtimeServer = await buildApp({
     env,
     ticketStore,
@@ -52,6 +67,7 @@ async function main(): Promise<void> {
     redis: valkeyClient,
     natsConnection,
     eventConsumer,
+    revocationSweeper,
   });
   const { app } = realtimeServer;
 
@@ -63,7 +79,8 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Received signal, shutting down gracefully within 10s...');
     realtimeServer.setShuttingDown(true);
 
-    // Stop accepting new NATS events
+    // Stop revocation sweeper and stop accepting new NATS events
+    revocationSweeper.stop();
     await eventConsumer.stop().catch(() => {});
 
     // Close all active WebSocket connections with code 1001 (Server shutting down)

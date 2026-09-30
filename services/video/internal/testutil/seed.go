@@ -189,3 +189,40 @@ func SeedVideo(t testing.TB, pool *pgxpool.Pool, v Video) Video {
 	}
 	return v
 }
+
+// SeedManyReady bulk-inserts n READY, PUBLIC, VISIBLE videos of owner through the state machine in a few
+// statements (SeedVideo would take several round trips each) and returns their ids.
+func SeedManyReady(t testing.TB, pool *pgxpool.Pool, owner uuid.UUID, n int) []uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := pool.Query(ctx, `
+		INSERT INTO media.videos (id, owner_id, title, description, raw_bucket, raw_key, content_type, size_bytes)
+		SELECT gen_random_uuid(), $1, 'Bulk ' || i, 'about it', 'winkey-raw', 'k' || gen_random_uuid(), 'video/mp4', 1000
+		FROM generate_series(1, $2::int) i RETURNING id`, owner, n)
+	if err != nil {
+		t.Fatalf("seed many: %v", err)
+	}
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`UPDATE media.videos SET status = 'UPLOADED' WHERE id = ANY($1)`,
+		`UPDATE media.videos SET status = 'PROCESSING' WHERE id = ANY($1)`,
+		`UPDATE media.videos SET status = 'READY', duration_ms = 61000, width = 1920, height = 1080,
+		        hls_master_key = 'h/' || id, thumbnail_key = 't/' || id, published_at = now() WHERE id = ANY($1)`,
+	} {
+		if _, err := pool.Exec(ctx, q, out); err != nil {
+			t.Fatalf("seed many: %v", err)
+		}
+	}
+	return out
+}
