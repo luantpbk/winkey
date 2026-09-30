@@ -11,7 +11,8 @@ import { VideoClient } from './video/video-client.js';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
 import type { RealtimeEventConsumer } from './nats/consumer.js';
-import type { RevocationSweeper } from './revocation/revocation-sweeper.js';
+import { type RevocationSweeper, realtimeRegistry } from './revocation/revocation-sweeper.js';
+import { metricsPlugin, type Registry } from '@winkey/metrics';
 
 export interface BuildAppOptions {
   env?: Env;
@@ -23,6 +24,7 @@ export interface BuildAppOptions {
   natsConnection?: NatsConnection | null;
   eventConsumer?: RealtimeEventConsumer | null;
   revocationSweeper?: RevocationSweeper | null;
+  metricsRegistry?: Registry;
 }
 
 export interface RealtimeServer {
@@ -107,6 +109,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<RealtimeS
   });
 
   // Register HTTP routes
+  // Register Prometheus /metrics & HTTP request telemetry
+  await app.register(metricsPlugin, {
+    registry: options.metricsRegistry ?? realtimeRegistry,
+  });
+
   await app.register(healthRoute, {
     redis: options.redis,
     natsConnection: options.natsConnection,

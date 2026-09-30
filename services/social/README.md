@@ -52,6 +52,21 @@ Part of **Task C1**, owned by **Antigravity 3**.
 
 ---
 
+## Metrics (`GET /metrics`)
+
+> [!NOTE]
+> `/metrics` is an internal telemetry endpoint and is NOT exposed on public ingress routes.
+
+Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
+| `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
+| Standard Node.js runtime metrics | Various | `service="social-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
+
+---
+
 ## Development
 
 ### Prerequisites

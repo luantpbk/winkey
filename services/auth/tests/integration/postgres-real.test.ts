@@ -14,7 +14,8 @@ import { issueAccessToken } from '../../src/crypto/jwt.js';
 import { hashPassword } from '../../src/crypto/passwords.js';
 import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
-import { getRevocationMetricCount } from '../../src/revocation/revocation.js';
+import { authRegistry } from '../../src/revocation/revocation.js';
+import type { Counter } from '@winkey/metrics';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1480,9 +1481,11 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
 
       try {
-        const initialErrorCount = getRevocationMetricCount('auth_verify_revocation_check_total', {
-          result: 'error',
-        });
+        const initialMetric = await (
+          authRegistry.getSingleMetric('auth_verify_revocation_check_total') as Counter<string>
+        )?.get();
+        const initialErrorCount =
+          initialMetric?.values.find((v) => v.labels.result === 'error')?.value ?? 0;
 
         const verifyRes = await failOpenApp.inject({
           method: 'GET',
@@ -1495,9 +1498,11 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         expect(verifyRes.headers['x-user-id']).toBe(validUserId);
         expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
 
-        const afterErrorCount = getRevocationMetricCount('auth_verify_revocation_check_total', {
-          result: 'error',
-        });
+        const afterMetric = await (
+          authRegistry.getSingleMetric('auth_verify_revocation_check_total') as Counter<string>
+        )?.get();
+        const afterErrorCount =
+          afterMetric?.values.find((v) => v.labels.result === 'error')?.value ?? 0;
         expect(afterErrorCount).toBeGreaterThan(initialErrorCount);
       } finally {
         await failOpenApp.close();

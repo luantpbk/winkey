@@ -14,7 +14,7 @@
     "test:prod-deps": "node ../../packages/outbox/scripts/test-prod-deps.mjs @winkey/realtime"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
+    "@winkey/metrics": "workspace:*",
     "@winkey/outbox": "workspace:*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -22,6 +22,7 @@
     "ioredis": "^5.6.0",
     "nats": "^2.29.3",
     "pino": "^9.6.0",
+    "prom-client": "^15.1.3",
     "uuid": "^11.1.0",
     "ws": "^8.18.0",
     "zod": "^3.24.2"

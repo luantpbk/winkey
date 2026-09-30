@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { metrics } from '@opentelemetry/api';
+import { createRegistry, Counter } from '@winkey/metrics';
 
 export const REVOCATION_TTL_SECONDS = 960; // 900s access token TTL + 60s clock skew
 export const MGET_TIMEOUT_MS = 50;
@@ -25,49 +25,22 @@ export interface LoggerLike {
   error?(obj: Record<string, unknown>, msg?: string): void;
 }
 
-// OpenTelemetry metrics
-const meter = metrics.getMeter('auth-svc');
+// Prometheus metrics registry & counters
+export const authRegistry = createRegistry('auth-svc');
 
-export const revocationWriteCounter = meter.createCounter('auth_revocation_write_total', {
-  description: 'Total number of revocation write operations',
+export const revocationWriteCounter = new Counter({
+  name: 'auth_revocation_write_total',
+  help: 'Total number of revocation write operations',
+  labelNames: ['result'],
+  registers: [authRegistry],
 });
 
-export const verifyRevocationCheckCounter = meter.createCounter(
-  'auth_verify_revocation_check_total',
-  {
-    description: 'Total number of verify revocation checks by result',
-  },
-);
-
-// In-memory counters for test inspection
-const inMemoryCounters = new Map<string, number>();
-
-function getCounterKey(metric: string, attributes?: Record<string, string>): string {
-  const attrStr = attributes
-    ? Object.entries(attributes)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${k}="${v}"`)
-        .join(',')
-    : '';
-  return `${metric}{${attrStr}}`;
-}
-
-export function recordRevocationMetric(metric: string, attributes?: Record<string, string>): void {
-  const key = getCounterKey(metric, attributes);
-  inMemoryCounters.set(key, (inMemoryCounters.get(key) ?? 0) + 1);
-}
-
-export function getRevocationMetricCount(
-  metric: string,
-  attributes?: Record<string, string>,
-): number {
-  const key = getCounterKey(metric, attributes);
-  return inMemoryCounters.get(key) ?? 0;
-}
-
-export function resetRevocationMetricsForTest(): void {
-  inMemoryCounters.clear();
-}
+export const verifyRevocationCheckCounter = new Counter({
+  name: 'auth_verify_revocation_check_total',
+  help: 'Total number of verify revocation checks by result',
+  labelNames: ['result'],
+  registers: [authRegistry],
+});
 
 let lastWarnAt = 0;
 
@@ -104,14 +77,12 @@ export class RevocationService {
     const key = `auth:revoked:sid:${sid}`;
     try {
       await this.redis.set(key, '1', 'EX', REVOCATION_TTL_SECONDS);
-      revocationWriteCounter.add(1, { result: 'ok' });
-      recordRevocationMetric('auth_revocation_write_total', { result: 'ok' });
+      revocationWriteCounter.inc({ result: 'ok' });
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger?.warn({ sid, err: msg }, 'Failed to write session revocation to Valkey');
-      revocationWriteCounter.add(1, { result: 'error' });
-      recordRevocationMetric('auth_revocation_write_total', { result: 'error' });
+      revocationWriteCounter.inc({ result: 'error' });
       return false;
     }
   }
@@ -145,14 +116,12 @@ export class RevocationService {
           await this.redis.set(key, String(unixSeconds), 'EX', REVOCATION_TTL_SECONDS);
         }
       }
-      revocationWriteCounter.add(1, { result: 'ok' });
-      recordRevocationMetric('auth_revocation_write_total', { result: 'ok' });
+      revocationWriteCounter.inc({ result: 'ok' });
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger?.warn({ userId, err: msg }, 'Failed to write user revocation to Valkey');
-      revocationWriteCounter.add(1, { result: 'error' });
-      recordRevocationMetric('auth_revocation_write_total', { result: 'error' });
+      revocationWriteCounter.inc({ result: 'error' });
       return false;
     }
   }

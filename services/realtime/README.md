@@ -54,12 +54,20 @@ Implements:
 | `HEARTBEAT_TIMEOUT_MS` | WebSocket pong timeout in ms (closes 4408) | `60000` |
 | `REVOCATION_SWEEP_MS` | Revocation sweeper interval in ms (checks `auth:revoked:user:{id}`) | `30000` |
 
-## Metrics
+## Metrics (`GET /metrics`)
 
-Exposed via `@opentelemetry/api`:
-- `realtime_revoked_closes_total`: Total number of WebSocket connections closed due to user revocation (code 4401).
-- `realtime_revocation_sweep_errors_total`: Total number of revocation sweep errors (e.g. Valkey unavailable).
-- Number of active connections (anonymous / authenticated), rooms, and dropped message counts.
+> [!NOTE]
+> `/metrics` is an internal telemetry endpoint and is NOT exposed on public ingress routes.
+
+Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
+| `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
+| `realtime_revoked_closes_total` | Counter | — | Total number of WebSocket connections closed due to user revocation (code 4401). |
+| `realtime_revocation_sweep_errors_total` | Counter | — | Total number of revocation sweep errors (e.g. Valkey unavailable). |
+| Standard Node.js runtime metrics | Various | `service="realtime-gw"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
 
 ## Running Locally
 

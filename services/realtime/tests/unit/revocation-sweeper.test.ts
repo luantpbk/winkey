@@ -1,13 +1,15 @@
 import type { WebSocket } from 'ws';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Redis } from 'ioredis';
-import {
-  RevocationSweeper,
-  resetRevocationMetricsForTest,
-  getRevocationMetricCount,
-} from '../../src/revocation/revocation-sweeper.js';
+import { RevocationSweeper, realtimeRegistry } from '../../src/revocation/revocation-sweeper.js';
+import type { Counter } from '@winkey/metrics';
 import { ConnectionManager } from '../../src/websocket/connection-manager.js';
 import { VideoClient } from '../../src/video/video-client.js';
+
+async function getMetricCount(name: string): Promise<number> {
+  const metric = await (realtimeRegistry.getSingleMetric(name) as Counter<string>)?.get();
+  return metric?.values[0]?.value ?? 0;
+}
 
 function createMockSocket() {
   const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
@@ -40,7 +42,7 @@ describe('RevocationSweeper Unit Tests', () => {
   };
 
   beforeEach(() => {
-    resetRevocationMetricsForTest();
+    realtimeRegistry.resetMetrics();
 
     mockRedis = {
       status: 'ready',
@@ -131,7 +133,7 @@ describe('RevocationSweeper Unit Tests', () => {
     const result = await sweeper.sweep();
     expect(result).toEqual({ checkedUsers: 1, closedSockets: 1 });
     expect(ws.close).toHaveBeenCalledWith(4401, 'session revoked');
-    expect(getRevocationMetricCount('realtime_revoked_closes_total')).toBe(1);
+    expect(await getMetricCount('realtime_revoked_closes_total')).toBe(1);
     expect(connectionManager.getDistinctAuthenticatedUserIds()).not.toContain('user-1');
   });
 
@@ -149,7 +151,7 @@ describe('RevocationSweeper Unit Tests', () => {
     const result = await sweeper.sweep();
     expect(result).toEqual({ checkedUsers: 1, closedSockets: 1 });
     expect(ws.close).toHaveBeenCalledWith(4401, 'session revoked');
-    expect(getRevocationMetricCount('realtime_revoked_closes_total')).toBe(1);
+    expect(await getMetricCount('realtime_revoked_closes_total')).toBe(1);
   });
 
   it('handles multiple sockets per user correctly based on each socket authenticatedAt', async () => {
@@ -174,7 +176,7 @@ describe('RevocationSweeper Unit Tests', () => {
     expect(result).toEqual({ checkedUsers: 1, closedSockets: 1 });
     expect(ws1.close).toHaveBeenCalledWith(4401, 'session revoked');
     expect(ws2.close).not.toHaveBeenCalled();
-    expect(getRevocationMetricCount('realtime_revoked_closes_total')).toBe(1);
+    expect(await getMetricCount('realtime_revoked_closes_total')).toBe(1);
 
     // user-multi still has ws2 connected
     expect(connectionManager.getDistinctAuthenticatedUserIds()).toContain('user-multi');
@@ -246,7 +248,7 @@ describe('RevocationSweeper Unit Tests', () => {
     const result = await sweeper.sweep();
     expect(result).toEqual({ checkedUsers: 0, closedSockets: 0, error: true });
     expect(ws.close).not.toHaveBeenCalled();
-    expect(getRevocationMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
+    expect(await getMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
     expect(mockLogger.warn).toHaveBeenCalledTimes(1);
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ err: 'Connection timed out' }),
@@ -268,7 +270,7 @@ describe('RevocationSweeper Unit Tests', () => {
     expect(result).toEqual({ checkedUsers: 0, closedSockets: 0, error: true });
     expect(ws.close).not.toHaveBeenCalled();
     expect(mockRedis.mget).not.toHaveBeenCalled();
-    expect(getRevocationMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
+    expect(await getMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
   });
 
   it('throttles warning log to at most once per minute on repeated Valkey errors', async () => {
@@ -296,7 +298,7 @@ describe('RevocationSweeper Unit Tests', () => {
     await sweeper.sweep();
     expect(mockLogger.warn).toHaveBeenCalledTimes(2);
 
-    expect(getRevocationMetricCount('realtime_revocation_sweep_errors_total')).toBe(3);
+    expect(await getMetricCount('realtime_revocation_sweep_errors_total')).toBe(3);
     vi.useRealTimers();
   });
 });
