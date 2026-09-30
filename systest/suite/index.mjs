@@ -1,3 +1,4 @@
+/* global fetch, setTimeout, clearTimeout, console, process, WebSocket, URL */
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
