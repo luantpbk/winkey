@@ -1228,6 +1228,10 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(vOld.statusCode).toBe(401);
 
+      // Per ADR-019: tokens issued in the same second as revocation have iat <= cutoff;
+      // wait until the next second so the refreshed token has iat > cutoff
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
       // User calls refresh to get new access token
       const refreshRes = await app.inject({
         method: 'POST',
