@@ -27,6 +27,18 @@ type Config struct {
 	// shared with the nginx of media.winkey.vn; at least 32 bytes; never logged.
 	MediaLinkSecret string `env:"MEDIA_LINK_SECRET,required"`
 
+	// Object storage (Garage, ADR-004): video-svc writes and deletes subtitle files (task V5b) in
+	// S3_MEDIA_BUCKET. Server-side calls only, so there is no public endpoint.
+	S3Endpoint        string `env:"S3_ENDPOINT,required"`
+	S3Region          string `env:"S3_REGION" default:"garage"`
+	S3AccessKeyID     string `env:"S3_ACCESS_KEY_ID,required"`
+	S3SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY,required"`
+
+	// Trending (R2-a, ADR-020): every TRENDING_INTERVAL one replica recomputes media.trending. Reading it
+	// (sort=trending) does not depend on this flag; with it off the table simply goes stale.
+	TrendingEnabled  bool          `env:"TRENDING_ENABLED" default:"true"`
+	TrendingInterval time.Duration `env:"TRENDING_INTERVAL" default:"10m"`
+
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
 
@@ -59,6 +71,9 @@ func Load() (Config, error) {
 func (c Config) Validate() error {
 	if len(c.CursorSecret) < 16 {
 		return errors.New("CURSOR_SECRET must be at least 16 characters")
+	}
+	if c.TrendingEnabled && c.TrendingInterval < time.Second {
+		return errors.New("TRENDING_INTERVAL must be at least 1s when TRENDING_ENABLED is true")
 	}
 	if len(c.MediaLinkSecret) < 32 {
 		return errors.New("MEDIA_LINK_SECRET must be at least 32 bytes")

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "start": "node dist/index.js",
     "dev": "node --loader ts-node/esm src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:prod-deps": "node ../../packages/outbox/scripts/test-prod-deps.mjs @winkey/auth"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

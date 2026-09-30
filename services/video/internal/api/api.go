@@ -27,9 +27,10 @@ const (
 )
 
 const (
-	cursorFeed   = "feed"
-	cursorStudio = "studio"
-	cursorSearch = "search"
+	cursorFeed     = "feed"
+	cursorStudio   = "studio"
+	cursorSearch   = "search"
+	cursorTrending = "trending"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -44,6 +45,8 @@ type Handler struct {
 	Cache        domain.Cache // may be nil
 	MediaBaseURL string       // e.g. https://media.winkey.vn
 	MediaBucket  string       // bucket named in video.deleted
+	// Objects is the media bucket for subtitle files (task V5b).
+	Objects domain.Objects
 	// MediaLinkSecret signs media URLs of videos the public cannot watch (SEC1, ADR-017); never logged.
 	MediaLinkSecret []byte
 	Now             func() time.Time // default time.Now; tests fix it
@@ -77,6 +80,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Use(httpx.Authenticate)
 		r.Patch("/v1/videos/{video_id}", h.updateVideo)
 		r.Delete("/v1/videos/{video_id}", h.deleteVideo)
+		r.Put("/v1/videos/{video_id}/subtitles/{lang}", h.putSubtitle)
+		r.Delete("/v1/videos/{video_id}/subtitles/{lang}", h.deleteSubtitle)
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 	})
@@ -93,6 +98,21 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, ok := h.parseLimit(w, r, q)
 	if !ok {
+		return
+	}
+	switch sort := q.Get("sort"); sort {
+	case "", "newest":
+	case "trending": // task R2-a, ADR-020
+		if q.Get("owner_id") != "" {
+			httpx.BadRequest(w, r, "INVALID_SORT", "sort=trending cannot be combined with owner_id",
+				httpx.FieldError{Field: "sort", Message: "trending has no per-channel ranking"})
+			return
+		}
+		h.listTrending(w, r, limit)
+		return
+	default:
+		httpx.BadRequest(w, r, "VALIDATION_ERROR", "sort must be newest or trending",
+			httpx.FieldError{Field: "sort", Message: "must be newest or trending"})
 		return
 	}
 	var owner *uuid.UUID

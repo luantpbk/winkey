@@ -194,3 +194,42 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Mỗi request đã đăng nhập tốn thêm một round trip tới Valkey (< 1 ms trong cluster).
 - Kết nối WebSocket đang mở của realtime-gw không bị cắt ngay, vì vé kết nối chỉ kiểm lúc bắt tay; đó là việc sau, nếu cần.
 - ADR-016 đoạn "≤ 15 phút" được thay bằng ADR này, trừ lúc Valkey lỗi.
+- **Bổ sung (A5):** realtime-gw đọc khóa `auth:revoked:user:{user_id}` do auth-svc ghi, với đúng định dạng ở trên (giá trị là Unix giây). Định dạng khóa này từ giờ là **giao ước giữa auth-svc và realtime-gw**, đổi phải qua kiến trúc sư.
+  - Mỗi 30 giây, gateway kiểm tra các kết nối đã đăng nhập của nó bằng **một** `MGET` theo lô user id.
+  - Kết nối nào có thời điểm xác thực (lúc dùng ticket) ≤ mốc thu hồi thì bị đóng với mã `4401`. Mã này đã được dành sẵn trong `contracts/realtime/README.md`.
+  - Ticket không mang `sid`, nên đăng xuất một phiên (khóa `sid`) không cắt WebSocket. Chỉ khóa tài khoản, đổi role và xóa tài khoản mới cắt.
+  - Valkey lỗi thì bỏ qua lượt kiểm tra đó (fail-open, có metric).
+
+### ADR-020 — Feed thịnh hành v1 (R2-a)
+**Bối cảnh.** Trang chủ mới chỉ có feed "mới nhất". Recommendation v1 (R2) cần một nguồn ứng viên đầu tiên chạy được trên hạ tầng hiện có (PostgreSQL, không ClickHouse), dựa trên dữ liệu đã tin cậy được: lượt xem đã lọc view ảo của C3.
+**Quyết định.**
+- Bộ flush view (C3) ghi thêm số view theo **giờ UTC** vào `media.video_views_hourly` (migration 000011), **trong cùng transaction** với `view_count`, bằng upsert cộng dồn. video-svc xóa bucket cũ hơn 8 ngày.
+- Mỗi 10 phút, **một** replica video-svc (giữ `pg_try_advisory_lock`) tính lại bảng xếp hạng:
+  - điểm = Σ view_giờ × 0,5^(tuổi_giờ / 24) trên 72 giờ gần nhất (chu kỳ bán rã 24 giờ);
+  - chỉ lấy video mà feed công khai được hiện: `PUBLIC`, `READY`, `VISIBLE`, chủ kênh còn hoạt động;
+  - bỏ video có điểm < 1; giữ top 200.
+  - Bảng `media.trending` được thay toàn bộ trong một transaction (DELETE + INSERT), nên người đọc không bao giờ thấy bảng dở dang.
+- `GET /v1/videos?sort=trending` đọc `media.trending` theo `rank`, cursor là rank, cache `public, max-age=60`. Không trộn với feed mới nhất; client tự quyết khi bảng rỗng.
+- Like chưa được tính: số like nằm ở social-svc, video-svc chỉ có bản sao `like_count` lấy từ event. Có thể thêm vào công thức ở v2 mà không đổi schema của `trending`.
+**Hệ quả.**
+- Mỗi lần flush thêm một câu upsert theo lô, tối đa vài nghìn dòng mỗi giờ.
+- Việc tính lại là một câu truy vấn aggregate trên tối đa 72 giờ bucket, có index theo `hour`.
+- Video bị chuyển sang PRIVATE/HIDDEN vẫn nằm trong bảng tối đa 10 phút. Vì vậy câu đọc vẫn lọc lại theo điều kiện feed công khai, để nó không bao giờ lộ ra.
+- R2 đầy đủ (co-view, theo subscription, A/B) sẽ dùng lại `video_views_hourly` hoặc ClickHouse của R1.
+
+### ADR-021 — Feed "Đang theo dõi" (R2-b)
+**Bối cảnh.** Người dùng đã subscribe kênh (C1) nhưng chưa có chỗ xem video mới của các kênh đó. Dữ liệu subscribe nằm ở social-svc, còn danh sách video ở video-svc. ADR-007 cấm FK và truy vấn chéo schema giữa các service.
+**Quyết định.**
+- video-svc giữ **projection riêng** `media.subscriptions` (migration 000012), dựng từ event `social.subscription.changed`:
+  - durable `video-subscriptions` trên stream `SOCIAL`, `deliver_policy: all`;
+  - `subscribed=true` → upsert, `false` → delete, xử lý tuần tự theo thứ tự stream.
+- Stream `SOCIAL` chỉ giữ 7 ngày, nên migration 000012 **backfill một lần** từ `social.subscriptions`. Việc này làm được vì role migrator sở hữu cả hai schema. Consumer phát lại stream sau đó cũng vô hại, vì mọi thao tác đều idempotent và theo đúng thứ tự.
+- `GET /v1/feed/subscriptions`:
+  - chỉ trả video mà feed công khai được hiện, của các kênh người gọi theo dõi;
+  - xếp mới nhất trước theo `(published_at, id)`, có cursor;
+  - dùng index riêng `videos_owner_published`;
+  - `private, no-store`.
+- Nhất quán sau vài giây: một lượt subscribe mới xuất hiện trong feed khi consumer xử lý xong event.
+**Hệ quả.**
+- video-svc tiêu thụ thêm một subject của `SOCIAL`; NATS user của video cần quyền tạo durable này.
+- Người theo dõi hàng nghìn kênh làm câu truy vấn nặng hơn. Chấp nhận ở beta: truy vấn dùng index theo `owner_id` và giới hạn `limit`. Nếu cần, ở R2 đầy đủ sẽ chuyển sang fan-out-on-write.

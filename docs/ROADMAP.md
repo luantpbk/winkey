@@ -51,7 +51,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | STO | Garage (1 node RF 1 bây giờ, ×3 RF 2 sau), bucket + CORS (`ExposeHeaders: ETag`) + web endpoint, key theo từng service. [Brief](prompts/antigravity-2_STO_garage.md) · ✅ (#67) | Antigravity 2 | I1, EDGE ✅ | **Cao** |
 | DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) · ✅ (#81) | Antigravity 2 | I1 | **Cao** |
 | EDGE ✅ (#39) | Traefik: routing, forwardAuth, **xóa header định danh trên mọi route**, rate limit; edge-1: nginx host (TLS Certbot, media `proxy_cache`, cấu hình upload s3) theo ADR-014; mở NATS/PG/Garage cho tailnet qua NodePort 30422/30432/30900 trên IP Tailscale (ADR-015) | Antigravity 2 | I1, A1 | **Cao** |
-| I2 | Deploy mọi service lên k3s edge-1: kustomize + Ansible role (như STO/DATA; Helm/GitOps để sau khi có nhiều node), image pin digest, Secrets, route Traefik đầy đủ. [Brief](prompts/antigravity-2_I2_apps.md) | Antigravity 2 | DATA ✅ | TB |
+| I2 | Deploy mọi service lên k3s edge-1: kustomize + Ansible role (như STO/DATA; Helm/GitOps để sau khi có nhiều node), image pin digest, Secrets, route Traefik đầy đủ. [Brief](prompts/antigravity-2_I2_apps.md) · ✅ (#93; bỏ workaround sau #94) | Antigravity 2 | DATA ✅ | TB |
 | QA1 | System test toàn stack trên Linux: compose override chạy mọi service + transcoder CPU, 12 kịch bản black-box qua gateway (upload → READY → xem, social, visibility, moderation, search, thu hồi phiên, xóa). [Brief](prompts/antigravity-4_QA1_system-tests.md) | Antigravity 4 | F3 ✅ |
 | Q1 | E2E Playwright: đăng ký → upload → READY → xem; k6 smoke | Antigravity 1 | U1, V2, A1 | TB |
 
@@ -60,9 +60,10 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 |---|---|---|---|
 | A2 | RBAC + moderation backend: `/v1/admin/*` (auth-svc), báo cáo + hàng đợi `/v1/reports`, `/v1/moderation/*` (social-svc). Contract + migration 000006, ADR-016, [brief](prompts/antigravity-3_A2_moderation.md) · ✅ (#72) | Antigravity 3 | A1 ✅, C1 ✅ |
 | A3 | auth-svc: tự quản lý tài khoản — sửa tên hiển thị/handle, đặt/đổi mật khẩu (đăng xuất thiết bị khác), xóa tài khoản (ẩn danh hóa, giải phóng email/handle). Contract `updateMe`/`changePassword`/`deleteMe`, [brief](prompts/antigravity-3_A3_account-self-service.md) · ✅ (#80) | Antigravity 3 | A2 ✅ |
-| A4 | auth-svc: thu hồi access token ngay (ADR-019): denylist `sid` + mốc thu hồi theo user trong Valkey, `verify` 1 `MGET` fail-open. [Brief](prompts/antigravity-3_A4_session-revocation.md) | Antigravity 3 | A3 ✅ |
+| A4 | auth-svc: thu hồi access token ngay (ADR-019): denylist `sid` + mốc thu hồi theo user trong Valkey, `verify` 1 `MGET` fail-open. [Brief](prompts/antigravity-3_A4_session-revocation.md) · ✅ (#92) | Antigravity 3 | A3 ✅ |
+| A5 | realtime-gw đóng WebSocket (4401) của user bị thu hồi (ADR-019, phần bổ sung A5), sweep 30 s bằng MGET. [Brief](prompts/antigravity-3_A5_realtime-revocation.md) | Antigravity 3 | A4 ✅ |
 | S4 | video-svc: `moderateVideo` + event `video.moderated`, ẩn video HIDDEN với người ngoài. [Brief](prompts/sonnet_S4_video-moderation.md)  · ✅ (#71) | Sonnet 5.5 | S1 ✅ |
-| U4 | Web admin/moderation UI (danh sách user, đổi role, khóa, hàng đợi báo cáo, nút báo cáo). [Brief](prompts/antigravity-1_U4_admin-moderation-ui.md) | Antigravity 1 | A2 ✅, S4 ✅ |
+| U4 | Web admin/moderation UI (danh sách user, đổi role, khóa, hàng đợi báo cáo, nút báo cáo). [Brief](prompts/antigravity-1_U4_admin-moderation-ui.md) · ✅ (#95) | Antigravity 1 | A2 ✅, S4 ✅ |
 | C1 | social-svc: comment 2 cấp (schema `social`), like, subscribe. Contract `social.v1.yaml`, migration 000005, event `social.*`, [brief](prompts/antigravity-3_C1_social.md) · ✅ (#48) | Antigravity 3 | A1 ✅ |
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) · ✅ (#57) | Antigravity 3 | C1 ✅ |
 | C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) · ✅ (#52) | Sonnet 5.5 | S1 ✅ |
@@ -77,9 +78,11 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | ID | Task | Owner |
 |---|---|---|
 | R1 | Analytics: heartbeat xem → JetStream → ClickHouse (gpu-01) | Antigravity 2 + Sonnet |
-| R2 | Recommendation v1: candidate (trending, co-view, subscription) + ranking; khung A/B | Opus (thiết kế) + Sonnet |
+| R2-a | Feed thịnh hành v1 (ADR-020): view theo giờ trong flush C3, bảng xếp hạng tính lại mỗi 10 phút, `listVideos?sort=trending`, migration 000011. [Brief](prompts/sonnet_R2a_trending.md) · ✅ (#101) | Sonnet |
+| R2-b | Feed "Đang theo dõi" (ADR-021): projection `media.subscriptions` từ `social.subscription.changed`, migration 000012 (có backfill), `GET /v1/feed/subscriptions`. [Brief](prompts/sonnet_R2b_subscription-feed.md) | Sonnet |
+| R2 | Recommendation v1 đầy đủ: co-view, theo subscription, ranking; khung A/B (sau R2-a) | Opus (thiết kế) + Sonnet |
 | V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
 | V5a | Storyboard xem trước khi tua: sprite 160×90 + WebVTT `#xywh`, migration 000008, `Playback.storyboard_url`. [Brief](prompts/sonnet_V5a_storyboard.md) · ✅ (#86) | Sonnet |
-| V5b | Phụ đề WebVTT do chủ video tải lên (ADR-018): migration 000010, `putSubtitle`/`deleteSubtitle`, `Playback.subtitles`. [Brief](prompts/sonnet_V5b_subtitles.md) | Sonnet |
+| V5b | Phụ đề WebVTT do chủ video tải lên (ADR-018): migration 000010, `putSubtitle`/`deleteSubtitle`, `Playback.subtitles`. [Brief](prompts/sonnet_V5b_subtitles.md) · ✅ (#91) | Sonnet |
 | V5c | Auto-caption (Whisper trên gpu-01) ghi track `source = AUTO`; chờ quyết định ngân sách GPU (ADR-018) | Opus (thiết kế) + Sonnet |
 | LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |

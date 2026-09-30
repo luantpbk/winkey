@@ -14,16 +14,20 @@ import (
 // memStore is an in-memory domain.Store with the same semantics as the
 // PostgreSQL one (filters, ordering, keyset comparison).
 type memStore struct {
-	mu          sync.Mutex
-	videos      map[uuid.UUID]domain.Video
-	progress    map[uuid.UUID]float64
-	raw         map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
-	errs        map[uuid.UUID]string    // owner-safe failure messages
-	deleted     []domain.DeletedEvent
-	moderated   []domain.ModeratedEvent // video.moderated events, in order
-	gets        int
-	mediaChecks int
-	lists       int
+	mu             sync.Mutex
+	videos         map[uuid.UUID]domain.Video
+	progress       map[uuid.UUID]float64
+	raw            map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
+	errs           map[uuid.UUID]string    // owner-safe failure messages
+	deleted        []domain.DeletedEvent
+	moderated      []domain.ModeratedEvent // video.moderated events, in order
+	gets           int
+	subtitleWrites int
+	putSubtitleErr error
+	ranking        []rankedVideo
+	trendingReads  int
+	mediaChecks    int
+	lists          int
 
 	searches  []domain.SearchQuery
 	suggests  []string
@@ -236,4 +240,84 @@ func (s *memStore) MediaPublic(_ context.Context, id uuid.UUID) (bool, error) {
 	s.mediaChecks++
 	v, ok := s.videos[id]
 	return ok && v.PubliclyWatchable(), nil
+}
+
+// PutSubtitle and DeleteSubtitle keep the tracks in the video record, like the PostgreSQL store (one per
+// language, at most MaxSubtitles for a new language, sorted on read).
+func (s *memStore) PutSubtitle(_ context.Context, w domain.SubtitleWrite) (domain.SubtitleResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subtitleWrites++
+	v, ok := s.videos[w.VideoID]
+	if !ok {
+		return domain.SubtitleResult{}, domain.ErrNotFound
+	}
+	if v.Status == domain.StatusFailed {
+		return domain.SubtitleResult{}, domain.ErrVideoFailed
+	}
+	if s.putSubtitleErr != nil {
+		return domain.SubtitleResult{}, s.putSubtitleErr
+	}
+	track := domain.Subtitle{Lang: w.Lang, Label: w.Label, Source: "UPLOAD", ObjectKey: w.ObjectKey, SizeBytes: w.SizeBytes, UpdatedAt: time.Date(2026, 10, 1, 9, 0, s.subtitleWrites, 0, time.UTC)}
+	res := domain.SubtitleResult{Track: track, Created: true}
+	subs := v.Subtitles
+	for i, t := range subs {
+		if t.Lang == w.Lang {
+			res.Created, res.PreviousKey = false, t.ObjectKey
+			subs = append(append([]domain.Subtitle{}, subs[:i]...), subs[i+1:]...)
+			break
+		}
+	}
+	if res.Created && len(subs) >= domain.MaxSubtitles {
+		return domain.SubtitleResult{}, domain.ErrTooManySubtitles
+	}
+	subs = append(subs, track)
+	sort.Slice(subs, func(i, j int) bool { return subs[i].Lang < subs[j].Lang })
+	v.Subtitles = subs
+	s.videos[w.VideoID] = v
+	return res, nil
+}
+
+func (s *memStore) DeleteSubtitle(_ context.Context, id uuid.UUID, lang string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.videos[id]
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	for i, t := range v.Subtitles {
+		if t.Lang == lang {
+			v.Subtitles = append(append([]domain.Subtitle{}, v.Subtitles[:i]...), v.Subtitles[i+1:]...)
+			s.videos[id] = v
+			return t.ObjectKey, nil
+		}
+	}
+	return "", domain.ErrNotFound
+}
+
+// ListTrending serves ranks set by the test, re-applying the public-feed predicate like the SQL does.
+func (s *memStore) ListTrending(_ context.Context, q domain.TrendingQuery) ([]domain.TrendingItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trendingReads++
+	var out []domain.TrendingItem
+	for _, r := range s.ranking { // ordered by rank
+		v, ok := s.videos[r.id]
+		if !ok || r.rank <= q.AfterRank || v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing || v.Hidden() {
+			continue
+		}
+		out = append(out, domain.TrendingItem{Rank: r.rank, Summary: domain.Summary{
+			ID: v.ID, Title: v.Title, Owner: v.Owner, DurationMs: *v.DurationMs, ViewCount: v.ViewCount,
+			PublishedAt: *v.PublishedAt, ThumbnailKey: *v.ThumbnailKey,
+		}})
+		if len(out) == q.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+type rankedVideo struct {
+	id   uuid.UUID
+	rank int
 }

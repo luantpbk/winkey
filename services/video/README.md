@@ -6,6 +6,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 
 | Endpoint | Auth | Notes |
 |---|---|---|
+| `GET /v1/videos?sort=trending` | optional | The trending ranking (task R2-a): see *Trending*. `limit`, `cursor`; `owner_id` together with it is `400 INVALID_SORT`; `Cache-Control: public, max-age=60`. |
 | `GET /v1/videos` | optional | Public feed: **READY + PUBLIC** only, newest first, keyset pagination on `(published_at DESC, id DESC)` (partial index `media.videos_public_feed`). `limit` 1-100 (default 24), `cursor`, `owner_id` (channel page). UNLISTED and PRIVATE videos are never listed, not even for their owner (the studio is for that). |
 | `GET /v1/videos/{id}` | optional | Watch page. Visibility below. `Cache-Control: public, max-age=30` for PUBLIC READY, `private, no-store` otherwise. `playback` is `null` unless READY. |
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`; unknown fields and `{}` → 400. When the visibility **actually changes** it also enqueues `video.visibility_changed`: see *Events*. |
@@ -14,6 +15,8 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
 | `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
 | `GET /internal/media-access/{id}` | none | **Infrastructure only** (task SEC1, ADR-017): nginx `auth_request`. `204` if the public may fetch the video media, `403` otherwise. See *Media access*. |
+| `PUT /v1/videos/{id}/subtitles/{lang}` | required | Owner only: create or replace the WebVTT track of one language (task V5b). `201` created / `200` replaced, `SubtitleTrack`; `400` `INVALID_WEBVTT` / `SUBTITLE_TOO_LARGE` / `VALIDATION_ERROR`, `403`, `404`, `409` `TOO_MANY_SUBTITLES` / `VIDEO_FAILED`. See *Subtitles*. |
+| `DELETE /v1/videos/{id}/subtitles/{lang}` | required | Owner only: remove a track. `204`, `403`, `404` (also when there is no track for that language). |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
 
@@ -149,6 +152,50 @@ which is exactly what nginx checks with `secure_link_md5 "$secure_link_expires/v
 
 **`GET /internal/media-access/{video_id}`**: `204` if publicly watchable, `403` for everything else **including unknown ids** (never `404`, so it does not reveal what exists), `400` for a malformed id (canonical UUID only). No body, no identity headers read, ONE primary-key query joined to `auth.public_profiles`, `Cache-Control: max-age=30` on both answers. It is mounted outside `/v1` and **must never be routed publicly**: Traefik exposes it only for the internal Host `media-auth.internal` (SEC1-b). It is hot, so it is logged at debug (`httpx.AccessLog` logs every `/internal/*` route at debug, errors at error); metric `video_media_access_total{result=allow|deny}`.
 
+### Subtitles (V5b, ADR-018)
+
+`PUT /v1/videos/{video_id}/subtitles/{lang}` with `{"label": "Tiếng Việt", "content": "<the whole WebVTT file>"}`; `lang` is a short BCP 47 tag, `^[a-z]{2,3}(-[A-Z]{2})?$` (`vi`, `en`, `en-US`), `label` 1-50 characters (trimmed), at most **20 tracks** per video, one per language.
+
+- **Who**: the owner only. A visible video the caller does not own is `403` (moderators and admins included), an invisible or unknown one `404`, anonymous `401`. A `FAILED` video is `409` `VIDEO_FAILED`; any other status is fine, so a track can be prepared while the video is processing (it is shown once the video is READY, because `Playback` only exists then).
+- **Validation** (`internal/vtt`, a pure function with a table test and a fuzz test): at most 524288 **bytes** (`400 SUBTITLE_TOO_LARGE`, also for a request body above 4 MiB); valid UTF-8 and no NUL; an optional BOM, then a first line `WEBVTT` alone or followed by a space or tab and text (`WEBVTTX` is refused); blocks separated by blank lines; `NOTE`, `STYLE` and `REGION` blocks are allowed; a cue is an optional identifier line, a timing line `[HH:]MM:SS.mmm --> [HH:]MM:SS.mmm[ settings]` with MM and SS below 60 and the end after the start (settings are `name:value` tokens), then any number of text lines; at least one cue. Failures are `400 INVALID_WEBVTT` whose `detail` is `line N: reason` (N counted from 1 in the file as sent; "no cue" points at the last line).
+- **Normalisation** before storing: BOM removed, CRLF and CR turned into LF, lines that only hold spaces or tabs emptied, exactly one trailing newline. `size_bytes` is the size of the stored file.
+- **Storage order**: (1) upload the normalised bytes to `S3_MEDIA_BUCKET` at `v/{video_id}/subtitles/{lang}-{uuidv7}.vtt`, `Content-Type: text/vtt; charset=utf-8`, `Cache-Control: public, max-age=31536000, immutable` (a NEW key on every upload, so an object is never overwritten and can be cached forever); (2) one transaction: `SELECT … FROM media.videos WHERE id = $1 FOR UPDATE` (the lock serialises the uploads of one video), a new language beyond 20 → `409 TOO_MANY_SUBTITLES` (replacing an existing language is always allowed), then `INSERT … ON CONFLICT (video_id, lang) DO UPDATE … RETURNING (xmax = 0)` to tell create (`201`) from replace (`200`); (3) if the transaction fails the object just uploaded is deleted; after the commit the replaced object is deleted. Both deletes are best effort (a `warn` log with the video id and key, never the content, and never an error for the caller); an orphan is harmless because it lives under `v/{id}/` and goes with the video.
+- **Response**: `SubtitleTrack {lang, label, source: UPLOAD, url, updated_at}`, `Cache-Control: private, no-store`. `url` is plain for a publicly watchable video and **signed exactly like `hls_url`** (`signMediaURL`, SEC1) otherwise.
+- **`Playback.subtitles`** is always present (empty array when none), sorted by `lang` (bytewise), on every response that carries `playback` (`getVideo`, `updateVideo`, `moderateVideo`): one extra query per video (`SELECT … FROM media.video_subtitles WHERE video_id = $1`), none for a video that is not READY, and no list carries playback, so there is no N+1. URLs are signed with the same `expires_at` as `hls_url` when the video is not publicly watchable. Put and delete invalidate this replica's cache entry; other replicas serve their copy for at most `CACHE_TTL` (as for `PATCH`).
+- **Delete of the video**: the rows go with the video (`ON DELETE CASCADE`) and the objects with the `video.deleted` purge of `v/{id}/` (media janitor); a test runs that prefix delete against the bucket.
+- No event is emitted (ADR-018). The player must show cues through the browser text track or hls.js, never `innerHTML` (the cue text is user input).
+
+### Trending (R2-a, ADR-020)
+
+`GET /v1/videos?sort=trending` reads the current ranking of `media.trending`, best first. `sort` is `newest` (the default, the feed above, unchanged) or `trending`; anything else is `400 VALIDATION_ERROR`, and `owner_id` together with `sort=trending` is `400 INVALID_SORT` (there is no per-channel ranking). Same `VideoPage` as the feed; `next_cursor` is the last **rank** returned (opaque, HMAC-signed like the others, bound to the endpoint: a feed cursor is `400 INVALID_CURSOR` here and the other way round). The ranking has at most 200 entries and may be empty (no recent views): the response is then an empty page, not an error, and the client shows the newest feed. `Cache-Control: public, max-age=60`, whoever calls.
+
+**Read time.** The ranking is up to one interval old, so the read joins `media.videos` and `auth.public_profiles` and applies the exact predicate of the public feed again (`READY`, `PUBLIC`, `VISIBLE`, owner in the view) in the same statement: a video made `PRIVATE`, hidden or whose owner was suspended since the last run is never returned (its rank is just a gap). Paging while a recompute happens can show a video twice or skip one; read the ranking in one go if that matters (limit up to 100, 200 entries at most).
+
+**Hourly buckets.** `store.AddViews` (the view flusher, C3) adds the counted views to `media.videos.view_count` AND to the bucket of the current **UTC hour** in `media.video_views_hourly` in ONE statement (`WITH upd AS (UPDATE … RETURNING) INSERT … ON CONFLICT (video_id, hour) DO UPDATE SET views = views + EXCLUDED.views`), so either both happen or neither. A video that no longer exists matches no row in the `UPDATE`, gets no bucket and does not fail the batch; the `UPDATE` also row-locks the matched videos until commit, so a concurrent delete cannot break the foreign key of the bucket.
+
+**The job** (`internal/trending`, one goroutine per replica, at once at startup and then every `TRENDING_INTERVAL`, default 10 minutes; `TRENDING_ENABLED=false` switches it off on a replica, reads still work):
+
+1. one transaction that starts with `pg_try_advisory_xact_lock(0x77696e6b65790001)`; a replica that does not get it skips the run (debug log) and touches nothing, so exactly one replica works at a time;
+2. **score** = `Σ views × 0.5^(age / 24 h)` over the buckets of the last **72 hours** (`age` = `now() - hour`, the start of the bucket, so a view counted in the current hour is worth between 1.0 and about 0.97 and one of 24 hours ago about 0.5; `trending.Score` is the same formula in Go and a test compares them);
+3. **eligible** = the exact public-feed predicate (`PUBLIC`, `READY`, `VISIBLE`, owner in `auth.public_profiles`); videos scoring **below 1** are dropped; the **top 200** by `score DESC, video_id DESC` (stable ties) get rank 1..N;
+4. `DELETE FROM media.trending` + `INSERT` of the new ranking in the SAME transaction: a reader sees the old ranking or the new one, never an empty or mixed table; a failure rolls back and the old ranking stays;
+5. after the commit, **retention**: `media.video_views_hourly` buckets older than 8 days are deleted in batches of 5000 until none is left (a failure is a warning, retried on the next run).
+
+Note on the threshold: the age of a bucket is measured from its start, so a video with a single view in the current hour scores a little under 1 and is not ranked; two views are.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRENDING_ENABLED` | `true` | Run the recompute job on this replica |
+| `TRENDING_INTERVAL` | `10m` | Time between recomputes (at least 1 s when enabled) |
+
+| Metric | Type | |
+|---|---|---|
+| `video_trending_recompute_seconds` | histogram | Duration of a recompute that ran (the replica that got the lock) |
+| `video_trending_size` | gauge | Videos in `media.trending` after this replica's last run |
+| `video_trending_recompute_errors_total` | counter | Runs that failed (the previous ranking stays) |
+
+The run logs `trending recomputed` at info with `videos`, `duration` and `retired_buckets`.
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).
@@ -172,6 +219,9 @@ With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent rec
 | `DATABASE_URL` | required | PostgreSQL (role `media_svc`) |
 | `NATS_URL` | required | JetStream for the outbox relay |
 | `MEDIA_BASE_URL` | required | Prefix for playback/thumbnail/avatar URLs, e.g. `https://media.winkey.vn` |
+| `S3_ENDPOINT` | required | Garage endpoint (server-side calls only), e.g. `http://garage:3900` |
+| `S3_REGION` | `garage` | |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | required | Key with write and delete access to `S3_MEDIA_BUCKET` (subtitle files); the secret is never logged |
 | `MEDIA_LINK_SECRET` | required | ≥ 32 bytes; signs media URLs of non-public videos, shared with nginx; never logged |
 | `CURSOR_SECRET` | required | ≥ 16 characters; signs pagination cursors; same value on every replica |
 | `S3_MEDIA_BUCKET` | `winkey-media` | Bucket named in `video.deleted` |

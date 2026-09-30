@@ -282,3 +282,28 @@ func TestListPrefixes(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestPutBytesSendsHeadersAndBody(t *testing.T) {
+	f := newFake(t)
+	c := newClient(t, f, "")
+	ctx := context.Background()
+	body := []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nxin chào\n")
+	if err := c.PutBytes(ctx, "media", "v/1/subtitles/vi-x.vtt", body, PutOptions{ContentType: "text/vtt; charset=utf-8", CacheControl: "public, max-age=31536000, immutable"}); err != nil {
+		t.Fatal(err)
+	}
+	o := f.objs["media/v/1/subtitles/vi-x.vtt"]
+	if !bytes.Equal(o.data, body) || o.contentType != "text/vtt; charset=utf-8" || o.cacheControl != "public, max-age=31536000, immutable" {
+		t.Fatalf("%+v", o)
+	}
+	if err := c.PutBytes(ctx, "media", "empty", nil, PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.objs["media/empty"]; len(o.data) != 0 || o.cacheControl != "" {
+		t.Fatalf("no options: %+v", o)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := c.PutBytes(cancelled, "media", "k", body, PutOptions{}); err == nil {
+		t.Fatal("a cancelled context must fail the upload")
+	}
+}

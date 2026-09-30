@@ -125,3 +125,26 @@ func verify(secret []byte, kind, scope, token string) ([]byte, error) {
 	}
 	return body, nil
 }
+
+type rankPayload struct {
+	R int `json:"r"`
+}
+
+// EncodeRank returns the token for the position after the item of the given rank (trending, task R2-a).
+func EncodeRank(secret []byte, kind, scope string, rank int) string {
+	body, _ := json.Marshal(rankPayload{R: rank})
+	return enc.EncodeToString(body) + "." + enc.EncodeToString(mac(secret, kind, scope, body))
+}
+
+// DecodeRank verifies and decodes a token issued by EncodeRank.
+func DecodeRank(secret []byte, kind, scope, token string) (int, error) {
+	body, err := verify(secret, kind, scope, token)
+	if err != nil {
+		return 0, err
+	}
+	var p rankPayload
+	if json.Unmarshal(body, &p) != nil || p.R < 1 {
+		return 0, ErrInvalid
+	}
+	return p.R, nil
+}

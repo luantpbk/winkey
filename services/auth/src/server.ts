@@ -19,12 +19,14 @@ import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
+import { RevocationService } from './revocation/revocation.js';
 
 export interface BuildAppOptions {
   env?: Env;
   db?: Kysely<Database>;
   rateLimiter?: RateLimiter;
   redis?: Redis | null;
+  revocationService?: RevocationService;
   natsConnection?: NatsConnection | null;
   googleTokenExchanger?: GoogleTokenExchanger;
 }
@@ -34,6 +36,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const db = options.db || getDb(env.DATABASE_URL).db;
   const rateLimiter =
     options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis ?? undefined);
+  const revocationService =
+    options.revocationService || new RevocationService(options.redis ?? null);
   const trustProxyConfig = env.TRUST_PROXY_CIDRS
     ? env.TRUST_PROXY_CIDRS.split(',')
         .map((s) => s.trim())
@@ -113,14 +117,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // Register routes
   await app.register(registerRoute, { db, env, rateLimiter });
   await app.register(loginRoute, { db, env, rateLimiter });
-  await app.register(refreshRoute, { db, env });
-  await app.register(logoutRoute, { db, env });
-  await app.register(meRoute, { db, env, rateLimiter });
-  await app.register(verifyRoute, { env });
+  await app.register(refreshRoute, { db, env, revocationService });
+  await app.register(logoutRoute, { db, env, revocationService });
+  await app.register(meRoute, { db, env, rateLimiter, revocationService });
+  await app.register(verifyRoute, { env, revocationService });
   await app.register(jwksRoute, { env });
   await app.register(usersRoute, { db, env });
   await app.register(oauthRoute, { db, env, tokenExchanger: options.googleTokenExchanger });
-  await app.register(adminRoute, { db, env });
+  await app.register(adminRoute, { db, env, revocationService });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

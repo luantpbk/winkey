@@ -26,6 +26,7 @@ import type {
 } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { Link } from '../../i18n/routing';
+import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 interface ModerationModalState {
   isOpen: boolean;
@@ -42,6 +43,7 @@ interface ModerationModalState {
 }
 
 export function ModerationQueue() {
+  const safeTimeout = useSafeTimeout();
   const t = useTranslations('admin.queue');
   const tReports = useTranslations('reports');
   const tErrors = useTranslations('admin.errors');
@@ -142,7 +144,7 @@ export function ModerationQueue() {
       errorMessage: null,
       successMessage: null,
     });
-    setTimeout(() => {
+    safeTimeout(() => {
       initialFocusRef.current?.focus();
     }, 50);
   };
@@ -266,7 +268,7 @@ export function ModerationQueue() {
           successMessage: t('actionSuccess'),
           isSubmitting: false,
         }));
-        setTimeout(() => {
+        safeTimeout(() => {
           closeModal();
           fetchCases();
         }, 1200);
@@ -307,7 +309,7 @@ export function ModerationQueue() {
         isSubmitting: false,
         step2Failed: false,
       }));
-      setTimeout(() => {
+      safeTimeout(() => {
         closeModal();
         fetchCases();
       }, 1200);

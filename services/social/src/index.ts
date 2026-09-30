@@ -2,7 +2,7 @@ import { connect as connectNats, type NatsConnection } from 'nats';
 import { Redis } from 'ioredis';
 import { getEnv } from './config/env.js';
 import { getDb, closeDb } from './db/client.js';
-import { OutboxRelay } from '@winkey/outbox';
+import { OutboxRelay, natsOptionsFromUrl } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
 import { VideoProjectionConsumer } from './projection/consumer.js';
 import { buildApp } from './server.js';
@@ -36,7 +36,10 @@ async function main() {
     try {
       if (!natsConnection || natsConnection.isClosed()) {
         try {
-          natsConnection = await connectNats({ servers: env.NATS_URL });
+          natsConnection = await connectNats({
+            ...natsOptionsFromUrl(env.NATS_URL),
+            name: 'social-svc',
+          });
           console.log('Connected to NATS JetStream');
         } catch (err) {
           console.warn(

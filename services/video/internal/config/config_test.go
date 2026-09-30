@@ -20,6 +20,7 @@ func valid() map[string]string {
 		"DATABASE_URL": "postgres://x", "NATS_URL": "nats://x",
 		"MEDIA_BASE_URL": "https://media.winkey.vn", "CURSOR_SECRET": "0123456789abcdef",
 		"MEDIA_LINK_SECRET": "0123456789abcdef0123456789abcdef",
+		"S3_ENDPOINT":       "http://garage:3900", "S3_ACCESS_KEY_ID": "k", "S3_SECRET_ACCESS_KEY": "s",
 	}
 }
 
@@ -34,7 +35,7 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestRequiredAndSecretLength(t *testing.T) {
-	for _, name := range []string{"DATABASE_URL", "NATS_URL", "MEDIA_BASE_URL", "CURSOR_SECRET", "MEDIA_LINK_SECRET"} {
+	for _, name := range []string{"DATABASE_URL", "NATS_URL", "MEDIA_BASE_URL", "CURSOR_SECRET", "MEDIA_LINK_SECRET", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"} {
 		env := valid()
 		delete(env, name)
 		if _, err := load(env); err == nil || !strings.Contains(err.Error(), name) {
@@ -110,5 +111,21 @@ func TestMediaLinkSecretNeedsAtLeast32BytesAndIsNeverEchoed(t *testing.T) {
 	e["MEDIA_LINK_SECRET"] = strings.Repeat("s", 32)
 	if c, err := load(e); err != nil || c.MediaLinkSecret != strings.Repeat("s", 32) {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestTrendingSettings(t *testing.T) {
+	c, err := load(valid())
+	if err != nil || !c.TrendingEnabled || c.TrendingInterval.String() != "10m0s" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	e := valid()
+	e["TRENDING_ENABLED"], e["TRENDING_INTERVAL"] = "false", "0s" // an unused interval is not validated
+	if c, err := load(e); err != nil || c.TrendingEnabled {
+		t.Fatalf("%+v %v", c, err)
+	}
+	e["TRENDING_ENABLED"] = "true"
+	if _, err := load(e); err == nil {
+		t.Error("a zero interval with the job enabled must be refused")
 	}
 }

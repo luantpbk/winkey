@@ -141,3 +141,34 @@ func TestSearchCursorRejectsBadPayloads(t *testing.T) {
 		t.Errorf("well-formed payload rejected: %v", err)
 	}
 }
+
+func TestRankCursor(t *testing.T) {
+	tok := EncodeRank(secret, "trending", "", 42)
+	if got, err := DecodeRank(secret, "trending", "", tok); err != nil || got != 42 {
+		t.Fatalf("%d %v", got, err)
+	}
+	if len(tok) > MaxLen || strings.ContainsAny(tok, "+/=") {
+		t.Fatalf("token %q", tok)
+	}
+	for name, decode := range map[string]func() error{
+		"other kind":  func() error { _, err := DecodeRank(secret, "feed", "", tok); return err },
+		"other scope": func() error { _, err := DecodeRank(secret, "trending", "x", tok); return err },
+		"other key":   func() error { _, err := DecodeRank([]byte("another-secret-key-1"), "trending", "", tok); return err },
+		"empty":       func() error { _, err := DecodeRank(secret, "trending", "", ""); return err },
+		"tampered":    func() error { _, err := DecodeRank(secret, "trending", "", "A"+tok[1:]); return err },
+		"feed token": func() error {
+			_, err := DecodeRank(secret, "feed", "all", Encode(secret, "feed", "all", pos()))
+			return err
+		},
+	} {
+		if err := decode(); err != ErrInvalid {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// A rank below 1 is not a position.
+	for _, r := range []int{0, -3} {
+		if _, err := DecodeRank(secret, "trending", "", EncodeRank(secret, "trending", "", r)); err != ErrInvalid {
+			t.Errorf("rank %d accepted", r)
+		}
+	}
+}

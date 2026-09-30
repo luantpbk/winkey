@@ -2,8 +2,10 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,7 +215,42 @@ func TestConsumerWaitsForTheStream(t *testing.T) {
 		}
 	}
 	s.publish(t, v.ID, true, 7)
-	waitFor(t, 20*time.Second, "like_count = 7 after the stream appeared", func() bool { return s.likeCount(t, v.ID) == 7 })
+
+	// How long the consumer needs to notice is not small: it may be inside a pull request that lives up to
+	// 5 s (FetchMaxWait), then backs off 1 s before it re-creates the durable, and on a loaded CI runner
+	// each JetStream API call adds its own latency. 20 s was not always enough (seen once in CI on #96), so
+	// the budget is 60 s, and a timeout says what the stream and the consumer looked like.
+	deadline := time.Now().Add(60 * time.Second)
+	for s.likeCount(t, v.ID) != 7 {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for like_count = 7 after the stream appeared; like_count=%d; %s",
+				s.likeCount(t, v.ID), s.streamDiagnostics(ctx))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// streamDiagnostics describes the SOCIAL stream and the durable, for a failure message.
+func (s *likeStack) streamDiagnostics(ctx context.Context) string {
+	var out strings.Builder
+	st, err := s.nats.JS.Stream(ctx, likes.Stream)
+	if err != nil {
+		fmt.Fprintf(&out, "stream %s: %v; ", likes.Stream, err)
+		return out.String()
+	}
+	if info, err := st.Info(ctx); err == nil {
+		fmt.Fprintf(&out, "stream %s: %d messages, last seq %d, %d consumers; ", likes.Stream, info.State.Msgs, info.State.LastSeq, info.State.Consumers)
+	}
+	c, err := s.nats.JS.Consumer(ctx, likes.Stream, likes.Durable)
+	if err != nil {
+		fmt.Fprintf(&out, "consumer %s: %v (the consumer never re-created its durable); ", likes.Durable, err)
+		return out.String()
+	}
+	if info, err := c.Info(ctx); err == nil {
+		fmt.Fprintf(&out, "consumer %s: delivered %d, ack floor %d, pending %d, ack pending %d, redelivered %d; ",
+			likes.Durable, info.Delivered.Stream, info.AckFloor.Stream, info.NumPending, info.NumAckPending, info.NumRedelivered)
+	}
+	return out.String()
 }
 
 // Database trouble must not lose or reorder a message: it is retried in-process,
