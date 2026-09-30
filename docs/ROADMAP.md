@@ -52,6 +52,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | DATA | CloudNativePG + backup, NATS cluster + stream theo `contracts/events/README.md`, Valkey. [Brief](prompts/antigravity-2_DATA_k3s.md) · ✅ (#81) | Antigravity 2 | I1 | **Cao** |
 | EDGE ✅ (#39) | Traefik: routing, forwardAuth, **xóa header định danh trên mọi route**, rate limit; edge-1: nginx host (TLS Certbot, media `proxy_cache`, cấu hình upload s3) theo ADR-014; mở NATS/PG/Garage cho tailnet qua NodePort 30422/30432/30900 trên IP Tailscale (ADR-015) | Antigravity 2 | I1, A1 | **Cao** |
 | I2 | Deploy mọi service lên k3s edge-1: kustomize + Ansible role (như STO/DATA; Helm/GitOps để sau khi có nhiều node), image pin digest, Secrets, route Traefik đầy đủ. [Brief](prompts/antigravity-2_I2_apps.md) | Antigravity 2 | DATA ✅ | TB |
+| QA1 | System test toàn stack trên Linux: compose override chạy mọi service + transcoder CPU, 12 kịch bản black-box qua gateway (upload → READY → xem, social, visibility, moderation, search, thu hồi phiên, xóa). [Brief](prompts/antigravity-4_QA1_system-tests.md) | Antigravity 4 | F3 ✅ |
 | Q1 | E2E Playwright: đăng ký → upload → READY → xem; k6 smoke | Antigravity 1 | U1, V2, A1 | TB |
 
 ### P2 — Beta
@@ -68,6 +69,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | C4 | social-svc biết visibility của video: video `PRIVATE` trả 404 comment/like cho người ngoài. Migration 000009, event `video.visibility_changed`, `video.ready.visibility`. C4-a social-svc (Antigravity 3), C4-b producer (Sonnet, sau V5a). [Brief](prompts/antigravity-3_C4_social-visibility.md) · ✅ (#84, #87) | Antigravity 3 + Sonnet | C1 ✅, SEC1-a ✅ |
 | U2 | Creator Studio realtime + like/comment realtime trên trang xem. [Brief](prompts/antigravity-1_U2_studio-realtime.md) | Antigravity 1 | C2 ✅ |
 | SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm`. Contract `searchVideos`/`suggestSearch`, migration 000007, [brief](prompts/sonnet_SR1_search.md) · ✅ (#75, #78) | Sonnet 5.5 | S1 ✅ |
+| LT1 | Bộ load test k6 (người xem HLS mô phỏng player, đo rebuffer; API mix), hiệu chỉnh local 50/200 viewer. LT2 = chạy 1.000 viewer trên edge-1 khi I2 + SEC1-b xong và bạn duyệt giờ chạy. [Brief](prompts/antigravity-4_LT1_load-test.md) | Antigravity 4 | QA1 |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |
 | SEC1 | Chặn tải media của video không công khai (ADR-017): SEC1-a video-svc ký URL `/s/{exp}/{sig}/…` + `mediaAccess` (Sonnet); SEC1-b nginx `secure_link` + `auth_request` cache 30 s, route Traefik nội bộ (Antigravity 2, sau I2). [Brief](prompts/sonnet_SEC1_media-access.md) · SEC1-a ✅ (#82) | Opus (thiết kế ✅) → Sonnet / Antigravity 2 | EDGE ✅, A2 ✅, S4 ✅ |
 
