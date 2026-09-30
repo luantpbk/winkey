@@ -53,7 +53,7 @@ social-svc giữ projection `social.videos` (video nào nhận được comment/
 
 ## Consumer của video-svc cho feed theo dõi (R2-b)
 
-- Durable `video-subscriptions` trên stream `SOCIAL`, pull, `filter_subject: social.subscription.changed`, `deliver_policy: all` (lần đầu phát lại cả 7 ngày của stream, sau khi migration 000012 đã backfill từ `social.subscriptions`), `ack_policy: explicit`, `ack_wait: 30s`, `max_deliver: 5`.
+- Durable `video-subscriptions` trên stream `SOCIAL`, pull, `filter_subject: social.subscription.changed`, `deliver_policy: all` (lần đầu phát lại cả 7 ngày của stream, sau khi migration 000012 đã backfill từ `social.subscriptions`), `ack_policy: explicit`, `ack_wait: 30s`, **`max_ack_pending: 1`, `max_deliver: -1`** (thứ tự nghiêm ngặt: event sau chỉ được giao khi event trước đã ack; lỗi tạm thời không bao giờ làm mất thay đổi, hàng đợi chờ DB; `Term` chỉ dành cho event sai định dạng).
 - `subscribed = true` → `INSERT … ON CONFLICT DO NOTHING`; `false` → `DELETE`. Xử lý tuần tự theo thứ tự stream nên trạng thái cuối khớp social-svc. Event sai schema → `Term()`.
 
 ## Consumer `transcoder`
