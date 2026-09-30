@@ -36,6 +36,8 @@ configMapGenerator:
       - migrations/000009_social_visibility.down.sql
       - migrations/000010_subtitles.up.sql
       - migrations/000010_subtitles.down.sql
+      - migrations/000011_trending.up.sql
+      - migrations/000011_trending.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

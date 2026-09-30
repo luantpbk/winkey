@@ -194,3 +194,20 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Mỗi request đã đăng nhập tốn thêm một round trip tới Valkey (< 1 ms trong cluster).
 - Kết nối WebSocket đang mở của realtime-gw không bị cắt ngay, vì vé kết nối chỉ kiểm lúc bắt tay; đó là việc sau, nếu cần.
 - ADR-016 đoạn "≤ 15 phút" được thay bằng ADR này, trừ lúc Valkey lỗi.
+
+### ADR-020 — Feed thịnh hành v1 (R2-a)
+**Bối cảnh.** Trang chủ mới chỉ có feed "mới nhất". Recommendation v1 (R2) cần một nguồn ứng viên đầu tiên chạy được trên hạ tầng hiện có (PostgreSQL, không ClickHouse), dựa trên dữ liệu đã tin cậy được: lượt xem đã lọc view ảo của C3.
+**Quyết định.**
+- Bộ flush view (C3) ghi thêm số view theo **giờ UTC** vào `media.video_views_hourly` (migration 000011), **trong cùng transaction** với `view_count`, bằng upsert cộng dồn. video-svc xóa bucket cũ hơn 8 ngày.
+- Mỗi 10 phút, **một** replica video-svc (giữ `pg_try_advisory_lock`) tính lại bảng xếp hạng:
+  - điểm = Σ view_giờ × 0,5^(tuổi_giờ / 24) trên 72 giờ gần nhất (chu kỳ bán rã 24 giờ);
+  - chỉ lấy video mà feed công khai được hiện: `PUBLIC`, `READY`, `VISIBLE`, chủ kênh còn hoạt động;
+  - bỏ video có điểm < 1; giữ top 200.
+  - Bảng `media.trending` được thay toàn bộ trong một transaction (DELETE + INSERT), nên người đọc không bao giờ thấy bảng dở dang.
+- `GET /v1/videos?sort=trending` đọc `media.trending` theo `rank`, cursor là rank, cache `public, max-age=60`. Không trộn với feed mới nhất; client tự quyết khi bảng rỗng.
+- Like chưa được tính: số like nằm ở social-svc, video-svc chỉ có bản sao `like_count` lấy từ event. Có thể thêm vào công thức ở v2 mà không đổi schema của `trending`.
+**Hệ quả.**
+- Mỗi lần flush thêm một câu upsert theo lô, tối đa vài nghìn dòng mỗi giờ.
+- Việc tính lại là một câu truy vấn aggregate trên tối đa 72 giờ bucket, có index theo `hour`.
+- Video bị chuyển sang PRIVATE/HIDDEN vẫn nằm trong bảng tối đa 10 phút. Vì vậy câu đọc vẫn lọc lại theo điều kiện feed công khai, để nó không bao giờ lộ ra.
+- R2 đầy đủ (co-view, theo subscription, A/B) sẽ dùng lại `video_views_hourly` hoặc ClickHouse của R1.
