@@ -38,7 +38,7 @@ spec:
             - name: HOSTNAME
               value: '0.0.0.0'
             - name: API_INTERNAL_URL
-              value: 'https://winkey.vn'
+              value: 'http://traefik.kube-system.svc.cluster.local'
             - name: API_MOCKS
               value: '0'
             - name: NEXT_PUBLIC_API_MOCKS
@@ -68,7 +68,17 @@ spec:
             timeoutSeconds: 3
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}

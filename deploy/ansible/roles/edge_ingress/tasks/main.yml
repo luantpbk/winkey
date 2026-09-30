@@ -4,7 +4,7 @@
 # Uses k3s auto-deploy manifests directory (/var/lib/rancher/k3s/server/manifests)
 
 - name: Deploy Traefik middlewares manifest
-  ansible.builtin.copy:
+  ansible.builtin.template:
     src: "{{ playbook_dir }}/../k8s/edge/middlewares.yaml"
     dest: /var/lib/rancher/k3s/server/manifests/winkey-middlewares.yaml
     mode: "0644"

@@ -10,12 +10,12 @@ All workloads are configured with strict resource boundaries (`requests` and `li
 
 | Service | Technology | Port | User (UID) | Requests (CPU / RAM) | Limits (CPU / RAM) | Pinned Image Digest |
 |---|---|---|---|---|---|---|
-| **auth-svc** | Node 22 (Fastify) | 3001 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:09961ce8c3f8...` |
-| **upload-svc** | Go 1.26 (Distroless) | 3002 | `nonroot` (65532) | 100m / 128Mi | 300m / 256Mi | `sha256:8c4b75fc91af...` |
-| **video-svc** | Go 1.26 (Distroless) | 3003 | `nonroot` (65532) | 150m / 256Mi | 500m / 512Mi | `sha256:61f51983855b...` |
-| **social-svc** | Node 22 (Fastify) | 3004 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:0ba727c923ea...` |
-| **realtime-svc** | Node 22 (Fastify/WS) | 3005 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:a084b20df44a...` |
-| **web-svc** | Next.js 15 (Node 22) | 3000 | `nextjs` (1001) | 150m / 384Mi | 500m / 768Mi | `sha256:ca6cd063187a...` |
+| **auth-svc** | Node 22 (Fastify) | 3001 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:5a500ea2f25c...` |
+| **upload-svc** | Go 1.26 (Distroless) | 3002 | `nonroot` (65532) | 100m / 128Mi | 300m / 256Mi | `sha256:c05f76af2dc5...` |
+| **video-svc** | Go 1.26 (Distroless) | 3003 | `nonroot` (65532) | 150m / 256Mi | 500m / 512Mi | `sha256:d72e894bfd64...` |
+| **social-svc** | Node 22 (Fastify) | 3004 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:5eb09e998516...` |
+| **realtime-svc** | Node 22 (Fastify/WS) | 3005 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:9349a2f36fdd...` |
+| **web-svc** | Next.js 15 (Node 22) | 3000 | `nextjs` (1001) | 150m / 384Mi | 500m / 768Mi | `sha256:d5ebcf1bca2a...` |
 | **Total Apps** | | | | **700m / 1.5 GB** | **2.2 vCPU / 3.0 GB** | |
 
 *Apps plane total requests (~700m CPU / 1.5 GB RAM) + Data plane (~450m CPU / 1.1 GB RAM) comfortably fit within the host 4-core / 16 GB budget with ample headroom for Garage storage.*
