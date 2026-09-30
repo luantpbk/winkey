@@ -24,8 +24,15 @@ type Postgres struct {
 // StartPostgres starts PostgreSQL 17, applies every db/migrations/*.up.sql in
 // order (the migrations are authoritative; nothing else creates schema) and
 // returns a pool. The container is terminated when the test ends.
+//
+// With WINKEY_TEST_PG_URL set, no container is started: the test gets a new
+// database on that server instead (see postgres_external.go). CI does not set
+// it and runs the container with WINKEY_REQUIRE_DOCKER=1.
 func StartPostgres(t testing.TB) *Postgres {
 	t.Helper()
+	if base := externalPostgresURL(); base != "" {
+		return externalPostgres(t, base)
+	}
 	requireDocker(t)
 	ctx := context.Background()
 

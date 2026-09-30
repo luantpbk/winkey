@@ -432,6 +432,22 @@ func TestSearchQueriesUseThePartialIndexes(t *testing.T) {
 		})
 	}
 
+	// Suggest: the prefix branch (LIKE with a pattern computed by a subquery) and the similarity
+	// branch (%) must both be served by videos_search_title_trgm.
+	suggestPlan := explain(t, st, suggestSQL, []any{"ha noi mua", 8})
+	trgmScans := 0
+	suggestPlan.walk(func(n planNode) {
+		if n.NodeType == "Bitmap Index Scan" && n.IndexName == "videos_search_title_trgm" {
+			trgmScans++
+		}
+		if n.NodeType == "Seq Scan" && n.Relation == "videos" {
+			t.Errorf("suggest: sequential scan of media.videos: %s", suggestPlan)
+		}
+	})
+	if trgmScans < 2 {
+		t.Errorf("suggest: %d scans of videos_search_title_trgm, want one per branch (LIKE and %%): %s", trgmScans, suggestPlan)
+	}
+
 	// Sensitivity check: the same query without the moderation predicate is NOT covered by the
 	// partial indexes, so this test would notice if the literal predicate drifted.
 	for mode, index := range map[string]string{domain.SearchFTS: "videos_search_fts", domain.SearchTrgm: "videos_search_title_trgm"} {
@@ -444,5 +460,14 @@ func TestSearchQueriesUseThePartialIndexes(t *testing.T) {
 		if plan := explain(t, st, drifted, args); usesIndex(plan, index) {
 			t.Errorf("%s used without the moderation predicate: the check cannot detect drift:\n%s", index, plan)
 		}
+	}
+
+	// The same control for suggest.
+	drifted := strings.Replace(suggestSQL, ` AND v.moderation_state = 'VISIBLE'`, "", 1)
+	if drifted == suggestSQL {
+		t.Fatal("test bug: predicate text not found in suggestSQL")
+	}
+	if plan := explain(t, st, drifted, []any{"ha noi mua", 8}); usesIndex(plan, "videos_search_title_trgm") {
+		t.Errorf("suggest used the partial index without the moderation predicate: %s", plan)
 	}
 }
