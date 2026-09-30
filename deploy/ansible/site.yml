@@ -11,3 +11,4 @@
       when: nginx_front.hosts | default([]) | length > 0
     - role: edge_ingress
     - role: storage_k3s
+    - role: data_k3s
