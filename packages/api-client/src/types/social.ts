@@ -151,6 +151,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's notifications, newest first (task N1).
+         * @description Ordered by (`created_at`, `id`) descending; the cursor encodes that position. Filtering rules in the tag
+         *     description. `Cache-Control: private, no-store`.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Number of unread notifications (capped at 100), for the badge (task N1).
+         * @description Cheap enough to poll every 60 s (partial index on unread rows). Counts with the same filtering rules as
+         *     `listNotifications`. `Cache-Control: private, no-store`.
+         */
+        get: operations["getUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark notifications as read (task N1).
+         * @description Either `ids` (at most 100 of the caller's notifications; unknown or foreign ids are ignored) or
+         *     `up_to` (every notification of the caller created at or before that time). Exactly one of the two.
+         *     Idempotent: already-read notifications keep their original `read_at`.
+         */
+        post: operations["markNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reports": {
         parameters: {
             query?: never;
@@ -284,6 +348,42 @@ export interface components {
         SubscriptionPage: {
             items: components["schemas"]["Subscription"][];
             next_cursor: string | null;
+        };
+        /**
+         * @description `VIDEO_PUBLISHED` — a channel you subscribe to published a video (actor = channel, `video_id` set); sent
+         *     once, when the video first becomes `PUBLIC` (`UNLISTED` never notifies).
+         *     `VIDEO_COMMENT` — someone left a top-level comment on your video (`video_id`, `comment_id`).
+         *     `COMMENT_REPLY` — someone replied to your comment (`video_id`, `comment_id` = the reply).
+         *     `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
+         * @enum {string}
+         */
+        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER";
+        Notification: {
+            id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["NotificationKind"];
+            actor: components["schemas"]["PublicProfile"];
+            /** Format: uuid */
+            video_id: string | null;
+            /** Format: uuid */
+            comment_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            next_cursor: string | null;
+        };
+        UnreadCount: {
+            count: number;
+            /** @description `true` when there are more than 100 unread notifications (show "99+"). */
+            capped: boolean;
+        };
+        MarkNotificationsReadRequest: {
+            ids?: components["schemas"]["Uuid"][];
+            /** Format: date-time */
+            up_to?: string;
         };
         /** @enum {string} */
         ReportTargetType: "VIDEO" | "COMMENT" | "USER";
@@ -817,6 +917,79 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SubscriptionPage"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                /** @description `true` returns only unread notifications. */
+                unread?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    markNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkNotificationsReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Marked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
