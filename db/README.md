@@ -34,3 +34,11 @@ Migration chạy bằng role **owner của database, không cần superuser**. C
 | `auth_svc` | `USAGE` trên `auth`; CRUD trên các bảng `auth.*` |
 | `media_svc` | `USAGE` trên `media`; CRUD trên các bảng `media.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |
 | `social_svc` | `USAGE` trên `social`; CRUD trên các bảng `social.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |
+
+## ClickHouse (analytics, ADR-022)
+
+`db/clickhouse/NNNN_*.sql` là schema ClickHouse trên gpu-01, **không** phải migration PostgreSQL: golang-migrate và `make db-test` không đụng tới, và không copy sang `deploy/k8s/data/migrations`. Cũng chỉ architect được sửa.
+
+- Mỗi câu lệnh idempotent (`IF NOT EXISTS`). analytics-worker áp dụng các file theo thứ tự tên lúc khởi động và ghi tên file vào `winkey.schema_migrations`.
+- Không sửa file đã áp dụng; muốn đổi thì thêm file mới.
+- Mọi `INSERT` vào `winkey.playback_events` phải kèm `insert_deduplication_token` và `deduplicate_blocks_in_dependent_materialized_views = 1`. Lý do nằm ở chú thích đầu file 0001.

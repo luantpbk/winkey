@@ -50,6 +50,10 @@ tags:
       (`Hà Nội` = `ha noi`), plus trigram similarity on the title for typos. Only videos that the public
       feed would show are returned (PUBLIC, READY, not hidden, owner active), whoever calls.
       Gateway: `/v1/search` and `/v1/search/suggest` go to video-svc.
+  - name: analytics
+    description: |
+      Player QoE and watch-time samples (task R1, ADR-022), forwarded to ClickHouse on gpu-01 through the
+      JetStream stream `ANALYTICS`. Gateway: `/v1/playback` goes to video-svc.
 paths:
   /v1/videos:
     get:
@@ -207,6 +211,57 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/playback/heartbeats:
+    post:
+      tags: [analytics]
+      operationId: recordPlaybackHeartbeats
+      summary: Report player QoE and watch-time samples (task R1, ADR-022). Optional auth.
+      description: |
+        The player sends a batch of samples of the playbacks it is running: one `start` when the first frame is
+        shown, one `heartbeat` about every 30 s while the page is open, and one `end` when the playback stops
+        (`navigator.sendBeacon` on page hide). Each sample carries the **deltas since the previous sample of the
+        same playback** (`watched_ms`, `rebuffer_ms`, `rebuffer_count`), so losing a sample loses only its own
+        interval and nothing is counted twice.
+
+        video-svc validates the batch, drops samples of videos it does not know or the caller may not read, and
+        publishes one `analytics.playback` event per accepted sample to JetStream (stream `ANALYTICS`). This is
+        telemetry, not a domain event: it is published directly (no outbox) and a publish failure is not an error
+        for the client (the samples are dropped and a metric is incremented). The data ends up in ClickHouse on
+        gpu-01; nothing is stored in PostgreSQL and nothing in this response depends on it.
+
+        Privacy: the server never forwards the IP address or the user agent. The viewer is identified by
+        `viewer_key` = HMAC-SHA256(`ANALYTICS_VIEWER_SALT`, user id or C3's anonymous viewer hash), so
+        ClickHouse never holds a user id in clear.
+
+        Limits: at most 20 samples per request, body ≤ 16 KiB, rate limit 30 requests per minute per client IP
+        (`429`). `view` counting stays with `recordView` (C3); this endpoint never changes `view_count`.
+      security:
+        - {}
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackHeartbeatBatch'
+      responses:
+        '202':
+          description: Batch accepted (possibly partially; rejected samples are not reported back).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackHeartbeatResult'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '413':
+          description: Body larger than 16 KiB.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
@@ -714,6 +769,91 @@ components:
         counted:
           type: boolean
           description: '`true` when this report added one view.'
+
+    PlaybackHeartbeatBatch:
+      type: object
+      additionalProperties: false
+      required: [samples]
+      properties:
+        samples:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/PlaybackSample'
+
+    PlaybackSample:
+      type: object
+      additionalProperties: false
+      description: One sample of one playback (task R1). Counters are deltas since the previous sample of the same playback.
+      required: [playback_id, video_id, kind, seq, sent_at, position_ms, watched_ms, rebuffer_ms, rebuffer_count]
+      properties:
+        playback_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+          description: Same id as `RecordViewRequest.playback_id`.
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [start, heartbeat, end]
+        seq:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: 0 for `start`, +1 for every later sample of the playback; (playback_id, seq) is unique.
+        sent_at:
+          type: string
+          format: date-time
+          description: Client clock; the server stores its own receive time too and trusts that one for bucketing.
+        position_ms:
+          type: integer
+          minimum: 0
+          maximum: 86400000
+        watched_ms:
+          type: integer
+          minimum: 0
+          maximum: 600000
+          description: Played time since the previous sample, seeking and stalls excluded.
+        rebuffer_ms:
+          type: integer
+          minimum: 0
+          maximum: 600000
+          description: Stall time since the previous sample (buffer empty while playing; the initial load is not a stall).
+        rebuffer_count:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        startup_ms:
+          type: integer
+          minimum: 0
+          maximum: 600000
+          description: Only on `start`, time from play request to first frame.
+        rendition:
+          type: [string, 'null']
+          maxLength: 16
+          description: Current rendition label, e.g. `720p`; null when unknown.
+        bitrate_kbps:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 200000
+        error_code:
+          type: [string, 'null']
+          maxLength: 64
+          description: Only on `end` when the playback stopped because of an error (e.g. hls.js `fatal` details).
+        client:
+          type: string
+          enum: [web, ios, android, other]
+          default: web
+
+    PlaybackHeartbeatResult:
+      type: object
+      additionalProperties: false
+      required: [accepted]
+      properties:
+        accepted:
+          type: integer
+          minimum: 0
+          description: Number of samples accepted from the batch.
 
     VideoModeration:
       type: object

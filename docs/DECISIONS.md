@@ -233,3 +233,41 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 **Hệ quả.**
 - video-svc tiêu thụ thêm một subject của `SOCIAL`; NATS user của video cần quyền tạo durable này.
 - Người theo dõi hàng nghìn kênh làm câu truy vấn nặng hơn. Chấp nhận ở beta: truy vấn dùng index theo `owner_id` và giới hạn `limit`. Nếu cần, ở R2 đầy đủ sẽ chuyển sang fan-out-on-write.
+
+### ADR-022 — Analytics người xem (R1): heartbeat → JetStream → ClickHouse trên gpu-01
+**Bối cảnh.** Tiêu chí P2 là "rebuffer < 1 %" với 1.000 người xem, nhưng hiện chưa có dữ liệu QoE thật từ player. Recommendation (R2) và thống kê cho creator cũng cần watch time theo video/kênh. `video_views_hourly` (ADR-020) chỉ đếm view, không có thời lượng xem hay chất lượng phát. gpu-01 có 64 GB RAM và một ổ NVMe 512 GB rảnh (quyết định của chủ dự án, 2026-09-30). Máy này mạnh nhưng uptime yếu (ADR-015).
+**Quyết định.**
+- **Thu thập:** player gửi `POST /v1/playback/heartbeats` (video-svc, `recordPlaybackHeartbeats`) theo lô ≤ 20 sample:
+  - `start` khi hiện frame đầu (kèm `startup_ms`);
+  - `heartbeat` khoảng mỗi 30 s;
+  - `end` khi dừng (`sendBeacon` lúc ẩn trang).
+
+  Các bộ đếm là **delta** kể từ sample trước của cùng playback, nên mất một sample chỉ mất khoảng thời gian của nó, không bao giờ đếm trùng. `recordView` (C3) vẫn là nguồn duy nhất của `view_count`.
+- **Truyền:** video-svc kiểm tra quyền đọc video (cùng quy tắc `getVideo`), gắn `owner_id`, `received_at` và `viewer_key`, rồi publish **thẳng** `analytics.playback` lên stream JetStream `ANALYTICS`.
+  - Stream: file, `replicas 1`, `max_age 7d`, `max_bytes 5 GiB`, `discard old`.
+  - Đây là ngoại lệ có chủ đích với ADR-008: telemetry không phải domain event, đi qua outbox thì mỗi heartbeat thành một lần ghi PostgreSQL.
+  - `event_id` = UUIDv5(`playback_id:seq`), dùng làm `Nats-Msg-Id`.
+  - Publish lỗi thì bỏ sample và tăng metric; request vẫn trả `202`.
+- **Riêng tư:**
+  - Không chuyển IP hay user agent đi đâu.
+  - `viewer_key` = HMAC-SHA256(`ANALYTICS_VIEWER_SALT`, user id hoặc hash ẩn danh của C3), nên ClickHouse không bao giờ chứa user id dạng rõ.
+  - Salt là Secret của video-svc, không vào git.
+- **Lưu trữ:** ClickHouse **một node trên gpu-01**, chạy bằng Docker (image pin digest), ngoài k3s như transcoder.
+  - Dữ liệu nằm trên ổ NVMe 512 GB, mount tại `/srv/winkey-analytics` (chủ dự án mount và cấp quyền một lần; agent không dùng sudo).
+  - Chỉ nghe `127.0.0.1`.
+  - Giới hạn `max_server_memory_usage` 12 GB, container 14 GB, để không tranh RAM với ComfyUI và miner.
+- **Ghi:** `analytics-worker` (Go, `services/analytics`, owner Sonnet) chạy trên gpu-01 cạnh ClickHouse, kéo từ NATS qua NodePort Tailscale 30422.
+  - Durable `analytics-clickhouse`, `max_deliver -1`.
+  - Lô tối đa 5 000 message hoặc 2 s, ghi một `INSERT`, chỉ ack sau khi INSERT thành công.
+  - Khử trùng lặp ba lớp: JetStream (`Nats-Msg-Id`), `insert_deduplication_token` của lô, và `ReplacingMergeTree` theo `(video_id, playback_id, seq)`.
+  - gpu-01 tắt thì message chờ trong stream (≤ 7 ngày / 5 GiB); bật lại thì worker đọc bù.
+- **Schema ClickHouse** do architect giữ trong `db/clickhouse/` (file đánh số, idempotent). Worker áp dụng lúc khởi động và ghi vào `winkey.schema_migrations`.
+  - `playback_events`: dữ liệu thô, TTL 90 ngày.
+  - `video_qoe_hourly`: AggregatingMergeTree theo giờ và video, qua materialized view, TTL 2 năm. Cột: sample, start, watch time, rebuffer, lỗi, quantile startup p50/p95, uniq viewer.
+- **Đọc:** R1 chỉ thu và lưu. Dashboard QoE ở Grafana (I3) đọc ClickHouse qua datasource trên gpu-01. API thống kê cho creator, co-view và recommendation là việc sau (R1-b, R2).
+**Hệ quả.**
+- Có số đo rebuffer, startup và watch time thật để xét tiêu chí P2 và để LT2 đối chiếu.
+- gpu-01 thêm hai tiến trình dài hạn. Khi máy tắt, analytics chỉ trễ, site không bị ảnh hưởng.
+- Một ngoại lệ với ADR-008 (outbox), giới hạn ở subject `analytics.*` và ghi rõ trong `contracts/events/README.md`.
+- Gateway cần route `/v1/playback` tới video-svc (Traefik dev và k8s).
+- Hướng mở rộng: ClickHouse replica hoặc chuyển về edge khi có edge-2/3; GeoIP (`country`, hiện luôn null).
