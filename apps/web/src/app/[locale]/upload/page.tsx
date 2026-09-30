@@ -11,6 +11,7 @@ import {
 } from '../../../lib/uploader/uploader';
 import { getUploadSession } from '../../../lib/uploader/indexeddb';
 import { formatBytes } from '../../../lib/format';
+import { useRealtimeRoom } from '../../../lib/realtime/realtime-context';
 import {
   UploadCloud,
   FileVideo,
@@ -38,6 +39,21 @@ export default function UploadPage() {
   const [hasResumableSession, setHasResumableSession] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  const [realtimeStage, setRealtimeStage] = useState<string | null>(null);
+  const [realtimePercent, setRealtimePercent] = useState<number | null>(null);
+  const [isTranscodeReady, setIsTranscodeReady] = useState(false);
+
+  // Subscribe to upload room after upload completes to track processing in real time
+  const completedVideoId = progress?.status === 'completed' ? progress.videoId : null;
+  useRealtimeRoom(completedVideoId ? `upload:${completedVideoId}` : null, (event) => {
+    if (event.event === 'video.progress') {
+      setRealtimeStage(event.data.stage);
+      setRealtimePercent(event.data.percent);
+    } else if (event.event === 'video.ready') {
+      setIsTranscodeReady(true);
+    }
+  });
 
   // Check if there is an unfinished upload session in IndexedDB when file selected
   useEffect(() => {
@@ -360,24 +376,42 @@ export default function UploadPage() {
 
                 {/* Completed Action */}
                 {progress.status === 'completed' && (
-                  <div className="flex gap-3 justify-end mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setProgress(null);
-                      }}
-                      className="rounded-xl border border-gray-600 px-4 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-800 transition"
-                    >
-                      Tải video khác
-                    </button>
-                    <Link
-                      href="/studio"
-                      className="flex items-center gap-1.5 rounded-xl bg-red-600 px-5 py-2 text-xs font-semibold text-white hover:bg-red-700 transition"
-                    >
-                      <span>{t('goToStudio')}</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
+                  <div className="flex flex-col gap-3 mt-2">
+                    {isTranscodeReady ? (
+                      <div className="flex items-center gap-2 text-xs text-green-400 font-semibold bg-green-500/10 border border-green-500/30 p-2.5 rounded-xl">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        <span>Video đã mã hóa xong và sẵn sàng phát!</span>
+                      </div>
+                    ) : realtimePercent !== null ? (
+                      <div className="flex items-center gap-2 text-xs text-purple-400 font-medium bg-purple-500/10 border border-purple-500/30 p-2.5 rounded-xl">
+                        <div className="h-3 w-3 animate-spin rounded-full border border-purple-400 border-t-transparent" />
+                        <span>
+                          Đang mã hóa ({realtimeStage}): {Math.round(realtimePercent)}%
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <div className="flex gap-3 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          setProgress(null);
+                          setIsTranscodeReady(false);
+                          setRealtimePercent(null);
+                        }}
+                        className="rounded-xl border border-gray-600 px-4 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-800 transition"
+                      >
+                        Tải video khác
+                      </button>
+                      <Link
+                        href="/studio"
+                        className="flex items-center gap-1.5 rounded-xl bg-red-600 px-5 py-2 text-xs font-semibold text-white hover:bg-red-700 transition"
+                      >
+                        <span>{t('goToStudio')}</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 )}
               </div>

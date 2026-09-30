@@ -7,6 +7,8 @@ import { useRouter, usePathname } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
 import { api } from '../../lib/api-client';
 
+import { useRealtimeRoom } from '../../lib/realtime/realtime-context';
+
 export interface LikeButtonProps {
   videoId: string;
   initialLikeCount?: number;
@@ -21,28 +23,43 @@ export function LikeButton({ videoId, initialLikeCount = 0 }: LikeButtonProps) {
   const [liked, setLiked] = useState<boolean>(false);
   const [likeCount, setLikeCount] = useState<number>(initialLikeCount);
   const [isPending, setIsPending] = useState<boolean>(false);
+  const isPendingRef = React.useRef(isPending);
+  isPendingRef.current = isPending;
+
+  const fetchLikeState = React.useCallback(async () => {
+    try {
+      const { data, response } = await api.social.GET('/v1/videos/{video_id}/like', {
+        params: { path: { video_id: videoId } },
+      });
+      if (response.ok && data) {
+        setLiked(data.liked);
+        setLikeCount(data.like_count);
+      }
+    } catch {
+      // Ignore background fetch error, keep default
+    }
+  }, [videoId]);
 
   useEffect(() => {
-    let isMounted = true;
-    async function fetchLikeState() {
-      try {
-        const { data, response } = await api.social.GET('/v1/videos/{video_id}/like', {
-          params: { path: { video_id: videoId } },
-        });
-        if (response.ok && data && isMounted) {
-          setLiked(data.liked);
-          setLikeCount(data.like_count);
-        }
-      } catch {
-        // Ignore background fetch error, keep default
-      }
-    }
-
     fetchLikeState();
-    return () => {
-      isMounted = false;
-    };
-  }, [videoId]);
+  }, [fetchLikeState]);
+
+  // Subscribe to video:{id} room for realtime like.count updates
+  useRealtimeRoom(
+    `video:${videoId}`,
+    (event) => {
+      if (event.event === 'like.count') {
+        // Do not fight an in-flight optimistic toggle of the same user
+        if (!isPendingRef.current) {
+          setLikeCount(event.data.like_count);
+        }
+      }
+    },
+    () => {
+      // Re-fetch REST state after socket reconnects
+      fetchLikeState();
+    },
+  );
 
   const handleToggleLike = async () => {
     if (!isAuthenticated) {

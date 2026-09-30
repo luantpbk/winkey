@@ -9,6 +9,7 @@ Next.js App Router (RSC) web frontend for Winkey video streaming platform.
 - **Data Fetching**: TanStack Query (React Query)
 - **Internationalization**: `next-intl` (Vietnamese default, English)
 - **Video Player**: HLS.js with native HLS Safari fallback
+- **Realtime**: WebSocket client with single-use ticket lifecycle, backoff + jitter, room ref-counting, AJV schema validation, and toast notifications
 - **Mocks**: Mock Service Worker (MSW) with typed fixtures from `@winkey/api-client`
 - **Testing**: Vitest, React Testing Library, Playwright (E2E)
 
@@ -19,7 +20,7 @@ Next.js App Router (RSC) web frontend for Winkey video streaming platform.
 - `/c/[handle]`: Channel profile header and uploaded videos grid.
 - `/login`, `/register`: Authentication forms mapping RFC 9457 `Problem.errors` to fields, plus Google OAuth button.
 - `/upload`: Resumable multipart uploader for creators with parallel uploads (≤ 4), exponential backoff, speed/ETA tracking, and reload recovery via IndexedDB.
-- `/studio`: Creator Studio table listing videos with status badges and 5s auto-polling while in `UPLOADED`/`PROCESSING`.
+- `/studio`: Creator Studio table listing videos with live WebSocket updates (`upload:{id}` rooms), real-time progress bars, status transitions, and slow fallback poll (30s) only when disconnected.
 - `/healthz`, `/readyz`: Service health and readiness probes.
 
 ## Environment Variables
@@ -28,6 +29,7 @@ Next.js App Router (RSC) web frontend for Winkey video streaming platform.
 |---|---|---|
 | `NEXT_PUBLIC_API_MOCKS` | Enable MSW mock handlers for backend-less dev/testing (`1` = enabled) | `1` |
 | `NEXT_PUBLIC_API_URL` | Winkey API origin (Traefik gateway in dev) | `http://localhost:8080` |
+| `NEXT_PUBLIC_WS_URL` | Realtime WebSocket gateway origin | `ws://localhost:8080/v1/realtime` |
 | `NEXT_PUBLIC_MEDIA_BASE_URL` | Media cache base URL for HLS segments | `https://media.winkey.vn` |
 | `PORT` | HTTP port for Next.js server | `3000` |
 

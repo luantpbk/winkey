@@ -19,9 +19,12 @@ import {
   Clock,
 } from 'lucide-react';
 
+import { useRealtime } from '../../../lib/realtime/realtime-context';
+
 export default function StudioPage() {
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
+  const { client, isConnected } = useRealtime();
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['studio', 'videos'],
@@ -36,19 +39,99 @@ export default function StudioPage() {
 
   const videos = data?.items || [];
 
-  // Polling every 5s while any video is UPLOADED or PROCESSING
-  useEffect(() => {
-    const processingVideos = videos.filter(
-      (v) => v.status === 'UPLOADED' || v.status === 'PROCESSING',
-    );
+  const pendingIds = React.useMemo(() => {
+    const items = data?.items || [];
+    return items
+      .filter((v) => v.status === 'UPLOADED' || v.status === 'PROCESSING')
+      .map((v) => v.id)
+      .sort()
+      .join(',');
+  }, [data?.items]);
 
-    if (processingVideos.length === 0) return;
+  // Realtime subscription for pending videos (UPLOADED / PROCESSING)
+  useEffect(() => {
+    if (!pendingIds) return;
+    const ids = pendingIds.split(',').filter(Boolean);
+
+    const unsubs = ids.map((id) => {
+      const room = `upload:${id}`;
+      return client.subscribe(
+        room,
+        (event) => {
+          if (event.event === 'video.progress') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'PROCESSING',
+                        progress: event.data.percent,
+                      }
+                    : item,
+                ),
+              };
+            });
+          } else if (event.event === 'video.ready') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'READY',
+                        progress: 100,
+                      }
+                    : item,
+                ),
+              };
+            });
+          } else if (event.event === 'video.failed') {
+            queryClient.setQueryData<StudioVideoPage>(['studio', 'videos'], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                items: old.items.map((item) =>
+                  item.id === event.data.video_id
+                    ? {
+                        ...item,
+                        status: 'FAILED',
+                        error: event.data.message || event.data.reason,
+                      }
+                    : item,
+                ),
+              };
+            });
+          }
+        },
+        () => {
+          // Re-fetch REST state after socket reconnects
+          refetch();
+        },
+      );
+    });
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, [client, pendingIds, queryClient, refetch]);
+
+  // Fallback slow poll (30 s) ONLY while the socket is disconnected
+  useEffect(() => {
+    if (isConnected || !pendingIds) return; // No polling when connected!
+
+    const ids = pendingIds.split(',').filter(Boolean);
+    if (ids.length === 0) return;
 
     const interval = setInterval(async () => {
-      for (const video of processingVideos) {
+      for (const id of ids) {
         try {
           const { data: statusData } = await api.upload.GET('/v1/uploads/{video_id}', {
-            params: { path: { video_id: video.id } },
+            params: { path: { video_id: id } },
           });
 
           if (statusData) {
@@ -57,7 +140,7 @@ export default function StudioPage() {
               return {
                 ...old,
                 items: old.items.map((item) =>
-                  item.id === video.id
+                  item.id === id
                     ? {
                         ...item,
                         status: statusData.status,
@@ -70,13 +153,13 @@ export default function StudioPage() {
             });
           }
         } catch (pollErr) {
-          console.warn('Polling upload status failed:', pollErr);
+          console.warn('Fallback polling upload status failed:', pollErr);
         }
       }
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [videos, queryClient]);
+  }, [isConnected, pendingIds, queryClient]);
 
   const handleDelete = async (videoId: string) => {
     if (!confirm('Bạn có chắc muốn xóa video này?')) return;

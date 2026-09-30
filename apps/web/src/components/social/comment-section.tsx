@@ -8,6 +8,8 @@ import { CommentItem } from './comment-item';
 import { api } from '../../lib/api-client';
 import { mapSocialError } from './error-utils';
 
+import { useRealtimeRoom } from '../../lib/realtime/realtime-context';
+
 export interface CommentSectionProps {
   videoId: string;
 }
@@ -22,6 +24,7 @@ export function CommentSection({ videoId }: CommentSectionProps) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [newCommentsCount, setNewCommentsCount] = useState<number>(0);
 
   const fetchComments = useCallback(
     async (cursor?: string | null, isInitial = false) => {
@@ -68,6 +71,20 @@ export function CommentSection({ videoId }: CommentSectionProps) {
     fetchComments(null, true);
   }, [fetchComments]);
 
+  // Subscribe to video:{id} room for live comments
+  useRealtimeRoom(
+    `video:${videoId}`,
+    (event) => {
+      if (event.event === 'comment.created' && !event.data.parent_id) {
+        setNewCommentsCount((prev) => prev + 1);
+      }
+    },
+    () => {
+      // Re-fetch REST state after socket reconnects
+      void fetchComments(null, false);
+    },
+  );
+
   const handleCreateTopLevelComment = async (text: string) => {
     // Optimistic temporary comment
     const tempId = `optimistic-${Date.now()}`;
@@ -97,6 +114,7 @@ export function CommentSection({ videoId }: CommentSectionProps) {
       if (response.ok && data) {
         // Replace optimistic comment with real server response
         setComments((prev) => prev.map((c) => (c.id === tempId ? data : c)));
+        setNewCommentsCount(0);
         // Refetch the first page as specified in brief
         void fetchComments(null, false);
         return { success: true };
@@ -131,6 +149,22 @@ export function CommentSection({ videoId }: CommentSectionProps) {
 
       {/* Top-level comment composer */}
       <CommentComposer onSubmit={handleCreateTopLevelComment} />
+
+      {/* New comments pill from realtime */}
+      {newCommentsCount > 0 && (
+        <div className="flex justify-center -my-1">
+          <button
+            type="button"
+            onClick={() => {
+              setNewCommentsCount(0);
+              void fetchComments(null, false);
+            }}
+            className="flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 px-4 py-1.5 text-xs font-semibold text-white shadow-lg transition active:scale-95 cursor-pointer"
+          >
+            <span>{t('newCommentsPill', { count: newCommentsCount })}</span>
+          </button>
+        </div>
+      )}
 
       {/* Error alert notice */}
       {errorNotice && (
