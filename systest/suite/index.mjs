@@ -888,6 +888,17 @@ describe('Winkey System Integration Test Suite', () => {
   it('S12: subtitles track upload 201 & playback listing', async () => {
     const startTime = Date.now();
 
+    // Re-authenticate Creator A with new password after S10 password change
+    const loginA = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: creatorUser.email,
+        password: 'NewPassword123!',
+      }),
+    });
+    creatorToken = (await checkRes(loginA, 200, 'Re-authenticate Creator A')).json.access_token;
+
     // Upload subtitle track for video
     const subRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/subtitles/vi`, {
       method: 'PUT',
@@ -927,17 +938,6 @@ describe('Winkey System Integration Test Suite', () => {
   // ---------------------------------------------------------------------------
   it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
     const startTime = Date.now();
-
-    // Re-authenticate Creator A with new password
-    const loginA = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: creatorUser.email,
-        password: 'NewPassword123!',
-      }),
-    });
-    creatorToken = (await checkRes(loginA, 200, 'Re-authenticate Creator A')).json.access_token;
 
     // 1. Delete video
     const delRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
