@@ -65,9 +65,9 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | C2 | realtime-gw: WebSocket, room theo video/user, NATS fan-out. Contract `contracts/realtime/` + `realtime.v1.yaml`, [brief](prompts/antigravity-3_C2_realtime.md) · ✅ (#57) | Antigravity 3 | C1 ✅ |
 | C3 | View counter (Valkey → flush PG), chống view ảo. Contract `recordView` trong `video.v1.yaml`, [brief](prompts/sonnet_C3_views.md) · ✅ (#52) | Sonnet 5.5 | S1 ✅ |
 | U2 | Creator Studio realtime + like/comment realtime trên trang xem. [Brief](prompts/antigravity-1_U2_studio-realtime.md) | Antigravity 1 | C2 ✅ |
-| SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm`. Contract `searchVideos`/`suggestSearch`, migration 000007, [brief](prompts/sonnet_SR1_search.md) | Sonnet 5.5 | S1 ✅ |
+| SR1 | Search: PG FTS + `unaccent` (tiếng Việt không dấu) + `pg_trgm`. Contract `searchVideos`/`suggestSearch`, migration 000007, [brief](prompts/sonnet_SR1_search.md) · ✅ (#75, #78) | Sonnet 5.5 | S1 ✅ |
 | I3 | Observability: OTel collector, VictoriaMetrics, Loki, Grafana, dashboard QoE + pipeline, cảnh báo | Antigravity 2 | I2 |
-| SEC1 | Video private: signed cookie ở media-cache; WAF/rate limit; hàng đợi moderation | Opus (thiết kế) → Antigravity 2 / Sonnet | EDGE, A2 |
+| SEC1 | Chặn tải media của video không công khai (ADR-017): SEC1-a video-svc ký URL `/s/{exp}/{sig}/…` + `mediaAccess` (Sonnet); SEC1-b nginx `secure_link` + `auth_request` cache 30 s, route Traefik nội bộ (Antigravity 2, sau I2). [Brief](prompts/sonnet_SEC1_media-access.md) | Opus (thiết kế ✅) → Sonnet / Antigravity 2 | EDGE ✅, A2 ✅, S4 ✅ |
 
 ### P3 — V1
 | ID | Task | Owner |

@@ -117,6 +117,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/media-access/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * May the public fetch this video's media? Used by nginx `auth_request` (task SEC1).
+         * @description `204` when the video is `READY`, `PUBLIC` or `UNLISTED`, `moderation_state = VISIBLE` and its owner is
+         *     in `auth.public_profiles`; `403` otherwise, including unknown ids (never `404`, so the answer does not
+         *     reveal whether a video exists). One primary-key lookup; no body; no auth headers are read.
+         *     Both answers carry `Cache-Control: max-age=30`; nginx caches them per `video_id`.
+         *     Traefik routes it only for the internal Host `media-auth.internal`; it is not reachable from the internet.
+         */
+        get: operations["mediaAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/search": {
         parameters: {
             query?: never;
@@ -177,10 +201,18 @@ export interface components {
             bitrate_kbps: number;
         };
         Playback: {
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description Signed (`/s/{expires}/{sig}/…`) when the video is not publicly watchable (task SEC1).
+             */
             hls_url: string;
             /** Format: uri */
             thumbnail_url: string;
+            /**
+             * Format: date-time
+             * @description Present only for signed URLs; when they stop working (task SEC1).
+             */
+            expires_at?: string;
             renditions: components["schemas"]["Rendition"][];
         };
         Video: {
@@ -562,6 +594,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    mediaAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public media; nginx serves the request. */
+            204: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Not public (or unknown); nginx answers `403`. */
+            403: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     searchVideos: {

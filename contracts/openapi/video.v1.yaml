@@ -16,6 +16,13 @@ info:
     Those three callers get the `moderation` object on `Video`/`StudioVideo`; everyone else never sees it.
     Media URLs are built as `MEDIA_BASE_URL + object key`, e.g.
     `https://media.winkey.vn/v/{video_id}/a{attempt}/hls/master.m3u8`.
+    Task SEC1 (ADR-017) — media access: plain media URLs work only for videos that the public could
+    watch (`READY`, `PUBLIC` or `UNLISTED`, `VISIBLE`, owner active); nginx checks `mediaAccess`. For any
+    other video, callers allowed to see it (owner, moderator, admin) receive **signed** URLs:
+    `MEDIA_BASE_URL + "s/" + expires + "/" + sig + "/" + object key`, where `expires` is Unix seconds
+    (now + 6 h) and `sig` is the unpadded base64url of `md5(expires + "/v/" + video_id + "/ " + MEDIA_LINK_SECRET)`
+    (nginx `secure_link` format). `Playback.expires_at` is then set; the player refetches the video
+    before it passes.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -31,6 +38,8 @@ tags:
     description: Creator views of their own videos.
   - name: moderation
     description: Hide or restore a video (task A2).
+  - name: internal
+    description: Called only by infrastructure (nginx on edge-1). Never routed publicly (task SEC1).
   - name: search
     description: |
       Video search (task SR1): PostgreSQL FTS on title and description with Vietnamese diacritics folded
@@ -243,6 +252,40 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /internal/media-access/{video_id}:
+    get:
+      tags: [internal]
+      operationId: mediaAccess
+      summary: May the public fetch this video's media? Used by nginx `auth_request` (task SEC1).
+      description: |
+        `204` when the video is `READY`, `PUBLIC` or `UNLISTED`, `moderation_state = VISIBLE` and its owner is
+        in `auth.public_profiles`; `403` otherwise, including unknown ids (never `404`, so the answer does not
+        reveal whether a video exists). One primary-key lookup; no body; no auth headers are read.
+        Both answers carry `Cache-Control: max-age=30`; nginx caches them per `video_id`.
+        Traefik routes it only for the internal Host `media-auth.internal`; it is not reachable from the internet.
+      security: []
+      parameters:
+        - name: video_id
+          in: path
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: Public media; nginx serves the request.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          description: Not public (or unknown); nginx answers `403`.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+
   /v1/search:
     get:
       tags: [search]
@@ -349,9 +392,14 @@ components:
         hls_url:
           type: string
           format: uri
+          description: Signed (`/s/{expires}/{sig}/…`) when the video is not publicly watchable (task SEC1).
         thumbnail_url:
           type: string
           format: uri
+        expires_at:
+          type: string
+          format: date-time
+          description: Present only for signed URLs; when they stop working (task SEC1).
         renditions:
           type: array
           items:
