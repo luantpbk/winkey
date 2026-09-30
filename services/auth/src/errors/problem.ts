@@ -91,6 +91,30 @@ export class ProblemError extends Error {
     });
   }
 
+  static accountSuspended(
+    detail = 'Account is suspended',
+    code = 'ACCOUNT_SUSPENDED',
+  ): ProblemError {
+    return new ProblemError({
+      status: 403,
+      title: 'Forbidden',
+      code,
+      detail,
+    });
+  }
+
+  static cannotModerateTarget(
+    detail = 'Target user cannot be moderated',
+    code = 'CANNOT_MODERATE_TARGET',
+  ): ProblemError {
+    return new ProblemError({
+      status: 403,
+      title: 'Forbidden',
+      code,
+      detail,
+    });
+  }
+
   static notFound(detail = 'Resource not found', code = 'NOT_FOUND'): ProblemError {
     return new ProblemError({
       status: 404,

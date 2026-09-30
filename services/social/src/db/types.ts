@@ -7,6 +7,26 @@ export interface VideosTable {
   owner_id: string;
   like_count: Generated<string | number>;
   comment_count: Generated<string | number>;
+  hidden: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export type ReportTargetType = 'VIDEO' | 'COMMENT' | 'USER';
+export type ReportReason =
+  'SPAM' | 'HARASSMENT' | 'HATE' | 'SEXUAL' | 'VIOLENCE' | 'COPYRIGHT' | 'MISINFORMATION' | 'OTHER';
+export type ReportStatus = 'OPEN' | 'ACTIONED' | 'DISMISSED';
+
+export interface ReportsTable {
+  id: string;
+  reporter_id: string;
+  target_type: ReportTargetType;
+  target_id: string;
+  reason: ReportReason;
+  note: Generated<string>;
+  status: Generated<ReportStatus>;
+  resolved_by: string | null;
+  resolution_note: string | null;
+  resolved_at: Date | string | null;
   created_at: Generated<Date>;
 }
 
@@ -62,6 +82,7 @@ export interface Database {
   'social.video_likes': VideoLikesTable;
   'social.channels': ChannelsTable;
   'social.subscriptions': SubscriptionsTable;
+  'social.reports': ReportsTable;
   'social.outbox': OutboxTable;
   'auth.public_profiles': PublicProfilesTable;
 }
@@ -112,4 +133,42 @@ export interface SubscriptionItemDto {
 export interface SubscriptionPageDto {
   items: SubscriptionItemDto[];
   next_cursor: string | null;
+}
+
+export interface ReportReceiptDto {
+  id: string;
+  created_at: string;
+}
+
+export interface ReportDto {
+  id: string;
+  reporter: PublicProfileDto | null;
+  reason: ReportReason;
+  note: string;
+  status: ReportStatus;
+  created_at: string;
+}
+
+export interface ModerationCaseDto {
+  target_type: ReportTargetType;
+  target_id: string;
+  status: ReportStatus;
+  open_count: number;
+  first_reported_at: string;
+  reasons: Record<string, number>;
+  reports: ReportDto[];
+  resolution: {
+    resolved_by: string;
+    note: string | null;
+    resolved_at: string;
+  } | null;
+}
+
+export interface ModerationCasePageDto {
+  items: ModerationCaseDto[];
+  next_cursor: string | null;
+}
+
+export interface ResolveCaseResultDto {
+  resolved_count: number;
 }

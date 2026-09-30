@@ -3,6 +3,7 @@ import { ProblemError } from './errors/problem.js';
 import { commentsRoute } from './routes/comments.js';
 import { likesRoute } from './routes/likes.js';
 import { subscriptionsRoute } from './routes/subscriptions.js';
+import { reportsRoute } from './routes/reports.js';
 import { healthRoute } from './routes/health.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
@@ -45,8 +46,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'body.body',
           'body.password',
           'body.email',
+          'body.note',
+          'body.resolution_note',
           'password',
           'email',
+          'note',
+          'resolution_note',
         ],
         censor: '[REDACTED]',
       },
@@ -91,6 +96,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(commentsRoute, { db, env, rateLimiter });
   await app.register(likesRoute, { db, env, rateLimiter });
   await app.register(subscriptionsRoute, { db, env, rateLimiter });
+  await app.register(reportsRoute, { db, env, rateLimiter });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

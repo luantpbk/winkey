@@ -11,6 +11,7 @@ import { jwksRoute } from './routes/jwks.js';
 import { usersRoute } from './routes/users.js';
 import { oauthRoute, type GoogleTokenExchanger } from './routes/oauth.js';
 import { healthRoute } from './routes/health.js';
+import { adminRoute } from './routes/admin.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
@@ -51,8 +52,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'headers.cookie',
           'body.password',
           'body.email',
+          'body.reason',
           'password',
           'email',
+          'reason',
+          'suspension_reason',
           'access_token',
           'refresh_token',
         ],
@@ -110,6 +114,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(jwksRoute, { env });
   await app.register(usersRoute, { db, env });
   await app.register(oauthRoute, { db, env, tokenExchanger: options.googleTokenExchanger });
+  await app.register(adminRoute, { db, env });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

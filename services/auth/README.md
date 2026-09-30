@@ -69,6 +69,28 @@ Rate limiting is enforced via Valkey (sliding window counter):
 
 ---
 
+## Admin & Moderation (Task A2a)
+
+### RBAC Matrix
+
+| Endpoint | Roles Allowed | Notes |
+|---|---|---|
+| `GET /v1/admin/users` | `moderator`, `admin` | Prefix search on email/handle, trigram search on `display_name`, status & role filters, cursor pagination. |
+| `GET /v1/admin/users/{user_id}` | `moderator`, `admin` | Returns detailed `AdminUser` record. |
+| `PUT /v1/admin/users/{user_id}/roles` | `admin` only | Cannot modify self or another admin. Transactionally audited as `USER_ROLES_CHANGED`. No-op writes nothing. |
+| `PUT /v1/admin/users/{user_id}/suspension` | `moderator`, `admin` | Moderator cannot suspend moderator or admin. Nobody can suspend self or an admin. Immediately revokes all refresh tokens. Transactionally audited as `USER_SUSPENDED`. |
+| `DELETE /v1/admin/users/{user_id}/suspension` | `moderator`, `admin` | Moderator cannot unsuspend moderator or admin. Idempotent: lifting active status returns 200 without audit row. |
+| `GET /v1/admin/audit-log` | `admin` only | Lists admin audit records newest-first with actor profiles, supports optional `target_user_id` query filter and cursor pagination. |
+
+### Suspension Lifecycle & Security
+
+1. **Immediate Revocation:** Suspending a user revokes all active refresh-token families (`revoked_at = NOW()`), immediately preventing token refreshes.
+2. **Login Rejection:** Suspended users attempting `POST /v1/auth/login` receive `403 Forbidden` (`ACCOUNT_SUSPENDED`). The problem `detail` communicates the suspension expiry `until` timestamp if temporary; internal staff `reason` notes are never leaked.
+3. **OAuth Handling:** Google OAuth callbacks for suspended users redirect to `/login?error=ACCOUNT_SUSPENDED` without issuing session cookies.
+4. **Auto-Unsuspend:** When a user with an expired temporary suspension authenticates with valid credentials, `auth-svc` automatically restores status to `ACTIVE`, clears suspension fields, and records a `USER_UNSUSPENDED` audit log entry (`{"expired": true}`) in a single transaction.
+
+---
+
 ## Running & Testing
 
 ```bash
@@ -87,3 +109,4 @@ pnpm --dir services/auth build
 # Start production server
 pnpm --dir services/auth start
 ```
+

@@ -45,13 +45,21 @@ export class VideoProjectionConsumer {
           ack_policy: AckPolicy.Explicit,
           ack_wait: 30 * 1_000_000_000, // 30s in nanoseconds
           max_deliver: 5,
-          filter_subjects: ['video.ready', 'video.deleted'],
+          filter_subjects: ['video.ready', 'video.deleted', 'video.moderated'],
         });
-      } catch (err) {
-        this.logger.warn(
-          { err },
-          'Could not add/update consumer social-videos; attempting to bind existing',
-        );
+      } catch {
+        try {
+          await jsm.consumers.update('VIDEO', 'social-videos', {
+            ack_wait: 30 * 1_000_000_000,
+            max_deliver: 5,
+            filter_subjects: ['video.ready', 'video.deleted', 'video.moderated'],
+          });
+        } catch (err) {
+          this.logger.warn(
+            { err },
+            'Could not add/update consumer social-videos; attempting to bind existing',
+          );
+        }
       }
 
       const consumer = await js.consumers.get('VIDEO', 'social-videos');
@@ -174,6 +182,42 @@ export class VideoProjectionConsumer {
           this.logger.error(
             { err: dbErr, subject: m.subject },
             'Database error in video.deleted projection; naking message for retry',
+          );
+          m.nak(5000);
+        }
+        return;
+      }
+
+      if (event.type === 'video.moderated') {
+        const data = event.data as Record<string, unknown> | undefined;
+        const videoId = data?.video_id;
+        const state = data?.state;
+
+        if (
+          typeof videoId !== 'string' ||
+          !isValidUuid(videoId) ||
+          (state !== 'VISIBLE' && state !== 'HIDDEN')
+        ) {
+          this.logger.error(
+            { event, subject: m.subject },
+            'Poison message: invalid payload in video.moderated event; terminating message',
+          );
+          m.term();
+          return;
+        }
+
+        try {
+          const isHidden = state === 'HIDDEN';
+          await this.db
+            .updateTable('social.videos')
+            .set({ hidden: isHidden })
+            .where('id', '=', videoId)
+            .execute();
+          m.ack();
+        } catch (dbErr) {
+          this.logger.error(
+            { err: dbErr, subject: m.subject },
+            'Database error in video.moderated projection; naking message for retry',
           );
           m.nak(5000);
         }

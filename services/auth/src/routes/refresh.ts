@@ -110,6 +110,37 @@ export const refreshRoute: FastifyPluginAsync<{
         .where('id', '=', token.user_id)
         .executeTakeFirst();
 
+      if (
+        user &&
+        user.status === 'SUSPENDED' &&
+        user.suspended_until &&
+        new Date(user.suspended_until) <= new Date()
+      ) {
+        const now = new Date();
+        await trx
+          .updateTable('auth.users')
+          .set({
+            status: 'ACTIVE',
+            suspended_until: null,
+            suspension_reason: null,
+            updated_at: now,
+          })
+          .where('id', '=', user.id)
+          .execute();
+
+        await trx
+          .insertInto('auth.audit_log')
+          .values({
+            id: uuidv7(),
+            actor_id: user.id,
+            action: 'USER_UNSUSPENDED',
+            target_user_id: user.id,
+            details: JSON.stringify({ expired: true }),
+          })
+          .execute();
+        user.status = 'ACTIVE';
+      }
+
       if (!user || user.status !== 'ACTIVE') {
         throw ProblemError.unauthorized('Account inactive or not found');
       }

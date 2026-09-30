@@ -2,8 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import Ajv from 'ajv';
+import _Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+const Ajv = (_Ajv as any).default ?? _Ajv;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
@@ -13,11 +14,14 @@ import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 
 describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', () => {
   let app: any;
-  let ajv: Ajv;
+  let ajv: any;
   let validateTokenResponse: any;
   let validateUser: any;
   let validatePublicProfile: any;
   let validateProblem: any;
+  let validateAdminUser: any;
+  let validateAdminUserPage: any;
+  let validateAuditEntryPage: any;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -48,6 +52,15 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     )!;
     validateProblem = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+    )!;
+    validateAdminUser = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AdminUser',
+    )!;
+    validateAdminUserPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AdminUserPage',
+    )!;
+    validateAuditEntryPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AuditEntryPage',
     )!;
 
     // 3. Build test app
@@ -218,5 +231,104 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     expect(conflict.statusCode).toBe(409);
     expect(conflict.headers['content-type']).toContain('application/problem+json');
     expect(validateProblem(conflict.json())).toBe(true);
+  });
+
+  it('Validates admin endpoints responses against OpenAPI schemas', async () => {
+    // 1. Setup admin and target user
+    const adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001';
+    const adminHeaders = {
+      'x-user-id': adminId,
+      'x-user-roles': 'admin,viewer',
+    };
+
+    // Register a user to be managed
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'target_admin_test@winkey.vn',
+        password: 'Password123!',
+        handle: 'target_admin_test',
+        display_name: 'Target Admin Test',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const targetId = regRes.json().user.id;
+
+    // GET /v1/admin/users -> AdminUserPage
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/users',
+      headers: adminHeaders,
+    });
+    expect(listRes.statusCode).toBe(200);
+    const listBody = listRes.json();
+    const validPage = validateAdminUserPage(listBody);
+    if (!validPage) console.error(validateAdminUserPage.errors);
+    expect(validPage).toBe(true);
+
+    // GET /v1/admin/users/{user_id} -> AdminUser
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/v1/admin/users/${targetId}`,
+      headers: adminHeaders,
+    });
+    expect(getRes.statusCode).toBe(200);
+    const getBody = getRes.json();
+    const validUser = validateAdminUser(getBody);
+    if (!validUser) console.error(validateAdminUser.errors);
+    expect(validUser).toBe(true);
+
+    // PUT /v1/admin/users/{user_id}/roles -> AdminUser
+    const rolesRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/roles`,
+      headers: adminHeaders,
+      payload: {
+        roles: ['viewer', 'creator', 'moderator'],
+      },
+    });
+    expect(rolesRes.statusCode).toBe(200);
+    const rolesBody = rolesRes.json();
+    expect(validateAdminUser(rolesBody)).toBe(true);
+    expect(rolesBody.roles).toContain('moderator');
+
+    // PUT /v1/admin/users/{user_id}/suspension -> AdminUser
+    const suspRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/admin/users/${targetId}/suspension`,
+      headers: adminHeaders,
+      payload: {
+        reason: 'Violation of community guidelines',
+        until: new Date(Date.now() + 86400000).toISOString(),
+      },
+    });
+    expect(suspRes.statusCode).toBe(200);
+    const suspBody = suspRes.json();
+    expect(validateAdminUser(suspBody)).toBe(true);
+    expect(suspBody.status).toBe('SUSPENDED');
+
+    // DELETE /v1/admin/users/{user_id}/suspension -> AdminUser
+    const unsuspRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/admin/users/${targetId}/suspension`,
+      headers: adminHeaders,
+    });
+    expect(unsuspRes.statusCode).toBe(200);
+    const unsuspBody = unsuspRes.json();
+    expect(validateAdminUser(unsuspBody)).toBe(true);
+    expect(unsuspBody.status).toBe('ACTIVE');
+
+    // GET /v1/admin/audit-log -> AuditEntryPage
+    const auditRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit-log',
+      headers: adminHeaders,
+    });
+    expect(auditRes.statusCode).toBe(200);
+    const auditBody = auditRes.json();
+    const validAudit = validateAuditEntryPage(auditBody);
+    if (!validAudit) console.error(validateAuditEntryPage.errors);
+    expect(validAudit).toBe(true);
   });
 });

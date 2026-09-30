@@ -95,3 +95,7 @@ export function buildLikeRateLimitKey(userId: string): string {
 export function buildSubscriptionRateLimitKey(userId: string): string {
   return `rl:social:sub:${userId}`;
 }
+
+export function buildReportRateLimitKey(userId: string): string {
+  return `rl:social:report:${userId}`;
+}

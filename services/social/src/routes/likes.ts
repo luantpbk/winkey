@@ -33,11 +33,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count'])
+        .select(['id', 'like_count', 'hidden'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video) {
+      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 
@@ -84,11 +84,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count'])
+        .select(['id', 'like_count', 'hidden'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video) {
+      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 
@@ -168,11 +168,11 @@ export const likesRoute: FastifyPluginAsync<LikesRouteOptions> = async (
 
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'like_count'])
+        .select(['id', 'like_count', 'hidden'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video) {
+      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
         throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
       }
 

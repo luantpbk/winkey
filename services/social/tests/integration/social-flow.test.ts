@@ -280,4 +280,212 @@ describe('Social Service Flow (In-Memory)', () => {
     expect(strangerSubsIsolated.json().items).toHaveLength(1);
     expect(strangerSubsIsolated.json().items[0].channel.id).toBe(ownerId);
   });
+
+  it('Reports target validation, self-reporting rules, and 20/hr rate limit', async () => {
+    const freshUserId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9888';
+    mockStore.public_profiles.push({
+      id: freshUserId,
+      handle: 'fresh_reporter',
+      display_name: 'Fresh Reporter',
+      avatar_key: null,
+    });
+
+    // 1. Target not found
+    const missingVideoRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': freshUserId },
+      payload: {
+        target_type: 'VIDEO',
+        target_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9991',
+        reason: 'SPAM',
+      },
+    });
+    expect(missingVideoRes.statusCode).toBe(404);
+    expect(missingVideoRes.json().code).toBe('TARGET_NOT_FOUND');
+
+    const missingUserRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': freshUserId },
+      payload: {
+        target_type: 'USER',
+        target_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9992',
+        reason: 'SPAM',
+      },
+    });
+    expect(missingUserRes.statusCode).toBe(404);
+    expect(missingUserRes.json().code).toBe('TARGET_NOT_FOUND');
+
+    // 2. Self-reporting rules
+    // Video owner cannot report their own video
+    const ownVideoRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': ownerId },
+      payload: { target_type: 'VIDEO', target_id: videoId, reason: 'SPAM' },
+    });
+    expect(ownVideoRes.statusCode).toBe(400);
+    expect(ownVideoRes.json().code).toBe('CANNOT_REPORT_OWN_CONTENT');
+
+    // Author cannot report their own comment
+    const commentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${videoId}/comments`,
+      headers: { 'x-user-id': authorId },
+      payload: { body: 'Test comment to be reported' },
+    });
+    const createdCommentId = commentRes.json().id;
+
+    const ownCommentRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': authorId },
+      payload: { target_type: 'COMMENT', target_id: createdCommentId, reason: 'SPAM' },
+    });
+    expect(ownCommentRes.statusCode).toBe(400);
+    expect(ownCommentRes.json().code).toBe('CANNOT_REPORT_OWN_CONTENT');
+
+    // User cannot report self
+    const selfUserRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': freshUserId },
+      payload: { target_type: 'USER', target_id: freshUserId, reason: 'SPAM' },
+    });
+    expect(selfUserRes.statusCode).toBe(400);
+    expect(selfUserRes.json().code).toBe('CANNOT_REPORT_SELF');
+
+    // 3. Rate limiting: 20 per hour
+    // Perform reports up to limit
+    const targetUserId = strangerId;
+    for (let i = 0; i < 17; i++) {
+      // already consumed 3 in above checks for freshUserId
+      await app.inject({
+        method: 'POST',
+        url: '/v1/reports',
+        headers: { 'x-user-id': freshUserId },
+        payload: { target_type: 'USER', target_id: targetUserId, reason: 'SPAM' },
+      });
+    }
+
+    // 21st request hits 429
+    const limitedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: { 'x-user-id': freshUserId },
+      payload: { target_type: 'USER', target_id: targetUserId, reason: 'SPAM' },
+    });
+    expect(limitedRes.statusCode).toBe(429);
+    expect(limitedRes.json().code).toBe('RATE_LIMIT_EXCEEDED');
+  });
+
+  it('Hidden video enforces 404 for viewers and allows access for moderators/admins', async () => {
+    const hiddenVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9777';
+    mockStore.videos.push({
+      id: hiddenVideoId,
+      owner_id: ownerId,
+      like_count: 5,
+      comment_count: 2,
+      hidden: true,
+      created_at: new Date(),
+    });
+
+    const hiddenCommentId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9778';
+    mockStore.comments.push({
+      id: hiddenCommentId,
+      video_id: hiddenVideoId,
+      author_id: authorId,
+      parent_id: null,
+      body: 'Comment on hidden video',
+      status: 'VISIBLE',
+      reply_count: 0,
+      created_at: new Date(),
+      edited_at: null,
+      updated_at: new Date(),
+    });
+
+    const viewerHeaders = { 'x-user-id': authorId, 'x-user-roles': 'viewer' };
+    const modHeaders = { 'x-user-id': strangerId, 'x-user-roles': 'moderator' };
+
+    // Viewer gets 404 on comment endpoints
+    const getCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${hiddenVideoId}/comments`,
+      headers: viewerHeaders,
+    });
+    expect(getCommentsRes.statusCode).toBe(404);
+
+    const postCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${hiddenVideoId}/comments`,
+      headers: viewerHeaders,
+      payload: { body: 'Cannot comment on hidden video' },
+    });
+    expect(postCommentRes.statusCode).toBe(404);
+
+    // Viewer gets 404 on like endpoints
+    const getLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${hiddenVideoId}/like`,
+      headers: viewerHeaders,
+    });
+    expect(getLikeRes.statusCode).toBe(404);
+
+    const putLikeRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${hiddenVideoId}/like`,
+      headers: viewerHeaders,
+    });
+    expect(putLikeRes.statusCode).toBe(404);
+
+    const delLikeRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/videos/${hiddenVideoId}/like`,
+      headers: viewerHeaders,
+    });
+    expect(delLikeRes.statusCode).toBe(404);
+
+    // Viewer gets 404 when reporting hidden video or comment on hidden video
+    const reportVideoRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: viewerHeaders,
+      payload: { target_type: 'VIDEO', target_id: hiddenVideoId, reason: 'SPAM' },
+    });
+    expect(reportVideoRes.statusCode).toBe(404);
+
+    const reportCommentRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: viewerHeaders,
+      payload: { target_type: 'COMMENT', target_id: hiddenCommentId, reason: 'SPAM' },
+    });
+    expect(reportCommentRes.statusCode).toBe(404);
+
+    // Moderator gets 200 on hidden video comment endpoints
+    const modGetComments = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${hiddenVideoId}/comments`,
+      headers: modHeaders,
+    });
+    expect(modGetComments.statusCode).toBe(200);
+
+    // Moderator gets 200 on hidden video like endpoint
+    const modGetLike = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${hiddenVideoId}/like`,
+      headers: modHeaders,
+    });
+    expect(modGetLike.statusCode).toBe(200);
+
+    // Moderator CAN report hidden video
+    const modReportVideo = await app.inject({
+      method: 'POST',
+      url: '/v1/reports',
+      headers: modHeaders,
+      payload: { target_type: 'VIDEO', target_id: hiddenVideoId, reason: 'VIOLENCE' },
+    });
+    expect(modReportVideo.statusCode).toBe(201);
+  });
 });
