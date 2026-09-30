@@ -254,7 +254,7 @@ WS_RESP=$(curl -sS -i -N \
   -H "Connection: Upgrade" \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   "${BASE_URL}/v1/realtime?ticket=${TICKET}" || true)
 WS_CODE=$(echo "$WS_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}')
 if [ "$WS_CODE" != "101" ]; then
