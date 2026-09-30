@@ -113,3 +113,19 @@ func TestMediaLinkSecretNeedsAtLeast32BytesAndIsNeverEchoed(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestTrendingSettings(t *testing.T) {
+	c, err := load(valid())
+	if err != nil || !c.TrendingEnabled || c.TrendingInterval.String() != "10m0s" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	e := valid()
+	e["TRENDING_ENABLED"], e["TRENDING_INTERVAL"] = "false", "0s" // an unused interval is not validated
+	if c, err := load(e); err != nil || c.TrendingEnabled {
+		t.Fatalf("%+v %v", c, err)
+	}
+	e["TRENDING_ENABLED"] = "true"
+	if _, err := load(e); err == nil {
+		t.Error("a zero interval with the job enabled must be refused")
+	}
+}

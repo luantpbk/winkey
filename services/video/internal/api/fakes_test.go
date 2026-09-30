@@ -24,6 +24,8 @@ type memStore struct {
 	gets           int
 	subtitleWrites int
 	putSubtitleErr error
+	ranking        []rankedVideo
+	trendingReads  int
 	mediaChecks    int
 	lists          int
 
@@ -291,4 +293,31 @@ func (s *memStore) DeleteSubtitle(_ context.Context, id uuid.UUID, lang string) 
 		}
 	}
 	return "", domain.ErrNotFound
+}
+
+// ListTrending serves ranks set by the test, re-applying the public-feed predicate like the SQL does.
+func (s *memStore) ListTrending(_ context.Context, q domain.TrendingQuery) ([]domain.TrendingItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trendingReads++
+	var out []domain.TrendingItem
+	for _, r := range s.ranking { // ordered by rank
+		v, ok := s.videos[r.id]
+		if !ok || r.rank <= q.AfterRank || v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing || v.Hidden() {
+			continue
+		}
+		out = append(out, domain.TrendingItem{Rank: r.rank, Summary: domain.Summary{
+			ID: v.ID, Title: v.Title, Owner: v.Owner, DurationMs: *v.DurationMs, ViewCount: v.ViewCount,
+			PublishedAt: *v.PublishedAt, ThumbnailKey: *v.ThumbnailKey,
+		}})
+		if len(out) == q.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+type rankedVideo struct {
+	id   uuid.UUID
+	rank int
 }

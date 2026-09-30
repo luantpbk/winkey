@@ -27,9 +27,10 @@ const (
 )
 
 const (
-	cursorFeed   = "feed"
-	cursorStudio = "studio"
-	cursorSearch = "search"
+	cursorFeed     = "feed"
+	cursorStudio   = "studio"
+	cursorSearch   = "search"
+	cursorTrending = "trending"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -97,6 +98,21 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, ok := h.parseLimit(w, r, q)
 	if !ok {
+		return
+	}
+	switch sort := q.Get("sort"); sort {
+	case "", "newest":
+	case "trending": // task R2-a, ADR-020
+		if q.Get("owner_id") != "" {
+			httpx.BadRequest(w, r, "INVALID_SORT", "sort=trending cannot be combined with owner_id",
+				httpx.FieldError{Field: "sort", Message: "trending has no per-channel ranking"})
+			return
+		}
+		h.listTrending(w, r, limit)
+		return
+	default:
+		httpx.BadRequest(w, r, "VALIDATION_ERROR", "sort must be newest or trending",
+			httpx.FieldError{Field: "sort", Message: "must be newest or trending"})
 		return
 	}
 	var owner *uuid.UUID
