@@ -11,6 +11,7 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 | Antigravity 1 | Frontend + E2E | `apps/web`, `e2e/`, `packages/api-client` |
 | Antigravity 2 | Platform / DevOps | `deploy/`, `.github/workflows/*` (except `contracts.yml`), root tooling (`package.json`, `pnpm-workspace.yaml`, `turbo.json`, `go.work`) |
 | Antigravity 3 | Node product services | `services/auth`, `services/social`, `services/realtime`, `packages/outbox` and other shared TS packages |
+| Antigravity 4 (Linux) | QA: full-stack system tests, load/performance tests | `systest/`, `loadtest/` |
 
 ## Hard rules
 
