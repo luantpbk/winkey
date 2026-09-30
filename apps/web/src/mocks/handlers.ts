@@ -34,6 +34,9 @@ import type {
   DeleteMeRequest,
   SubtitleTrack,
   PutSubtitleRequest,
+  PlaybackHeartbeatBatch,
+  PlaybackSample,
+  PlaybackHeartbeatResult,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -109,6 +112,22 @@ export function setMockSubscriptionVideosOverride(videos: VideoSummary[] | null)
   mockSubscriptionVideosOverride = videos;
 }
 
+let mockHeartbeat429 = false;
+export function setMockHeartbeat429(val: boolean) {
+  mockHeartbeat429 = val;
+}
+export function getMockHeartbeat429(): boolean {
+  return mockHeartbeat429;
+}
+
+let mockRecordedHeartbeats: PlaybackSample[] = [];
+export function getMockRecordedHeartbeats(): PlaybackSample[] {
+  return mockRecordedHeartbeats;
+}
+export function clearMockRecordedHeartbeats(): void {
+  mockRecordedHeartbeats = [];
+}
+
 export function resetModerationMocks() {
   currentUser = mockUsers.creator;
   dynamicVideos = [...mockVideos];
@@ -119,6 +138,8 @@ export function resetModerationMocks() {
   mockTrendingEmpty = false;
   mockSubscriptionEmpty = false;
   mockSubscriptionVideosOverride = null;
+  mockHeartbeat429 = false;
+  mockRecordedHeartbeats = [];
 }
 
 const initialMockComments: Comment[] = [
@@ -1264,6 +1285,88 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       status: 200,
       headers: { 'Content-Type': 'image/gif' },
     });
+  }),
+
+  // --- PLAYBACK HEARTBEATS ENDPOINT (Task U8) ---
+  http.post('*/v1/playback/heartbeats', async ({ request }) => {
+    if (mockHeartbeat429) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'TOO_MANY_REQUESTS',
+          detail: 'Heartbeat rate limit exceeded',
+        },
+        { status: 429 },
+      );
+    }
+
+    const rawText = await request.text();
+    // Limits: body <= 16 KiB (16384 bytes)
+    if (new TextEncoder().encode(rawText).length > 16384) {
+      return HttpResponse.json(
+        {
+          type: '/problems/payload-too-large',
+          title: 'Payload Too Large',
+          status: 413,
+          code: 'PAYLOAD_TOO_LARGE',
+          detail: 'Body exceeds 16 KiB',
+        },
+        { status: 413 },
+      );
+    }
+
+    let body: PlaybackHeartbeatBatch;
+    try {
+      body = JSON.parse(rawText) as PlaybackHeartbeatBatch;
+    } catch {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Invalid JSON body',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      !body ||
+      !Array.isArray(body.samples) ||
+      body.samples.length === 0 ||
+      body.samples.length > 20
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Samples array must contain between 1 and 20 items',
+        },
+        { status: 400 },
+      );
+    }
+
+    mockRecordedHeartbeats.push(...body.samples);
+
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const existing = JSON.parse(window.sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+        existing.push(...body.samples);
+        window.sessionStorage.setItem('wk_mock_heartbeats', JSON.stringify(existing));
+      } catch {
+        // ignore
+      }
+    }
+
+    const result: PlaybackHeartbeatResult = {
+      accepted: body.samples.length,
+    };
+    return HttpResponse.json(result, { status: 202 });
   }),
 
   // --- UPLOAD & STUDIO ENDPOINTS ---

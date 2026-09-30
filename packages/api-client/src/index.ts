@@ -42,6 +42,9 @@ export type Playback = VideoComponents['schemas']['Playback'];
 export type Rendition = VideoComponents['schemas']['Rendition'];
 export type SubtitleTrack = VideoComponents['schemas']['SubtitleTrack'];
 export type PutSubtitleRequest = VideoComponents['schemas']['PutSubtitleRequest'];
+export type PlaybackHeartbeatBatch = VideoComponents['schemas']['PlaybackHeartbeatBatch'];
+export type PlaybackSample = VideoComponents['schemas']['PlaybackSample'];
+export type PlaybackHeartbeatResult = VideoComponents['schemas']['PlaybackHeartbeatResult'];
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
 
