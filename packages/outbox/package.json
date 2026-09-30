@@ -50,7 +50,7 @@
     "kysely": "^0.27.6",
     "pg": "^8.13.3",
     "testcontainers": "^10.18.0",
-    "typescript": "^5.8.2",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.8"
   }
 }
