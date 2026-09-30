@@ -153,7 +153,7 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - social-svc: ẩn/hiện comment (`moderateComment`, đã có từ C1).
 - **social-svc giữ báo cáo và hàng đợi** (`social.reports`, `/v1/reports`, `/v1/moderation/*`). Đóng một case chỉ ghi quyết định; hành động thật gọi endpoint của service sở hữu. Không có saga hay lệnh phân tán: giao diện moderator gọi hai request nối tiếp (hành động, rồi đóng case).
 - Phân quyền chỉ dựa vào `X-User-Roles` từ gateway (ADR-009). `moderator` xử lý viewer/creator và nội dung; chỉ `admin` đổi role, khóa `moderator` và đọc audit log. Không ai khóa được `admin` hoặc chính mình.
-- Role và trạng thái khóa lan tới service khác qua access token, nên **có hiệu lực trong ≤ 15 phút** (TTL access token). Khóa tài khoản thu hồi mọi refresh token ngay lập tức. Không thêm lần kiểm tra DB vào `verify` (vẫn stateless).
+- Role và trạng thái khóa lan tới service khác qua access token, nên **có hiệu lực trong ≤ 15 phút** (TTL access token); ADR-019 rút xuống gần như tức thì. Khóa tài khoản thu hồi mọi refresh token ngay lập tức. Không thêm lần kiểm tra DB vào `verify` (vẫn stateless).
 - Video bị ẩn được đối xử như `PRIVATE` với người ngoài; object media không bị xóa. Việc chặn tải media thuộc SEC1, thiết kế ở ADR-017 (URL ký, không dùng cookie).
 **Hệ quả.** Không có bảng tổng hợp chung, nên audit của video và comment nằm ở cột `moderated_by/at` của từng bảng thay vì `auth.audit_log`. Người dùng bị khóa vẫn gọi được API tối đa 15 phút. Chấp nhận được ở P2; nếu cần chặn tức thì thì thêm denylist `sid` trong Valkey cho `verify` (việc sau).
 
@@ -180,3 +180,17 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - `Playback.subtitles[]` trả `{lang, label, source, url, updated_at}`; `url` được ký giống `hls_url` khi video không công khai. Không phát event nào, vì không service nào khác cần.
 - **V5c (auto-caption)** chưa thiết kế. Trước khi làm cần quyết định ngân sách GPU trên gpu-01 (giờ chạy, VRAM, có dừng các việc khác hay không). Khi đó transcoder hoặc một worker riêng sẽ ghi track `source = AUTO`, dùng lại đúng bảng và URL của V5b.
 **Hệ quả.** File `.vtt` được phục vụ từ `media.winkey.vn` với `Content-Type: text/vtt`, trình duyệt không chạy nó như HTML. Khi làm SEC1-b, nginx nên thêm `X-Content-Type-Options: nosniff` cho mọi media. Nội dung cue do người dùng viết: player phải hiển thị bằng text track của trình duyệt hoặc hls.js, không chèn `innerHTML`.
+
+### ADR-019 — Thu hồi access token ngay lập tức (A4)
+**Bối cảnh.** ADR-016 chấp nhận rằng khóa tài khoản, đổi role, xóa tài khoản và đăng xuất chỉ có hiệu lực sau tối đa 15 phút (TTL của access token), vì `verify` không lưu trạng thái. Trước khi mở beta cho 50 người dùng, cần một tài khoản bị khóa hoặc bị hạ quyền mất quyền ngay, mà `verify` vẫn phải rẻ.
+**Quyết định.**
+- auth-svc ghi hai loại khóa vào Valkey, cùng TTL = 900 s + 60 s (TTL access token + độ lệch đồng hồ):
+  - `auth:revoked:sid:{sid}` khi một phiên bị thu hồi: logout, phát hiện refresh token bị dùng lại, đổi mật khẩu (các phiên khác);
+  - `auth:revoked:user:{user_id}` = Unix giây lúc thu hồi, khi mọi access token hiện có của user phải chết: khóa tài khoản, đổi role, xóa tài khoản. Token có `iat` ≤ giá trị này bị từ chối.
+- Khóa được ghi **sau khi transaction DB commit**. Nếu ghi lỗi thì chỉ log cảnh báo và tăng metric, không làm hỏng request, vì refresh token trong DB vẫn là nguồn sự thật.
+- `verify`: kiểm chữ ký xong thì đọc cả hai khóa trong **một** `MGET`, timeout 50 ms. Valkey lỗi hoặc quá chậm thì **fail-open**: cho request đi, tăng `auth_verify_revocation_check_total{result="error"}`. Lý do: Valkey chết không được kéo sập mọi request đã đăng nhập; trong trường hợp đó rủi ro quay về mức ADR-016 (≤ 15 phút).
+- Đổi role dùng khóa theo user: client nhận `401`, gọi refresh (refresh token vẫn hợp lệ), nhận token mới mang role mới. Hạ quyền vì thế có hiệu lực ngay mà không bắt đăng nhập lại. Token cấp trong cùng giây với lúc thu hồi cũng bị từ chối; client chỉ phải refresh thêm một lần.
+**Hệ quả.**
+- Mỗi request đã đăng nhập tốn thêm một round trip tới Valkey (< 1 ms trong cluster).
+- Kết nối WebSocket đang mở của realtime-gw không bị cắt ngay, vì vé kết nối chỉ kiểm lúc bắt tay; đó là việc sau, nếu cần.
+- ADR-016 đoạn "≤ 15 phút" được thay bằng ADR này, trừ lúc Valkey lỗi.
