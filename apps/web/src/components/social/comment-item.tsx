@@ -2,10 +2,19 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { MessageSquare, MoreVertical, Edit2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  MessageSquare,
+  MoreVertical,
+  Edit2,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Flag,
+} from 'lucide-react';
 import type { Comment } from '@winkey/api-client';
 import { formatRelativeTime } from '../../lib/format';
 import { CommentComposer } from './comment-composer';
+import { ReportDialog } from '../moderation/report-dialog';
 import { api } from '../../lib/api-client';
 import { useRouter, usePathname } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
@@ -29,11 +38,12 @@ export function CommentItem({
   const t = useTranslations('social');
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [showReplyComposer, setShowReplyComposer] = useState<boolean>(false);
   const [showMenu, setShowMenu] = useState<boolean>(false);
+  const [showReportDialog, setShowReportDialog] = useState<boolean>(false);
 
   // Replies state (only relevant for top-level comments)
   const isTopLevel = comment.parent_id === null;
@@ -223,47 +233,69 @@ export function CommentItem({
                 )}
               </div>
 
-              {/* Edit / Delete menu */}
-              {(comment.can_edit || comment.can_delete) && !isEditing && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowMenu(!showMenu)}
-                    aria-label={t('commentOptions')}
-                    className="p-1 rounded-full text-gray-400 hover:text-gray-200 hover:bg-[#333] transition"
-                  >
-                    <MoreVertical className="h-3.5 w-3.5" />
-                  </button>
+              {/* Edit / Delete / Report menu */}
+              {(comment.can_edit ||
+                comment.can_delete ||
+                !user ||
+                user.id !== comment.author?.id) &&
+                !isDeleted &&
+                !isEditing && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowMenu(!showMenu)}
+                      aria-label={t('commentOptions')}
+                      className="p-1 rounded-full text-gray-400 hover:text-gray-200 hover:bg-[#333] transition"
+                    >
+                      <MoreVertical className="h-3.5 w-3.5" />
+                    </button>
 
-                  {showMenu && (
-                    <div className="absolute right-0 top-6 z-20 min-w-[120px] rounded-xl bg-[#222] border border-[#333] py-1 shadow-2xl text-xs">
-                      {comment.can_edit && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsEditing(true);
-                            setShowMenu(false);
-                          }}
-                          className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:bg-[#333]"
-                        >
-                          <Edit2 className="h-3.5 w-3.5 text-blue-400" />
-                          <span>{t('edit')}</span>
-                        </button>
-                      )}
-                      {comment.can_delete && (
-                        <button
-                          type="button"
-                          onClick={handleDelete}
-                          className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-red-400 hover:bg-[#333]"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>{t('delete')}</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                    {showMenu && (
+                      <div className="absolute right-0 top-6 z-20 min-w-[130px] rounded-xl bg-[#222] border border-[#333] py-1 shadow-2xl text-xs">
+                        {comment.can_edit && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEditing(true);
+                              setShowMenu(false);
+                            }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:bg-[#333]"
+                          >
+                            <Edit2 className="h-3.5 w-3.5 text-blue-400" />
+                            <span>{t('edit')}</span>
+                          </button>
+                        )}
+                        {comment.can_delete && (
+                          <button
+                            type="button"
+                            onClick={handleDelete}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-red-400 hover:bg-[#333]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>{t('delete')}</span>
+                          </button>
+                        )}
+                        {(!user || user.id !== comment.author?.id) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowMenu(false);
+                              if (!isAuthenticated) {
+                                router.push(`/login?returnTo=${encodeURIComponent(pathname)}`);
+                                return;
+                              }
+                              setShowReportDialog(true);
+                            }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:text-red-400 hover:bg-[#333]"
+                          >
+                            <Flag className="h-3.5 w-3.5 text-red-400" />
+                            <span>Báo cáo</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
 
             {/* Comment Body or Inline Editor */}
@@ -372,6 +404,15 @@ export function CommentItem({
           )}
         </div>
       )}
+
+      {/* Report Comment Dialog */}
+      <ReportDialog
+        isOpen={showReportDialog}
+        onClose={() => setShowReportDialog(false)}
+        targetType="COMMENT"
+        targetId={comment.id}
+        targetTitle={comment.body}
+      />
     </div>
   );
 }

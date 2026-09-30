@@ -50,6 +50,29 @@ export type SubscriptionState = SocialComponents['schemas']['SubscriptionState']
 export type Subscription = SocialComponents['schemas']['Subscription'];
 export type SubscriptionPage = SocialComponents['schemas']['SubscriptionPage'];
 
+export type AdminUser = AuthComponents['schemas']['AdminUser'];
+export type AdminUserPage = AuthComponents['schemas']['AdminUserPage'];
+export type UserStatus = AuthComponents['schemas']['UserStatus'];
+export type SetRolesRequest = AuthComponents['schemas']['SetRolesRequest'];
+export type SuspendUserRequest = AuthComponents['schemas']['SuspendUserRequest'];
+export type AuditEntry = AuthComponents['schemas']['AuditEntry'];
+export type AuditEntryPage = AuthComponents['schemas']['AuditEntryPage'];
+
+export type ReportTargetType = SocialComponents['schemas']['ReportTargetType'];
+export type ReportReason = SocialComponents['schemas']['ReportReason'];
+export type ReportStatus = SocialComponents['schemas']['ReportStatus'];
+export type CreateReportRequest = SocialComponents['schemas']['CreateReportRequest'];
+export type ReportReceipt = SocialComponents['schemas']['ReportReceipt'];
+export type Report = SocialComponents['schemas']['Report'];
+export type ModerationCase = SocialComponents['schemas']['ModerationCase'];
+export type ModerationCasePage = SocialComponents['schemas']['ModerationCasePage'];
+export type ResolveCaseRequest = SocialComponents['schemas']['ResolveCaseRequest'];
+export type ResolveCaseResult = SocialComponents['schemas']['ResolveCaseResult'];
+export type ModerateCommentRequest = SocialComponents['schemas']['ModerateCommentRequest'];
+
+export type ModerateVideoRequest = VideoComponents['schemas']['ModerateVideoRequest'];
+export type VideoModeration = VideoComponents['schemas']['VideoModeration'];
+
 export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string;
   getAccessToken?: () => string | null | undefined | Promise<string | null | undefined>;

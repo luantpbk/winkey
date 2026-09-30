@@ -4,13 +4,18 @@ import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
 import { Link } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
-import { Share2 } from 'lucide-react';
+import { Share2, Flag } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
 import { SubscribeButton } from '../../../../components/social/subscribe-button';
 import { CommentSection } from '../../../../components/social/comment-section';
+import { ReportDialog } from '../../../../components/moderation/report-dialog';
+import { useAuth } from '../../../../lib/auth/auth-context';
 
 export function WatchClientSection({ video }: { video: Video }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const { user } = useAuth();
+  const isOwner = user?.id === video.owner.id;
 
   return (
     <div className="flex flex-col gap-4">
@@ -64,6 +69,18 @@ export function WatchClientSection({ video }: { video: Video }) {
             <Share2 className="h-4 w-4" />
             <span>Chia sẻ</span>
           </button>
+
+          {!isOwner && (
+            <button
+              type="button"
+              onClick={() => setShowReportDialog(true)}
+              aria-label="Báo cáo video"
+              className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-red-500 transition"
+            >
+              <Flag className="h-3.5 w-3.5 text-red-500" />
+              <span>Báo cáo</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -90,6 +107,15 @@ export function WatchClientSection({ video }: { video: Video }) {
 
       {/* Comments Section */}
       <CommentSection videoId={video.id} />
+
+      {/* Report Video Dialog */}
+      <ReportDialog
+        isOpen={showReportDialog}
+        onClose={() => setShowReportDialog(false)}
+        targetType="VIDEO"
+        targetId={video.id}
+        targetTitle={video.title}
+      />
     </div>
   );
 }
