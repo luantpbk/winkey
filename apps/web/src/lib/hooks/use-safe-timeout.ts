@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 export type SafeTimeoutClearFn = () => void;
-
-export interface SafeTimeoutFn {
-  (handler: () => void, delayMs: number): SafeTimeoutClearFn;
-  safeTimeout: (handler: () => void, delayMs: number) => SafeTimeoutClearFn;
-}
+export type SafeTimeoutFn = (handler: () => void, delayMs: number) => SafeTimeoutClearFn;
 
 /**
  * useSafeTimeout
@@ -37,9 +33,7 @@ export function useSafeTimeout(): SafeTimeoutFn {
       clearTimeout(timerId);
       timerIdsRef.current.delete(timerId);
     };
-  }, []) as SafeTimeoutFn;
-
-  safeTimeout.safeTimeout = safeTimeout;
+  }, []);
 
   return safeTimeout;
 }
