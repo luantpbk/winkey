@@ -890,9 +890,11 @@ describe('Winkey System Integration Test Suite', () => {
     // 3. Poll master playlist URL until 404 (≤ 60s)
     let mediaDeleted = false;
     const pollDeadline = Date.now() + 60000;
+    // Query Garage S3 web endpoint directly (port 3902) to bypass Nginx proxy_cache
+    const directS3Url = masterPlaylistUrl.replace(':8081', ':3902');
     while (Date.now() < pollDeadline) {
-      const mediaRes = await fetch(`${masterPlaylistUrl}?nocache=${Date.now()}`, {
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      const mediaRes = await fetch(directS3Url, {
+        headers: { Host: 'winkey-media.web.garage.localhost' },
       });
       if (mediaRes.status === 404 || mediaRes.status === 403) {
         mediaDeleted = true;
