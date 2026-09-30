@@ -20,11 +20,13 @@ import (
 	"github.com/luantpbk/winkey/libs/go/httpx"
 	"github.com/luantpbk/winkey/libs/go/obs"
 	"github.com/luantpbk/winkey/libs/go/outbox"
+	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/services/video/internal/api"
 	"github.com/luantpbk/winkey/services/video/internal/cache"
 	"github.com/luantpbk/winkey/services/video/internal/config"
 	"github.com/luantpbk/winkey/services/video/internal/domain"
 	"github.com/luantpbk/winkey/services/video/internal/likes"
+	"github.com/luantpbk/winkey/services/video/internal/objects"
 	"github.com/luantpbk/winkey/services/video/internal/store"
 	"github.com/luantpbk/winkey/services/video/internal/views"
 )
@@ -93,6 +95,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 
 	st := &store.Postgres{Pool: pool}
 
+	s3c, err := s3x.New(s3x.Config{Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, AccessKeyID: cfg.S3AccessKeyID, SecretAccessKey: cfg.S3SecretAccessKey})
+	if err != nil {
+		return fmt.Errorf("object storage: %w", err) // never contains the secret
+	}
+
 	proxies, err := views.ParseCIDRs(cfg.TrustProxyCIDRs)
 	if err != nil {
 		return fmt.Errorf("TRUST_PROXY_CIDRS: %w", err)
@@ -123,8 +130,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 	(&api.Handler{
 		Store: st, Cache: videoCache, MediaBaseURL: cfg.MediaBaseURL,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
-		MediaLinkSecret: []byte(cfg.MediaLinkSecret),
-		Views:           viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
+		MediaLinkSecret: []byte(cfg.MediaLinkSecret), Objects: objects.New(s3c),
+		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
 		Limiter: limiter, SearchRateLimit: cfg.SearchRateLimit, SuggestRateLimit: cfg.SuggestRateLimit,
 	}).Routes(router)
 

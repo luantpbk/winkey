@@ -27,6 +27,13 @@ type Config struct {
 	// shared with the nginx of media.winkey.vn; at least 32 bytes; never logged.
 	MediaLinkSecret string `env:"MEDIA_LINK_SECRET,required"`
 
+	// Object storage (Garage, ADR-004): video-svc writes and deletes subtitle files (task V5b) in
+	// S3_MEDIA_BUCKET. Server-side calls only, so there is no public endpoint.
+	S3Endpoint        string `env:"S3_ENDPOINT,required"`
+	S3Region          string `env:"S3_REGION" default:"garage"`
+	S3AccessKeyID     string `env:"S3_ACCESS_KEY_ID,required"`
+	S3SecretAccessKey string `env:"S3_SECRET_ACCESS_KEY,required"`
+
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
 

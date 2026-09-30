@@ -44,6 +44,8 @@ type Handler struct {
 	Cache        domain.Cache // may be nil
 	MediaBaseURL string       // e.g. https://media.winkey.vn
 	MediaBucket  string       // bucket named in video.deleted
+	// Objects is the media bucket for subtitle files (task V5b).
+	Objects domain.Objects
 	// MediaLinkSecret signs media URLs of videos the public cannot watch (SEC1, ADR-017); never logged.
 	MediaLinkSecret []byte
 	Now             func() time.Time // default time.Now; tests fix it
@@ -77,6 +79,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Use(httpx.Authenticate)
 		r.Patch("/v1/videos/{video_id}", h.updateVideo)
 		r.Delete("/v1/videos/{video_id}", h.deleteVideo)
+		r.Put("/v1/videos/{video_id}/subtitles/{lang}", h.putSubtitle)
+		r.Delete("/v1/videos/{video_id}/subtitles/{lang}", h.deleteSubtitle)
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 	})

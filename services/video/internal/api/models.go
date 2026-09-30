@@ -27,9 +27,11 @@ type playbackJSON struct {
 	HLSURL       string `json:"hls_url"`
 	ThumbnailURL string `json:"thumbnail_url"`
 	// StoryboardURL is the WebVTT seek-preview track (V5a); null when the video has none.
-	StoryboardURL *string         `json:"storyboard_url"`
-	ExpiresAt     *time.Time      `json:"expires_at,omitempty"` // only with signed URLs (SEC1)
-	Renditions    []renditionJSON `json:"renditions"`
+	StoryboardURL *string `json:"storyboard_url"`
+	// Subtitles are the WebVTT tracks (V5b), sorted by lang; always present, empty when none.
+	Subtitles  []subtitleJSON  `json:"subtitles"`
+	ExpiresAt  *time.Time      `json:"expires_at,omitempty"` // only with signed URLs (SEC1)
+	Renditions []renditionJSON `json:"renditions"`
 }
 
 type videoJSON struct {
@@ -147,6 +149,7 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 		if v.PubliclyWatchable() {
 			pb.HLSURL, pb.ThumbnailURL = h.mediaURL(*v.HLSMasterKey), h.mediaURL(*v.ThumbnailKey)
 			pb.StoryboardURL = h.mediaURLPtr(v.StoryboardKey)
+			pb.Subtitles = h.subtitleTracks(v, nil)
 		} else { // only the owner, moderators and admins get here: signed, short lived (ADR-017)
 			exp := h.mediaExpiry()
 			pb.HLSURL, pb.ThumbnailURL = h.signedMediaURL(v.ID, *v.HLSMasterKey, exp), h.signedMediaURL(v.ID, *v.ThumbnailKey, exp)
@@ -156,6 +159,7 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 			}
 			at := exp.UTC()
 			pb.ExpiresAt = &at
+			pb.Subtitles = h.subtitleTracks(v, &exp) // same expiry as the other URLs
 		}
 		for _, r := range v.Renditions {
 			pb.Renditions = append(pb.Renditions, renditionJSON{Name: r.Name, Width: r.Width, Height: r.Height, BitrateKbps: r.BitrateKbps})

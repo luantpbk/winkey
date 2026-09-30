@@ -72,6 +72,7 @@ type Video struct {
 	StoryboardKey *string     `json:"storyboard_key"`
 	Owner         Profile     `json:"owner"`
 	Renditions    []Rendition `json:"renditions"`
+	Subtitles     []Subtitle  `json:"subtitles"` // READY videos only, sorted by lang (V5b)
 
 	// Moderation (A2). A HIDDEN video is PRIVATE for everyone but its owner,
 	// moderators and admins.
@@ -113,6 +114,47 @@ type StudioItem struct {
 
 	// OwnerActive is false when the owner is not in auth.public_profiles (suspended, deleted).
 	OwnerActive bool
+}
+
+// MaxSubtitles is the number of subtitle tracks a video may have (ADR-018).
+const MaxSubtitles = 20
+
+// Subtitle is one WebVTT track of a video (media.video_subtitles, task V5b).
+type Subtitle struct {
+	Lang      string    `json:"lang"`
+	Label     string    `json:"label"`
+	Source    string    `json:"source"` // UPLOAD; AUTO is reserved for V5c
+	ObjectKey string    `json:"object_key"`
+	SizeBytes int       `json:"size_bytes"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SubtitleWrite is a track whose object is already in the media bucket.
+type SubtitleWrite struct {
+	VideoID   uuid.UUID
+	Lang      string
+	Label     string
+	ObjectKey string
+	SizeBytes int
+}
+
+// SubtitleResult is what Store.PutSubtitle committed.
+type SubtitleResult struct {
+	Track       Subtitle
+	Created     bool   // false: an existing track of that language was replaced
+	PreviousKey string // object of the replaced track, to delete after the commit; "" when created
+}
+
+// Errors of the subtitle operations.
+var (
+	ErrTooManySubtitles = errors.New("too many subtitles")
+	ErrVideoFailed      = errors.New("video failed")
+)
+
+// Objects is the media bucket as video-svc needs it (subtitles only).
+type Objects interface {
+	Put(ctx context.Context, bucket, key string, data []byte, contentType, cacheControl string) error
+	Delete(ctx context.Context, bucket, key string) error
 }
 
 // Position is a keyset position: the sort timestamp and id of the last item
@@ -201,6 +243,13 @@ type Store interface {
 	// video.moderated. changed is false for a no-op (same state again: nothing is
 	// written, no event). ErrNotFound if the video does not exist.
 	ModerateVideo(ctx context.Context, id, moderatorID uuid.UUID, state string, reason *string) (v Video, changed bool, err error)
+	// PutSubtitle, in ONE transaction, locks the video row (FOR UPDATE), refuses a 21st language
+	// (ErrTooManySubtitles; replacing a language is always allowed), and upserts the track. The
+	// object at w.ObjectKey must already exist. ErrNotFound if the video is gone, ErrVideoFailed if
+	// it is FAILED.
+	PutSubtitle(ctx context.Context, w SubtitleWrite) (SubtitleResult, error)
+	// DeleteSubtitle removes the row and returns its object key; ErrNotFound if there is no such track.
+	DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (objectKey string, err error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)

@@ -18,6 +18,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/ids"
 	"github.com/luantpbk/winkey/services/video/internal/contract"
 	"github.com/luantpbk/winkey/services/video/internal/domain"
+	"github.com/luantpbk/winkey/services/video/internal/testutil"
 )
 
 const mediaBase = "https://media.winkey.vn"
@@ -46,6 +47,7 @@ type env struct {
 	t     *testing.T
 	h     http.Handler
 	store *memStore
+	objs  *testutil.MemObjects
 	cache *memCache
 	spec  *contract.Spec
 	n     int
@@ -53,9 +55,9 @@ type env struct {
 
 func newEnv(t *testing.T, withCache bool) *env {
 	t.Helper()
-	e := &env{t: t, store: newMemStore(), spec: contract.Load(t)}
+	e := &env{t: t, store: newMemStore(), objs: testutil.NewMemObjects(), spec: contract.Load(t)}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := &Handler{Store: e.store, MediaBaseURL: mediaBase + "/", MediaBucket: "winkey-media",
+	h := &Handler{Store: e.store, Objects: e.objs, MediaBaseURL: mediaBase + "/", MediaBucket: "winkey-media",
 		CursorSecret: []byte("test-cursor-secret-123456"), Log: log,
 		MediaLinkSecret: []byte(testLinkSecret), Now: func() time.Time { return testNow }}
 	if withCache {
@@ -70,11 +72,15 @@ func newEnv(t *testing.T, withCache bool) *env {
 
 var videoPath = regexp.MustCompile(`^/v1/videos/[^/]+$`)
 var moderationPath = regexp.MustCompile(`^/v1/videos/[^/]+/moderation$`)
+var subtitlePath = regexp.MustCompile(`^/v1/videos/[^/]+/subtitles/[^/]+$`)
 
 func templateFor(path string) string {
 	p, _, _ := strings.Cut(path, "?")
 	if videoPath.MatchString(p) {
 		return "/v1/videos/{video_id}"
+	}
+	if subtitlePath.MatchString(p) {
+		return "/v1/videos/{video_id}/subtitles/{lang}"
 	}
 	if moderationPath.MatchString(p) {
 		return "/v1/videos/{video_id}/moderation"
@@ -93,6 +99,19 @@ func (e *env) req(u *who, method, path, body string) *httptest.ResponseRecorder 
 	w := httptest.NewRecorder()
 	e.h.ServeHTTP(w, req)
 	e.spec.Check(e.t, method, templateFor(path), w.Code, w.Header().Get("Content-Type"), w.Body.Bytes())
+	return w
+}
+
+// reqNoContract is req without the contract check, for the answers the contract does not document (500).
+func (e *env) reqNoContract(u *who, method, path, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if u != nil {
+		req.Header.Set("X-User-Id", u.id.String())
+		req.Header.Set("X-User-Roles", u.roles)
+	}
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, req)
 	return w
 }
 
