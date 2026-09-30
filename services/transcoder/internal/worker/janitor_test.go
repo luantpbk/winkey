@@ -61,7 +61,10 @@ func TestPurgeRemovesAllAttemptsAndRawOnly(t *testing.T) {
 	objs := testutil.NewMemObjects()
 	for _, k := range []string{
 		"v/" + vid + "/a1/hls/master.m3u8", "v/" + vid + "/a2/thumb/poster.jpg",
-		"v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/hls/master.m3u8", // another video: must survive
+		// the storyboard (V5a) lives under the same prefix, sheets and track, in every attempt
+		"v/" + vid + "/a1/storyboard/sheet-001.jpg", "v/" + vid + "/a2/storyboard/sheet-002.jpg", "v/" + vid + "/a2/storyboard/storyboard.vtt",
+		"v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/storyboard/storyboard.vtt", // another video: must survive
+		"v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/hls/master.m3u8",           // another video: must survive
 	} {
 		objs.Put("winkey-media", k, []byte("x"))
 	}
@@ -71,7 +74,7 @@ func TestPurgeRemovesAllAttemptsAndRawOnly(t *testing.T) {
 	if err := newJanitor(objs).Purge(context.Background(), goodEvent()); err != nil {
 		t.Fatal(err)
 	}
-	if got := objs.Keys("winkey-media"); len(got) != 1 || got[0] != "v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/hls/master.m3u8" {
+	if got := objs.Keys("winkey-media"); len(got) != 2 || got[0] != "v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/hls/master.m3u8" || got[1] != "v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/storyboard/storyboard.vtt" {
 		t.Errorf("media: %v", got)
 	}
 	if got := objs.Keys("winkey-raw"); len(got) != 1 || got[0] != owner+"/other/source" {

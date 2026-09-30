@@ -50,7 +50,10 @@ type ReadyResult struct {
 	Height     int
 	MasterKey  string
 	ThumbKey   string
-	Renditions []media.Rendition
+	// StoryboardKey is the key of storyboard.vtt; "" when the storyboard could not be made
+	// (best effort): media.videos.storyboard_key and the video.ready field are then null.
+	StoryboardKey string
+	Renditions    []media.Rendition
 	// PlaylistKeys[i] is the media-bucket key of Renditions[i]'s playlist.
 	PlaylistKeys []string
 }

@@ -45,6 +45,8 @@ type Pipeline struct {
 	Tools   Tools
 	Cfg     Config
 	Log     *slog.Logger
+	// Storyboard replaces Tools.Storyboard (tests). nil = use ffmpeg.
+	Storyboard StoryboardFunc
 }
 
 // Delivery describes which delivery of the message this is.
@@ -87,6 +89,10 @@ type Stats struct {
 	TotalWall   time.Duration
 	Renditions  int
 	UploadBytes int64
+	// Storyboard is true when the seek-preview storyboard was produced; StoryboardWall is
+	// what the step cost (V5a), whether or not it succeeded.
+	Storyboard     bool
+	StoryboardWall time.Duration
 }
 
 // XRealtime is media seconds encoded per wall second.
@@ -303,8 +309,16 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		return Stats{}, err
 	}
 
-	// 7. Upload under v/{video_id}/a{attempt}/.
+	// 6b. Seek-preview storyboard (V5a): best effort, the video is READY without it. The GPU
+	// decoder is used only when the HLS step used it (an x264 fallback means CPU).
 	prefix := fmt.Sprintf("v/%s/a%d/", v.ID, b.Attempt)
+	hwDecode := encoder == media.EncoderNVENC && !p.Cfg.NoHWDecode
+	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, source, outDir, prefix, info.DurationSec, hwDecode, log)
+	if err != nil {
+		return Stats{}, err
+	}
+
+	// 7. Upload under v/{video_id}/a{attempt}/.
 	rep.report(ctx, StageUploading, progressUpload)
 	bytes, err := p.uploadAll(ctx, outDir, prefix, func(frac float64) {
 		rep.report(ctx, StageUploading, progressUpload+(progressDone-progressUpload)*frac)
@@ -321,7 +335,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		Width:      rs[0].Width, Height: rs[0].Height,
 		MasterKey:  prefix + "hls/" + media.MasterPlaylist,
 		ThumbKey:   prefix + "thumb/poster.jpg",
-		Renditions: rs,
+		Renditions: rs, StoryboardKey: storyboardKey,
 	}
 	for _, r := range rs {
 		res.PlaylistKeys = append(res.PlaylistKeys, prefix+"hls/"+r.Name+"/index.m3u8")
@@ -345,6 +359,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 	return Stats{
 		Encoder: encoder, MediaSec: info.DurationSec, EncodeWall: encodeWall,
 		Renditions: len(rs), UploadBytes: bytes,
+		Storyboard: storyboardKey != "", StoryboardWall: storyboardWall,
 	}, nil
 }
 
@@ -382,7 +397,7 @@ func (p *Pipeline) cleanupPrefix(prefix string, v Video, log *slog.Logger) {
 	}
 }
 
-// uploadAll uploads every file below outDir (hls/... and thumb/...) keeping
+// uploadAll uploads every file below outDir (hls/..., thumb/... and storyboard/...) keeping
 // the relative layout under prefix. The master playlist goes last so a
 // half-uploaded attempt never exposes a playable master.
 func (p *Pipeline) uploadAll(ctx context.Context, outDir, prefix string, onFrac func(float64)) (int64, error) {
@@ -465,6 +480,8 @@ func contentType(rel string) string {
 		return "video/mp4"
 	case ".jpg", ".jpeg":
 		return "image/jpeg"
+	case ".vtt":
+		return "text/vtt"
 	}
 	if t := mime.TypeByExtension(path.Ext(rel)); t != "" {
 		return t

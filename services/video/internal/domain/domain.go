@@ -53,23 +53,25 @@ type Rendition struct {
 // Video is a full record with owner profile and renditions. It is viewer
 // independent, so it can be cached and the visibility rules applied after.
 type Video struct {
-	ID           uuid.UUID   `json:"id"`
-	OwnerID      uuid.UUID   `json:"owner_id"`
-	Title        string      `json:"title"`
-	Description  string      `json:"description"`
-	Visibility   string      `json:"visibility"`
-	Status       string      `json:"status"`
-	DurationMs   *int        `json:"duration_ms"`
-	Width        *int        `json:"width"`
-	Height       *int        `json:"height"`
-	ViewCount    int64       `json:"view_count"`
-	LikeCount    int64       `json:"like_count"`
-	PublishedAt  *time.Time  `json:"published_at"`
-	CreatedAt    time.Time   `json:"created_at"`
-	HLSMasterKey *string     `json:"hls_master_key"`
-	ThumbnailKey *string     `json:"thumbnail_key"`
-	Owner        Profile     `json:"owner"`
-	Renditions   []Rendition `json:"renditions"`
+	ID           uuid.UUID  `json:"id"`
+	OwnerID      uuid.UUID  `json:"owner_id"`
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Visibility   string     `json:"visibility"`
+	Status       string     `json:"status"`
+	DurationMs   *int       `json:"duration_ms"`
+	Width        *int       `json:"width"`
+	Height       *int       `json:"height"`
+	ViewCount    int64      `json:"view_count"`
+	LikeCount    int64      `json:"like_count"`
+	PublishedAt  *time.Time `json:"published_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	HLSMasterKey *string    `json:"hls_master_key"`
+	ThumbnailKey *string    `json:"thumbnail_key"`
+	// StoryboardKey is the key of storyboard.vtt (seek preview, V5a); nil when there is none.
+	StoryboardKey *string     `json:"storyboard_key"`
+	Owner         Profile     `json:"owner"`
+	Renditions    []Rendition `json:"renditions"`
 
 	// Moderation (A2). A HIDDEN video is PRIVATE for everyone but its owner,
 	// moderators and admins.

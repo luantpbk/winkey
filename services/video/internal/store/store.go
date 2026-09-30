@@ -27,7 +27,7 @@ var _ domain.Store = (*Postgres)(nil)
 const videoSelect = `
 	SELECT v.id, v.owner_id, v.title, v.description, v.visibility::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
-	       v.hls_master_key, v.thumbnail_key,
+	       v.hls_master_key, v.thumbnail_key, v.storyboard_key,
 	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
 	       v.moderation_state::text, v.moderation_reason, v.moderated_by, v.moderated_at
 	FROM media.videos v
@@ -38,7 +38,7 @@ func scanVideo(row pgx.Row) (domain.Video, error) {
 	var ownerActive bool
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Visibility, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
-		&v.HLSMasterKey, &v.ThumbnailKey,
+		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey,
 		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
 		&v.ModerationState, &v.ModerationReason, &v.ModeratedBy, &v.ModeratedAt)
 	v.Owner.ID = v.OwnerID

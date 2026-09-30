@@ -36,7 +36,7 @@ func TestProcessHappyPath(t *testing.T) {
 	r := f.Store.Ready[0]
 	prefix := fmt.Sprintf("v/%s/a1/", f.Video.ID)
 	if r.Attempt != 1 || r.Encoder != "x264" || r.MasterKey != prefix+"hls/master.m3u8" ||
-		r.ThumbKey != prefix+"thumb/poster.jpg" || len(r.Renditions) != 3 || r.Width != 1920 || r.Height != 1080 ||
+		r.ThumbKey != prefix+"thumb/poster.jpg" || r.StoryboardKey != prefix+"storyboard/storyboard.vtt" || len(r.Renditions) != 3 || r.Width != 1920 || r.Height != 1080 ||
 		r.DurationMs < 11000 || r.DurationMs > 13000 {
 		t.Fatalf("ready result: %+v", r)
 	}
@@ -46,7 +46,7 @@ func TestProcessHappyPath(t *testing.T) {
 
 	// Object layout, content types and cache headers.
 	keys := f.Objs.Keys(testutil.MediaBucket)
-	for _, want := range []string{"hls/master.m3u8", "hls/1080p/index.m3u8", "hls/480p/index.m3u8", "thumb/poster.jpg"} {
+	for _, want := range []string{"hls/master.m3u8", "hls/1080p/index.m3u8", "hls/480p/index.m3u8", "thumb/poster.jpg", "storyboard/sheet-001.jpg", "storyboard/storyboard.vtt"} {
 		if _, ok := f.Objs.Get(testutil.MediaBucket, prefix+want); !ok {
 			t.Errorf("missing %s (have %v)", want, keys)
 		}
@@ -57,13 +57,13 @@ func TestProcessHappyPath(t *testing.T) {
 		if o.CacheControl != "public, max-age=31536000, immutable" {
 			t.Errorf("%s: cache-control %q", k, o.CacheControl)
 		}
-		want := map[string]string{".m3u8": "application/vnd.apple.mpegurl", ".m4s": "video/mp4", ".mp4": "video/mp4", ".jpg": "image/jpeg"}[filepath.Ext(k)]
+		want := map[string]string{".m3u8": "application/vnd.apple.mpegurl", ".m4s": "video/mp4", ".mp4": "video/mp4", ".jpg": "image/jpeg", ".vtt": "text/vtt"}[filepath.Ext(k)]
 		if o.ContentType != want {
 			t.Errorf("%s: content-type %q, want %q", k, o.ContentType, want)
 		}
 		types[o.ContentType] = true
 	}
-	if len(types) != 3 {
+	if len(types) != 4 {
 		t.Errorf("content types seen: %v", types)
 	}
 	if last := f.Objs.UploadOrder[len(f.Objs.UploadOrder)-1]; last != prefix+"hls/master.m3u8" {

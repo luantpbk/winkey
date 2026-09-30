@@ -13,8 +13,9 @@ It follows ADR-003 and ADR-015: **standalone binary + FFmpeg, no inbound ports f
    Security: `-protocol_whitelist file,pipe`, local input only, timeout `max(10m, 3 × duration)`, container images run as non-root, metadata/chapters are stripped.
    Progress: `-progress pipe:1`, parsed from `out_time_us`.
 6. Poster: `v/{id}/a{n}/thumb/poster.jpg` at 10 % of the duration, at most 1280 px wide (never upscaled).
+6b. **Storyboard** (V5a, seek preview; best effort): one ffmpeg call over the source with `fps=1/{interval}`, letter-boxed to 160×90 (aspect kept, black bars), `tile=10x10`, JPEG about quality 75 → `v/{id}/a{n}/storyboard/sheet-001.jpg` (…-002 …) and `storyboard.vtt`. `interval = max(2 s, duration / 200)` (at most 200 frames, so at most 2 sheets), cue `i` is `i × interval → min((i+1) × interval, duration)` with the payload `sheet-NNN.jpg#xywh=X,Y,160,90` — **relative** names, so the signed prefix of SEC1 (`/s/{exp}/{sig}/…`) applies to the sheets. A video shorter than one interval still gets one cue. The GPU decoder (`-hwaccel cuda`) is used only when the HLS step used it (an x264 fallback means CPU, and a failing GPU decode is retried on the CPU); the CPU path is the default. **Any failure is logged at warn with the video id and the job goes on without a storyboard** (`storyboard_key` is NULL in `media.videos` and `null` in `video.ready`); only a shutdown interrupts the job. Budget `max(2 min, duration)`. Measured cost: see *Storyboard cost* below.
 7. Upload to `winkey-media` under `v/{video_id}/a{attempt}/` with 8 parallel uploads, correct `Content-Type` and `Cache-Control: public, max-age=31536000, immutable`; `master.m3u8` is uploaded **last**.
-8. One transaction: replace `video_renditions`, set duration/width/height/keys, `PROCESSING → READY`, `published_at = coalesce(published_at, now())`, job `SUCCEEDED`, outbox `video.ready`. Then ack, then delete older attempts' prefixes.
+8. One transaction: replace `video_renditions`, set duration/width/height/keys (including `storyboard_key`, in the same `UPDATE` that makes the row READY), `PROCESSING → READY`, `published_at = coalesce(published_at, now())`, job `SUCCEEDED`, outbox `video.ready`. Then ack, then delete older attempts' prefixes.
 
 **Progress** is one bar for the whole job (download 0–5, probe 5, transcode 5–90, upload 90–99, 100 when READY). It is written to `transcode_jobs.progress` and published on core NATS `rt.video.{id}.progress`, at most once per 5 s. `stage` says what the worker is doing.
 
@@ -91,12 +92,26 @@ go run ./cmd/transcoder
 **Windows**: build `GOOS=windows go build -o transcoder.exe ./cmd/transcoder`, set the variables machine-wide or in the service wrapper (WinSW/NSSM), point `FFMPEG_PATH`/`FFPROBE_PATH` at an FFmpeg with NVENC and `SCRATCH_DIR` at the NVMe. ffmpeg's HLS muxer fails with "Permission denied" when its working directory is on another drive than the output; the worker runs it in the output directory, so any drive layout works.
 **Linux**: a systemd unit with `EnvironmentFile=`, `User=transcoder`, `Restart=always`, `KillSignal=SIGTERM`, `TimeoutStopSec=60`.
 
+## Storyboard cost
+
+The step decodes the whole source once (a single ffmpeg call), so its cost grows with the decode work, not with the encode ladder. Measured with `TestStoryboardOverhead` on a **Windows / amd64 laptop, 4 CPUs, x264 `veryfast` (CPU path)**, a 120 s 1080p30 clip at about 8 Mb/s, three full pipeline runs (baseline, with storyboard, baseline):
+
+| | wall time |
+|---|---|
+| job without storyboard | 2 m 00.7 s and 2 m 04.9 s (mean 2 m 02.8 s) |
+| job with storyboard | 2 m 15.2 s |
+| storyboard step alone | 13.0 s (about 9× realtime), 60 frames, 1 sheet |
+| overhead | **+10.1 % on the whole job**, 10.8 % of the HLS encode (2 m 00.7 s) |
+
+That is right at the ~10 % budget on the slowest plausible host (4 CPUs, all of them busy with x264 and then with the decode). The overhead is the decode of the source, so it is lower where decode is cheaper relative to encode: a GPU host (NVDEC + NVENC, `-hwaccel cuda`) and slower x264 presets. If a real edge node measures above the budget, the cheap fix is to read the lowest HLS rendition (854×480, a keyframe every 2 s, `-skip_frame nokey`) instead of the source; that needs no contract change. It has not been measured on gpu-01 or on arm64 edge nodes.
+
 ## Test
 
 ```bash
 go test ./...                                   # unit tests + real-ffmpeg tests (skip if ffmpeg is missing)
 WINKEY_REQUIRE_DOCKER=1 go test ./...           # + PostgreSQL/NATS/Garage integration (needs Docker)
 go test -tags gpu -run GPU -v -timeout 30m ./internal/job/...   # on gpu-01: NVENC end-to-end + benchmark
+BENCH_STORYBOARD=1 go test -run StoryboardOverhead -v ./internal/job   # what the storyboard adds to a transcode
 go test -update ./internal/media                # regenerate the ffmpeg argument goldens (review the diff!)
 GOOS=windows go build ./... && GOOS=linux GOARCH=arm64 go build ./...
 scripts/e2e.sh                                  # against a running stack (see the header for variables)
