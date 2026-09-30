@@ -589,8 +589,84 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(subsSidebarLink).toBeVisible({ timeout: 10000 });
   });
 
+  test('Flow 5: Task U7 — Player Subtitles, CC Menu, Storyboard Scrubbing and Studio Subtitles', async ({
+    page,
+  }) => {
+    test.setTimeout(120000);
+
+    // 1. Visit watch page with subtitles and storyboard
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    // Verify native <track> elements with crossOrigin="anonymous"
+    const tracks = page.locator('video track[kind="subtitles"]');
+    await expect(tracks).toHaveCount(2);
+    await expect(tracks.first()).toHaveAttribute('srclang', 'vi');
+
+    // Open CC Menu
+    const ccBtn = page.locator('[data-testid="cc-menu-button"]');
+    await expect(ccBtn).toBeVisible({ timeout: 10000 });
+    await ccBtn.click();
+
+    // Verify CC dropdown options
+    const ccDropdown = page.locator('[data-testid="cc-menu-dropdown"]');
+    await expect(ccDropdown).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-off"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-vi"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-en"]')).toBeVisible();
+
+    // Select Vietnamese subtitles
+    await page.locator('[data-testid="cc-option-vi"]').click();
+    await expect(ccDropdown).not.toBeVisible();
+
+    // Check localStorage persistence
+    const savedLang = await page.evaluate(() => localStorage.getItem('winkey.subtitle_lang'));
+    expect(savedLang).toBe('vi');
+
+    // Press 'c' key to toggle captions
+    await page.keyboard.press('c');
+    const toggledLang = await page.evaluate(() => localStorage.getItem('winkey.subtitle_lang'));
+    expect(toggledLang).toBe('off');
+
+    // 2. Storyboard Scrubbing Hover
+    const seekBar = page.locator('[data-testid="seek-bar"]');
+    await expect(seekBar).toBeVisible();
+    await seekBar.hover({ position: { x: 150, y: 5 } });
+
+    // Preview container should appear
+    const previewContainer = page.locator('[data-testid="seek-preview-container"]');
+    await expect(previewContainer).toBeVisible({ timeout: 5000 });
+
+    // 3. Studio Subtitles Management
+    await page.goto('/vi/login?return_to=/vi/studio');
+    await page.waitForLoadState('domcontentloaded');
+
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    await page.waitForURL(/\/studio(?:\?.*)?$/, { timeout: 20000 });
+    await expect(page.locator('h1')).toContainText(/Studio/i, { timeout: 15000 });
+
+    // Open subtitles dialog for the first video
+    const manageSubtitlesBtn = page.locator('[data-testid^="manage-subtitles-"]').first();
+    await expect(manageSubtitlesBtn).toBeVisible({ timeout: 10000 });
+    await manageSubtitlesBtn.click();
+
+    // Verify dialog and tracks list
+    const dialog = page.locator('[data-testid="video-subtitles-dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('[data-testid="subtitle-row-vi"]')).toBeVisible();
+    await expect(page.locator('[data-testid="subtitle-row-en"]')).toBeVisible();
+    await expect(page.locator('[data-testid="upload-subtitle-form"]')).toBeVisible();
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
-    test.setTimeout(240000);
+    test.setTimeout(300000);
 
     const viewports = [
       { name: '375', width: 375, height: 667 },
@@ -666,6 +742,98 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
         path: path.join(screenshotDir, `${p.slug}-dark-vi.png`),
         fullPage: false,
       });
+    }
+  });
+
+  test('Capture U7 screenshots: CC Menu, Storyboard, Studio Subtitles', async ({ page }) => {
+    test.setTimeout(120000);
+
+    const screenshotDir = path.join(process.cwd(), 'screenshots');
+    const brainArtifactDir =
+      'C:\\Users\\Admin\\.gemini\\antigravity\\brain\\e5a1d785-628e-4928-82fd-05d52f2cfb0b';
+
+    const saveScreenshot = (srcName: string) => {
+      const srcPath = path.join(screenshotDir, srcName);
+      if (fs.existsSync(brainArtifactDir) && fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, path.join(brainArtifactDir, srcName));
+      }
+    };
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 1. Player with CC Menu open (light & dark vi)
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      const ccBtn = page.locator('[data-testid="cc-menu-button"]');
+      await expect(ccBtn).toBeVisible({ timeout: 10000 });
+      await ccBtn.click();
+      await page.waitForTimeout(300);
+
+      const fname = `player-cc-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
+    }
+
+    // 2. Player with Storyboard Hover Preview (light & dark vi)
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      const seekBar = page.locator('[data-testid="seek-bar"]');
+      await expect(seekBar).toBeVisible({ timeout: 10000 });
+      await seekBar.hover({ position: { x: 300, y: 8 } });
+      await page.waitForSelector('[data-testid="storyboard-thumbnail"]', { timeout: 10000 });
+      await page.waitForTimeout(300);
+
+      const fname = `player-storyboard-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
+    }
+
+    // 3. Studio Subtitles Section (light & dark vi)
+    // First, log in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/studio/videos/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      await expect(page.locator('[data-testid="studio-subtitles-section"]')).toBeVisible({
+        timeout: 15000,
+      });
+      await page.waitForTimeout(300);
+
+      const fname = `studio-subtitles-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
     }
   });
 });

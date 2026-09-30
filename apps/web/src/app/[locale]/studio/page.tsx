@@ -17,11 +17,16 @@ import {
   RefreshCw,
   AlertCircle,
   Clock,
+  Subtitles,
 } from 'lucide-react';
 
 import { useRealtime } from '../../../lib/realtime/realtime-context';
+import { VideoSubtitlesDialog } from '../../../components/studio/video-subtitles-dialog';
 
 export default function StudioPage() {
+  const [selectedSubtitlesVideoId, setSelectedSubtitlesVideoId] = React.useState<string | null>(
+    null,
+  );
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
   const { client, isConnected } = useRealtime();
@@ -394,6 +399,15 @@ export default function StudioPage() {
                         </Link>
                       )}
                       <button
+                        type="button"
+                        onClick={() => setSelectedSubtitlesVideoId(video.id)}
+                        data-testid={`manage-subtitles-${video.id}`}
+                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        title="Phụ đề"
+                      >
+                        <Subtitles className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => handleDelete(video.id)}
                         className="rounded-lg p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition"
                         title="Xóa video"
@@ -407,6 +421,13 @@ export default function StudioPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Subtitles Management Modal Dialog */}
+      <VideoSubtitlesDialog
+        videoId={selectedSubtitlesVideoId || ''}
+        isOpen={!!selectedSubtitlesVideoId}
+        onClose={() => setSelectedSubtitlesVideoId(null)}
+      />
     </div>
   );
 }

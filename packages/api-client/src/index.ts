@@ -40,6 +40,8 @@ export type StudioVideoPage = VideoComponents['schemas']['StudioVideoPage'];
 export type UpdateVideoRequest = VideoComponents['schemas']['UpdateVideoRequest'];
 export type Playback = VideoComponents['schemas']['Playback'];
 export type Rendition = VideoComponents['schemas']['Rendition'];
+export type SubtitleTrack = VideoComponents['schemas']['SubtitleTrack'];
+export type PutSubtitleRequest = VideoComponents['schemas']['PutSubtitleRequest'];
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
 
