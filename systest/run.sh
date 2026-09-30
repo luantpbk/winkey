@@ -72,7 +72,25 @@ if [ -f "${GEN_ENV}" ]; then
   export S3_SECRET_KEY="${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-0000000000000000000000000000000000000000000000000000000000000000}}"
 fi
 
-# 3. Bring up full stack with apps override
+# 3. Generate 10s 720p test clip if not present
+if [ ! -f "${CLIP_PATH}" ]; then
+  echo "[systest] Generating 10s 720p test video clip with FFmpeg..."
+  if command -v ffmpeg >/dev/null 2>&1; then
+    ffmpeg -y \
+      -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
+      -f lavfi -i sine=frequency=1000:duration=10 \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+      -c:a aac -b:a 128k \
+      "${CLIP_PATH}" 2>/dev/null
+  else
+    docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" run --rm --no-deps \
+      --entrypoint ffmpeg --user "$(id -u):$(id -g)" -v "${RUN_DIR}:/out" transcoder \
+      -y -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f lavfi -i sine=frequency=1000:duration=10 \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 128k /out/clip.mp4
+  fi
+fi
+
+# 4. Bring up full stack with apps override
 echo "[systest] Building and starting all services..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --wait
 
@@ -93,23 +111,6 @@ for port in 3002 3003 8084; do
   fi
 done
 
-# 4. Generate 10s 720p test clip if not present
-if [ ! -f "${CLIP_PATH}" ]; then
-  echo "[systest] Generating 10s 720p test video clip with FFmpeg..."
-  if command -v ffmpeg >/dev/null 2>&1; then
-    ffmpeg -y \
-      -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 \
-      -f lavfi -i sine=frequency=1000:duration=10 \
-      -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-      -c:a aac -b:a 128k \
-      "${CLIP_PATH}" 2>/dev/null
-  else
-    docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" run --rm --no-deps \
-      --entrypoint ffmpeg --user "$(id -u):$(id -g)" -v "${RUN_DIR}:/out" transcoder \
-      -y -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f lavfi -i sine=frequency=1000:duration=10 \
-      -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 128k /out/clip.mp4
-  fi
-fi
 
 # 5. Execute Node 22 system test suite
 echo "[systest] Running end-to-end black box test suite..."
