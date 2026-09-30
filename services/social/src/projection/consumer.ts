@@ -1,7 +1,7 @@
 import type { NatsConnection, JsMsg } from 'nats';
 import { AckPolicy } from 'nats';
 import type { Kysely } from 'kysely';
-import type { Database } from '../db/types.js';
+import type { Database, VideoVisibility } from '../db/types.js';
 import { isValidUuid } from '../utils/auth.js';
 
 export interface Logger {
@@ -38,6 +38,13 @@ export class VideoProjectionConsumer {
       const jsm = await this.nats.jetstreamManager();
       const js = this.nats.jetstream();
 
+      const filterSubjects = [
+        'video.ready',
+        'video.deleted',
+        'video.moderated',
+        'video.visibility_changed',
+      ];
+
       // Ensure durable consumer "social-videos" exists on stream "VIDEO"
       try {
         await jsm.consumers.add('VIDEO', {
@@ -45,14 +52,14 @@ export class VideoProjectionConsumer {
           ack_policy: AckPolicy.Explicit,
           ack_wait: 30 * 1_000_000_000, // 30s in nanoseconds
           max_deliver: 5,
-          filter_subjects: ['video.ready', 'video.deleted', 'video.moderated'],
+          filter_subjects: filterSubjects,
         });
       } catch {
         try {
           await jsm.consumers.update('VIDEO', 'social-videos', {
             ack_wait: 30 * 1_000_000_000,
             max_deliver: 5,
-            filter_subjects: ['video.ready', 'video.deleted', 'video.moderated'],
+            filter_subjects: filterSubjects,
           });
         } catch (err) {
           this.logger.warn(
@@ -130,27 +137,50 @@ export class VideoProjectionConsumer {
         const data = event.data as Record<string, unknown> | undefined;
         const videoId = data?.video_id;
         const ownerId = data?.owner_id;
+        const rawVisibility = data?.visibility;
 
         if (
           typeof videoId !== 'string' ||
           !isValidUuid(videoId) ||
           typeof ownerId !== 'string' ||
-          !isValidUuid(ownerId)
+          !isValidUuid(ownerId) ||
+          (rawVisibility !== undefined &&
+            rawVisibility !== 'PUBLIC' &&
+            rawVisibility !== 'UNLISTED' &&
+            rawVisibility !== 'PRIVATE')
         ) {
           this.logger.error(
             { event, subject: m.subject },
-            'Poison message: missing fields or invalid UUIDs in video.ready event; terminating message',
+            'Poison message: missing fields or invalid UUIDs/visibility in video.ready event; terminating message',
           );
           m.term();
           return;
         }
 
         try {
-          await this.db
-            .insertInto('social.videos')
-            .values({ id: videoId, owner_id: ownerId })
-            .onConflict((oc) => oc.column('id').doNothing())
-            .execute();
+          if (rawVisibility !== undefined) {
+            const visibility = rawVisibility as VideoVisibility;
+            await this.db
+              .insertInto('social.videos')
+              .values({ id: videoId, owner_id: ownerId, visibility })
+              .onConflict((oc) =>
+                oc.column('id').doUpdateSet({
+                  owner_id: ownerId,
+                  visibility,
+                }),
+              )
+              .execute();
+          } else {
+            await this.db
+              .insertInto('social.videos')
+              .values({ id: videoId, owner_id: ownerId })
+              .onConflict((oc) =>
+                oc.column('id').doUpdateSet({
+                  owner_id: ownerId,
+                }),
+              )
+              .execute();
+          }
           m.ack();
         } catch (dbErr) {
           this.logger.error(
@@ -218,6 +248,44 @@ export class VideoProjectionConsumer {
           this.logger.error(
             { err: dbErr, subject: m.subject },
             'Database error in video.moderated projection; naking message for retry',
+          );
+          m.nak(5000);
+        }
+        return;
+      }
+
+      if (event.type === 'video.visibility_changed') {
+        const data = event.data as Record<string, unknown> | undefined;
+        const videoId = data?.video_id;
+        const ownerId = data?.owner_id;
+        const visibility = data?.visibility;
+
+        if (
+          typeof videoId !== 'string' ||
+          !isValidUuid(videoId) ||
+          typeof ownerId !== 'string' ||
+          !isValidUuid(ownerId) ||
+          (visibility !== 'PUBLIC' && visibility !== 'UNLISTED' && visibility !== 'PRIVATE')
+        ) {
+          this.logger.error(
+            { event, subject: m.subject },
+            'Poison message: invalid payload in video.visibility_changed event; terminating message',
+          );
+          m.term();
+          return;
+        }
+
+        try {
+          await this.db
+            .updateTable('social.videos')
+            .set({ visibility: visibility as VideoVisibility })
+            .where('id', '=', videoId)
+            .execute();
+          m.ack();
+        } catch (dbErr) {
+          this.logger.error(
+            { err: dbErr, subject: m.subject },
+            'Database error in video.visibility_changed projection; naking message for retry',
           );
           m.nak(5000);
         }

@@ -13,7 +13,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildReportRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
-import { requireAuth, isValidUuid } from '../utils/auth.js';
+import { requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 
@@ -79,11 +79,11 @@ export const reportsRoute: FastifyPluginAsync<ReportsRouteOptions> = async (
     if (target_type === 'VIDEO') {
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'owner_id', 'hidden'])
+        .select(['id', 'owner_id', 'hidden', 'visibility'])
         .where('id', '=', target_id)
         .executeTakeFirst();
 
-      if (!video || (video.hidden && !caller.isModeratorOrAdmin)) {
+      if (!video || isVideoClosedForCaller(video, caller)) {
         throw ProblemError.notFound('Video not found or not visible', 'TARGET_NOT_FOUND');
       }
       if (video.owner_id === caller.userId) {
@@ -97,14 +97,28 @@ export const reportsRoute: FastifyPluginAsync<ReportsRouteOptions> = async (
       const comment = await db
         .selectFrom('social.comments as c')
         .innerJoin('social.videos as v', 'v.id', 'c.video_id')
-        .select(['c.id', 'c.author_id', 'c.status', 'v.hidden as video_hidden'])
+        .select([
+          'c.id',
+          'c.author_id',
+          'c.status',
+          'v.owner_id as video_owner_id',
+          'v.hidden as video_hidden',
+          'v.visibility as video_visibility',
+        ])
         .where('c.id', '=', target_id)
         .executeTakeFirst();
 
       if (
         !comment ||
         comment.status !== 'VISIBLE' ||
-        (comment.video_hidden && !caller.isModeratorOrAdmin)
+        isVideoClosedForCaller(
+          {
+            owner_id: comment.video_owner_id,
+            hidden: comment.video_hidden,
+            visibility: comment.video_visibility,
+          },
+          caller,
+        )
       ) {
         throw ProblemError.notFound('Comment not found or not visible', 'TARGET_NOT_FOUND');
       }

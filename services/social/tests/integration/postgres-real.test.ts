@@ -1092,4 +1092,305 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(restoredCommentsRes.statusCode).toBe(200);
   });
+
+  it('verifies video visibility projection and unified access control (Task C4-a)', async () => {
+    if (!app || !pool || !nc) return;
+
+    const jsm = await nc.jetstreamManager();
+    const js = nc.jetstream();
+
+    // 1. Verify consumer configuration: existing durable social-videos updated with all 4 filter_subjects
+    const consumerInfo = await jsm.consumers.info('VIDEO', 'social-videos');
+    expect(consumerInfo.config.filter_subjects).toBeDefined();
+    expect(consumerInfo.config.filter_subjects).toEqual(
+      expect.arrayContaining([
+        'video.ready',
+        'video.deleted',
+        'video.moderated',
+        'video.visibility_changed',
+      ]),
+    );
+    expect(consumerInfo.config.filter_subjects?.length).toBe(4);
+
+    // Verify consumer is not duplicated
+    const consumers = await jsm.consumers.list('VIDEO').next();
+    const socialVideoConsumers = consumers.filter((c) => c.name === 'social-videos');
+    expect(socialVideoConsumers.length).toBe(1);
+
+    const videoOwnerId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9002';
+    const authorId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001';
+    const moderatorId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999';
+    const adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9998';
+
+    // 2. Publish video.ready WITHOUT visibility -> defaults to PUBLIC
+    const defaultVisVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc401';
+    const videoReadyWithoutVisEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be401',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: defaultVisVideoId,
+        owner_id: videoOwnerId,
+        job_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be402',
+        attempt: 1,
+        encoder: 'x264',
+        hls_master_key: `hls/${defaultVisVideoId}/master.m3u8`,
+        thumbnail_key: `thumbnails/${defaultVisVideoId}.jpg`,
+        duration_ms: 60000,
+        width: 1280,
+        height: 720,
+        renditions: [{ name: '720p', width: 1280, height: 720, bitrate_kbps: 2500 }],
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(videoReadyWithoutVisEvent)));
+
+    let defaultVisRow: pg.QueryResultRow | null = null;
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT * FROM social.videos WHERE id = $1', [
+        defaultVisVideoId,
+      ]);
+      if (res.rows.length === 1) {
+        defaultVisRow = res.rows[0];
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(defaultVisRow).not.toBeNull();
+    expect(defaultVisRow?.visibility).toBe('PUBLIC');
+    expect(defaultVisRow?.hidden).toBe(false);
+
+    // Outsider can view comments on public video
+    const pubCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${defaultVisVideoId}/comments`,
+    });
+    expect(pubCommentsRes.statusCode).toBe(200);
+
+    // 3. Publish video.ready with visibility = PRIVATE -> outsiders 404, owner / moderator / admin 200
+    const privateVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc402';
+    const privateVideoReadyEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be403',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: privateVideoId,
+        owner_id: videoOwnerId,
+        job_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be404',
+        attempt: 1,
+        encoder: 'x264',
+        hls_master_key: `hls/${privateVideoId}/master.m3u8`,
+        thumbnail_key: `thumbnails/${privateVideoId}.jpg`,
+        duration_ms: 60000,
+        width: 1280,
+        height: 720,
+        renditions: [{ name: '720p', width: 1280, height: 720, bitrate_kbps: 2500 }],
+        visibility: 'PRIVATE',
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(privateVideoReadyEvent)));
+
+    let privateRow: pg.QueryResultRow | null = null;
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT * FROM social.videos WHERE id = $1', [privateVideoId]);
+      if (res.rows.length === 1) {
+        privateRow = res.rows[0];
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(privateRow).not.toBeNull();
+    expect(privateRow?.visibility).toBe('PRIVATE');
+
+    // Outsider (anonymous) gets 404
+    const anonCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+    });
+    expect(anonCommentsRes.statusCode).toBe(404);
+    expect(anonCommentsRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Outsider (authenticated viewer) gets 404
+    const viewerCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerCommentsRes.statusCode).toBe(404);
+    expect(viewerCommentsRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Outsider comment creation returns 404
+    const viewerPostCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+      payload: { body: 'Unauthorized comment' },
+    });
+    expect(viewerPostCommentRes.statusCode).toBe(404);
+    expect(viewerPostCommentRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Outsider like endpoints return 404
+    const viewerGetLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/like`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerGetLikeRes.statusCode).toBe(404);
+    expect(viewerGetLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    const viewerPutLikeRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/videos/${privateVideoId}/like`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerPutLikeRes.statusCode).toBe(404);
+    expect(viewerPutLikeRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Owner gets 200
+    const ownerCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': videoOwnerId, 'x-user-roles': 'creator' },
+    });
+    expect(ownerCommentsRes.statusCode).toBe(200);
+
+    const ownerPostCommentRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': videoOwnerId, 'x-user-roles': 'creator' },
+      payload: { body: 'Owner comment on private video' },
+    });
+    expect(ownerPostCommentRes.statusCode).toBe(201);
+
+    // Owner like gets 200
+    const ownerGetLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/like`,
+      headers: { 'x-user-id': videoOwnerId, 'x-user-roles': 'creator' },
+    });
+    expect(ownerGetLikeRes.statusCode).toBe(200);
+
+    // Moderator gets 200
+    const modCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': moderatorId, 'x-user-roles': 'moderator' },
+    });
+    expect(modCommentsRes.statusCode).toBe(200);
+
+    // Admin gets 200
+    const adminCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': adminId, 'x-user-roles': 'admin' },
+    });
+    expect(adminCommentsRes.statusCode).toBe(200);
+
+    // 4. Publish video.visibility_changed PRIVATE -> PUBLIC: reopens video
+    const visChangedEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be405',
+      type: 'video.visibility_changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: privateVideoId,
+        owner_id: videoOwnerId,
+        visibility: 'PUBLIC',
+      },
+    };
+    await js.publish('video.visibility_changed', Buffer.from(JSON.stringify(visChangedEvent)));
+
+    let isReopened = false;
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT visibility FROM social.videos WHERE id = $1', [
+        privateVideoId,
+      ]);
+      if (res.rows.length === 1 && res.rows[0].visibility === 'PUBLIC') {
+        isReopened = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(isReopened).toBe(true);
+
+    // Outsider can now access comments and like
+    const reopenedCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(reopenedCommentsRes.statusCode).toBe(200);
+
+    const reopenedLikeRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${privateVideoId}/like`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(reopenedLikeRes.statusCode).toBe(200);
+
+    // 5. Publish video.visibility_changed for unknown video ID is acked and skipped
+    const unknownVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc499';
+    const unknownVisEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be406',
+      type: 'video.visibility_changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video',
+      data: {
+        video_id: unknownVideoId,
+        owner_id: videoOwnerId,
+        visibility: 'UNLISTED',
+      },
+    };
+    await js.publish('video.visibility_changed', Buffer.from(JSON.stringify(unknownVisEvent)));
+
+    // Verify consumer continues to process subsequent messages normally (UNLISTED video = PUBLIC behavior)
+    const unlistedVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bc403';
+    const unlistedReadyEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be407',
+      type: 'video.ready',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'transcoder',
+      data: {
+        video_id: unlistedVideoId,
+        owner_id: videoOwnerId,
+        job_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be408',
+        attempt: 1,
+        encoder: 'x264',
+        hls_master_key: `hls/${unlistedVideoId}/master.m3u8`,
+        thumbnail_key: `thumbnails/${unlistedVideoId}.jpg`,
+        duration_ms: 10000,
+        width: 1280,
+        height: 720,
+        renditions: [{ name: '720p', width: 1280, height: 720, bitrate_kbps: 2500 }],
+        visibility: 'UNLISTED',
+      },
+    };
+    await js.publish('video.ready', Buffer.from(JSON.stringify(unlistedReadyEvent)));
+
+    let unlistedRow: pg.QueryResultRow | null = null;
+    for (let i = 0; i < 20; i++) {
+      const res = await pool.query('SELECT * FROM social.videos WHERE id = $1', [unlistedVideoId]);
+      if (res.rows.length === 1) {
+        unlistedRow = res.rows[0];
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(unlistedRow).not.toBeNull();
+    expect(unlistedRow?.visibility).toBe('UNLISTED');
+
+    // UNLISTED is open to outsiders
+    const unlistedCommentsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${unlistedVideoId}/comments`,
+      headers: { 'x-user-id': authorId, 'x-user-roles': 'viewer' },
+    });
+    expect(unlistedCommentsRes.statusCode).toBe(200);
+  });
 });

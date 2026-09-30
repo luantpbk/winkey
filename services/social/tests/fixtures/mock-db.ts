@@ -1,5 +1,5 @@
 import { Kysely, PostgresDialect } from 'kysely';
-import type { Database, CommentStatus } from '../../src/db/types.js';
+import type { Database, CommentStatus, VideoVisibility } from '../../src/db/types.js';
 
 export interface MockStore {
   videos: Array<{
@@ -8,6 +8,7 @@ export interface MockStore {
     like_count: number;
     comment_count: number;
     hidden?: boolean;
+    visibility?: VideoVisibility;
     created_at: Date;
   }>;
   comments: Array<{
@@ -102,7 +103,12 @@ export function createMockDb(store: MockStore = createMockStore()): {
         sql.includes('insert into "social"."videos"') ||
         sql.includes('insert into social.videos')
       ) {
-        const [id, owner_id] = params as [string, string];
+        const id = String(params[0]);
+        const owner_id = String(params[1]);
+        let visibility: VideoVisibility = 'PUBLIC';
+        if (sql.includes('"visibility"') && params.length >= 3) {
+          visibility = params[2] as VideoVisibility;
+        }
         const existing = store.videos.find((v) => v.id === id);
         if (!existing) {
           const newVideo = {
@@ -111,19 +117,29 @@ export function createMockDb(store: MockStore = createMockStore()): {
             like_count: 0,
             comment_count: 0,
             hidden: false,
+            visibility,
             created_at: new Date(),
           };
           store.videos.push(newVideo);
           return { rows: [newVideo], rowCount: 1 };
         }
-        return { rows: [], rowCount: 0 };
+        existing.owner_id = owner_id;
+        if (sql.includes('"visibility"') || sql.includes('visibility')) {
+          existing.visibility = visibility;
+        }
+        return { rows: [existing], rowCount: 1 };
       }
 
       if (sql.includes('update "social"."videos"') || sql.includes('update social.videos')) {
-        const [hidden, videoId] = params as [boolean, string];
+        const videoId = String(params[params.length - 1]);
         const video = store.videos.find((v) => v.id === videoId);
         if (video) {
-          video.hidden = hidden;
+          if (sql.includes('"hidden"') || sql.includes('hidden')) {
+            video.hidden = Boolean(params[0]);
+          }
+          if (sql.includes('"visibility"') || sql.includes('visibility')) {
+            video.visibility = params[0] as VideoVisibility;
+          }
           return { rows: [video], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
@@ -432,7 +448,15 @@ export function createMockDb(store: MockStore = createMockStore()): {
         const videoId = String(params[0]);
         const video = store.videos.find((v) => v.id === videoId);
         return {
-          rows: video ? [{ ...video, hidden: video.hidden ?? false }] : [],
+          rows: video
+            ? [
+                {
+                  ...video,
+                  hidden: video.hidden ?? false,
+                  visibility: video.visibility ?? 'PUBLIC',
+                },
+              ]
+            : [],
           rowCount: video ? 1 : 0,
         };
       }
@@ -671,6 +695,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           created_at_cursor: comment.created_at.toISOString(),
           video_owner_id: video?.owner_id,
           video_hidden: video?.hidden ?? false,
+          video_visibility: video?.visibility ?? 'PUBLIC',
           profile_id: profile?.id,
           profile_handle: profile?.handle,
           profile_display_name: profile?.display_name,

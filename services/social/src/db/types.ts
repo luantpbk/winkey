@@ -1,6 +1,7 @@
 import type { Generated } from 'kysely';
 
 export type CommentStatus = 'VISIBLE' | 'DELETED' | 'HIDDEN';
+export type VideoVisibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
 
 export interface VideosTable {
   id: string;
@@ -8,6 +9,7 @@ export interface VideosTable {
   like_count: Generated<string | number>;
   comment_count: Generated<string | number>;
   hidden: Generated<boolean>;
+  visibility: Generated<VideoVisibility>;
   created_at: Generated<Date>;
 }
 

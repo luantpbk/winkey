@@ -62,3 +62,22 @@ export function requireAuth(request: FastifyRequest): {
     isModeratorOrAdmin: caller.isModeratorOrAdmin,
   };
 }
+
+export interface VideoAccessTarget {
+  owner_id: string;
+  hidden: boolean;
+  visibility?: string | null;
+}
+
+/**
+ * Task C4 & A2: A video is "closed" for a caller when:
+ * (hidden OR visibility = 'PRIVATE') AND caller is neither the video owner nor a moderator/admin.
+ * Closed -> 404 on every comment/like endpoint of that video.
+ * UNLISTED behaves like PUBLIC.
+ */
+export function isVideoClosedForCaller(video: VideoAccessTarget, caller: CallerIdentity): boolean {
+  const isOwner = caller.userId !== null && caller.userId === video.owner_id;
+  const isPrivileged = isOwner || caller.isModeratorOrAdmin;
+  const isRestricted = video.hidden || video.visibility === 'PRIVATE';
+  return isRestricted && !isPrivileged;
+}
