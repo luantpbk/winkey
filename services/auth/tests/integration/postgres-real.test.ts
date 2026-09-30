@@ -253,7 +253,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         authorization: `Bearer ${body.access_token}`,
       },
     });
-    expect(verifyRes.statusCode).toBe(200);
+    expect(verifyRes.statusCode).toBe(204);
     expect(verifyRes.headers['x-user-id']).toBe(body.user.id);
     expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
 
