@@ -409,5 +409,24 @@
     "exploreTrending": "Explore Trending",
     "loadMore": "Load more videos",
     "error": "Failed to load video feed: {error}"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "bellAriaLabel": "Notifications",
+    "markAllRead": "Mark all as read",
+    "viewAll": "View all",
+    "all": "All",
+    "unread": "Unread",
+    "emptyAll": "No notifications yet.",
+    "emptyUnread": "No unread notifications.",
+    "errorLoading": "Failed to load notifications. Please try again.",
+    "retry": "Retry",
+    "unreadBadge": "unread",
+    "kinds": {
+      "VIDEO_PUBLISHED": "{actor} published a new video",
+      "VIDEO_COMMENT": "{actor} commented on your video",
+      "COMMENT_REPLY": "{actor} replied to your comment",
+      "NEW_SUBSCRIBER": "{actor} subscribed to your channel"
+    }
   }
 }

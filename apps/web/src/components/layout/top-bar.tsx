@@ -18,6 +18,7 @@ import {
   Shield,
   Settings,
 } from 'lucide-react';
+import { NotificationBell } from '../notifications/notification-bell';
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -121,6 +122,9 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             >
               <LayoutDashboard className="h-5 w-5" />
             </Link>
+
+            {/* Notification Bell */}
+            <NotificationBell />
 
             {/* User Dropdown */}
             <div className="relative">

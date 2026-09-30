@@ -409,5 +409,24 @@
     "exploreTrending": "Xem thịnh hành",
     "loadMore": "Tải thêm video",
     "error": "Lỗi khi tải danh sách video: {error}"
+  },
+  "notifications": {
+    "title": "Thông báo",
+    "bellAriaLabel": "Thông báo",
+    "markAllRead": "Đánh dấu đã đọc tất cả",
+    "viewAll": "Xem tất cả",
+    "all": "Tất cả",
+    "unread": "Chưa đọc",
+    "emptyAll": "Chưa có thông báo nào.",
+    "emptyUnread": "Không có thông báo chưa đọc.",
+    "errorLoading": "Không thể tải thông báo. Vui lòng thử lại.",
+    "retry": "Thử lại",
+    "unreadBadge": "chưa đọc",
+    "kinds": {
+      "VIDEO_PUBLISHED": "{actor} vừa đăng video mới",
+      "VIDEO_COMMENT": "{actor} đã bình luận về video của bạn",
+      "COMMENT_REPLY": "{actor} đã trả lời bình luận của bạn",
+      "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn"
+    }
   }
 }
