@@ -76,6 +76,12 @@ var subtitlePath = regexp.MustCompile(`^/v1/videos/[^/]+/subtitles/[^/]+$`)
 
 func templateFor(path string) string {
 	p, _, _ := strings.Cut(path, "?")
+	if p == "/v1/studio/stats" {
+		return p
+	}
+	if strings.HasPrefix(p, "/v1/studio/videos/") && strings.HasSuffix(p, "/stats") {
+		return "/v1/studio/videos/{video_id}/stats"
+	}
 	if p == "/v1/videos/batch" {
 		return p
 	}

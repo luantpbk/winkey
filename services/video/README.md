@@ -250,6 +250,26 @@ written to the cache (the row has no renditions or subtitles). Thumbnails of vid
 are signed URLs. `Cache-Control` is `private, no-store` when authenticated, `public, max-age=30` otherwise. Metric:
 `video_batch_get_ids` (histogram of ids per request).
 
+### Creator statistics (R1-b, ADR-022 addendum)
+
+`GET /v1/studio/videos/{video_id}/stats` (`getVideoStats`) and `GET /v1/studio/stats` (`getChannelStats`), authentication
+required (401), `Cache-Control: private, no-store`, rate limit 60 requests/min per USER shared by both routes (429).
+The first is for the owner or an admin; anyone else, and a missing or deleted video, gets 404 (never 403).
+
+* Source: `analytics.video_daily` in PostgreSQL, refreshed from ClickHouse by analytics-worker every few minutes. video-svc
+  never reads ClickHouse; while gpu-01 is off the numbers stop advancing and `refreshed_at` (the latest refresh of any
+  returned day, null with no data) says how old they are.
+* Range: `from`/`to` (`YYYY-MM-DD`, days in **Asia/Ho_Chi_Minh**). `to` defaults to today and is clamped to today, `from`
+  defaults to `to` minus 27 days (28 days). `400 VALIDATION_ERROR` (field `from`/`to`) for a malformed date, `from > to`, more
+  than 90 days, or `from` earlier than today minus 730 days. The zone comes from the embedded `time/tzdata` (distroless image).
+* `days` holds EVERY day of the range in ascending order: days without a row are zeros and null ratios/percentiles.
+* Numbers: `starts` counts player sessions; it is not `view_count` (the anti-fraud counter of C3, returned next to it).
+  `avg_watch_ms` = floor(watch / starts), null when there is no start. `rebuffer_ratio` = rebuffer / (watched + rebuffer),
+  null when both are 0. `viewers` (per video and day) is approximate (`uniq`) and not additive, so channel days and totals have none.
+* Queries: one for a video (joined to `media.videos` for owner and `view_count`), at most two for the channel (days, top videos).
+  Channel numbers join `media.videos` with `owner_id = caller`, so deleted or transferred videos never count.
+  `top_videos`: at most 10 by `watch_time_ms`, then `starts`, then `video_id`; videos with no starts are left out.
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).

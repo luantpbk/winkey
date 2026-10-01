@@ -30,6 +30,9 @@ type memStore struct {
 	playbackErr     error
 	batchLookups    []int // ids per VideosByID call
 	batchErr        error
+	daily           map[uuid.UUID][]domain.DailyStats // by video, for VideoStats
+	channel         domain.ChannelStatsData
+	statsReads      int
 	trendingReads   int
 	mediaChecks     int
 	lists           int
@@ -359,6 +362,31 @@ func (s *memStore) ListSubscriptionFeed(_ context.Context, q domain.Subscription
 		out = out[:q.Limit]
 	}
 	return out, nil
+}
+
+// VideoStats serves the configured daily rows of the video that fall in the range.
+func (s *memStore) VideoStats(_ context.Context, id uuid.UUID, from, to time.Time) (domain.VideoStatsData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statsReads++
+	v, ok := s.videos[id]
+	if !ok {
+		return domain.VideoStatsData{}, domain.ErrNotFound
+	}
+	out := domain.VideoStatsData{OwnerID: v.OwnerID, ViewCount: v.ViewCount}
+	for _, d := range s.daily[id] {
+		if !d.Day.Before(from) && !d.Day.After(to) {
+			out.Days = append(out.Days, d)
+		}
+	}
+	return out, nil
+}
+
+func (s *memStore) ChannelStats(_ context.Context, _ uuid.UUID, _, _ time.Time) (domain.ChannelStatsData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.statsReads++
+	return s.channel, nil
 }
 
 // VideosByID returns the stored rows without renditions or subtitles (like the real query), counting the calls.

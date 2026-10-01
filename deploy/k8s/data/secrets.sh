@@ -34,6 +34,8 @@ ensure_pg_secret "winkey-pg-owner" "winkey_owner"
 ensure_pg_secret "winkey-pg-auth-svc" "auth_svc"
 ensure_pg_secret "winkey-pg-media-svc" "media_svc"
 ensure_pg_secret "winkey-pg-social-svc" "social_svc"
+ensure_pg_secret "winkey-pg-analytics-svc" "analytics_svc"
+
 
 echo "==> [2/3] Ensuring NATS authorization secret exists..."
 if ! kubectl get secret "nats-auth" -n "$NAMESPACE" >/dev/null 2>&1; then
@@ -271,6 +273,7 @@ fi
 PG_AUTH_PWD=$(kubectl get secret winkey-pg-auth-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_MEDIA_PWD=$(kubectl get secret winkey-pg-media-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_SOCIAL_PWD=$(kubectl get secret winkey-pg-social-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
+PG_ANALYTICS_PWD=$(kubectl get secret winkey-pg-analytics-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
 
 NATS_AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
 NATS_UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
@@ -310,12 +313,23 @@ echo ""
 echo "=========================================================================="
 echo " gpu-01 Transcoder DSNs (over Tailscale NodePorts: 100.113.240.3)"
 echo "=========================================================================="
-echo "DATABASE_URL=postgres://media_svc:${PG_MEDIA_PWD}@100.113.240.3:30432/winkey?sslmode=require"
-echo "NATS_URL=nats://transcoder:${NATS_TRANSCODER_PWD}@100.113.240.3:30422"
+echo "DATABASE_URL=postgres://media_svc:<password>@100.113.240.3:30432/winkey?sslmode=require"
+echo "# Password: kubectl get secret winkey-pg-media-svc -n $NAMESPACE -o jsonpath='{.data.password}' | base64 -d"
+echo ""
+echo "NATS_URL=nats://transcoder:<password>@100.113.240.3:30422"
+echo "# Password: kubectl get secret nats-auth -n $NAMESPACE -o jsonpath='{.data.transcoder_password}' | base64 -d"
+echo ""
 echo "S3_ENDPOINT=http://100.113.240.3:30900"
+
 echo ""
 echo "=========================================================================="
 echo " gpu-01 Analytics Worker DSNs (over Tailscale NodePorts: 100.113.240.3)"
 echo "=========================================================================="
-echo "NATS_URL=nats://analytics:${NATS_ANALYTICS_PWD}@100.113.240.3:30422"
+echo "NATS_URL=nats://analytics:<password>@100.113.240.3:30422"
+echo "# Password: kubectl get secret nats-auth -n $NAMESPACE -o jsonpath='{.data.analytics_password}' | base64 -d"
+echo ""
+echo "POSTGRES_URL=postgres://analytics_svc:<password>@100.113.240.3:30432/winkey?sslmode=require"
+echo "# Password: kubectl get secret winkey-pg-analytics-svc -n $NAMESPACE -o jsonpath='{.data.password}' | base64 -d"
 echo "=========================================================================="
+
+
