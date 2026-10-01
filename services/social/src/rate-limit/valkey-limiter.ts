@@ -99,3 +99,11 @@ export function buildSubscriptionRateLimitKey(userId: string): string {
 export function buildReportRateLimitKey(userId: string): string {
   return `rl:social:report:${userId}`;
 }
+
+export function buildCreatePlaylistRateLimitKey(userId: string): string {
+  return `rl:social:playlist_create:${userId}`;
+}
+
+export function buildAddPlaylistItemRateLimitKey(userId: string): string {
+  return `rl:social:playlist_add:${userId}`;
+}

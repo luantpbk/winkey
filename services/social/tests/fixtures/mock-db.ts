@@ -4,6 +4,8 @@ import type {
   CommentStatus,
   VideoVisibility,
   NotificationKind,
+  PlaylistKind,
+  PlaylistVisibility,
 } from '../../src/db/types.js';
 
 export interface MockStore {
@@ -80,6 +82,24 @@ export interface MockStore {
     created_at: Date;
     created_at_micros?: string;
   }>;
+  playlists: Array<{
+    id: string;
+    owner_id: string;
+    kind: PlaylistKind;
+    title: string;
+    description: string;
+    visibility: PlaylistVisibility;
+    item_count: number;
+    created_at: Date;
+    updated_at: Date;
+    updated_at_micros?: string;
+  }>;
+  playlist_items: Array<{
+    playlist_id: string;
+    video_id: string;
+    position: number;
+    added_at: Date;
+  }>;
   advisory_locks: Set<number>;
 }
 
@@ -94,6 +114,8 @@ export function createMockStore(): MockStore {
     public_profiles: [],
     reports: [],
     notifications: [],
+    playlists: [],
+    playlist_items: [],
     advisory_locks: new Set<number>(),
   };
 }
@@ -109,6 +131,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
       const sql = sqlText.trim();
 
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (/pg_advisory_xact_lock/i.test(sql) || /set constraints/i.test(sql)) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -623,6 +649,180 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [], rowCount: count, command: 'UPDATE' };
       }
 
+      // 5d. PLAYLISTS & PLAYLIST ITEMS (Task PL1)
+      if (
+        sql.includes('insert into "social"."playlists"') ||
+        sql.includes('insert into social.playlists') ||
+        sql.includes('INSERT INTO social.playlists')
+      ) {
+        if (
+          sql.includes('WATCH_LATER') &&
+          (sql.includes('do nothing') || sql.includes('DO NOTHING'))
+        ) {
+          const id = String(params[0]);
+          const ownerId = String(params[1]);
+          const existing = store.playlists.find(
+            (p) => p.owner_id === ownerId && p.kind === 'WATCH_LATER',
+          );
+          if (!existing) {
+            const now = new Date();
+            const newPl = {
+              id,
+              owner_id: ownerId,
+              kind: 'WATCH_LATER' as PlaylistKind,
+              title: 'Xem sau',
+              description: '',
+              visibility: 'PRIVATE' as PlaylistVisibility,
+              item_count: 0,
+              created_at: now,
+              updated_at: now,
+            };
+            store.playlists.push(newPl);
+            return { rows: [newPl], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+
+        const id = String(params[0]);
+        const ownerId = String(params[1]);
+        const kind = (params[2] as PlaylistKind) || 'REGULAR';
+        const title = String(params[3]);
+        const description = String(params[4] ?? '');
+        const visibility = (params[5] as PlaylistVisibility) || 'PRIVATE';
+        const itemCount = Number(params[6] ?? 0);
+        const now = new Date();
+
+        const newPl = {
+          id,
+          owner_id: ownerId,
+          kind,
+          title,
+          description,
+          visibility,
+          item_count: itemCount,
+          created_at: now,
+          updated_at: now,
+        };
+        store.playlists.push(newPl);
+        return { rows: [newPl], rowCount: 1 };
+      }
+
+      if (
+        sql.includes('update "social"."playlists"') ||
+        sql.includes('update social.playlists') ||
+        sql.includes('UPDATE social.playlists')
+      ) {
+        const playlistId = String(params[params.length - 1]);
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        if (pl) {
+          let paramIdx = 0;
+          if (sql.includes('"updated_at" =') || sql.includes('updated_at =')) {
+            const dateVal = params[paramIdx++];
+            pl.updated_at = dateVal instanceof Date ? dateVal : new Date(String(dateVal));
+          } else {
+            pl.updated_at = new Date();
+          }
+          if (sql.includes('title =') || sql.includes('"title" =')) {
+            pl.title = String(params[paramIdx++]);
+          }
+          if (sql.includes('description =') || sql.includes('"description" =')) {
+            pl.description = String(params[paramIdx++]);
+          }
+          if (sql.includes('visibility =') || sql.includes('"visibility" =')) {
+            pl.visibility = params[paramIdx++] as PlaylistVisibility;
+          }
+          return { rows: [pl], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (
+        sql.includes('delete from "social"."playlists"') ||
+        sql.includes('delete from social.playlists') ||
+        sql.includes('DELETE FROM social.playlists')
+      ) {
+        const playlistId = String(params[0]);
+        store.playlists = store.playlists.filter((p) => p.id !== playlistId);
+        store.playlist_items = store.playlist_items.filter((pi) => pi.playlist_id !== playlistId);
+        return { rows: [], rowCount: 1 };
+      }
+
+      if (
+        sql.includes('insert into "social"."playlist_items"') ||
+        sql.includes('insert into social.playlist_items') ||
+        sql.includes('INSERT INTO social.playlist_items')
+      ) {
+        const playlistId = String(params[0]);
+        const videoId = String(params[1]);
+        const position = Number(params[2]);
+        const now = new Date();
+
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        if (pl && pl.item_count >= 5000) {
+          const err = new Error('check_violation: playlists_item_count') as Error & {
+            code?: string;
+          };
+          err.code = '23514';
+          throw err;
+        }
+
+        const newItem = {
+          playlist_id: playlistId,
+          video_id: videoId,
+          position,
+          added_at: now,
+        };
+        store.playlist_items.push(newItem);
+        if (pl) {
+          pl.item_count++;
+          pl.updated_at = now;
+        }
+        return { rows: [newItem], rowCount: 1 };
+      }
+
+      if (
+        sql.includes('update "social"."playlist_items"') ||
+        sql.includes('update social.playlist_items') ||
+        sql.includes('UPDATE social.playlist_items')
+      ) {
+        const newPos = Number(params[0]);
+        const playlistId = String(params[1]);
+        const videoId = String(params[2]);
+        const item = store.playlist_items.find(
+          (i) => i.playlist_id === playlistId && i.video_id === videoId,
+        );
+        if (item) {
+          item.position = newPos;
+        }
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        if (pl) {
+          pl.updated_at = new Date();
+        }
+        return { rows: item ? [item] : [], rowCount: item ? 1 : 0 };
+      }
+
+      if (
+        sql.includes('delete from "social"."playlist_items"') ||
+        sql.includes('delete from social.playlist_items') ||
+        sql.includes('DELETE FROM social.playlist_items')
+      ) {
+        const playlistId = String(params[0]);
+        const videoId = String(params[1]);
+        const beforeLen = store.playlist_items.length;
+        store.playlist_items = store.playlist_items.filter(
+          (i) => !(i.playlist_id === playlistId && i.video_id === videoId),
+        );
+        const deleted = beforeLen > store.playlist_items.length;
+        if (deleted) {
+          const pl = store.playlists.find((p) => p.id === playlistId);
+          if (pl && pl.item_count > 0) {
+            pl.item_count--;
+            pl.updated_at = new Date();
+          }
+        }
+        return { rows: [], rowCount: deleted ? 1 : 0 };
+      }
+
       // 6. SELECT QUERIES
       // Select single video
       if (sql.includes('from "social"."videos"') || sql.includes('from social.videos')) {
@@ -887,7 +1087,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
       }
 
       // Select single comment (deep link / join)
-      if (sql.includes('where "c"."id" = $1') || sql.includes('where "id" = $1')) {
+      if (
+        (sql.includes('from "social"."comments"') || sql.includes('from social.comments')) &&
+        (sql.includes('where "c"."id" = $1') || sql.includes('where "id" = $1'))
+      ) {
         const commentId = String(params[0]);
         const comment = store.comments.find((c) => c.id === commentId);
         if (!comment) return { rows: [], rowCount: 0 };
@@ -1057,6 +1260,294 @@ export function createMockDb(store: MockStore = createMockStore()): {
         });
 
         return { rows, rowCount: rows.length };
+      }
+
+      // Playlists: Count for owner
+      if (/from\s+("?social"?\.)?"?playlists"?/i.test(sql) && /count\(\*\)::int/i.test(sql)) {
+        const ownerId = String(params[0]);
+        const count = store.playlists.filter((p) => p.owner_id === ownerId).length;
+        return { rows: [{ count }], rowCount: 1 };
+      }
+
+      // Playlist items: Max position
+      if (
+        /from\s+("?social"?\.)?"?playlist_items"?/i.test(sql) &&
+        /max\("?position"?\)/i.test(sql)
+      ) {
+        const playlistId = String(params[0]);
+        const items = store.playlist_items.filter((i) => i.playlist_id === playlistId);
+        if (items.length === 0) {
+          return { rows: [{ max_pos: null }], rowCount: 1 };
+        }
+        const maxPos = Math.max(...items.map((i) => i.position));
+        return { rows: [{ max_pos: String(maxPos) }], rowCount: 1 };
+      }
+
+      // Playlist items: Single item check (playlist_id & video_id)
+      if (
+        /from\s+("?social"?\.)?"?playlist_items"?/i.test(sql) &&
+        !sql.includes('join') &&
+        sql.includes('"playlist_id" =') &&
+        sql.includes('"video_id" =')
+      ) {
+        const playlistId = String(params[0]);
+        const videoId = String(params[1]);
+        const item = store.playlist_items.find(
+          (i) => i.playlist_id === playlistId && i.video_id === videoId,
+        );
+        return { rows: item ? [item] : [], rowCount: item ? 1 : 0 };
+      }
+
+      // Playlist items: Order by position (for move reordering)
+      if (
+        /from\s+("?social"?\.)?"?playlist_items"?/i.test(sql) &&
+        !sql.includes('join') &&
+        sql.includes('order by')
+      ) {
+        const playlistId = String(params[0]);
+        const items = store.playlist_items
+          .filter((i) => i.playlist_id === playlistId)
+          .sort((a, b) => a.position - b.position);
+        return { rows: items, rowCount: items.length };
+      }
+
+      // Playlist items: Joined with videos (listPlaylistItems)
+      if (
+        sql.includes('from "social"."playlist_items" as "pi"') &&
+        sql.includes('join "social"."videos" as "v"')
+      ) {
+        const playlistId = String(params[0]);
+        const callerId = params.find(
+          (p) => typeof p === 'string' && p.includes('-') && p !== playlistId,
+        ) as string | undefined;
+
+        let items = store.playlist_items
+          .filter((pi) => pi.playlist_id === playlistId)
+          .filter((pi) => {
+            const v = store.videos.find((vid) => vid.id === pi.video_id);
+            if (!v) return false;
+            const isOwner = Boolean(callerId && v.owner_id === callerId);
+            if (isOwner) return true;
+            return !v.hidden && v.visibility !== 'PRIVATE';
+          })
+          .sort((a, b) => a.position - b.position);
+
+        if (sql.includes('"pi"."position" >')) {
+          const cursorParam = params.find(
+            (p) =>
+              (typeof p === 'string' && /^\d+$/.test(p)) || (typeof p === 'number' && p > 1000),
+          );
+          if (cursorParam !== undefined) {
+            const cursorPos = Number(cursorParam);
+            items = items.filter((i) => i.position > cursorPos);
+          }
+        }
+
+        const limitParam = params.find((p) => typeof p === 'number' && p <= 101);
+        if (typeof limitParam === 'number') {
+          items = items.slice(0, limitParam);
+        }
+
+        const mapped = items.map((i) => ({
+          video_id: i.video_id,
+          position: i.position,
+          added_at: i.added_at,
+        }));
+        return { rows: mapped, rowCount: mapped.length };
+      }
+
+      // Self-move or single item check with owner
+      if (
+        sql.includes('from "social"."playlist_items" as "pi"') &&
+        sql.includes('join "social"."playlists" as "p"') &&
+        sql.includes('"pi"."playlist_id" =')
+      ) {
+        const playlistId = String(params[0]);
+        const videoId = String(params[1]);
+        const item = store.playlist_items.find(
+          (pi) => pi.playlist_id === playlistId && pi.video_id === videoId,
+        );
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        if (item && pl) {
+          return {
+            rows: [
+              {
+                video_id: item.video_id,
+                position: item.position,
+                added_at: item.added_at,
+                owner_id: pl.owner_id,
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // Playlist membership: Which of caller's playlists contain video_id
+      if (
+        sql.includes('from "social"."playlist_items" as "pi"') &&
+        sql.includes('join "social"."playlists" as "p"') &&
+        sql.includes('"p"."owner_id" =')
+      ) {
+        const callerId = String(params[0]);
+        const videoId = String(params[1]);
+        const matching = store.playlist_items
+          .filter((pi) => {
+            if (pi.video_id !== videoId) return false;
+            const p = store.playlists.find((pl) => pl.id === pi.playlist_id);
+            return p && p.owner_id === callerId;
+          })
+          .sort((a, b) => b.added_at.getTime() - a.added_at.getTime());
+
+        const rows = matching.map((pi) => ({ playlist_id: pi.playlist_id }));
+        return { rows, rowCount: rows.length };
+      }
+
+      // Single playlist query: joined with public_profiles by id
+      if (
+        sql.includes('from "social"."playlists" as "p"') &&
+        sql.includes('join "auth"."public_profiles" as "prof"') &&
+        sql.includes('"p"."id" =')
+      ) {
+        const playlistId = String(params[0]);
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        if (!pl) return { rows: [], rowCount: 0 };
+        const prof = store.public_profiles.find((pr) => pr.id === pl.owner_id);
+        return {
+          rows: [
+            {
+              id: pl.id,
+              owner_id: pl.owner_id,
+              kind: pl.kind,
+              title: pl.title,
+              description: pl.description,
+              visibility: pl.visibility,
+              item_count: pl.item_count,
+              created_at: pl.created_at,
+              updated_at: pl.updated_at,
+              prof_id: prof?.id,
+              prof_handle: prof?.handle,
+              prof_display_name: prof?.display_name,
+              prof_avatar_key: prof?.avatar_key,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      // Watch-later query: joined with public_profiles by kind
+      if (
+        sql.includes('from "social"."playlists" as "p"') &&
+        sql.includes('join "auth"."public_profiles" as "prof"') &&
+        sql.includes('"p"."kind" =')
+      ) {
+        const ownerId = String(params[0]);
+        const pl = store.playlists.find((p) => p.owner_id === ownerId && p.kind === 'WATCH_LATER');
+        if (!pl) return { rows: [], rowCount: 0 };
+        const prof = store.public_profiles.find((pr) => pr.id === pl.owner_id);
+        return {
+          rows: [
+            {
+              id: pl.id,
+              owner_id: pl.owner_id,
+              kind: pl.kind,
+              title: pl.title,
+              description: pl.description,
+              visibility: pl.visibility,
+              item_count: pl.item_count,
+              created_at: pl.created_at,
+              updated_at: pl.updated_at,
+              prof_id: prof?.id,
+              prof_handle: prof?.handle,
+              prof_display_name: prof?.display_name,
+              prof_avatar_key: prof?.avatar_key,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      // Channel playlists: joined with public_profiles by owner_id
+      if (
+        sql.includes('from "social"."playlists" as "p"') &&
+        sql.includes('join "auth"."public_profiles" as "prof"') &&
+        sql.includes('"p"."owner_id" =')
+      ) {
+        const channelId = String(params[0]);
+        const isOwner = !sql.includes('"p"."visibility" =');
+        let matched = store.playlists.filter((p) => p.owner_id === channelId);
+        if (!isOwner) {
+          matched = matched.filter((p) => p.visibility === 'PUBLIC' && p.kind !== 'WATCH_LATER');
+        }
+        if (isOwner) {
+          matched.sort((a, b) => {
+            const aWl = a.kind === 'WATCH_LATER' ? 0 : 1;
+            const bWl = b.kind === 'WATCH_LATER' ? 0 : 1;
+            if (aWl !== bWl) return aWl - bWl;
+            return b.updated_at.getTime() - a.updated_at.getTime() || b.id.localeCompare(a.id);
+          });
+        } else {
+          matched.sort(
+            (a, b) => b.updated_at.getTime() - a.updated_at.getTime() || b.id.localeCompare(a.id),
+          );
+        }
+
+        if (sql.includes('p.updated_at <')) {
+          const cursorDateStr = params.find(
+            (p) => typeof p === 'string' && p.includes('T') && p.includes('Z'),
+          ) as string | undefined;
+          const cursorId = params.find(
+            (p) =>
+              typeof p === 'string' && p.includes('-') && p !== channelId && p !== cursorDateStr,
+          ) as string | undefined;
+          if (cursorDateStr && cursorId) {
+            const cursorDate = new Date(cursorDateStr);
+            matched = matched.filter((p) => {
+              const pTime = p.updated_at.getTime();
+              const cTime = cursorDate.getTime();
+              if (pTime < cTime) return true;
+              if (pTime === cTime && p.id < cursorId) return true;
+              return false;
+            });
+          }
+        }
+
+        const limitParam = params.find((p) => typeof p === 'number');
+        if (typeof limitParam === 'number') {
+          matched = matched.slice(0, limitParam);
+        }
+
+        const rows = matched.map((pl) => {
+          const prof = store.public_profiles.find((pr) => pr.id === pl.owner_id);
+          return {
+            id: pl.id,
+            owner_id: pl.owner_id,
+            kind: pl.kind,
+            title: pl.title,
+            description: pl.description,
+            visibility: pl.visibility,
+            item_count: pl.item_count,
+            created_at: pl.created_at,
+            updated_at: pl.updated_at,
+            updated_at_cursor: pl.updated_at.toISOString(),
+            prof_id: prof?.id,
+            prof_handle: prof?.handle,
+            prof_display_name: prof?.display_name,
+            prof_avatar_key: prof?.avatar_key,
+          };
+        });
+        return { rows, rowCount: rows.length };
+      }
+
+      // Plain playlist query: from social.playlists where id = $1
+      if (
+        (sql.includes('from "social"."playlists"') || sql.includes('from social.playlists')) &&
+        (sql.includes('"id" =') || sql.includes('id ='))
+      ) {
+        const playlistId = String(params[0]);
+        const pl = store.playlists.find((p) => p.id === playlistId);
+        return { rows: pl ? [pl] : [], rowCount: pl ? 1 : 0 };
       }
 
       return { rows: [], rowCount: 0 };

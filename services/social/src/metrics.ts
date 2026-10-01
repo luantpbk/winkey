@@ -21,3 +21,15 @@ export const notificationsJanitorDeletedCounter = new Counter({
   help: 'Total number of notifications deleted by the janitor',
   registers: [socialRegistry],
 });
+
+export const playlistItemsAddedCounter = new Counter({
+  name: 'social_playlist_items_added_total',
+  help: 'Total number of playlist items added',
+  registers: [socialRegistry],
+});
+
+export const playlistRenumbersCounter = new Counter({
+  name: 'social_playlist_renumbers_total',
+  help: 'Total number of playlist renumbering operations triggered by dense moves',
+  registers: [socialRegistry],
+});
