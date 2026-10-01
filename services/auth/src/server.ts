@@ -12,6 +12,8 @@ import { usersRoute } from './routes/users.js';
 import { oauthRoute, type GoogleTokenExchanger } from './routes/oauth.js';
 import { healthRoute } from './routes/health.js';
 import { adminRoute } from './routes/admin.js';
+import { passwordResetRoute } from './routes/password-reset.js';
+import { emailVerificationRoute } from './routes/email-verification.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
@@ -61,12 +63,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'body.new_password',
           'body.confirm_handle',
           'body.email',
+          'body.token',
           'body.reason',
           'password',
           'current_password',
           'new_password',
           'confirm_handle',
           'email',
+          'token',
           'reason',
           'suspension_reason',
           'access_token',
@@ -132,6 +136,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(usersRoute, { db, env });
   await app.register(oauthRoute, { db, env, tokenExchanger: options.googleTokenExchanger });
   await app.register(adminRoute, { db, env, revocationService });
+  await app.register(passwordResetRoute, { db, env, rateLimiter, revocationService });
+  await app.register(emailVerificationRoute, { db, env, rateLimiter });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

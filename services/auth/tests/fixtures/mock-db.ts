@@ -53,6 +53,30 @@ export interface MockStore {
     details: any;
     created_at: Date;
   }>;
+  email_tokens: Array<{
+    id: string;
+    user_id: string;
+    purpose: 'VERIFY_EMAIL' | 'RESET_PASSWORD';
+    token_hash: Buffer;
+    email: string;
+    created_at: Date;
+    expires_at: Date;
+    used_at: Date | null;
+  }>;
+  mail_queue: Array<{
+    id: string;
+    user_id: string | null;
+    to_email: string;
+    template: 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED';
+    locale: 'vi' | 'en';
+    params: any;
+    created_at: Date;
+    attempts: number;
+    next_attempt_at: Date;
+    sent_at: Date | null;
+    dead_at: Date | null;
+    last_error: string | null;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -62,6 +86,8 @@ export function createMockStore(): MockStore {
     oauth_identities: [],
     outbox: [],
     audit_log: [],
+    email_tokens: [],
+    mail_queue: [],
   };
 }
 
@@ -219,7 +245,45 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [entry], rowCount: 1 };
       }
 
-      // 4c. pg_advisory_xact_lock
+      // 4c. INSERT INTO "auth"."email_tokens"
+      if (sql.includes('insert into "auth"."email_tokens"')) {
+        const [id, user_id, purpose, token_hash, email, expires_at] = params;
+        const entry = {
+          id: String(id),
+          user_id: String(user_id),
+          purpose: purpose as any,
+          token_hash: Buffer.isBuffer(token_hash) ? token_hash : Buffer.from(token_hash),
+          email: String(email).toLowerCase(),
+          created_at: new Date(),
+          expires_at: new Date(expires_at),
+          used_at: null,
+        };
+        store.email_tokens.push(entry);
+        return { rows: [entry], rowCount: 1 };
+      }
+
+      // 4d. INSERT INTO "auth"."mail_queue"
+      if (sql.includes('insert into "auth"."mail_queue"')) {
+        const [user_id, to_email, template, locale, paramsVal] = params;
+        const entry = {
+          id: String(idCounter++),
+          user_id: user_id ? String(user_id) : null,
+          to_email: String(to_email),
+          template: template as any,
+          locale: (locale || 'vi') as any,
+          params: typeof paramsVal === 'string' ? JSON.parse(paramsVal) : paramsVal,
+          created_at: new Date(),
+          attempts: 0,
+          next_attempt_at: new Date(),
+          sent_at: null,
+          dead_at: null,
+          last_error: null,
+        };
+        store.mail_queue.push(entry);
+        return { rows: [entry], rowCount: 1 };
+      }
+
+      // 4e. pg_advisory_xact_lock
       if (sql.includes('pg_advisory_xact_lock')) {
         return { rows: [{ pg_advisory_xact_lock: null }], rowCount: 1 };
       }
@@ -320,6 +384,145 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [], rowCount: before - store.oauth_identities.length };
       }
 
+      // 8c. SELECT FROM "auth"."email_tokens"
+      if (sql.includes('select') && sql.includes('"auth"."email_tokens"')) {
+        let matching = [...store.email_tokens];
+        if (sql.includes('"user_id" = $1') && sql.includes('"purpose" = $2')) {
+          const userId = String(params[0]);
+          const purpose = String(params[1]);
+          matching = matching.filter((t) => t.user_id === userId && t.purpose === purpose);
+          if (sql.includes('"created_at" > $3')) {
+            const since = new Date(params[2]);
+            matching = matching.filter((t) => t.created_at > since);
+          }
+          if (sql.includes('count(*)')) {
+            return { rows: [{ cnt: matching.length }], rowCount: 1 };
+          }
+          if (sql.includes('order by "created_at" asc')) {
+            matching.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+          }
+          return { rows: matching, rowCount: matching.length };
+        }
+        if (sql.includes('"token_hash" = $1')) {
+          const targetHash = Buffer.isBuffer(params[0]) ? params[0] : Buffer.from(params[0]);
+          matching = matching.filter((t) => t.token_hash.equals(targetHash));
+          return { rows: matching, rowCount: matching.length };
+        }
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      // 8d. SELECT FROM "auth"."mail_queue"
+      if (
+        (sql.includes('select') || sql.includes('SELECT')) &&
+        (sql.includes('"auth"."mail_queue"') || sql.includes('auth.mail_queue'))
+      ) {
+        if (sql.includes('count(*)')) {
+          const cnt = store.mail_queue.filter(
+            (m) => m.sent_at === null && m.dead_at === null,
+          ).length;
+          return { rows: [{ cnt }], rowCount: 1 };
+        }
+        let matching = store.mail_queue.filter((m) => m.sent_at === null && m.dead_at === null);
+        if (sql.toLowerCase().includes('next_attempt_at <=')) {
+          const maxDate = new Date(params[0]);
+          matching = matching.filter((m) => m.next_attempt_at <= maxDate);
+        }
+        matching.sort((a, b) => a.next_attempt_at.getTime() - b.next_attempt_at.getTime());
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      // 8e. UPDATE "auth"."email_tokens"
+      if (sql.includes('update "auth"."email_tokens"')) {
+        let updatedCount = 0;
+        if (
+          sql.includes('"user_id" =') &&
+          sql.includes('"purpose" =') &&
+          sql.includes('"used_at" is null')
+        ) {
+          const usedAt = new Date(params[0]);
+          const userId = String(params[1]);
+          const purpose = String(params[2]);
+          for (const token of store.email_tokens) {
+            if (token.user_id === userId && token.purpose === purpose && token.used_at === null) {
+              token.used_at = usedAt;
+              updatedCount++;
+            }
+          }
+        } else if (sql.includes('"id" =')) {
+          const usedAt = new Date(params[0]);
+          const tokenId = String(params[1]);
+          const token = store.email_tokens.find((t) => t.id === tokenId);
+          if (token) {
+            token.used_at = usedAt;
+            updatedCount++;
+          }
+        }
+        return { rows: [], rowCount: updatedCount };
+      }
+
+      // 8f. UPDATE "auth"."mail_queue"
+      if (sql.includes('update "auth"."mail_queue"') || sql.includes('update auth.mail_queue')) {
+        let updatedCount = 0;
+        const idParam = String(params[params.length - 1]);
+        const entry = store.mail_queue.find((m) => m.id === idParam);
+        if (entry) {
+          const matchAttempts = sql.match(/"attempts"\s*=\s*\$(\d+)/);
+          if (matchAttempts) {
+            entry.attempts = Number(params[parseInt(matchAttempts[1], 10) - 1]);
+          }
+          const matchDeadAt = sql.match(/"dead_at"\s*=\s*\$(\d+)/);
+          if (matchDeadAt) {
+            entry.dead_at = new Date(params[parseInt(matchDeadAt[1], 10) - 1]);
+          }
+          const matchNext = sql.match(/"next_attempt_at"\s*=\s*\$(\d+)/);
+          if (matchNext) {
+            entry.next_attempt_at = new Date(params[parseInt(matchNext[1], 10) - 1]);
+          }
+          const matchLastError = sql.match(/"last_error"\s*=\s*\$(\d+)/);
+          if (matchLastError) {
+            const lIdx = parseInt(matchLastError[1], 10) - 1;
+            entry.last_error = params[lIdx] ? String(params[lIdx]) : null;
+          }
+          const matchSentAt = sql.match(/"sent_at"\s*=\s*\$(\d+)/);
+          if (matchSentAt) {
+            entry.sent_at = new Date(params[parseInt(matchSentAt[1], 10) - 1]);
+          }
+          if (sql.includes('"params" = null') || sql.match(/"params"\s*=\s*\$(\d+)/)) {
+            entry.params = null;
+          }
+          updatedCount++;
+        }
+        return { rows: [], rowCount: updatedCount };
+      }
+
+      // 8g. DELETE FROM "auth"."email_tokens"
+      if (sql.includes('delete from "auth"."email_tokens"')) {
+        const userId = String(params[0]);
+        const before = store.email_tokens.length;
+        store.email_tokens = store.email_tokens.filter(
+          (t) => !(t.user_id === userId && t.used_at === null),
+        );
+        return { rows: [], rowCount: before - store.email_tokens.length };
+      }
+
+      // 8h. DELETE FROM "auth"."mail_queue"
+      if (sql.includes('delete from "auth"."mail_queue"')) {
+        if (sql.includes('"user_id" =')) {
+          const userId = String(params[0]);
+          const before = store.mail_queue.length;
+          store.mail_queue = store.mail_queue.filter(
+            (m) => !(m.user_id === userId && m.sent_at === null && m.dead_at === null),
+          );
+          return { rows: [], rowCount: before - store.mail_queue.length };
+        }
+        if (sql.includes('"created_at" <')) {
+          const cutoff = new Date(params[0]);
+          const before = store.mail_queue.length;
+          store.mail_queue = store.mail_queue.filter((m) => m.created_at >= cutoff);
+          return { rows: [], rowCount: before - store.mail_queue.length };
+        }
+      }
+
       // 9. UPDATE "auth"."refresh_tokens"
       if (sql.includes('update "auth"."refresh_tokens"')) {
         let updatedCount = 0;
@@ -415,10 +618,19 @@ export function createMockDb(store: MockStore = createMockStore()): {
             user.avatar_key = params[aIdx] ? String(params[aIdx]) : null;
           }
 
-          const matchEmailVerified = sql.match(/"email_verified_at"\s*=\s*\$(\d+)/);
-          if (matchEmailVerified) {
-            const eIdx = parseInt(matchEmailVerified[1], 10) - 1;
-            user.email_verified_at = params[eIdx] ? new Date(params[eIdx]) : null;
+          const matchEmailVerifiedCoalesce = sql.match(
+            /"email_verified_at"\s*=\s*coalesce\([^,]+,\s*\$(\d+)\)/i,
+          );
+          if (matchEmailVerifiedCoalesce) {
+            const eIdx = parseInt(matchEmailVerifiedCoalesce[1], 10) - 1;
+            user.email_verified_at =
+              user.email_verified_at ?? (params[eIdx] ? new Date(params[eIdx]) : new Date());
+          } else {
+            const matchEmailVerified = sql.match(/"email_verified_at"\s*=\s*\$(\d+)/);
+            if (matchEmailVerified) {
+              const eIdx = parseInt(matchEmailVerified[1], 10) - 1;
+              user.email_verified_at = params[eIdx] ? new Date(params[eIdx]) : null;
+            }
           }
 
           const matchStatus = sql.match(/"status"\s*=\s*\$(\d+)/);

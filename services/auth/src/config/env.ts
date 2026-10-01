@@ -30,8 +30,21 @@ export const envSchema = z
 
     // Trusted proxy CIDRs for Fastify (e.g. Traefik/k8s pod CIDR 10.42.0.0/16, loopback 127.0.0.1)
     TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
+
+    // Mail transport (ADR-026, task A6)
+    MAIL_TRANSPORT: z.enum(['smtp', 'log']).default('log'),
+    SMTP_URL: z.string().optional(),
+    MAIL_FROM: z.string().default('Winkey <no-reply@winkey.vn>'),
   })
   .superRefine((data, ctx) => {
+    if (data.MAIL_TRANSPORT === 'smtp' && !data.SMTP_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'SMTP_URL is required when MAIL_TRANSPORT=smtp',
+        path: ['SMTP_URL'],
+      });
+    }
+
     if (data.NODE_ENV === 'production') {
       if (!data.COOKIE_SECRET) {
         ctx.addIssue({

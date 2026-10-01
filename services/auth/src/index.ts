@@ -6,6 +6,8 @@ import { initializeKeys } from './crypto/jwt.js';
 import { OutboxRelay, natsOptionsFromUrl } from '@winkey/outbox';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
 import { RevocationService } from './revocation/revocation.js';
+import { NodeMailerSender } from './mail/mailer.js';
+import { MailQueueWorker } from './mail/worker.js';
 import { buildApp } from './server.js';
 
 async function main() {
@@ -67,28 +69,43 @@ async function main() {
     natsConnection,
   });
 
+  // 7. Start Mail Queue Worker
+  const mailer = new NodeMailerSender(env, app.log);
+  const mailQueueWorker = new MailQueueWorker({
+    db,
+    mailer,
+    logger: app.log,
+    batchSize: 20,
+    pollIntervalMs: 1000,
+  });
+  mailQueueWorker.start();
+
   await app.listen({ port: env.HTTP_PORT, host: '0.0.0.0' });
   app.log.info({ port: env.HTTP_PORT, service: 'auth-svc' }, 'auth-svc started');
 
-  // 7. Graceful shutdown handler (SIGTERM / SIGINT)
+  // 8. Graceful shutdown handler (SIGTERM / SIGINT)
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'Graceful shutdown initiated');
 
     // 1. Stop accepting new HTTP requests
     await app.close();
 
-    // 2. Stop outbox relay
+    // 2. Stop mail queue worker and close mailer
+    await mailQueueWorker.stop();
+    await mailer.close();
+
+    // 3. Stop outbox relay
     if (outboxRelay) {
       await outboxRelay.stop();
     }
 
-    // 3. Close NATS connection
+    // 4. Close NATS connection
     if (natsConnection) {
       await natsConnection.drain().catch(() => {});
       await natsConnection.close().catch(() => {});
     }
 
-    // 4. Close Valkey & DB pools
+    // 5. Close Valkey & DB pools
     await rateLimiter.close();
     await closeDb();
 

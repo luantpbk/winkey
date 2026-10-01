@@ -68,6 +68,41 @@ export interface PublicProfilesTable {
   avatar_key: string | null;
 }
 
+export type EmailTokenPurpose = 'VERIFY_EMAIL' | 'RESET_PASSWORD';
+
+export interface EmailTokensTable {
+  id: string;
+  user_id: string;
+  purpose: EmailTokenPurpose;
+  token_hash: Buffer;
+  email: string;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  expires_at: ColumnType<Date, string | Date, string | Date>;
+  used_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+}
+
+export type MailTemplate = 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED';
+export type MailLocale = 'vi' | 'en';
+
+export interface MailQueueTable {
+  id: Generated<string>;
+  user_id: string | null;
+  to_email: string;
+  template: MailTemplate;
+  locale: ColumnType<MailLocale, MailLocale | undefined, MailLocale>;
+  params: ColumnType<
+    Record<string, unknown> | null,
+    string | Record<string, unknown> | null,
+    string | Record<string, unknown> | null
+  >;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  attempts: ColumnType<number, number | undefined, number>;
+  next_attempt_at: ColumnType<Date, string | Date | undefined, string | Date>;
+  sent_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  dead_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  last_error: string | null;
+}
+
 export interface Database {
   'auth.users': UsersTable;
   'auth.oauth_identities': OAuthIdentitiesTable;
@@ -75,4 +110,6 @@ export interface Database {
   'auth.outbox': OutboxTable;
   'auth.public_profiles': PublicProfilesTable;
   'auth.audit_log': AuditLogTable;
+  'auth.email_tokens': EmailTokensTable;
+  'auth.mail_queue': MailQueueTable;
 }

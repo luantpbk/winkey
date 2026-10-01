@@ -10,6 +10,7 @@ import {
   getRefreshCookieOptions,
   REFRESH_COOKIE_NAME,
 } from '../crypto/refresh.js';
+import { generateEmailToken } from '../tokens/email-tokens.js';
 import { ProblemError } from '../errors/problem.js';
 import { buildRegisterRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import type { Env } from '../config/env.js';
@@ -143,6 +144,40 @@ export const registerRoute: FastifyPluginAsync<{
             expires_at: expiresAt,
             user_agent: request.headers['user-agent'] || null,
             ip: clientIp,
+          })
+          .execute();
+
+        // Queue VERIFY_EMAIL mail & one-time token (task A6, ADR-026)
+        const acceptLang = request.headers['accept-language'];
+        const locale = acceptLang?.toLowerCase().startsWith('en') ? 'en' : 'vi';
+        const {
+          rawToken,
+          tokenHash: emailTokenHash,
+          expiresAt: emailTokenExpiresAt,
+        } = generateEmailToken('VERIFY_EMAIL');
+        const emailTokenId = uuidv7();
+        const verifyLink = `${env.PUBLIC_ORIGIN}/${locale}/verify-email?token=${rawToken}`;
+
+        await trx
+          .insertInto('auth.email_tokens')
+          .values({
+            id: emailTokenId,
+            user_id: userRow.id,
+            purpose: 'VERIFY_EMAIL',
+            token_hash: emailTokenHash,
+            email: userRow.email,
+            expires_at: emailTokenExpiresAt,
+          })
+          .execute();
+
+        await trx
+          .insertInto('auth.mail_queue')
+          .values({
+            user_id: userRow.id,
+            to_email: userRow.email,
+            template: 'VERIFY_EMAIL',
+            locale,
+            params: { link: verifyLink },
           })
           .execute();
 
