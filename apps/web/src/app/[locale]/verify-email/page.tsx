@@ -11,6 +11,9 @@ function VerifyEmailContent() {
   const t = useTranslations('auth');
   const { user, refresh } = useAuth();
   const tokenRef = useRef<string | null>(null);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const handledRef = useRef(false);
 
   const [status, setStatus] = useState<
     'loading' | 'success' | 'invalid' | 'rate_limited' | 'error'
@@ -38,13 +41,14 @@ function VerifyEmailContent() {
 
     executeVerifyOnce(currentToken)
       .then(async (result) => {
-        if (isCancelled) return;
+        if (isCancelled || handledRef.current) return;
+        handledRef.current = true;
 
         if (result.status === 204) {
           setStatus('success');
           // If the user is currently signed in, refresh session / getMe so verification state updates
           try {
-            await refresh();
+            await refreshRef.current();
           } catch {
             // Non-blocking
           }
@@ -57,7 +61,8 @@ function VerifyEmailContent() {
         }
       })
       .catch(() => {
-        if (!isCancelled) {
+        if (!isCancelled && !handledRef.current) {
+          handledRef.current = true;
           setStatus('error');
         }
       });
@@ -65,7 +70,7 @@ function VerifyEmailContent() {
     return () => {
       isCancelled = true;
     };
-  }, [refresh]);
+  }, []);
 
   return (
     <div className="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
@@ -102,7 +107,7 @@ function VerifyEmailContent() {
                 className="flex-1 flex h-11 items-center justify-center gap-2 rounded-xl bg-red-600 font-semibold text-sm text-white hover:bg-red-700 transition"
               >
                 <Home className="h-4 w-4" />
-                <span>Trang chủ</span>
+                <span>{t('home')}</span>
               </Link>
               {user && (
                 <Link
@@ -110,7 +115,7 @@ function VerifyEmailContent() {
                   className="flex-1 flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-[#383838] bg-gray-50 dark:bg-[#1e1e1e] font-semibold text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#282828] transition"
                 >
                   <Settings className="h-4 w-4" />
-                  <span>Cài đặt</span>
+                  <span>{t('settings')}</span>
                 </Link>
               )}
             </div>

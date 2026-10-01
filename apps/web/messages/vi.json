@@ -78,6 +78,8 @@
     "verifyEmailLoading": "Đang xác minh email của bạn...",
     "verifyEmailSuccess": "Email đã được xác minh",
     "verifyEmailInvalid": "Liên kết không hợp lệ hoặc đã dùng. Đăng nhập và kiểm tra trang Cài đặt.",
+    "home": "Trang chủ",
+    "settings": "Cài đặt",
     "verifyBannerText": "Xác minh email để bảo vệ tài khoản",
     "resendEmail": "Gửi lại email",
     "emailSent": "Đã gửi",

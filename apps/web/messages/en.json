@@ -78,6 +78,8 @@
     "verifyEmailLoading": "Verifying your email...",
     "verifyEmailSuccess": "Email verified successfully.",
     "verifyEmailInvalid": "This link is invalid or has already been used. Please sign in and check Account Settings.",
+    "home": "Home",
+    "settings": "Settings",
     "verifyBannerText": "Verify your email to protect your account",
     "resendEmail": "Resend email",
     "emailSent": "Sent",
