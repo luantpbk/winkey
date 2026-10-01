@@ -1461,6 +1461,431 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // S15: Upload Quotas (UQ1 + UQ1-b)
+  // ---------------------------------------------------------------------------
+  it('S15: upload quotas (UQ1 + UQ1-b)', async () => {
+    const startTime = Date.now();
+
+    // a. Concurrent limit: User Q creates 3 active uploads -> 4th returns 429
+    const regQ = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.151',
+      },
+      body: JSON.stringify({
+        email: `user_q_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `user_q_${Date.now()}`,
+        display_name: 'User Q',
+      }),
+    });
+    const userQToken = (await checkRes(regQ, 201, 'Register User Q')).json.access_token;
+
+    const qUploadIds = [];
+    for (let i = 1; i <= 3; i++) {
+      const upRes = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userQToken}`,
+        },
+        body: JSON.stringify({
+          title: `Upload Q${i}`,
+          description: 'Quota test clip',
+          filename: `q${i}.mp4`,
+          content_type: 'video/mp4',
+          size_bytes: 1024,
+        }),
+      });
+      const upData = (await checkRes(upRes, 201, `Create upload Q${i}`)).json;
+      qUploadIds.push(upData.video_id);
+    }
+
+    const upRes4 = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userQToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Upload Q4',
+        description: 'Quota test clip',
+        filename: 'q4.mp4',
+        content_type: 'video/mp4',
+        size_bytes: 1024,
+      }),
+    });
+    const check4 = await checkRes(upRes4, 429, 'User Q 4th concurrent upload');
+    assert.equal(check4.json.code, 'UPLOAD_QUOTA_EXCEEDED');
+    assert.ok(
+      check4.json.detail.toLowerCase().includes('concurrent'),
+      `Expected detail to include concurrent, got: ${check4.json.detail}`,
+    );
+    const retryAfterQ = parseInt(check4.headers.get('Retry-After'), 10);
+    assert.ok(
+      !isNaN(retryAfterQ) && retryAfterQ >= 1,
+      `Invalid Retry-After: ${check4.headers.get('Retry-After')}`,
+    );
+
+    // b. Abort one upload -> slot freed -> next upload 201
+    const abortQ1 = await fetch(`${GATEWAY_URL}/v1/uploads/${qUploadIds[0]}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${userQToken}` },
+    });
+    await checkRes(abortQ1, 204, 'Abort upload Q1');
+
+    const upRes5 = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userQToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Upload Q5',
+        description: 'Quota test clip',
+        filename: 'q5.mp4',
+        content_type: 'video/mp4',
+        size_bytes: 1024,
+      }),
+    });
+    await checkRes(upRes5, 201, 'Create upload Q5 after abort');
+
+    // c. Daily count limit (UQ1-b regression test): User R creates and aborts 20 uploads -> 21st returns 429 daily_count
+    const regR = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.152',
+      },
+      body: JSON.stringify({
+        email: `user_r_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `user_r_${Date.now()}`,
+        display_name: 'User R',
+      }),
+    });
+    const userRToken = (await checkRes(regR, 201, 'Register User R')).json.access_token;
+
+    for (let i = 1; i <= 20; i++) {
+      const upR = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userRToken}`,
+        },
+        body: JSON.stringify({
+          title: `Upload R${i}`,
+          description: 'Daily count quota test clip',
+          filename: `r${i}.mp4`,
+          content_type: 'video/mp4',
+          size_bytes: 1024,
+        }),
+      });
+      const rData = (await checkRes(upR, 201, `Create upload R${i}`)).json;
+      const abortR = await fetch(`${GATEWAY_URL}/v1/uploads/${rData.video_id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${userRToken}` },
+      });
+      await checkRes(abortR, 204, `Abort upload R${i}`);
+    }
+
+    const upR21 = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userRToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Upload R21',
+        description: 'Daily count quota test clip',
+        filename: 'r21.mp4',
+        content_type: 'video/mp4',
+        size_bytes: 1024,
+      }),
+    });
+    const checkR21 = await checkRes(upR21, 429, 'User R 21st upload daily_count');
+    assert.equal(checkR21.json.code, 'UPLOAD_QUOTA_EXCEEDED');
+    assert.ok(
+      checkR21.json.detail.toLowerCase().includes('daily_count'),
+      `Expected detail to include daily_count, got: ${checkR21.json.detail}`,
+    );
+
+    // d. Daily bytes limit: User S creates 2 x 20 GiB uploads (aborted), 3rd 20 GiB upload returns 429 daily_bytes
+    const regS = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.153',
+      },
+      body: JSON.stringify({
+        email: `user_s_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `user_s_${Date.now()}`,
+        display_name: 'User S',
+      }),
+    });
+    const userSToken = (await checkRes(regS, 201, 'Register User S')).json.access_token;
+    const maxSizeBytes = 21474836480; // 20 GiB
+
+    for (let i = 1; i <= 2; i++) {
+      const upS = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userSToken}`,
+        },
+        body: JSON.stringify({
+          title: `Upload S${i}`,
+          description: 'Daily bytes quota test clip',
+          filename: `s${i}.mp4`,
+          content_type: 'video/mp4',
+          size_bytes: maxSizeBytes,
+        }),
+      });
+      const sData = (await checkRes(upS, 201, `Create upload S${i}`)).json;
+      const abortS = await fetch(`${GATEWAY_URL}/v1/uploads/${sData.video_id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${userSToken}` },
+      });
+      await checkRes(abortS, 204, `Abort upload S${i}`);
+    }
+
+    const upS3 = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${userSToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Upload S3',
+        description: 'Daily bytes quota test clip',
+        filename: 's3.mp4',
+        content_type: 'video/mp4',
+        size_bytes: maxSizeBytes,
+      }),
+    });
+    const checkS3 = await checkRes(upS3, 429, 'User S 3rd upload daily_bytes');
+    assert.equal(checkS3.json.code, 'UPLOAD_QUOTA_EXCEEDED');
+    assert.ok(
+      checkS3.json.detail.toLowerCase().includes('daily_bytes'),
+      `Expected detail to include daily_bytes, got: ${checkS3.json.detail}`,
+    );
+
+    // e. Admin exemption: Admin creates 4 concurrent uploads -> 201; abort after
+    const adminUploadIds = [];
+    for (let i = 1; i <= 4; i++) {
+      const upAdmin = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${moderatorToken}`,
+        },
+        body: JSON.stringify({
+          title: `Admin Upload ${i}`,
+          description: 'Admin exempt upload',
+          filename: `admin${i}.mp4`,
+          content_type: 'video/mp4',
+          size_bytes: 1024,
+        }),
+      });
+      const adminData = (await checkRes(upAdmin, 201, `Create admin upload ${i}`)).json;
+      adminUploadIds.push(adminData.video_id);
+    }
+    for (const id of adminUploadIds) {
+      const abortAdmin = await fetch(`${GATEWAY_URL}/v1/uploads/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${moderatorToken}` },
+      });
+      await checkRes(abortAdmin, 204, 'Abort admin upload');
+    }
+
+    recordResult('S15', 'upload quotas (UQ1 + UQ1-b)', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S16: Password Reset & Email Verification (A6)
+  // ---------------------------------------------------------------------------
+  it('S16: password reset & email verification (A6)', async () => {
+    const startTime = Date.now();
+
+    // a. requestPasswordReset for unknown email and fresh active user: both 202 empty body & timing >= 250 ms
+    const unknownEmail = `unknown_${Date.now()}@example.com`;
+    const t0 = Date.now();
+    const resForgotUnknown = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: unknownEmail }),
+    });
+    const durForgotUnknown = Date.now() - t0;
+    const checkForgotUnknown = await checkRes(
+      resForgotUnknown,
+      202,
+      'Forgot password unknown email',
+    );
+    assert.equal(
+      checkForgotUnknown.text,
+      '',
+      'Forgot password unknown email response body must be empty',
+    );
+    assert.ok(
+      durForgotUnknown >= 250,
+      `Forgot password unknown email expected >= 250ms floor, got ${durForgotUnknown}ms`,
+    );
+
+    const regActive = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.161',
+      },
+      body: JSON.stringify({
+        email: `active_a6_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `active_a6_${Date.now()}`,
+        display_name: 'Active A6 User',
+      }),
+    });
+    const activeUserData = (await checkRes(regActive, 201, 'Register Active A6 user')).json;
+
+    const t1 = Date.now();
+    const resForgotActive = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: activeUserData.user.email }),
+    });
+    const durForgotActive = Date.now() - t1;
+    const checkForgotActive = await checkRes(resForgotActive, 202, 'Forgot password active email');
+    assert.equal(
+      checkForgotActive.text,
+      '',
+      'Forgot password active email response body must be empty',
+    );
+    assert.ok(
+      durForgotActive >= 250,
+      `Forgot password active email expected >= 250ms floor, got ${durForgotActive}ms`,
+    );
+
+    console.log(
+      `ℹ S16a timings: unknown email = ${durForgotUnknown}ms, active email = ${durForgotActive}ms`,
+    );
+
+    // b. resetPassword with 43-char unknown token -> 400 INVALID_TOKEN; malformed token -> 400
+    const unknownToken43 = 'A'.repeat(43);
+    const resReset1 = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: unknownToken43, new_password: 'NewPassword123!' }),
+    });
+    const checkReset1 = await checkRes(resReset1, 400, 'Reset password unknown 43-char token');
+    assert.equal(checkReset1.json.code, 'INVALID_TOKEN');
+
+    const resResetMalformed = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'short', new_password: 'NewPassword123!' }),
+    });
+    assert.equal(resResetMalformed.status, 400, 'Reset password malformed token must return 400');
+
+    // c. verifyEmail with unknown token -> 400 INVALID_TOKEN
+    const resVerifyUnknown = await fetch(`${GATEWAY_URL}/v1/auth/email/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: unknownToken43 }),
+    });
+    const checkVerifyUnknown = await checkRes(resVerifyUnknown, 400, 'Verify email unknown token');
+    assert.equal(checkVerifyUnknown.json.code, 'INVALID_TOKEN');
+
+    // d. GET /v1/auth/me for fresh user -> email_verified: false, then resend verification emails
+    const regFreshVerif = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.162',
+      },
+      body: JSON.stringify({
+        email: `fresh_verif_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `fresh_verif_${Date.now()}`,
+        display_name: 'Fresh Verif User',
+      }),
+    });
+    const freshVerifData = (await checkRes(regFreshVerif, 201, 'Register Fresh Verif User')).json;
+
+    const meRes = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${freshVerifData.access_token}` },
+    });
+    const meData = (await checkRes(meRes, 200, 'GET /v1/auth/me fresh verif user')).json;
+    assert.equal(meData.email_verified, false, 'Fresh user email_verified must be false');
+
+    // register sent 1st verification mail. Resend call 1 -> 2nd mail (202), Resend call 2 -> 3rd mail (202), Resend call 3 -> 429 limit reached (3 max/hr)
+    const resend1 = await fetch(`${GATEWAY_URL}/v1/auth/email/verification`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${freshVerifData.access_token}` },
+    });
+    await checkRes(resend1, 202, 'Resend verification call 1');
+
+    const resend2 = await fetch(`${GATEWAY_URL}/v1/auth/email/verification`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${freshVerifData.access_token}` },
+    });
+    await checkRes(resend2, 202, 'Resend verification call 2');
+
+    const resend3 = await fetch(`${GATEWAY_URL}/v1/auth/email/verification`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${freshVerifData.access_token}` },
+    });
+    const checkResend3 = await checkRes(resend3, 429, 'Resend verification call 3 rate limit');
+    const retryAfterVerif = parseInt(checkResend3.headers.get('Retry-After'), 10);
+    assert.ok(
+      !isNaN(retryAfterVerif) && retryAfterVerif >= 1,
+      `Invalid Retry-After on verification rate limit: ${checkResend3.headers.get('Retry-After')}`,
+    );
+
+    // e. auth-svc logs check: assert 0 hits for test emails and 43-char tokens
+    const authLogs = execSync('docker logs auth-svc', { encoding: 'utf8' });
+    const targetEmails = [unknownEmail, activeUserData.user.email, freshVerifData.user.email];
+    for (const email of targetEmails) {
+      assert.ok(!authLogs.includes(email), `auth-svc log must not contain email: ${email}`);
+    }
+    assert.ok(
+      !authLogs.includes(unknownToken43),
+      `auth-svc log must not contain 43-char token: ${unknownToken43}`,
+    );
+
+    recordResult(
+      'S16',
+      'password reset & email verification (A6)',
+      'PASSED',
+      Date.now() - startTime,
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // S17: Google OAuth Not Configured (#171)
+  // ---------------------------------------------------------------------------
+  it('S17: Google OAuth not configured', async () => {
+    const startTime = Date.now();
+
+    const oauthRes = await fetch(`${GATEWAY_URL}/v1/auth/oauth/google?return_to=/`, {
+      redirect: 'manual',
+    });
+    assert.equal(oauthRes.status, 302, 'Google OAuth without client ID should return 302');
+    const location = oauthRes.headers.get('location');
+    assert.ok(
+      location && location.endsWith('/login?error=oauth_unavailable'),
+      `Location header expected to end with /login?error=oauth_unavailable, got: ${location}`,
+    );
+    const setCookie = oauthRes.headers.get('set-cookie');
+    assert.ok(
+      !setCookie || !setCookie.includes('wk_oauth_state'),
+      `Set-Cookie header must not contain wk_oauth_state when OAuth is unconfigured, got: ${setCookie}`,
+    );
+
+    recordResult('S17', 'Google OAuth not configured', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
   // S11: Video Deletion & Master Playlist Poll
   // ---------------------------------------------------------------------------
   it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
