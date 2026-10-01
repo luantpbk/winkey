@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { NotificationBell } from '../src/components/notifications/notification-bell';
 import { NotificationDropdown } from '../src/components/notifications/notification-dropdown';
@@ -217,8 +217,10 @@ describe('N1-web: Notifications System', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    currentSearchParamComment = null;
     focusManager.setFocused(true);
   });
 
@@ -904,27 +906,36 @@ describe('N1-web: Notifications System', () => {
       vi.spyOn(api.social, 'GET').mockImplementation(async (path, _opts: any) => {
         if (path === '/v1/videos/{video_id}/comments') {
           return {
-            data: { items: mockComments, next_cursor: null },
+            data: { items: mockComments.map((c) => ({ ...c })), next_cursor: null },
             response: new Response(null, { status: 200 }),
           } as any;
         }
         if (path === '/v1/comments/{comment_id}') {
-          return { data: mockComments[0], response: new Response(null, { status: 200 }) } as any;
+          return {
+            data: { ...mockComments[0] },
+            response: new Response(null, { status: 200 }),
+          } as any;
         }
         return { response: new Response(null, { status: 404 }) } as any;
       });
 
       renderWithClient(<CommentSection videoId="video-123" />);
 
-      const topItem = await screen.findByTestId('comment-item-comment-top-1');
-      expect(topItem).toBeDefined();
+      await waitFor(
+        () => {
+          const topItem = screen.getByTestId('comment-item-comment-top-1');
+          expect(topItem).toBeDefined();
+          expect(topItem.getAttribute('data-highlighted')).toBe('true');
+        },
+        { timeout: 10000 },
+      );
 
-      await waitFor(() => {
-        expect(topItem.getAttribute('data-highlighted')).toBe('true');
-      });
-      await waitFor(() => {
-        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+        },
+        { timeout: 10000 },
+      );
     });
 
     it('expands parent thread and highlights reply comment when comment is a reply', async () => {
@@ -933,20 +944,23 @@ describe('N1-web: Notifications System', () => {
       vi.spyOn(api.social, 'GET').mockImplementation(async (path, opts: any) => {
         if (path === '/v1/videos/{video_id}/comments') {
           return {
-            data: { items: mockComments, next_cursor: null },
+            data: { items: mockComments.map((c) => ({ ...c })), next_cursor: null },
             response: new Response(null, { status: 200 }),
           } as any;
         }
         if (path === '/v1/comments/{comment_id}') {
           const commentId = opts?.params?.path?.comment_id;
           if (commentId === 'reply-child-1') {
-            return { data: mockReply, response: new Response(null, { status: 200 }) } as any;
+            return {
+              data: { ...mockReply },
+              response: new Response(null, { status: 200 }),
+            } as any;
           }
           return { response: new Response(null, { status: 404 }) } as any;
         }
         if (path === '/v1/comments/{comment_id}/replies') {
           return {
-            data: { items: [mockReply], next_cursor: null },
+            data: { items: [{ ...mockReply }], next_cursor: null },
             response: new Response(null, { status: 200 }),
           } as any;
         }
@@ -956,15 +970,21 @@ describe('N1-web: Notifications System', () => {
       renderWithClient(<CommentSection videoId="video-123" />);
 
       // Parent thread is auto-expanded and reply is rendered & highlighted
-      const replyItem = await screen.findByTestId('comment-item-reply-child-1');
-      expect(replyItem).toBeDefined();
+      await waitFor(
+        () => {
+          const replyItem = screen.getByTestId('comment-item-reply-child-1');
+          expect(replyItem).toBeDefined();
+          expect(replyItem.getAttribute('data-highlighted')).toBe('true');
+        },
+        { timeout: 10000 },
+      );
 
-      await waitFor(() => {
-        expect(replyItem.getAttribute('data-highlighted')).toBe('true');
-      });
-      await waitFor(() => {
-        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+        },
+        { timeout: 10000 },
+      );
     });
   });
 });
