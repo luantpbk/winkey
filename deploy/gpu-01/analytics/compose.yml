@@ -42,7 +42,7 @@ services:
       CLICKHOUSE_DSN: '${CLICKHOUSE_DSN:-clickhouse://winkey:${CLICKHOUSE_PASSWORD}@127.0.0.1:9000/winkey}'
       CLICKHOUSE_MIGRATIONS_DIR: '/migrations'
       NATS_URL: '${NATS_URL:-nats://analytics:${NATS_ANALYTICS_PASSWORD}@100.113.240.3:30422}'
-      PORT: '8004'
+      HTTP_ADDR: '${HTTP_ADDR:-:8081}'
     volumes:
       - '${MIGRATIONS_PATH:-../../../db/clickhouse}:/migrations:ro'
     logging:

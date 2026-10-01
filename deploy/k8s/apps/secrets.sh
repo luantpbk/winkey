@@ -67,16 +67,23 @@ if ! kubectl get secret video-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379/0"
     MEDIA_LINK_SECRET=$(gen_secret 32)
     CURSOR_SECRET=$(gen_secret 16)
+    ANALYTICS_VIEWER_SALT=$(gen_secret 32)
 
     kubectl create secret generic video-secrets -n "$NAMESPACE" \
       --from-literal=DATABASE_URL="$DATABASE_URL" \
       --from-literal=NATS_URL="$NATS_URL" \
       --from-literal=VALKEY_URL="$VALKEY_URL" \
       --from-literal=MEDIA_LINK_SECRET="$MEDIA_LINK_SECRET" \
-      --from-literal=CURSOR_SECRET="$CURSOR_SECRET"
+      --from-literal=CURSOR_SECRET="$CURSOR_SECRET" \
+      --from-literal=ANALYTICS_VIEWER_SALT="$ANALYTICS_VIEWER_SALT"
     echo "  Created secret video-secrets." >&2
 else
     echo "  Secret video-secrets already exists." >&2
+    if ! kubectl get secret video-secrets -n "$NAMESPACE" -o jsonpath='{.data.ANALYTICS_VIEWER_SALT}' 2>/dev/null | grep -q .; then
+        ANALYTICS_VIEWER_SALT=$(gen_secret 32)
+        kubectl patch secret video-secrets -n "$NAMESPACE" -p "{\"data\":{\"ANALYTICS_VIEWER_SALT\":\"$(echo -n "$ANALYTICS_VIEWER_SALT" | base64 -w0)\"}}"
+        echo "  Added ANALYTICS_VIEWER_SALT to existing video-secrets." >&2
+    fi
 fi
 
 # Export MEDIA_LINK_SECRET for SEC1-b nginx template

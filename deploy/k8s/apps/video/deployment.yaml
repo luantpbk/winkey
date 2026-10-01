@@ -80,6 +80,11 @@ spec:
                 secretKeyRef:
                   name: video-secrets
                   key: CURSOR_SECRET
+            - name: ANALYTICS_VIEWER_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: video-secrets
+                  key: ANALYTICS_VIEWER_SALT
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
