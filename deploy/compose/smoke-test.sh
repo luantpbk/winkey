@@ -135,5 +135,14 @@ if ! echo "$AUTH_RULE" | grep -q "PathPrefix(\`/v1/admin\`)"; then
 fi
 echo "SUCCESS: Router auth-protected@file rule contains /v1/admin."
 
+# 9. Check Mailpit API
+echo "Checking Mailpit API..."
+MAILPIT_API_URL="${MAILPIT_API_URL:-http://localhost:8025}"
+if ! curl -sS "${MAILPIT_API_URL}/api/v1/info" >/dev/null; then
+    echo "FAILED: Mailpit API is not accessible at ${MAILPIT_API_URL}!" >&2
+    exit 1
+fi
+echo "SUCCESS: Mailpit API is responsive."
+
 
 

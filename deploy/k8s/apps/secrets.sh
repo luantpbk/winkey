@@ -73,6 +73,23 @@ else
     fi
 fi
 
+echo "==> Ensuring auth-smtp secret exists..."
+if kubectl get secret auth-smtp -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "  Secret auth-smtp already exists." >&2
+else
+    echo -n "Enter SMTP_URL (leave blank to skip): " >&2
+    SMTP_URL=""
+    read -r -s SMTP_URL || true
+    echo >&2
+    if [ -z "${SMTP_URL:-}" ]; then
+        echo "WARNING: SMTP_URL is empty; skipping creation of secret auth-smtp." >&2
+    else
+        kubectl create secret generic auth-smtp -n "$NAMESPACE" \
+          --from-literal=SMTP_URL="$SMTP_URL"
+        echo "  Created secret auth-smtp." >&2
+    fi
+fi
+
 echo "==> [3/6] Ensuring upload-secrets exists..."
 if ! kubectl get secret upload-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"

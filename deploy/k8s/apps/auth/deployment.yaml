@@ -84,6 +84,16 @@ spec:
                   name: auth-google
                   key: GOOGLE_CLIENT_SECRET
                   optional: true
+            - name: MAIL_TRANSPORT
+              value: 'log'
+            - name: MAIL_FROM
+              value: 'Winkey <no-reply@winkey.vn>'
+            - name: SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auth-smtp
+                  key: SMTP_URL
+                  optional: true
           resources:
             requests:
               cpu: 100m

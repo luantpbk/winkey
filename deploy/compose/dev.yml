@@ -246,7 +246,7 @@ services:
     container_name: winkey-traefik
     ports:
       - '${DEV_BIND_IP:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080'
-      - '127.0.0.1:8082:8082'
+      - '127.0.0.1:${TRAEFIK_DASHBOARD_PORT:-8082}:8082'
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
@@ -272,6 +272,27 @@ services:
           memory: 512M
 
   # ---------------------------------------------------------------------------
+  # Outbound Email Testing: Mailpit (SMTP on :1025, Web UI & API on :8025)
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:v1.22
+    container_name: winkey-mailpit
+    ports:
+      - '${DEV_BIND_IP:-127.0.0.1}:${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${DEV_BIND_IP:-127.0.0.1}:${MAILPIT_WEB_PORT:-8025}:8025'
+    environment:
+      MP_MAX_MESSAGES: 500
+    healthcheck:
+      test: ['CMD-SHELL', '/mailpit readyz || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
   # Application Services (Commented out until images exist; enable via profiles)
   # ---------------------------------------------------------------------------
   # auth-svc:
@@ -281,11 +302,15 @@ services:
   #     DATABASE_URL: postgres://auth_svc:auth_svc@postgres:5432/winkey?sslmode=disable
   #     NATS_URL: nats://nats:4222
   #     VALKEY_URL: redis://valkey:6379
+  #     MAIL_TRANSPORT: smtp
+  #     SMTP_URL: smtp://mailpit:1025
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
   #     migrate:
   #       condition: service_completed_successfully
+  #     mailpit:
+  #       condition: service_healthy
 
   # upload-svc:
   #   image: ghcr.io/luantpbk/winkey-upload:latest
