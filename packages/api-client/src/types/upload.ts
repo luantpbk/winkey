@@ -188,16 +188,6 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Rate limit exceeded. See `Retry-After`. */
-        TooManyRequests: {
-            headers: {
-                "Retry-After"?: number;
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
         /** @description Resource does not exist or is not visible to the caller. */
         NotFound: {
             headers: {
@@ -251,7 +241,16 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            429: components["responses"]["TooManyRequests"];
+            /** @description Upload quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`). See the quota rules above and `Retry-After`. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getUpload: {

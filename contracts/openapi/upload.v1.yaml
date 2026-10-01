@@ -15,6 +15,16 @@ info:
 
     Limits: `size_bytes` ≤ 20 GiB. `part_size = max(16 MiB, ceil(size_bytes / 10000))` rounded up to
     a whole MiB, so `part_count` ≤ 10,000. Abandoned uploads (`UPLOADING` > 24h) are aborted by a janitor.
+
+    Quotas (task UQ1, ADR-027), checked by `createUpload` for every caller without role `admin`:
+    - at most `UPLOAD_MAX_CONCURRENT` (default 3) of the caller's videos in status `UPLOADING`;
+    - at most `UPLOAD_DAILY_COUNT` (default 20) uploads started in the last 24 hours;
+    - at most `UPLOAD_DAILY_BYTES` (default 50 GiB) of `size_bytes` started in the last 24 hours, counting the
+      new upload.
+    Every video row created in the window counts, whatever its later status (aborted, failed, deleted), so
+    deleting and re-uploading does not reset the quota. A refused request answers `429` with code
+    `UPLOAD_QUOTA_EXCEEDED`, a `detail` naming the limit, and `Retry-After` in seconds (until the oldest
+    counted upload leaves the 24-hour window; 60 for the concurrent limit).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -54,7 +64,16 @@ paths:
         '403':
           $ref: './common.yaml#/components/responses/Forbidden'
         '429':
-          $ref: './common.yaml#/components/responses/TooManyRequests'
+          description: Upload quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`). See the quota rules above and `Retry-After`.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
 
   /v1/uploads/{video_id}:
     parameters:

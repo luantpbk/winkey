@@ -365,3 +365,48 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 **Hệ quả.**
 - Có "xem tiếp" ngay, không tốn hạ tầng mới. Chi phí là 3 truy vấn ngắn khi cache trượt.
 - Chất lượng chỉ ở mức khá: dựa vào chữ trong tiêu đề, chưa hiểu nội dung. R2 (co-view từ `analytics.video_daily` và ClickHouse, theo subscription, A/B) thay thế sau mà không đổi contract, vì contract không hứa cách xếp hạng.
+
+### ADR-026 — Quên mật khẩu và xác minh email (A6)
+**Bối cảnh.** auth-svc chưa có cách lấy lại tài khoản khi quên mật khẩu, và `email_verified` luôn là false với tài khoản đăng ký bằng email. Trước khi mở beta công khai, cả hai đều bắt buộc. Ngoài ra, việc xác thực tài khoản là một phần của LEGAL. Chưa có hạ tầng gửi mail.
+**Quyết định.**
+- **Token dùng một lần.** Lưu trong bảng `auth.email_tokens` (migration 000016):
+  - giá trị 256 bit ngẫu nhiên, mã hoá base64url (43 ký tự); DB chỉ lưu SHA-256 của nó;
+  - kèm `purpose` (`VERIFY_EMAIL` hoặc `RESET_PASSWORD`) và địa chỉ `email` đã nhận token;
+  - hạn dùng: reset 1 giờ, verify 48 giờ.
+  - Token chỉ hợp lệ khi `email` vẫn bằng email hiện tại của user và user đang `ACTIVE`.
+  - Mọi trường hợp sai (không tồn tại, hết hạn, đã dùng, user bị khoá) đều trả chung `400 INVALID_TOKEN`.
+- **Bốn endpoint mới:**
+  - `requestPasswordReset`: luôn trả `202`, kể cả khi email không có tài khoản, để không lộ email nào đã đăng ký. Tối đa 3 mail mỗi user mỗi giờ.
+  - `resetPassword`: đổi mật khẩu, đánh dấu đã dùng mọi token reset của user, xác minh luôn email, thu hồi mọi phiên (refresh family và mốc thu hồi ADR-019), rồi gửi mail báo `PASSWORD_CHANGED`.
+  - `resendEmailVerification`: cần đăng nhập. Trả `409 EMAIL_ALREADY_VERIFIED` nếu đã xác minh. Tối đa 3 lần mỗi giờ.
+  - `verifyEmail`: không cần đăng nhập, vì link có thể được mở trên thiết bị khác.
+  - `register` tự gửi mail xác minh đầu tiên. Chưa xác minh thì chưa bị chặn chức năng nào; quyết định chặn (nếu cần) để lại cho LEGAL.
+- **Gửi mail qua hàng đợi giao dịch `auth.mail_queue`.** Cách làm giống outbox (ADR-008):
+  - Request ghi một dòng vào hàng đợi trong cùng transaction.
+  - Một vòng lặp nền trong auth-svc lấy dòng bằng `FOR UPDATE SKIP LOCKED` và gửi.
+  - Lỗi thì backoff, tối đa 8 lần, sau đó đánh dấu `dead_at`.
+  - Khi đã gửi hoặc bỏ cuộc thì xoá `params` (link chứa token). Ràng buộc trong DB bắt buộc điều này.
+  - Không đi qua NATS, vì nội dung chứa token.
+  - Dòng cũ hơn 7 ngày bị xoá.
+- **Transport:** `MAIL_TRANSPORT=smtp|log`.
+  - `smtp` dùng `SMTP_URL`, `MAIL_FROM`.
+  - `log` chỉ ghi log "mail suppressed" kèm template và id, không có địa chỉ hay token. Đây là mặc định ở dev và CI.
+  - Môi trường dev dùng Mailpit để thử thật.
+  - Nhà cung cấp SMTP cho production do **bạn** chọn. Antigravity 2 đưa thông tin đó vào secret.
+**Hệ quả.**
+- Người dùng tự lấy lại tài khoản. Email được xác minh là nền cho bước xác thực tài khoản sau này (LEGAL).
+- Khi production chưa có SMTP, mail nằm chờ trong hàng đợi, rồi `dead` sau 8 lần thử. Phải có SMTP trước khi mở beta.
+- Token chỉ tồn tại dạng rõ trong DB trong khoảng thời gian chờ gửi.
+
+### ADR-027 — Hạn mức upload (UQ1)
+**Bối cảnh.** `createUpload` chỉ giới hạn kích thước một file (20 GiB). Một tài khoản có thể mở hàng trăm upload, làm đầy bucket và giữ GPU bận. Mở beta công khai thì phải chặn điều này. Contract đã khai báo `429`, nhưng upload-svc chưa áp dụng.
+**Quyết định.**
+- upload-svc kiểm tra hạn mức trong transaction tạo video, có `pg_advisory_xact_lock` theo `owner_id` để hai request song song không cùng lọt.
+- Ba giới hạn, cấu hình bằng env:
+  - tối đa 3 video đang `UPLOADING`;
+  - tối đa 20 upload bắt đầu trong 24 giờ trượt;
+  - tối đa 50 GiB `size_bytes` trong 24 giờ.
+- Tính trên mọi dòng `media.videos` của owner tạo trong cửa sổ, bất kể trạng thái sau đó, nên xoá rồi upload lại không lách được. Không cần migration: dùng chỉ mục `videos_owner_created` có sẵn.
+- Role `admin` được miễn.
+- Khi vượt: `429 UPLOAD_QUOTA_EXCEEDED` kèm `Retry-After`, và metric `upload_quota_rejections_total{limit}`.
+**Hệ quả.** Một tài khoản chỉ gây thiệt hại tối đa 50 GiB mỗi ngày. Creator lớn cần hạn mức cao hơn thì nâng env, hoặc sau này làm hạn mức theo user.

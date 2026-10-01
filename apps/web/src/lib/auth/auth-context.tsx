@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, type ReactNode }
 import type { User, LoginRequest, RegisterRequest, Problem } from '@winkey/api-client';
 import { api, refreshAccessToken } from '../api-client';
 import { tokenStore } from './token-store';
+import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
 
 interface AuthContextType {
   user: User | null;
@@ -51,6 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Session restore on initial mount
     refresh();
   }, []);
+
+  useEffect(() => {
+    resetCachedWatchLaterId();
+  }, [user?.id]);
 
   const login = async (credentials: LoginRequest) => {
     setIsLoading(true);
@@ -122,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       tokenStore.clear();
       setUser(null);
+      resetCachedWatchLaterId();
     }
   };
 
@@ -132,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = () => {
     tokenStore.clear();
     setUser(null);
+    resetCachedWatchLaterId();
   };
 
   const isCreator = !!user?.roles?.includes('creator');

@@ -47,6 +47,7 @@ export type PlaybackSample = VideoComponents['schemas']['PlaybackSample'];
 export type PlaybackHeartbeatResult = VideoComponents['schemas']['PlaybackHeartbeatResult'];
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
+export type VideoBatch = VideoComponents['schemas']['VideoBatch'];
 
 export type Comment = SocialComponents['schemas']['Comment'];
 export type CommentPage = SocialComponents['schemas']['CommentPage'];
@@ -63,6 +64,17 @@ export type NotificationPage = SocialComponents['schemas']['NotificationPage'];
 export type UnreadCount = SocialComponents['schemas']['UnreadCount'];
 export type MarkNotificationsReadRequest =
   SocialComponents['schemas']['MarkNotificationsReadRequest'];
+
+export type PlaylistKind = SocialComponents['schemas']['PlaylistKind'];
+export type Playlist = SocialComponents['schemas']['Playlist'];
+export type PlaylistPage = SocialComponents['schemas']['PlaylistPage'];
+export type CreatePlaylistRequest = SocialComponents['schemas']['CreatePlaylistRequest'];
+export type UpdatePlaylistRequest = SocialComponents['schemas']['UpdatePlaylistRequest'];
+export type PlaylistItem = SocialComponents['schemas']['PlaylistItem'];
+export type PlaylistItemPage = SocialComponents['schemas']['PlaylistItemPage'];
+export type AddPlaylistItemRequest = SocialComponents['schemas']['AddPlaylistItemRequest'];
+export type MovePlaylistItemRequest = SocialComponents['schemas']['MovePlaylistItemRequest'];
+export type PlaylistMembership = SocialComponents['schemas']['PlaylistMembership'];
 
 export type AdminUser = AuthComponents['schemas']['AdminUser'];
 export type AdminUserPage = AuthComponents['schemas']['AdminUserPage'];

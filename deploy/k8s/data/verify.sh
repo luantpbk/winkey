@@ -291,7 +291,19 @@ if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "vide
     echo "ERROR: analytics user was able to subscribe to video.ready!" >&2
     exit 1
 fi
-echo "  PASS: analytics user blocked from video.ready (Permissions Violation)."
+echo "Test 5.19: transcoder user CANNOT ack on stream SOCIAL (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "\$JS.ACK.SOCIAL.social.123" "" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: transcoder user was able to publish ack to stream SOCIAL!" >&2
+    exit 1
+fi
+echo "  PASS: transcoder user blocked from acking on stream SOCIAL (Permissions Violation)."
+
+echo "Test 5.20: transcoder user CANNOT subscribe to SOCIAL advisories (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "\$JS.EVENT.ADVISORY.CONSUMER.*.SOCIAL.>" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: transcoder user was able to subscribe to SOCIAL advisories!" >&2
+    exit 1
+fi
+echo "  PASS: transcoder user blocked from SOCIAL advisories (Permissions Violation)."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true

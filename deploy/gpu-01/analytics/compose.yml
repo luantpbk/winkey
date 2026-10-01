@@ -43,6 +43,7 @@ services:
       CLICKHOUSE_MIGRATIONS_DIR: '/migrations'
       NATS_URL: '${NATS_URL:-nats://analytics:${NATS_ANALYTICS_PASSWORD}@100.113.240.3:30422}'
       POSTGRES_URL: '${POSTGRES_URL:?POSTGRES_URL must be set in .env (e.g. postgres://analytics_svc:password@100.113.240.3:30432/winkey?sslmode=require)}'
+      ROLLUP_ENABLED: '${ROLLUP_ENABLED:-true}'
       HTTP_ADDR: '${HTTP_ADDR:-:8081}'
 
     volumes:
