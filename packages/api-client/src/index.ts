@@ -48,6 +48,12 @@ export type PlaybackHeartbeatResult = VideoComponents['schemas']['PlaybackHeartb
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
 export type VideoBatch = VideoComponents['schemas']['VideoBatch'];
+export type StatsTotals = VideoComponents['schemas']['StatsTotals'];
+export type VideoStatsDay = VideoComponents['schemas']['VideoStatsDay'];
+export type VideoStats = VideoComponents['schemas']['VideoStats'];
+export type ChannelStatsDay = VideoComponents['schemas']['ChannelStatsDay'];
+export type ChannelStatsTopVideo = VideoComponents['schemas']['ChannelStatsTopVideo'];
+export type ChannelStats = VideoComponents['schemas']['ChannelStats'];
 
 export type Comment = SocialComponents['schemas']['Comment'];
 export type CommentPage = SocialComponents['schemas']['CommentPage'];
