@@ -2735,7 +2735,14 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     // 9. Move to front/middle/end
     const mvVid1 = concVideoIds[0];
-    const mvVid2 = concVideoIds[1];
+
+    const order = async () =>
+      (
+        await pool!.query(
+          'SELECT video_id, position FROM social.playlist_items WHERE playlist_id = $1 ORDER BY position ASC',
+          [concPlId],
+        )
+      ).rows.map((r) => ({ id: r.video_id as string, pos: Number(r.position) }));
 
     // Move to end: before_video_id: null
     const moveToEndRes = await app.inject({
@@ -2745,21 +2752,34 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       payload: { before_video_id: null },
     });
     expect(moveToEndRes.statusCode).toBe(200);
-    const endPos = moveToEndRes.json().position;
-    const maxOtherPos = Math.max(
-      ...positionsRes.rows.filter((r) => r.video_id !== mvVid1).map((r) => Number(r.position)),
-    );
-    expect(endPos).toBeGreaterThan(maxOtherPos);
+    let o = await order();
+    expect(o[o.length - 1].id).toBe(mvVid1);
 
-    // Move to front: before_video_id: mvVid2 (which is now first)
+    // Move to front: before_video_id: whatever is currently first
+    const first = o[0];
     const moveToFrontRes = await app.inject({
       method: 'POST',
       url: `/v1/playlists/${concPlId}/items/${mvVid1}/move`,
       headers: { 'x-user-id': plUser1 },
-      payload: { before_video_id: mvVid2 },
+      payload: { before_video_id: first.id },
     });
     expect(moveToFrontRes.statusCode).toBe(200);
-    expect(moveToFrontRes.json().position).toBeLessThan(positions[1]);
+    o = await order();
+    expect(o[0].id).toBe(mvVid1);
+
+    // Move to middle: before_video_id: mid.id (e.g. o[10])
+    const mid = o[10];
+    const moveToMidRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${concPlId}/items/${mvVid1}/move`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { before_video_id: mid.id },
+    });
+    expect(moveToMidRes.statusCode).toBe(200);
+    o = await order();
+    const mvIndex = o.findIndex((x) => x.id === mvVid1);
+    const midIndex = o.findIndex((x) => x.id === mid.id);
+    expect(mvIndex).toBe(midIndex - 1);
 
     // Move before self: no-op 200
     const moveSelfRes = await app.inject({
@@ -2769,6 +2789,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       payload: { before_video_id: mvVid1 },
     });
     expect(moveSelfRes.statusCode).toBe(200);
+    const selfOrder = await order();
+    expect(selfOrder.findIndex((x) => x.id === mvVid1)).toBe(mvIndex);
 
     // 10. Forced renumber (insert positions 1, 2, 3 by SQL, move between 1 and 2) keeps order
     const renumberPlRes = await app.inject({
