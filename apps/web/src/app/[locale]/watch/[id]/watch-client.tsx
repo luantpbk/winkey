@@ -4,19 +4,24 @@ import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
 import { Link } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
-import { Share2, Flag, Subtitles } from 'lucide-react';
+import { Share2, Flag, Subtitles, Clock, BookmarkPlus } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
 import { SubscribeButton } from '../../../../components/social/subscribe-button';
 import { CommentSection } from '../../../../components/social/comment-section';
 import { ReportDialog } from '../../../../components/moderation/report-dialog';
 import { VideoSubtitlesDialog } from '../../../../components/studio/video-subtitles-dialog';
+import { SavePlaylistDialog } from '../../../../components/playlist/save-playlist-dialog';
+import { addToWatchLater } from '../../../../lib/playlist/playlist-utils';
+import { useToast } from '../../../../components/ui/toast';
 import { useAuth } from '../../../../lib/auth/auth-context';
 
 export function WatchClientSection({ video }: { video: Video }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [showSubtitlesDialog, setShowSubtitlesDialog] = useState(false);
-  const { user } = useAuth();
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const { showToast } = useToast();
+  const { user, isAuthenticated } = useAuth();
   const isOwner = user?.id === video.owner.id;
 
   return (
@@ -70,6 +75,40 @@ export function WatchClientSection({ video }: { video: Video }) {
           >
             <Share2 className="h-4 w-4" />
             <span>Chia sẻ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              if (!isAuthenticated) {
+                showToast({ title: 'Vui lòng đăng nhập để lưu vào Xem sau', type: 'info' });
+                return;
+              }
+              await addToWatchLater(video.id, { showToast });
+            }}
+            aria-label="Xem sau"
+            data-testid="watch-page-watch-later-btn"
+            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+          >
+            <Clock className="h-4 w-4" />
+            <span>Xem sau</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!isAuthenticated) {
+                showToast({ title: 'Vui lòng đăng nhập để lưu vào danh sách phát', type: 'info' });
+                return;
+              }
+              setShowSaveDialog(true);
+            }}
+            aria-label="Lưu vào danh sách phát"
+            data-testid="watch-page-save-btn"
+            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+          >
+            <BookmarkPlus className="h-4 w-4" />
+            <span>Lưu</span>
           </button>
 
           {isOwner && (
@@ -139,6 +178,13 @@ export function WatchClientSection({ video }: { video: Video }) {
         videoId={video.id}
         isOpen={showSubtitlesDialog}
         onClose={() => setShowSubtitlesDialog(false)}
+      />
+
+      {/* Save to Playlist Dialog */}
+      <SavePlaylistDialog
+        videoId={video.id}
+        isOpen={showSaveDialog}
+        onClose={() => setShowSaveDialog(false)}
       />
     </div>
   );

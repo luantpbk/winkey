@@ -4,6 +4,10 @@ import React from 'react';
 import type { VideoSummary, Video } from '@winkey/api-client';
 import { Link } from '../../i18n/routing';
 import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
+import { Clock } from 'lucide-react';
+import { addToWatchLater } from '../../lib/playlist/playlist-utils';
+import { useToast } from '../ui/toast';
+import { useAuth } from '../../lib/auth/auth-context';
 
 export interface VideoCardProps {
   video: VideoSummary | Video;
@@ -11,6 +15,19 @@ export interface VideoCardProps {
 }
 
 export function VideoCard({ video, rank }: VideoCardProps) {
+  const { isAuthenticated } = useAuth();
+  const { showToast } = useToast();
+
+  const handleWatchLater = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isAuthenticated) {
+      showToast({ title: 'Vui lòng đăng nhập để lưu vào Xem sau', type: 'info' });
+      return;
+    }
+    await addToWatchLater(video.id, { showToast });
+  };
+
   const thumbnailUrl =
     'thumbnail_url' in video && video.thumbnail_url
       ? video.thumbnail_url
@@ -27,30 +44,44 @@ export function VideoCard({ video, rank }: VideoCardProps) {
 
   return (
     <div className="group flex flex-col gap-3">
-      {/* Thumbnail + Duration + Rank */}
-      <Link
-        href={`/watch/${video.id}`}
-        className="relative aspect-video w-full overflow-hidden rounded-xl bg-[#222222] focus:outline-none focus:ring-2 focus:ring-red-600"
-      >
-        <img
-          src={thumbnailUrl}
-          alt={video.title}
-          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-          loading="lazy"
-        />
-        {rank !== undefined && (
-          <div
-            data-testid={`rank-badge-${rank}`}
-            aria-label={`Rank ${rank}`}
-            className="absolute top-2 left-2 z-10 flex h-7 min-w-[28px] items-center justify-center rounded-lg bg-red-600 px-2 text-xs font-black text-white shadow-md"
-          >
-            {rank}
+      {/* Thumbnail + Duration + Rank + Watch Later */}
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-[#222222]">
+        <Link
+          href={`/watch/${video.id}`}
+          className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-red-600"
+        >
+          <img
+            src={thumbnailUrl}
+            alt={video.title}
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+            loading="lazy"
+          />
+          {rank !== undefined && (
+            <div
+              data-testid={`rank-badge-${rank}`}
+              aria-label={`Rank ${rank}`}
+              className="absolute top-2 left-2 z-10 flex h-7 min-w-[28px] items-center justify-center rounded-lg bg-red-600 px-2 text-xs font-black text-white shadow-md"
+            >
+              {rank}
+            </div>
+          )}
+          <div className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+            {formatDuration(video.duration_ms)}
           </div>
-        )}
-        <div className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-          {formatDuration(video.duration_ms)}
-        </div>
-      </Link>
+        </Link>
+
+        {/* Watch Later Quick Action on Hover */}
+        <button
+          type="button"
+          onClick={handleWatchLater}
+          aria-label="Xem sau"
+          title="Xem sau"
+          data-testid="watch-later-btn"
+          className="absolute top-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-black/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-all shadow-md focus:opacity-100"
+        >
+          <Clock className="h-4 w-4" />
+        </button>
+      </div>
 
       {/* Info Row: Avatar + Title/Channel */}
       <div className="flex gap-3">
