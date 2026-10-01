@@ -209,6 +209,9 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     try {
       pool = new pg.Pool({ connectionString: testDbUrl });
+      pool.on('error', (_err) => {
+        // Prevent unhandled error events on idle clients (e.g. 57P01 admin shutdown during container teardown)
+      });
       await pool.query('SELECT 1');
       dbUrl = testDbUrl;
 
@@ -281,6 +284,19 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     if (stopNatsContainer) {
       await stopNatsContainer().catch(() => {});
     }
+  }, 60_000);
+
+  it('registers error handler on pool to prevent unhandled 57P01 during container teardown', () => {
+    if (!pool) return;
+    expect(pool.listenerCount('error')).toBeGreaterThan(0);
+    expect(() => {
+      pool!.emit(
+        'error',
+        Object.assign(new Error('terminating connection due to administrator command'), {
+          code: '57P01',
+        }),
+      );
+    }).not.toThrow();
   });
 
   it('runs complete lifecycle on real PostgreSQL 17 triggers and JetStream projection', async () => {
