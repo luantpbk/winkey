@@ -19,8 +19,8 @@ async function doRefresh(): Promise<string | null> {
     try {
       const baseUrl = getBaseUrl();
       const res = await fetch(`${baseUrl}/v1/auth/refresh`, {
+        // No body, so no Content-Type: auth-svc (Fastify) rejects an empty body declared as JSON with 400.
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
       });
       if (res.ok) {
