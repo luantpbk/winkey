@@ -7,6 +7,8 @@ import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 import { OAUTH_COOKIE_NAME } from '../../src/crypto/pkce.js';
 import { validate as isValidUuid, version as uuidVersion } from 'uuid';
+import fastify from 'fastify';
+import { oauthRoute } from '../../src/routes/oauth.js';
 
 describe('auth-svc full integration flow', () => {
   const keys = getTestKeys();
@@ -16,6 +18,7 @@ describe('auth-svc full integration flow', () => {
     JWT_ISSUER: 'https://winkey.vn',
     PUBLIC_ORIGIN: 'https://winkey.vn',
     MEDIA_BASE_URL: 'https://media.winkey.vn',
+    GOOGLE_CLIENT_ID: 'test-google-client-id.apps.googleusercontent.com',
     NODE_ENV: 'test',
   });
 
@@ -487,6 +490,71 @@ describe('auth-svc full integration flow', () => {
     expect(store.outbox.length).toBe(1);
     expect(store.outbox[0].subject).toBe('user.registered');
     expect(store.outbox[0].payload.data.method).toBe('google');
+  });
+
+  it('Google OAuth: start redirects to /login?error=oauth_unavailable when GOOGLE_CLIENT_ID is not configured', async () => {
+    const unconfiguredEnv = getEnv({
+      JWT_PRIVATE_KEY: keys.privateKey,
+      JWT_KID: 'winkey-auth-key-1',
+      JWT_ISSUER: 'https://winkey.vn',
+      PUBLIC_ORIGIN: 'https://winkey.vn',
+      MEDIA_BASE_URL: 'https://media.winkey.vn',
+      GOOGLE_CLIENT_ID: '',
+      NODE_ENV: 'test',
+    });
+
+    const unconfiguredApp = await buildApp({
+      env: unconfiguredEnv,
+      db: createMockDb(store).db,
+      rateLimiter: new ValkeyRateLimiter(),
+    });
+
+    // 1. With return_to query parameter
+    const resWithReturnTo = await unconfiguredApp.inject({
+      method: 'GET',
+      url: '/v1/auth/oauth/google?return_to=/watch%3Fv%3D123',
+    });
+    expect(resWithReturnTo.statusCode).toBe(302);
+    expect(resWithReturnTo.headers.location).toBe('/login?error=oauth_unavailable');
+
+    // 2. Without return_to query parameter
+    const resWithoutReturnTo = await unconfiguredApp.inject({
+      method: 'GET',
+      url: '/v1/auth/oauth/google',
+    });
+    expect(resWithoutReturnTo.statusCode).toBe(302);
+    expect(resWithoutReturnTo.headers.location).toBe('/login?error=oauth_unavailable');
+
+    // 3. Confirm no OAuth cookie is set
+    const cookies = resWithReturnTo.cookies || [];
+    expect(cookies.find((c: any) => c.name === OAUTH_COOKIE_NAME)).toBeUndefined();
+  });
+
+  it('Google OAuth: logs warn on startup when GOOGLE_CLIENT_ID is empty', async () => {
+    const unconfiguredEnv = getEnv({
+      JWT_PRIVATE_KEY: keys.privateKey,
+      JWT_KID: 'winkey-auth-key-1',
+      JWT_ISSUER: 'https://winkey.vn',
+      PUBLIC_ORIGIN: 'https://winkey.vn',
+      MEDIA_BASE_URL: 'https://media.winkey.vn',
+      GOOGLE_CLIENT_ID: '',
+      NODE_ENV: 'test',
+    });
+
+    const testApp = fastify({ logger: false });
+    let loggedWarn = '';
+    testApp.log.warn = ((msg: string) => {
+      loggedWarn = msg;
+    }) as any;
+
+    await testApp.register(oauthRoute, {
+      db: createMockDb(store).db,
+      env: unconfiguredEnv,
+    });
+    await testApp.ready();
+
+    expect(loggedWarn).toBe('Google OAuth not configured');
+    await testApp.close();
   });
 
   it('Health: /healthz and /readyz', async () => {

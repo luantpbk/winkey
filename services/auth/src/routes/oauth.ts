@@ -123,8 +123,16 @@ export const oauthRoute: FastifyPluginAsync<{
   env: Env;
   tokenExchanger?: GoogleTokenExchanger;
 }> = async (fastify, { db, env, tokenExchanger = defaultGoogleTokenExchanger }) => {
+  if (!env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID.trim() === '') {
+    fastify.log.warn('Google OAuth not configured');
+  }
+
   // 1. Start Google OAuth
   fastify.get('/v1/auth/oauth/google', async (request, reply) => {
+    if (!env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID.trim() === '') {
+      return reply.redirect('/login?error=oauth_unavailable', 302);
+    }
+
     const { return_to } = request.query as { return_to?: string };
     const targetReturnTo = return_to || '/';
 
