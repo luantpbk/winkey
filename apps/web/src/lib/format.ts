@@ -22,23 +22,25 @@ export function formatViews(views: number | null | undefined): string {
   return views.toLocaleString();
 }
 
-export function formatRelativeTime(dateString: string | null | undefined): string {
+export function formatRelativeTime(dateString: string | null | undefined, locale = 'vi'): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   const now = new Date();
   const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diffSec < 60) return 'Vừa xong';
+  const isEn = locale === 'en';
+
+  if (diffSec < 60) return isEn ? 'Just now' : 'Vừa xong';
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} phút trước`;
+  if (diffMin < 60) return isEn ? `${diffMin}m ago` : `${diffMin} phút trước`;
   const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} giờ trước`;
+  if (diffHour < 24) return isEn ? `${diffHour}h ago` : `${diffHour} giờ trước`;
   const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 30) return `${diffDay} ngày trước`;
+  if (diffDay < 30) return isEn ? `${diffDay}d ago` : `${diffDay} ngày trước`;
   const diffMonth = Math.floor(diffDay / 30);
-  if (diffMonth < 12) return `${diffMonth} tháng trước`;
+  if (diffMonth < 12) return isEn ? `${diffMonth}mo ago` : `${diffMonth} tháng trước`;
   const diffYear = Math.floor(diffMonth / 12);
-  return `${diffYear} năm trước`;
+  return isEn ? `${diffYear}y ago` : `${diffYear} năm trước`;
 }
 
 export function formatBytes(bytes: number): string {

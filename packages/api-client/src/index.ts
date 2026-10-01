@@ -37,6 +37,7 @@ export type UploadStatus = UploadComponents['schemas']['UploadStatus'];
 
 export type Video = VideoComponents['schemas']['Video'];
 export type VideoSummary = VideoComponents['schemas']['VideoSummary'];
+export type RelatedVideos = VideoComponents['schemas']['RelatedVideos'];
 export type VideoPage = VideoComponents['schemas']['VideoPage'];
 export type StudioVideo = VideoComponents['schemas']['StudioVideo'];
 export type StudioVideoPage = VideoComponents['schemas']['StudioVideoPage'];
@@ -118,6 +119,27 @@ export function createAuthInterceptor(
 ): Middleware {
   return {
     async onRequest({ request }) {
+      try {
+        const url = new URL(request.url, 'http://localhost');
+        if (/\/v1\/videos\/[^/]+\/related(\?.*)?$/.test(url.pathname)) {
+          request.headers.delete('Authorization');
+          return request;
+        }
+      } catch {
+        // ignore url parsing error
+      }
+
+      if (
+        request.headers.get('Authorization') === '' ||
+        request.headers.get('x-skip-auth') === 'true' ||
+        request.headers.get('X-Skip-Auth') === 'true'
+      ) {
+        request.headers.delete('Authorization');
+        request.headers.delete('x-skip-auth');
+        request.headers.delete('X-Skip-Auth');
+        return request;
+      }
+
       const token = await getAccessToken();
       if (token && !request.headers.has('Authorization')) {
         request.headers.set('Authorization', `Bearer ${token}`);
