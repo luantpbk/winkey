@@ -79,8 +79,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.uploaded", "_INBOX.>"]
+        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
       }
     },
     {
@@ -147,19 +147,20 @@ EOF
       --from-literal=password="$ADMIN_PWD"
     echo "  Created secret nats-auth and nats-admin-creds." >&2
 else
-    # Update existing secret if analytics_password is missing
-    if ! kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.analytics_password}' 2>/dev/null | grep -q .; then
-        echo "  Updating existing nats-auth secret with analytics user and permissions..." >&2
-        ADMIN_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.admin_password}' | base64 -d)
-        AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
-        UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
-        TRANSCODER_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.transcoder_password}' | base64 -d)
-        VIDEO_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.video_password}' | base64 -d)
-        SOCIAL_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.social_password}' | base64 -d)
-        REALTIME_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.realtime_password}' | base64 -d)
+    echo "  Updating existing nats-auth secret permissions..." >&2
+    ADMIN_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.admin_password}' | base64 -d)
+    AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
+    UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
+    TRANSCODER_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.transcoder_password}' | base64 -d)
+    VIDEO_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.video_password}' | base64 -d)
+    SOCIAL_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.social_password}' | base64 -d)
+    REALTIME_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.realtime_password}' | base64 -d)
+    ANALYTICS_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.analytics_password}' 2>/dev/null | base64 -d || true)
+    if [ -z "$ANALYTICS_PWD" ]; then
         ANALYTICS_PWD=$(gen_pwd)
+    fi
 
-        AUTH_CONF=$(cat <<EOF
+    AUTH_CONF=$(cat <<EOF
 authorization: {
   users: [
     {
@@ -190,8 +191,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.uploaded", "_INBOX.>"]
+        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
       }
     },
     {
@@ -242,21 +243,18 @@ authorization: {
 }
 EOF
 )
-        kubectl create secret generic nats-auth -n "$NAMESPACE" \
-          --from-literal=auth.conf="$AUTH_CONF" \
-          --from-literal=admin_password="$ADMIN_PWD" \
-          --from-literal=auth_password="$AUTH_PWD" \
-          --from-literal=upload_password="$UPLOAD_PWD" \
-          --from-literal=transcoder_password="$TRANSCODER_PWD" \
-          --from-literal=video_password="$VIDEO_PWD" \
-          --from-literal=social_password="$SOCIAL_PWD" \
-          --from-literal=realtime_password="$REALTIME_PWD" \
-          --from-literal=analytics_password="$ANALYTICS_PWD" \
-          --dry-run=client -o yaml | kubectl apply -f -
-        echo "  Updated secret nats-auth with analytics user." >&2
-    else
-        echo "  Secret nats-auth already exists." >&2
-    fi
+    kubectl create secret generic nats-auth -n "$NAMESPACE" \
+      --from-literal=auth.conf="$AUTH_CONF" \
+      --from-literal=admin_password="$ADMIN_PWD" \
+      --from-literal=auth_password="$AUTH_PWD" \
+      --from-literal=upload_password="$UPLOAD_PWD" \
+      --from-literal=transcoder_password="$TRANSCODER_PWD" \
+      --from-literal=video_password="$VIDEO_PWD" \
+      --from-literal=social_password="$SOCIAL_PWD" \
+      --from-literal=realtime_password="$REALTIME_PWD" \
+      --from-literal=analytics_password="$ANALYTICS_PWD" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "  Updated secret nats-auth permissions." >&2
 fi
 
 echo "==> [3/3] Ensuring Valkey authentication secret exists..."

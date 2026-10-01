@@ -7,4 +7,4 @@ resources:
 
 images:
   - name: ghcr.io/luantpbk/winkey-auth
-    digest: sha256:5a500ea2f25ceba649edff4ce5f19463fd185340771939fa9723c52ac544dcb7
+    digest: sha256:941a9eb419bc6141910a79199f631b89554e39f509a49d0a0493a8a785ba7b72
