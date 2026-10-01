@@ -1013,6 +1013,40 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       expect(body2.items[0].video_id).toBe(video2);
       expect(body2.next_cursor).toBeNull();
     });
+
+    it('rejects invalid limit and invalid cursor with 400', async () => {
+      const resLimitZero = await app.inject({
+        method: 'GET',
+        url: `/v1/playlists/${plPublic}/items?limit=0`,
+        headers: { 'x-user-id': userB },
+      });
+      expect(resLimitZero.statusCode).toBe(400);
+      expect(resLimitZero.json().code).toBe('INVALID_LIMIT');
+
+      const resLimitOver = await app.inject({
+        method: 'GET',
+        url: `/v1/playlists/${plPublic}/items?limit=101`,
+        headers: { 'x-user-id': userB },
+      });
+      expect(resLimitOver.statusCode).toBe(400);
+      expect(resLimitOver.json().code).toBe('INVALID_LIMIT');
+
+      const resLimitNaN = await app.inject({
+        method: 'GET',
+        url: `/v1/playlists/${plPublic}/items?limit=invalid`,
+        headers: { 'x-user-id': userB },
+      });
+      expect(resLimitNaN.statusCode).toBe(400);
+      expect(resLimitNaN.json().code).toBe('INVALID_LIMIT');
+
+      const resCursor = await app.inject({
+        method: 'GET',
+        url: `/v1/playlists/${plPublic}/items?cursor=invalid-base64`,
+        headers: { 'x-user-id': userB },
+      });
+      expect(resCursor.statusCode).toBe(400);
+      expect(resCursor.json().code).toBe('INVALID_CURSOR');
+    });
   });
 
   // -------------------------------------------------------------
@@ -1092,6 +1126,36 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       expect(body.items).toHaveLength(4);
       expect(body.items[0].kind).toBe('WATCH_LATER');
       expect(body.items[0].title).toBe('Xem sau');
+    });
+
+    it('rejects invalid limit and invalid cursor with 400', async () => {
+      const resLimitZero = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${userA}/playlists?limit=0`,
+      });
+      expect(resLimitZero.statusCode).toBe(400);
+      expect(resLimitZero.json().code).toBe('INVALID_LIMIT');
+
+      const resLimitOver = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${userA}/playlists?limit=101`,
+      });
+      expect(resLimitOver.statusCode).toBe(400);
+      expect(resLimitOver.json().code).toBe('INVALID_LIMIT');
+
+      const resLimitNaN = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${userA}/playlists?limit=invalid`,
+      });
+      expect(resLimitNaN.statusCode).toBe(400);
+      expect(resLimitNaN.json().code).toBe('INVALID_LIMIT');
+
+      const resCursor = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${userA}/playlists?cursor=invalid-base64`,
+      });
+      expect(resCursor.statusCode).toBe(400);
+      expect(resCursor.json().code).toBe('INVALID_CURSOR');
     });
   });
 

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/luantpbk/winkey/services/analytics/internal/chdb"
 	"github.com/luantpbk/winkey/services/analytics/internal/config"
 	"github.com/luantpbk/winkey/services/analytics/internal/migrate"
+	"github.com/luantpbk/winkey/services/analytics/internal/rollup"
 	"github.com/luantpbk/winkey/services/analytics/internal/worker"
 )
 
@@ -106,6 +108,24 @@ func run(cfg config.Config, log *slog.Logger) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); _ = w.Run(ctx) }()
 	go func() { defer wg.Done(); src.WatchPending(ctx, 30*time.Second) }()
+
+	// The daily rollup for the studio statistics. Its failures never make /readyz fail and never stop ingestion.
+	if cfg.RollupEnabled {
+		pcfg, err := pgxpool.ParseConfig(cfg.PostgresURL)
+		if err != nil {
+			return fmt.Errorf("POSTGRES_URL: %w", err)
+		}
+		pcfg.MaxConns = 4
+		pool, err := pgxpool.NewWithConfig(ctx, pcfg) // lazy: PostgreSQL may be unreachable at start
+		if err != nil {
+			return fmt.Errorf("postgres: %w", err)
+		}
+		defer pool.Close()
+		rr := &rollup.Runner{Source: &rollup.ClickHouse{Conn: conn}, Sink: &rollup.Postgres{Pool: pool}, Log: log,
+			Interval: cfg.RollupEvery, WindowDays: cfg.RollupWindow, BackfillDays: cfg.RollupBackfill}
+		wg.Add(1)
+		go func() { defer wg.Done(); rr.Run(ctx) }()
+	}
 
 	select {
 	case err := <-errCh:

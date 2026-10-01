@@ -85,6 +85,50 @@ type Video struct {
 // Hidden reports whether a moderator hid the video.
 func (v Video) Hidden() bool { return v.ModerationState == ModHidden }
 
+// DailyStats is one analytics.video_daily row (a day in Asia/Ho_Chi_Minh).
+type DailyStats struct {
+	Day          time.Time // midnight UTC of the calendar date
+	Starts       int64
+	WatchedMs    int64
+	RebufferMs   int64
+	Errors       int64
+	Viewers      int64
+	StartupP50Ms *int
+	StartupP95Ms *int
+	RefreshedAt  time.Time
+}
+
+// VideoStatsData is what the store knows for getVideoStats.
+type VideoStatsData struct {
+	OwnerID   uuid.UUID
+	ViewCount int64
+	Days      []DailyStats // only the days that have a row, ascending
+}
+
+// ChannelDay is the sum over the owner's videos for one day.
+type ChannelDay struct {
+	Day         time.Time
+	Starts      int64
+	WatchedMs   int64
+	RebufferMs  int64
+	Errors      int64
+	RefreshedAt time.Time // latest refresh of the summed rows
+}
+
+// TopVideo is one entry of the channel ranking.
+type TopVideo struct {
+	ID        uuid.UUID
+	Title     string
+	Starts    int64
+	WatchedMs int64
+}
+
+// ChannelStatsData is what the store knows for getChannelStats.
+type ChannelStatsData struct {
+	Days []ChannelDay // only the days that have rows, ascending
+	Top  []TopVideo   // at most 10, ordered
+}
+
 // Summary is one feed entry (READY + PUBLIC only).
 type Summary struct {
 	ID           uuid.UUID
@@ -282,6 +326,12 @@ type Store interface {
 	// VideosByID reads the rows of every video in ids that exists, in ONE query (no renditions or subtitles: the
 	// result is for summaries and must not be cached as a full Video). Unknown ids are absent. Task PL1-v.
 	VideosByID(ctx context.Context, ids []uuid.UUID) ([]Video, error)
+	// VideoStats reads, with ONE query, the owner and view_count of the video and its analytics.video_daily rows
+	// between from and to (days in Asia/Ho_Chi_Minh). ErrNotFound when the video does not exist. Task R1-b.
+	VideoStats(ctx context.Context, id uuid.UUID, from, to time.Time) (VideoStatsData, error)
+	// ChannelStats reads the owner's daily sums and top videos with two queries; videos that are deleted or
+	// not the owner's are never counted (INNER JOIN media.videos). Task R1-b.
+	ChannelStats(ctx context.Context, owner uuid.UUID, from, to time.Time) (ChannelStatsData, error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)

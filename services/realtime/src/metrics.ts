@@ -1,4 +1,4 @@
-﻿import { createRegistry, Counter } from '@winkey/metrics';
+import { createRegistry, Counter } from '@winkey/metrics';
 
 export const realtimeRegistry = createRegistry('realtime-gw');
 

@@ -70,13 +70,18 @@ func searchText(w http.ResponseWriter, r *http.Request, minRunes, maxRunes int) 
 // limited applies the per-IP limit of an endpoint and answers 429 itself. A
 // Valkey outage fails open: search must not depend on the limiter.
 func (h *Handler) limited(w http.ResponseWriter, r *http.Request, scope string, limit, def int) bool {
+	return h.limitedKey(w, r, scope, views.ClientIP(r, h.TrustedProxies), limit, def)
+}
+
+// limitedKey is limited for any key (a client IP, a user id).
+func (h *Handler) limitedKey(w http.ResponseWriter, r *http.Request, scope, key string, limit, def int) bool {
 	if h.Limiter == nil {
 		return false
 	}
 	if limit <= 0 {
 		limit = def
 	}
-	ok, retry, err := h.Limiter.AllowScoped(r.Context(), scope, views.ClientIP(r, h.TrustedProxies), limit, searchRateWindow)
+	ok, retry, err := h.Limiter.AllowScoped(r.Context(), scope, key, limit, searchRateWindow)
 	if err != nil || ok {
 		return false
 	}
