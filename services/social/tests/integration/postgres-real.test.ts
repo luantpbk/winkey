@@ -2680,13 +2680,61 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(listOutsiderItems.json().items).toHaveLength(1);
     expect(listOutsiderItems.json().items[0].video_id).toBe(testVideo1);
 
-    // 7. video.deleted cascade removes items and fixes item_count
-    await pool.query('DELETE FROM social.videos WHERE id = $1', [privateVidUser1]);
+    // 7. video.deleted cascade removes items and fixes item_count via projection consumer
+    const videoDeletedEvent = {
+      event_id: uuidv7(),
+      type: 'video.deleted',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'video-svc',
+      data: {
+        video_id: privateVidUser1,
+        owner_id: plUser1,
+        raw_bucket: 'winkey-raw',
+        raw_key: `raw/${privateVidUser1}.mp4`,
+        media_bucket: 'winkey-media',
+        media_prefix: `v/${privateVidUser1}/`,
+      },
+    };
+
+    const js = nc!.jetstream();
+    await js.publish('video.deleted', Buffer.from(JSON.stringify(videoDeletedEvent)));
+
+    // Poll until video is removed from social.videos by projection consumer
+    let videoDeletedFromProjection = false;
+    for (let i = 0; i < 40; i++) {
+      const vRes = await pool.query('SELECT 1 FROM social.videos WHERE id = $1', [privateVidUser1]);
+      if (vRes.rows.length === 0) {
+        videoDeletedFromProjection = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(videoDeletedFromProjection).toBe(true);
+
+    // Verify item was cascaded out of playlist_items
+    const itemCheck = await pool.query(
+      'SELECT 1 FROM social.playlist_items WHERE playlist_id = $1 AND video_id = $2',
+      [privatePl.id, privateVidUser1],
+    );
+    expect(itemCheck.rows).toHaveLength(0);
+
+    // Verify playlist item_count was decremented to 1 by trigger
     const plAfterVidDelete = await pool.query(
       'SELECT item_count FROM social.playlists WHERE id = $1',
       [privatePl.id],
     );
     expect(plAfterVidDelete.rows[0].item_count).toBe(1);
+
+    // Verify GET /v1/playlists/{id}/items returns only the remaining item
+    const remainingItemsRes = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(remainingItemsRes.statusCode).toBe(200);
+    expect(remainingItemsRes.json().items).toHaveLength(1);
+    expect(remainingItemsRes.json().items[0].video_id).toBe(testVideo1);
 
     // 8. 20 concurrent appends -> 20 distinct positions in call order-independent but gap-free-of-duplicates
     const concurrentPlRes = await app.inject({
