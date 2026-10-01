@@ -1077,4 +1077,54 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // 5. Badge updates to 4 after hint without waiting for 5-minute poll
     await expect(badge).toHaveText('4', { timeout: 10000 });
   });
+
+  test('PL1-web: Save a video to watch later -> open Xem sau -> see it -> remove it', async ({
+    page,
+  }) => {
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Navigate to a video watch page
+    const videoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12';
+    await page.goto(`/vi/watch/${videoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // 3. Click "Xem sau" action button on watch page
+    const watchLaterBtn = page.locator('[data-testid="watch-page-watch-later-btn"]');
+    await expect(watchLaterBtn).toBeVisible({ timeout: 10000 });
+    await watchLaterBtn.click();
+
+    // Verify toast confirms addition
+    await expect(page.locator('text=Đã thêm vào danh sách Xem sau')).toBeVisible({ timeout: 5000 });
+
+    // 4. Open "Xem sau" via sidebar link or direct navigation
+    const sidebarWatchLater = page.locator('aside a', { hasText: 'Xem sau' });
+    if (await sidebarWatchLater.isVisible()) {
+      await sidebarWatchLater.click();
+    } else {
+      await page.goto('/vi/playlist/watch-later');
+    }
+    await page.waitForURL((url) => url.pathname.includes('/playlist/'), { timeout: 15000 });
+
+    // 5. Verify the video is present in the Watch Later playlist
+    const itemLocator = page.locator(`[data-testid="playlist-item-${videoId}"]`);
+    await expect(itemLocator).toBeVisible({ timeout: 10000 });
+
+    // 6. Remove the video from the playlist
+    const removeBtn = page.locator(`[data-testid="remove-item-btn-${videoId}"]`);
+    await expect(removeBtn).toBeVisible({ timeout: 5000 });
+    await removeBtn.click();
+
+    // 7. Verify toast and item is removed
+    await expect(page.locator('text=Đã xóa video khỏi danh sách')).toBeVisible({ timeout: 5000 });
+    await expect(itemLocator).toBeHidden({ timeout: 5000 });
+  });
 });

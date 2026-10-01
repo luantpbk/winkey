@@ -14,6 +14,7 @@ import {
   Music2,
   Gamepad2,
   Shield,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 
@@ -39,6 +40,9 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   ];
 
   const secondaryItems = [
+    ...(isAuthenticated
+      ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
+      : []),
     { href: '#library', label: t('library'), icon: FolderHeart },
     { href: '#history', label: t('history'), icon: History },
   ];
@@ -110,14 +114,19 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
               </div>
               {secondaryItems.map((item) => {
                 const Icon = item.icon;
+                const active = isLinkActive(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={onCloseMobile}
-                    className="flex items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50 transition"
+                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                      active
+                        ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
+                    }`}
                   >
-                    <Icon className="h-5 w-5 shrink-0" />
+                    <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-red-600' : ''}`} />
                     <span className="truncate">{item.label}</span>
                   </Link>
                 );

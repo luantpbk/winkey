@@ -15,7 +15,8 @@
     "searchPlaceholder": "Tìm kiếm trên Winkey...",
     "lightMode": "Giao diện sáng",
     "darkMode": "Giao diện tối",
-    "creatorRoleRequired": "Cần quyền Creator"
+    "creatorRoleRequired": "Cần quyền Creator",
+    "watchLater": "Xem sau"
   },
   "home": {
     "recommended": "Video đề xuất",
@@ -428,5 +429,36 @@
       "COMMENT_REPLY": "{actor} đã trả lời bình luận của bạn",
       "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn"
     }
+  },
+  "playlist": {
+    "save": "Lưu",
+    "watchLater": "Xem sau",
+    "savedToWatchLater": "Đã thêm vào danh sách Xem sau",
+    "removedFromWatchLater": "Đã xóa khỏi danh sách Xem sau",
+    "saveToPlaylist": "Lưu vào danh sách phát",
+    "createNewPlaylist": "Tạo danh sách mới",
+    "playlistTitle": "Tiêu đề danh sách phát",
+    "playlistTitlePlaceholder": "Nhập tên danh sách phát...",
+    "visibility": "Quyền riêng tư",
+    "create": "Tạo",
+    "creating": "Đang tạo...",
+    "cancel": "Hủy",
+    "videoUnavailable": "Video không còn khả dụng",
+    "remove": "Xóa",
+    "delete": "Xóa danh sách",
+    "deleteConfirm": "Bạn có chắc chắn muốn xóa danh sách phát này?",
+    "rename": "Đổi tên",
+    "edit": "Chỉnh sửa",
+    "saveChanges": "Lưu thay đổi",
+    "moveUp": "Di chuyển lên",
+    "moveDown": "Di chuyển xuống",
+    "dragToReorder": "Kéo để sắp xếp lại",
+    "itemCount": "{count, plural, =0 {0 video} other {# video}}",
+    "empty": "Danh sách phát chưa có video nào.",
+    "notFound": "Danh sách phát không tồn tại hoặc đã bị xóa.",
+    "playlistFull": "Danh sách phát đã đầy (tối đa 5.000 video).",
+    "playlistLimit": "Bạn đã đạt giới hạn tối đa 200 danh sách phát.",
+    "tabPlaylists": "Danh sách phát",
+    "noPlaylists": "Chưa có danh sách phát nào."
   }
 }

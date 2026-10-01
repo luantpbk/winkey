@@ -40,6 +40,11 @@ import type {
   Notification,
   NotificationPage,
   MarkNotificationsReadRequest,
+  Playlist,
+  PlaylistItem,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
+  MovePlaylistItemRequest,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -57,6 +62,88 @@ let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
 let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
 let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
 let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+let mockPlaylistFull = false;
+let mockPlaylistLimit = false;
+
+export function setMockPlaylistFull(val: boolean) {
+  mockPlaylistFull = val;
+}
+export function setMockPlaylistLimit(val: boolean) {
+  mockPlaylistLimit = val;
+}
+
+const initialMockPlaylists: Playlist[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    owner: mockPublicProfiles.winkey_creator,
+    kind: 'WATCH_LATER',
+    title: 'Xem sau',
+    description: '',
+    visibility: 'PRIVATE',
+    item_count: 2,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    owner: mockPublicProfiles.winkey_creator,
+    kind: 'REGULAR',
+    title: 'Khóa học Lập trình Go từ cơ bản đến nâng cao',
+    description: 'Học Go qua các dự án thực tế xây dựng backend phân tán.',
+    visibility: 'PUBLIC',
+    item_count: 2,
+    created_at: '2026-02-01T00:00:00Z',
+    updated_at: '2026-02-01T00:00:00Z',
+  },
+];
+
+const initialMockPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = [
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+      position: 1048576,
+      added_at: '2026-01-01T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11',
+      position: 2097152,
+      added_at: '2026-01-02T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+      position: 1048576,
+      added_at: '2026-02-01T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11',
+      position: 2097152,
+      added_at: '2026-02-02T00:00:00Z',
+    },
+  },
+];
+
+let dynamicPlaylists: Playlist[] = JSON.parse(JSON.stringify(initialMockPlaylists));
+let dynamicPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = JSON.parse(
+  JSON.stringify(initialMockPlaylistItems),
+);
+
+export function resetPlaylistMocks() {
+  mockPlaylistFull = false;
+  mockPlaylistLimit = false;
+  dynamicPlaylists = JSON.parse(JSON.stringify(initialMockPlaylists));
+  dynamicPlaylistItems = JSON.parse(JSON.stringify(initialMockPlaylistItems));
+}
 
 export function setMockCurrentUser(user: User | null) {
   currentUser = user;
@@ -1080,6 +1167,53 @@ export const handlers = [
         'Cache-Control': 'private, no-store',
       },
     });
+  }),
+
+  http.get('*/v1/videos/batch', async ({ request }) => {
+    const url = new URL(request.url);
+    const idsParam = url.searchParams.get('ids') || '';
+    const ids = idsParam.includes(',')
+      ? idsParam
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : url.searchParams.getAll('ids').filter(Boolean);
+
+    const caller = callerFromRequest(request);
+    const allVideos = getDynamicVideos();
+    const videoMap = new Map<string, VideoSummary>();
+
+    for (const v of allVideos) {
+      const isOwner = caller && caller.id === v.owner.id;
+      const isAdminOrMod =
+        caller && (caller.roles.includes('admin') || caller.roles.includes('moderator'));
+
+      if (v.status !== 'READY' && !isOwner && !isAdminOrMod) continue;
+      if (v.visibility === 'PRIVATE' && !isOwner && !isAdminOrMod) continue;
+
+      const summary: VideoSummary = {
+        id: v.id,
+        title: v.title,
+        owner: v.owner,
+        duration_ms: v.duration_ms ?? 0,
+        thumbnail_url:
+          v.playback?.thumbnail_url ||
+          'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+        view_count: v.view_count,
+        published_at: v.published_at ?? v.created_at ?? new Date().toISOString(),
+      };
+      videoMap.set(v.id, summary);
+    }
+
+    const items: VideoSummary[] = [];
+    for (const id of ids) {
+      const found = videoMap.get(id);
+      if (found) {
+        items.push(found);
+      }
+    }
+
+    return HttpResponse.json({ items });
   }),
 
   http.get('*/v1/videos/:id', async ({ params }) => {
@@ -2915,5 +3049,477 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     };
     dynamicNotifications.unshift(newNotif);
     return HttpResponse.json(newNotif, { status: 201 });
+  }),
+
+  // --- Playlist Endpoints (Task PL1) ---
+
+  http.get('*/v1/me/watch-later', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    let pl = dynamicPlaylists.find((p) => p.kind === 'WATCH_LATER' && p.owner.id === caller.id);
+    if (!pl) {
+      pl = {
+        id: `0192f5e4-7c1a-7b3e-9d2a-w${caller.id.slice(-11)}`,
+        owner: {
+          id: caller.id,
+          handle: caller.handle,
+          display_name: caller.display_name,
+          avatar_url: caller.avatar_url,
+        },
+        kind: 'WATCH_LATER',
+        title: 'Xem sau',
+        description: '',
+        visibility: 'PRIVATE',
+        item_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      dynamicPlaylists.unshift(pl);
+    }
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.get('*/v1/videos/:video_id/playlist-membership', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const videoId = params.video_id as string;
+    const myPlaylists = dynamicPlaylists.filter((p) => p.owner.id === caller.id);
+    const matchingIds: string[] = [];
+
+    for (const pl of myPlaylists) {
+      const hasItem = dynamicPlaylistItems.some(
+        (it) => it.playlist_id === pl.id && it.item.video_id === videoId,
+      );
+      if (hasItem) {
+        matchingIds.push(pl.id);
+      }
+    }
+
+    return HttpResponse.json({ playlist_ids: matchingIds });
+  }),
+
+  http.get('*/v1/channels/:channel_id/playlists', async ({ params, request }) => {
+    const channelId = params.channel_id as string;
+    const caller = callerFromRequest(request);
+    const isOwner = Boolean(caller && caller.id === channelId);
+
+    let items = dynamicPlaylists.filter((p) => p.owner.id === channelId);
+    if (!isOwner) {
+      items = items.filter((p) => p.visibility === 'PUBLIC' && p.kind !== 'WATCH_LATER');
+    } else {
+      items = [...items].sort((a, b) => {
+        if (a.kind === 'WATCH_LATER') return -1;
+        if (b.kind === 'WATCH_LATER') return 1;
+        return 0;
+      });
+    }
+
+    return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  http.post('*/v1/playlists', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockPlaylistLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Playlist limit reached',
+          status: 409,
+          code: 'PLAYLIST_LIMIT',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as CreatePlaylistRequest;
+    const newPl: Playlist = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-p${Date.now().toString(16).padStart(11, '0').slice(-11)}`,
+      owner: {
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+      },
+      kind: 'REGULAR',
+      title: body.title,
+      description: body.description || '',
+      visibility: body.visibility || 'PRIVATE',
+      item_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    dynamicPlaylists.push(newPl);
+    return HttpResponse.json(newPl, { status: 201 });
+  }),
+
+  http.post('*/v1/playlists/:playlist_id/items/:video_id/move', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const videoId = params.video_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const items = dynamicPlaylistItems
+      .filter((x) => x.playlist_id === playlistId)
+      .sort((a, b) => a.item.position - b.item.position);
+
+    const targetItemIndex = items.findIndex((x) => x.item.video_id === videoId);
+    if (targetItemIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Item not found',
+          status: 404,
+          code: 'ITEM_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const body = (await request.json()) as MovePlaylistItemRequest;
+    const itemEntry = items[targetItemIndex];
+
+    if (body.before_video_id === null) {
+      const maxPos = items.length > 0 ? items[items.length - 1].item.position : 0;
+      itemEntry.item.position = maxPos + 1048576;
+    } else if (body.before_video_id === videoId) {
+      // no-op
+    } else {
+      const destIndex = items.findIndex((x) => x.item.video_id === body.before_video_id);
+      if (destIndex === -1) {
+        return HttpResponse.json(
+          { type: '/problems/not-found', title: 'Destination item not found', status: 404 },
+          { status: 404 },
+        );
+      }
+      const prevPos = destIndex > 0 ? items[destIndex - 1].item.position : 0;
+      const nextPos = items[destIndex].item.position;
+      itemEntry.item.position = Math.floor((prevPos + nextPos) / 2);
+    }
+
+    pl.updated_at = new Date().toISOString();
+    return HttpResponse.json(itemEntry.item);
+  }),
+
+  http.delete('*/v1/playlists/:playlist_id/items/:video_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const videoId = params.video_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const initialLength = dynamicPlaylistItems.length;
+    dynamicPlaylistItems = dynamicPlaylistItems.filter(
+      (x) => !(x.playlist_id === playlistId && x.item.video_id === videoId),
+    );
+
+    if (dynamicPlaylistItems.length < initialLength) {
+      pl.item_count = Math.max(0, pl.item_count - 1);
+      pl.updated_at = new Date().toISOString();
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/playlists/:playlist_id/items', async ({ params, request }) => {
+    const playlistId = params.playlist_id as string;
+    const caller = callerFromRequest(request);
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const isOwner = Boolean(caller && caller.id === pl.owner.id);
+    if ((pl.visibility === 'PRIVATE' || pl.kind === 'WATCH_LATER') && !isOwner) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const items = dynamicPlaylistItems
+      .filter((x) => x.playlist_id === playlistId)
+      .sort((a, b) => a.item.position - b.item.position)
+      .map((x) => x.item);
+
+    return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  http.post('*/v1/playlists/:playlist_id/items', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (mockPlaylistFull) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Playlist full',
+          status: 409,
+          code: 'PLAYLIST_FULL',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as { video_id: string };
+    const existing = dynamicPlaylistItems.find(
+      (x) => x.playlist_id === playlistId && x.item.video_id === body.video_id,
+    );
+
+    if (existing) {
+      return HttpResponse.json(existing.item, { status: 200 });
+    }
+
+    const existingItems = dynamicPlaylistItems.filter((x) => x.playlist_id === playlistId);
+    const maxPos =
+      existingItems.length > 0 ? Math.max(...existingItems.map((x) => x.item.position)) : 0;
+
+    const newItem: PlaylistItem = {
+      video_id: body.video_id,
+      position: maxPos + 1048576,
+      added_at: new Date().toISOString(),
+    };
+
+    dynamicPlaylistItems.push({ playlist_id: playlistId, item: newItem });
+    pl.item_count = (pl.item_count || 0) + 1;
+    pl.updated_at = new Date().toISOString();
+
+    return HttpResponse.json(newItem, { status: 201 });
+  }),
+
+  http.get('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const playlistId = params.playlist_id as string;
+    const caller = callerFromRequest(request);
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const isOwner = Boolean(caller && caller.id === pl.owner.id);
+    if ((pl.visibility === 'PRIVATE' || pl.kind === 'WATCH_LATER') && !isOwner) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.patch('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (pl.kind === 'WATCH_LATER') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Watch later playlist cannot be modified',
+          status: 409,
+          code: 'WATCH_LATER_IMMUTABLE',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as UpdatePlaylistRequest;
+    if (body.title !== undefined) pl.title = body.title;
+    if (body.description !== undefined) pl.description = body.description;
+    if (body.visibility !== undefined) pl.visibility = body.visibility;
+    pl.updated_at = new Date().toISOString();
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.delete('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (pl.kind === 'WATCH_LATER') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Cannot delete watch later playlist',
+          status: 409,
+        },
+        { status: 409 },
+      );
+    }
+
+    dynamicPlaylists = dynamicPlaylists.filter((p) => p.id !== playlistId);
+    dynamicPlaylistItems = dynamicPlaylistItems.filter((x) => x.playlist_id !== playlistId);
+
+    return new HttpResponse(null, { status: 204 });
   }),
 ];
