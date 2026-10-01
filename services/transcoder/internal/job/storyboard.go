@@ -107,7 +107,7 @@ func (p *Pipeline) buildStoryboard(ctx context.Context, in StoryboardInput, outD
 	if gen == nil {
 		gen = p.Tools.Storyboard
 	}
-	dir := filepath.Join(outDir, "storyboard")
+	dir := filepath.Join(outDir, storyboardDir)
 	start := time.Now()
 	_, gerr := gen(ctx, in, dir, durationSec)
 	took = time.Since(start)
@@ -119,5 +119,44 @@ func (p *Pipeline) buildStoryboard(ctx context.Context, in StoryboardInput, outD
 		_ = os.RemoveAll(dir)
 		return "", took, nil
 	}
-	return prefix + "storyboard/" + media.StoryboardVTT, took, nil
+	return StoryboardVTTKey(prefix), took, nil
+}
+
+// storyboardDir is the sub-directory of an attempt's output (and of its key prefix) that holds
+// the sheets and the WebVTT track.
+const storyboardDir = "storyboard"
+
+// StoryboardKeyPrefix is the key prefix of the storyboard files of the attempt whose output lives
+// under prefix (v/{video_id}/a{attempt}/). New videos (pipeline) and the backfill (V5a-b) both
+// publish below it, so the layout is the same.
+func StoryboardKeyPrefix(prefix string) string { return prefix + storyboardDir + "/" }
+
+// StoryboardVTTKey is the media-bucket key of storyboard.vtt for the attempt under prefix.
+func StoryboardVTTKey(prefix string) string { return StoryboardKeyPrefix(prefix) + media.StoryboardVTT }
+
+// UploadStoryboard uploads every file of dir (sheet-NNN.jpg and storyboard.vtt, as Tools.Storyboard
+// wrote them) to StoryboardKeyPrefix(prefix) with the Content-Type and Cache-Control the pipeline
+// uses for them. The track goes last, so a half-uploaded storyboard never has a track that
+// points at missing sheets. It returns the keys it uploaded (also on error, for cleanup).
+func UploadStoryboard(ctx context.Context, objs Objects, bucket, prefix, dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != media.StoryboardVTT {
+			names = append(names, e.Name())
+		}
+	}
+	names = append(names, media.StoryboardVTT)
+	var keys []string
+	for _, name := range names {
+		key := StoryboardKeyPrefix(prefix) + name
+		keys = append(keys, key) // recorded before the call: a failed upload may still have left an object
+		if err := objs.UploadFile(ctx, bucket, key, filepath.Join(dir, name), contentType(name), cacheControlValue); err != nil {
+			return keys, &StorageError{Op: "upload " + name, Err: err}
+		}
+	}
+	return keys, nil
 }

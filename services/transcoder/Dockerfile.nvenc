@@ -10,7 +10,8 @@ COPY libs/go libs/go
 COPY services/transcoder services/transcoder
 RUN cd services/transcoder && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/transcoder ./cmd/transcoder \
- && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/replay-dlq ./cmd/replay-dlq
+ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/replay-dlq ./cmd/replay-dlq \
+ &&CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/storyboard-backfill ./cmd/storyboard-backfill
 
 # FFmpeg pinned to a dated BtbN FFmpeg-Builds release (static GPL, nvenc/cuda), the same
 # build as Dockerfile.cpu and as validated on gpu-01: FFmpeg n7.1.5-12-g1fdbca85aa,
@@ -34,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && useradd --system --uid 10001 --create-home --home-dir /home/transcoder transcoder \
  && mkdir -p /scratch /archive && chown transcoder /scratch /archive
 COPY --from=ffmpeg /ffmpeg/ffmpeg /ffmpeg/ffprobe /usr/local/bin/
-COPY --from=build /out/transcoder /out/replay-dlq /usr/local/bin/
+COPY --from=build /out/transcoder /out/replay-dlq /out/storyboard-backfill /usr/local/bin/
 # Without the "video" capability NVENC is not visible inside the container.
 ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
