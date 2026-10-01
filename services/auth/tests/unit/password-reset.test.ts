@@ -125,6 +125,51 @@ describe('password-reset routes (unit)', () => {
       expect(store.mail_queue).toHaveLength(0);
     });
 
+    it('enforces a timing floor of >= 240ms for both unknown email and active user', async () => {
+      const passwordHash = await hashPassword('CurrentPassword123!');
+      store.users.push({
+        id: 'user-timing-1',
+        email: 'timing@winkey.vn',
+        email_verified_at: null,
+        password_hash: passwordHash,
+        handle: 'timing',
+        display_name: 'Timing',
+        avatar_key: null,
+        roles: ['viewer'],
+        status: 'ACTIVE',
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      // 1. Unknown email
+      const startUnknown = Date.now();
+      const resUnknown = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/forgot',
+        payload: {
+          email: 'unknown-timing@winkey.vn',
+        },
+      });
+      const elapsedUnknown = Date.now() - startUnknown;
+      expect(resUnknown.statusCode).toBe(202);
+      expect(elapsedUnknown).toBeGreaterThanOrEqual(240);
+
+      // 2. Active user
+      const startActive = Date.now();
+      const resActive = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/forgot',
+        payload: {
+          email: 'timing@winkey.vn',
+        },
+      });
+      const elapsedActive = Date.now() - startActive;
+      expect(resActive.statusCode).toBe(202);
+      expect(elapsedActive).toBeGreaterThanOrEqual(240);
+    });
+
     it('enforces 3 reset tokens per user per hour cap (extra requests return 202 and send nothing)', async () => {
       store.users.push({
         id: 'user-cap-1',
@@ -499,5 +544,63 @@ describe('password-reset routes (unit)', () => {
       expect(store.mail_queue[0].locale).toBe('vi');
       expect(store.mail_queue[0].params).toBeNull();
     });
+
+    it('two concurrent reset requests with same token return exactly one 204 and one 400', async () => {
+      const passwordHash = await hashPassword('CurrentPassword123!');
+      const user = {
+        id: 'user-conc-1',
+        email: 'conc@winkey.vn',
+        email_verified_at: null,
+        password_hash: passwordHash,
+        handle: 'conc_user',
+        display_name: 'Conc User',
+        avatar_key: null,
+        roles: ['viewer'] as any,
+        status: 'ACTIVE' as any,
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      store.users.push(user);
+
+      const t1 = generateEmailToken('RESET_PASSWORD');
+      store.email_tokens.push({
+        id: uuidv7(),
+        user_id: user.id,
+        purpose: 'RESET_PASSWORD',
+        token_hash: t1.tokenHash,
+        email: user.email,
+        created_at: new Date(),
+        expires_at: t1.expiresAt,
+        used_at: null,
+      });
+
+      const [res1, res2] = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: t1.rawToken,
+            new_password: 'NewStrongPassword123!_A',
+          },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: t1.rawToken,
+            new_password: 'NewStrongPassword123!_B',
+          },
+        }),
+      ]);
+
+      const statusCodes = [res1.statusCode, res2.statusCode].sort();
+      expect(statusCodes).toEqual([204, 400]);
+
+      const badRes = res1.statusCode === 400 ? res1 : res2;
+      expect(badRes.json().code).toBe('INVALID_TOKEN');
+    });
   });
 });
+

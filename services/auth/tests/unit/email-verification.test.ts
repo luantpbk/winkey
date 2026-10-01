@@ -445,5 +445,55 @@ describe('email-verification routes (unit)', () => {
       expect(reuseRes.statusCode).toBe(400);
       expect(reuseRes.json().code).toBe('INVALID_TOKEN');
     });
+
+    it('two concurrent verify requests with same token return exactly one 204 and one 400', async () => {
+      const { rawToken, tokenHash, expiresAt } = generateEmailToken('VERIFY_EMAIL');
+      const user = {
+        id: 'user-conc-v',
+        email: 'conc-v@winkey.vn',
+        email_verified_at: null,
+        password_hash: 'hash',
+        handle: 'conc_v',
+        display_name: 'Conc V',
+        avatar_key: null,
+        roles: ['viewer' as const],
+        status: 'ACTIVE' as const,
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      store.users.push(user);
+      store.email_tokens.push({
+        id: uuidv7(),
+        user_id: user.id,
+        purpose: 'VERIFY_EMAIL',
+        token_hash: tokenHash,
+        email: user.email,
+        created_at: new Date(),
+        expires_at: expiresAt,
+        used_at: null,
+      });
+
+      const [res1, res2] = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/email/verify',
+          payload: { token: rawToken },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/email/verify',
+          payload: { token: rawToken },
+        }),
+      ]);
+
+      const statusCodes = [res1.statusCode, res2.statusCode].sort();
+      expect(statusCodes).toEqual([204, 400]);
+
+      const badRes = res1.statusCode === 400 ? res1 : res2;
+      expect(badRes.json().code).toBe('INVALID_TOKEN');
+    });
   });
 });
+

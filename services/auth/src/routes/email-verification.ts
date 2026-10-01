@@ -149,47 +149,39 @@ export const emailVerificationRoute: FastifyPluginAsync<{
     }
 
     const tokenHash = hashEmailToken(token);
-    const now = new Date();
 
-    const tokenRow = await db
-      .selectFrom('auth.email_tokens')
-      .selectAll()
-      .where('token_hash', '=', tokenHash)
-      .executeTakeFirst();
-
-    if (
-      !tokenRow ||
-      tokenRow.purpose !== 'VERIFY_EMAIL' ||
-      tokenRow.used_at !== null ||
-      tokenRow.expires_at <= now
-    ) {
-      throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
-    }
-
-    // Lookup user
-    const user = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', tokenRow.user_id)
-      .executeTakeFirst();
-
-    if (
-      !user ||
-      user.status !== 'ACTIVE' ||
-      user.email.toLowerCase() !== tokenRow.email.toLowerCase()
-    ) {
-      throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
-    }
-
-    // Mark token used and set email_verified_at in one transaction
+    // Atomically claim the token and verify user in one transaction
     await db.transaction().execute(async (trx) => {
-      const txNow = new Date();
-
-      await trx
+      const claimed = await trx
         .updateTable('auth.email_tokens')
-        .set({ used_at: txNow })
-        .where('id', '=', tokenRow.id)
-        .execute();
+        .set({ used_at: sql`now()` })
+        .where('token_hash', '=', tokenHash)
+        .where('purpose', '=', 'VERIFY_EMAIL')
+        .where('used_at', 'is', null)
+        .where('expires_at', '>', sql<Date>`now()`)
+        .returning(['user_id', 'email'])
+        .executeTakeFirst();
+
+      if (!claimed) {
+        throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
+      }
+
+      const user = await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', claimed.user_id)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (
+        !user ||
+        user.status !== 'ACTIVE' ||
+        user.email.toLowerCase() !== claimed.email.toLowerCase()
+      ) {
+        throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
+      }
+
+      const txNow = new Date();
 
       await trx
         .updateTable('auth.users')

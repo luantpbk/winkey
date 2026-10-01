@@ -36,6 +36,7 @@ export const passwordResetRoute: FastifyPluginAsync<{
 }> = async (fastify, { db, env, rateLimiter, revocationService }) => {
   // 1. POST /v1/auth/password/forgot (requestPasswordReset)
   fastify.post('/v1/auth/password/forgot', async (request, reply) => {
+    const started = process.hrtime.bigint();
     const clientIp = request.ip || '127.0.0.1';
 
     // Rate limit per IP like login (20/min)
@@ -115,6 +116,13 @@ export const passwordResetRoute: FastifyPluginAsync<{
       generateEmailToken('RESET_PASSWORD');
     }
 
+    // Floor timing mitigation: minimum 250 ms for any 202 response
+    const floorMs = 250;
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    if (elapsedMs < floorMs) {
+      await new Promise((r) => setTimeout(r, floorMs - elapsedMs));
+    }
+
     // Always answers 202 Accepted with empty body
     return reply.status(202).send();
   });
@@ -146,49 +154,51 @@ export const passwordResetRoute: FastifyPluginAsync<{
     }
 
     const tokenHash = hashEmailToken(token);
-    const now = new Date();
-
-    const tokenRow = await db
-      .selectFrom('auth.email_tokens')
-      .selectAll()
-      .where('token_hash', '=', tokenHash)
-      .executeTakeFirst();
-
-    if (
-      !tokenRow ||
-      tokenRow.purpose !== 'RESET_PASSWORD' ||
-      tokenRow.used_at !== null ||
-      tokenRow.expires_at <= now
-    ) {
-      throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
-    }
-
-    // Lookup user
-    const user = await db
-      .selectFrom('auth.users')
-      .selectAll()
-      .where('id', '=', tokenRow.user_id)
-      .executeTakeFirst();
-
-    if (
-      !user ||
-      user.status !== 'ACTIVE' ||
-      user.email.toLowerCase() !== tokenRow.email.toLowerCase()
-    ) {
-      throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
-    }
-
+    // Hash password with argon2id BEFORE opening transaction to avoid holding locks
     const newPasswordHash = await hashPassword(new_password);
     const acceptLang = request.headers['accept-language'];
     const locale = acceptLang?.toLowerCase().startsWith('en') ? 'en' : 'vi';
 
-    // In one transaction:
-    // - set new password
-    // - mark every unused reset token of the user as used
-    // - set email_verified_at if NULL
-    // - revoke every refresh family
-    // - queue PASSWORD_CHANGED mail
+    let targetUserId: string;
+
+    // In one atomic transaction:
+    // 1. Claim the token conditionally (UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING ...)
+    // 2. Lock the user FOR UPDATE and verify ACTIVE and matching email
+    // 3. Update password_hash, email_verified_at
+    // 4. Mark all other unused RESET tokens of this user as used
+    // 5. Revoke every refresh family
+    // 6. Queue PASSWORD_CHANGED mail
     await db.transaction().execute(async (trx) => {
+      const claimed = await trx
+        .updateTable('auth.email_tokens')
+        .set({ used_at: sql`now()` })
+        .where('token_hash', '=', tokenHash)
+        .where('purpose', '=', 'RESET_PASSWORD')
+        .where('used_at', 'is', null)
+        .where('expires_at', '>', sql<Date>`now()`)
+        .returning(['user_id', 'email'])
+        .executeTakeFirst();
+
+      if (!claimed) {
+        throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
+      }
+
+      const user = await trx
+        .selectFrom('auth.users')
+        .selectAll()
+        .where('id', '=', claimed.user_id)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (
+        !user ||
+        user.status !== 'ACTIVE' ||
+        user.email.toLowerCase() !== claimed.email.toLowerCase()
+      ) {
+        throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
+      }
+
+      targetUserId = user.id;
       const txNow = new Date();
 
       await trx
@@ -229,7 +239,7 @@ export const passwordResetRoute: FastifyPluginAsync<{
     });
 
     // Revoke user in Valkey AFTER DB commit (ADR-019)
-    await revocationService.revokeUser(user.id);
+    await revocationService.revokeUser(targetUserId!);
 
     return reply.status(204).send();
   });

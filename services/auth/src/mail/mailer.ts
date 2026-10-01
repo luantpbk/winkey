@@ -31,7 +31,11 @@ export class NodeMailerSender implements MailSender {
     this.logger = logger;
 
     if (this.transportType === 'smtp' && env.SMTP_URL) {
-      this.transporter = nodemailer.createTransport(env.SMTP_URL);
+      this.transporter = nodemailer.createTransport({
+        url: env.SMTP_URL,
+        connectionTimeout: 10_000,
+        socketTimeout: 10_000,
+      });
     }
   }
 

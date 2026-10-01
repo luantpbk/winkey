@@ -21,6 +21,7 @@ import { authRegistry } from '../../src/revocation/revocation.js';
 import type { Counter } from '@winkey/metrics';
 import { MailQueueWorker } from '../../src/mail/worker.js';
 import { NodeMailerSender } from '../../src/mail/mailer.js';
+import { generateEmailToken } from '../../src/tokens/email-tokens.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1917,5 +1918,63 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         verifyClient.release();
       }
     });
+
+    it('Task A6: two concurrent resetPassword requests with same token return exactly one 204 and one 400', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      // 1. Register user
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'conc_pg@winkey.vn',
+          password: 'Password123!',
+          handle: 'conc_pg',
+          display_name: 'Conc PG User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const userId = regRes.json().user.id;
+
+      // 2. Insert reset token into PostgreSQL
+      const { rawToken, tokenHash, expiresAt } = generateEmailToken('RESET_PASSWORD');
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO auth.email_tokens (id, user_id, purpose, token_hash, email, expires_at)
+           VALUES ($1, $2, 'RESET_PASSWORD', $3, 'conc_pg@winkey.vn', $4)`,
+          [uuidv7(), userId, tokenHash, expiresAt],
+        );
+      } finally {
+        client.release();
+      }
+
+      // 3. Two concurrent resetPassword requests
+      const [res1, res2] = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: rawToken,
+            new_password: 'NewConcPassword123!_A',
+          },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: rawToken,
+            new_password: 'NewConcPassword123!_B',
+          },
+        }),
+      ]);
+
+      const statusCodes = [res1.statusCode, res2.statusCode].sort();
+      expect(statusCodes).toEqual([204, 400]);
+
+      const badRes = res1.statusCode === 400 ? res1 : res2;
+      expect(badRes.json().code).toBe('INVALID_TOKEN');
+    });
   });
 });
+

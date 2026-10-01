@@ -434,12 +434,32 @@ export function createMockDb(store: MockStore = createMockStore()): {
       // 8e. UPDATE "auth"."email_tokens"
       if (sql.includes('update "auth"."email_tokens"')) {
         let updatedCount = 0;
+        if (sql.includes('"token_hash" =')) {
+          const targetHash = Buffer.isBuffer(params[0]) ? params[0] : Buffer.from(params[0]);
+          const purpose = params.length > 1 ? String(params[1]) : undefined;
+          const token = store.email_tokens.find((t) => {
+            if (!t.token_hash.equals(targetHash)) return false;
+            if (purpose && t.purpose !== purpose) return false;
+            if (sql.includes('"used_at" is null') && t.used_at !== null) return false;
+            if (sql.includes('"expires_at" >') && t.expires_at <= new Date()) return false;
+            return true;
+          });
+          if (token) {
+            token.used_at = new Date();
+            updatedCount++;
+            if (sql.toLowerCase().includes('returning')) {
+              return { rows: [{ user_id: token.user_id, email: token.email }], rowCount: 1 };
+            }
+          }
+          return { rows: [], rowCount: updatedCount };
+        }
+
         if (
           sql.includes('"user_id" =') &&
           sql.includes('"purpose" =') &&
           sql.includes('"used_at" is null')
         ) {
-          const usedAt = new Date(params[0]);
+          const usedAt = params[0] ? new Date(params[0]) : new Date();
           const userId = String(params[1]);
           const purpose = String(params[2]);
           for (const token of store.email_tokens) {
@@ -449,7 +469,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
             }
           }
         } else if (sql.includes('"id" =')) {
-          const usedAt = new Date(params[0]);
+          const usedAt = params[0] ? new Date(params[0]) : new Date();
           const tokenId = String(params[1]);
           const token = store.email_tokens.find((t) => t.id === tokenId);
           if (token) {
