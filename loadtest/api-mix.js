@@ -35,6 +35,13 @@ export const options = {
 
 const TARGET_URL = __ENV.TARGET_URL || 'http://127.0.0.1:8080';
 
+const isLocalhost =
+  TARGET_URL.includes('localhost') ||
+  TARGET_URL.includes('127.0.0.1') ||
+  TARGET_URL.includes('[::1]');
+const defaultPassword = isLocalhost ? 'Password123!' : undefined;
+const envPassword = __ENV.LOADTEST_USER_PASSWORD || defaultPassword;
+
 const rawSeedData = (function () {
   try {
     return JSON.parse(open('./seed.json'));
@@ -60,7 +67,12 @@ export function setup() {
     for (let i = 0; i < seedUsers.length; i++) {
       const u = seedUsers[i];
       const email = u.email || `${u.handle}@example.com`;
-      const password = u.password || 'Password123!';
+      const password = u.password || envPassword;
+      if (!password) {
+        throw new Error(
+          'LOADTEST_USER_PASSWORD environment variable is required when TARGET_URL is not localhost.',
+        );
+      }
       let loggedIn = false;
 
       for (let attempt = 0; attempt < 3; attempt++) {

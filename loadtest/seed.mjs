@@ -10,6 +10,19 @@ const CLIP_PATH = process.env.CLIP_PATH || path.join(__dirname, '../systest/.run
 const NUM_VIDEOS = parseInt(process.env.NUM_VIDEOS || '5', 10);
 const NUM_USERS = parseInt(process.env.NUM_USERS || '5', 10);
 
+const isLocalhost =
+  GATEWAY_URL.includes('localhost') ||
+  GATEWAY_URL.includes('127.0.0.1') ||
+  GATEWAY_URL.includes('[::1]');
+const defaultPassword = isLocalhost ? 'Password123!' : undefined;
+const seedPassword = process.env.LOADTEST_USER_PASSWORD || defaultPassword;
+
+if (!seedPassword) {
+  throw new Error(
+    '[seed] LOADTEST_USER_PASSWORD environment variable is required when GATEWAY_URL is not localhost.',
+  );
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchWithRetry(
@@ -67,14 +80,29 @@ async function main() {
   for (let i = 0; i < NUM_USERS; i++) {
     const handle = `user_lt_seed_${i}`;
     const email = `${handle}@example.com`;
-    const password = 'Password123!';
+    const password = seedPassword;
+    const clientIp = `10.42.0.${(i % 250) + 1}`;
+    const AUTH_URL = process.env.AUTH_URL || 'http://127.0.0.1:3001';
 
     // Try login first if user already exists
-    const loginRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+    let loginRes = await fetch(`${AUTH_URL}/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': clientIp,
+      },
       body: JSON.stringify({ email, password }),
     });
+    if (loginRes.status !== 200 && password !== 'Password123!') {
+      loginRes = await fetch(`${AUTH_URL}/v1/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': clientIp,
+        },
+        body: JSON.stringify({ email, password: 'Password123!' }),
+      });
+    }
 
     if (loginRes.status === 200) {
       const loginData = await loginRes.json();
@@ -82,22 +110,25 @@ async function main() {
         id: loginData.user.id,
         handle: loginData.user.handle,
         email,
-        password,
+        password: 'Password123!',
         token: loginData.access_token,
       });
       console.log(`[seed] User ${handle} logged in successfully.`);
-      await sleep(100);
+      await sleep(10);
       continue;
     }
 
-    // Register user if login failed
+    // Register user if login failed (target auth-svc directly so XFF is preserved)
     let regRes;
     try {
       regRes = await fetchWithRetry(
-        `${GATEWAY_URL}/v1/auth/register`,
+        `${AUTH_URL}/v1/auth/register`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Forwarded-For': clientIp,
+          },
           body: JSON.stringify({
             email,
             password,
@@ -118,18 +149,31 @@ async function main() {
       console.log(`[seed] User ${handle} registered successfully.`);
     } catch (err) {
       if (err.message && err.message.includes('409')) {
-        const retryLogin = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+        let retryLogin = await fetch(`${AUTH_URL}/v1/auth/login`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Forwarded-For': clientIp,
+          },
           body: JSON.stringify({ email, password }),
         });
+        if (retryLogin.status !== 200 && password !== 'Password123!') {
+          retryLogin = await fetch(`${AUTH_URL}/v1/auth/login`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Forwarded-For': clientIp,
+            },
+            body: JSON.stringify({ email, password: 'Password123!' }),
+          });
+        }
         if (retryLogin.status === 200) {
           const lData = await retryLogin.json();
           users.push({
             id: lData.user.id,
             handle: lData.user.handle,
             email,
-            password,
+            password: 'Password123!',
             token: lData.access_token,
           });
           console.log(`[seed] User ${handle} recovered via login after 409.`);
@@ -140,7 +184,7 @@ async function main() {
         throw err;
       }
     }
-    await sleep(200);
+    await sleep(10);
   }
   console.log(`[seed] Successfully prepared ${users.length} users.`);
 
