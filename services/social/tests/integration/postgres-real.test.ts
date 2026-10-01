@@ -71,6 +71,11 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateNotificationPage: any;
   let validateUnreadCount: any;
   let validateProblem: any;
+  let validatePlaylist: any;
+  let validatePlaylistPage: any;
+  let validatePlaylistItem: any;
+  let validatePlaylistItemPage: any;
+  let validatePlaylistMembership: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -127,6 +132,21 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     )!;
     validateProblem = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+    )!;
+    validatePlaylist = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Playlist',
+    )!;
+    validatePlaylistPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PlaylistPage',
+    )!;
+    validatePlaylistItem = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PlaylistItem',
+    )!;
+    validatePlaylistItemPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PlaylistItemPage',
+    )!;
+    validatePlaylistMembership = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PlaylistMembership',
     )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
@@ -2289,5 +2309,561 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       janitorNewId,
     ]);
     expect(checkNew.rows.length).toBe(1);
+  }, 120_000);
+
+  // -------------------------------------------------------------
+  // Task PL1 (Playlists & Watch Later Integration Tests)
+  // -------------------------------------------------------------
+  it('Playlists and Watch Later Integration Tests (Task PL1 / ADR-024)', async () => {
+    expect(isReady).toBe(true);
+    expect(pool).not.toBeNull();
+    expect(app).not.toBeNull();
+    if (!pool || !app) return;
+
+    // Setup 4 test users in auth.users and auth.public_profiles
+    const plUser1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be001';
+    const plUser2 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be002';
+    const plUser3 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be003';
+    const plUser4 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be004';
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES
+        ('${plUser1}', 'pl_u1@winkey.vn', 'pl_u1', 'PL User 1', 'ACTIVE'),
+        ('${plUser2}', 'pl_u2@winkey.vn', 'pl_u2', 'PL User 2', 'ACTIVE'),
+        ('${plUser3}', 'pl_u3@winkey.vn', 'pl_u3', 'PL User 3', 'ACTIVE'),
+        ('${plUser4}', 'pl_u4@winkey.vn', 'pl_u4', 'PL User 4', 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // 1. CRUD + ownership (other user -> 404 on get of PRIVATE, 404 on update/delete)
+    // Create private playlist by plUser1
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: {
+        title: 'Secret Tunes',
+        description: 'My private jams',
+        visibility: 'PRIVATE',
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+    expect(validatePlaylist(createRes.json())).toBe(true);
+    const privatePl = createRes.json();
+    expect(privatePl.visibility).toBe('PRIVATE');
+    expect(privatePl.item_count).toBe(0);
+
+    // Other user (plUser2) -> 404 on get of PRIVATE (never 403)
+    const getOtherRes = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${privatePl.id}`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(getOtherRes.statusCode).toBe(404);
+    expect(validateProblem(getOtherRes.json())).toBe(true);
+    expect(getOtherRes.json().code).toBe('PLAYLIST_NOT_FOUND');
+
+    // Other user (plUser2) -> 404 on update/delete
+    const updateOtherRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/playlists/${privatePl.id}`,
+      headers: { 'x-user-id': plUser2 },
+      payload: { title: 'Hijacked' },
+    });
+    expect(updateOtherRes.statusCode).toBe(404);
+    expect(validateProblem(updateOtherRes.json())).toBe(true);
+
+    const deleteOtherRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/playlists/${privatePl.id}`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(deleteOtherRes.statusCode).toBe(404);
+    expect(validateProblem(deleteOtherRes.json())).toBe(true);
+
+    // Owner (plUser1) -> 200 on get
+    const getOwnerRes = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${privatePl.id}`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(getOwnerRes.statusCode).toBe(200);
+    expect(validatePlaylist(getOwnerRes.json())).toBe(true);
+    expect(getOwnerRes.headers['cache-control']).toBe('private, no-store');
+
+    // Owner (plUser1) -> 200 on update
+    const updateOwnerRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/playlists/${privatePl.id}`,
+      headers: { 'x-user-id': plUser1 },
+      payload: {
+        title: 'Public Tunes',
+        description: 'Now public!',
+        visibility: 'PUBLIC',
+      },
+    });
+    expect(updateOwnerRes.statusCode).toBe(200);
+    expect(validatePlaylist(updateOwnerRes.json())).toBe(true);
+    expect(updateOwnerRes.json().title).toBe('Public Tunes');
+    expect(updateOwnerRes.json().visibility).toBe('PUBLIC');
+
+    // 2. UNLISTED readable by link but absent from listChannelPlaylists
+    const createUnlistedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: {
+        title: 'Unlisted Shared',
+        visibility: 'UNLISTED',
+      },
+    });
+    expect(createUnlistedRes.statusCode).toBe(201);
+    const unlistedPl = createUnlistedRes.json();
+    expect(unlistedPl.visibility).toBe('UNLISTED');
+
+    // Outsider (plUser2) can view UNLISTED directly by link
+    const getUnlistedRes = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${unlistedPl.id}`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(getUnlistedRes.statusCode).toBe(200);
+    expect(validatePlaylist(getUnlistedRes.json())).toBe(true);
+
+    // Outsider (plUser2) listing channel playlists of plUser1: sees PUBLIC only, UNLISTED is absent
+    const listChannelOutsider = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${plUser1}/playlists`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(listChannelOutsider.statusCode).toBe(200);
+    expect(validatePlaylistPage(listChannelOutsider.json())).toBe(true);
+    const channelItems = listChannelOutsider.json().items;
+    expect(channelItems.some((p: any) => p.id === unlistedPl.id)).toBe(false);
+    expect(channelItems.every((p: any) => p.visibility === 'PUBLIC')).toBe(true);
+
+    // Owner (plUser1) listing own channel playlists: UNLISTED is present
+    const listChannelOwner = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${plUser1}/playlists`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(listChannelOwner.statusCode).toBe(200);
+    expect(listChannelOwner.json().items.some((p: any) => p.id === unlistedPl.id)).toBe(true);
+
+    // 3. Watch-later created once under 20 concurrent getWatchLater calls, cannot be updated/deleted (409), is PRIVATE
+    const concurrentWlCalls = Array.from({ length: 20 }, () =>
+      app!.inject({
+        method: 'GET',
+        url: '/v1/me/watch-later',
+        headers: { 'x-user-id': plUser3 },
+      }),
+    );
+    const wlResults = await Promise.all(concurrentWlCalls);
+    for (const res of wlResults) {
+      expect(res.statusCode).toBe(200);
+      expect(validatePlaylist(res.json())).toBe(true);
+      expect(res.json().kind).toBe('WATCH_LATER');
+      expect(res.json().title).toBe('Xem sau');
+      expect(res.json().visibility).toBe('PRIVATE');
+    }
+    const distinctWlIds = new Set(wlResults.map((r) => r.json().id));
+    expect(distinctWlIds.size).toBe(1);
+    const watchLaterId = wlResults[0].json().id;
+
+    // Check DB rows count for WATCH_LATER
+    const wlDbRows = await pool.query(
+      `SELECT count(*)::int as count FROM social.playlists WHERE owner_id = $1 AND kind = 'WATCH_LATER'`,
+      [plUser3],
+    );
+    expect(wlDbRows.rows[0].count).toBe(1);
+
+    // Attempt update watch later -> 409 WATCH_LATER_IMMUTABLE
+    const patchWlRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/playlists/${watchLaterId}`,
+      headers: { 'x-user-id': plUser3 },
+      payload: { title: 'Renamed WL' },
+    });
+    expect(patchWlRes.statusCode).toBe(409);
+    expect(validateProblem(patchWlRes.json())).toBe(true);
+    expect(patchWlRes.json().code).toBe('WATCH_LATER_IMMUTABLE');
+
+    // Attempt delete watch later -> 409 WATCH_LATER_IMMUTABLE
+    const deleteWlRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/playlists/${watchLaterId}`,
+      headers: { 'x-user-id': plUser3 },
+    });
+    expect(deleteWlRes.statusCode).toBe(409);
+    expect(validateProblem(deleteWlRes.json())).toBe(true);
+    expect(deleteWlRes.json().code).toBe('WATCH_LATER_IMMUTABLE');
+
+    // 4. Add idempotent (200 on repeat, position unchanged)
+    const testVideo1 = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${testVideo1}', '${plUser1}', false, 'PUBLIC', now())
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // Add first time -> 201
+    const add1Res = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: testVideo1 },
+    });
+    expect(add1Res.statusCode).toBe(201);
+    expect(validatePlaylistItem(add1Res.json())).toBe(true);
+    const addedItem1 = add1Res.json();
+    expect(addedItem1.position).toBe(1048576);
+
+    // Add second time (idempotent) -> 200, position unchanged
+    const addRepeatRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: testVideo1 },
+    });
+    expect(addRepeatRes.statusCode).toBe(200);
+    expect(validatePlaylistItem(addRepeatRes.json())).toBe(true);
+    expect(addRepeatRes.json().position).toBe(addedItem1.position);
+
+    // Verify item_count in DB remains 1
+    const plItemCount = await pool.query('SELECT item_count FROM social.playlists WHERE id = $1', [
+      privatePl.id,
+    ]);
+    expect(plItemCount.rows[0].item_count).toBe(1);
+
+    // Verify playlist membership
+    const membRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${testVideo1}/playlist-membership`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(membRes.statusCode).toBe(200);
+    expect(validatePlaylistMembership(membRes.json())).toBe(true);
+    expect(membRes.json().playlist_ids).toContain(privatePl.id);
+
+    // 5. Unreadable video -> 404 VIDEO_NOT_FOUND
+    // Unknown video
+    const unknownVidRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: uuidv7() },
+    });
+    expect(unknownVidRes.statusCode).toBe(404);
+    expect(unknownVidRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // Hidden video
+    const hiddenVid = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${hiddenVid}', '${plUser1}', true, 'PUBLIC', now())
+    `);
+    const hiddenVidRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: hiddenVid },
+    });
+    expect(hiddenVidRes.statusCode).toBe(404);
+    expect(hiddenVidRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // PRIVATE video owned by plUser2 -> plUser1 cannot add it
+    const privateVidUser2 = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${privateVidUser2}', '${plUser2}', false, 'PRIVATE', now())
+    `);
+    const privateVidRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: privateVidUser2 },
+    });
+    expect(privateVidRes.statusCode).toBe(404);
+    expect(privateVidRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // 6. Hidden/PRIVATE video filtered from items for others but shown to its owner
+    const privateVidUser1 = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${privateVidUser1}', '${plUser1}', false, 'PRIVATE', now())
+    `);
+    // plUser1 adds their own PRIVATE video
+    const addPrivateVidRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: privateVidUser1 },
+    });
+    expect(addPrivateVidRes.statusCode).toBe(201);
+
+    // List items by owner (plUser1) -> both testVideo1 and privateVidUser1 are returned
+    const listOwnerItems = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(listOwnerItems.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(listOwnerItems.json())).toBe(true);
+    expect(listOwnerItems.json().items).toHaveLength(2);
+
+    // List items by other user (plUser2) -> only testVideo1 is returned (privateVidUser1 filtered out)
+    const listOutsiderItems = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${privatePl.id}/items`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(listOutsiderItems.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(listOutsiderItems.json())).toBe(true);
+    expect(listOutsiderItems.json().items).toHaveLength(1);
+    expect(listOutsiderItems.json().items[0].video_id).toBe(testVideo1);
+
+    // 7. video.deleted cascade removes items and fixes item_count
+    await pool.query('DELETE FROM social.videos WHERE id = $1', [privateVidUser1]);
+    const plAfterVidDelete = await pool.query(
+      'SELECT item_count FROM social.playlists WHERE id = $1',
+      [privatePl.id],
+    );
+    expect(plAfterVidDelete.rows[0].item_count).toBe(1);
+
+    // 8. 20 concurrent appends -> 20 distinct positions in call order-independent but gap-free-of-duplicates
+    const concurrentPlRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: { title: 'Concurrent Append Test', visibility: 'PUBLIC' },
+    });
+    const concPlId = concurrentPlRes.json().id;
+
+    const concVideoIds: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const vid = uuidv7();
+      concVideoIds.push(vid);
+      await pool.query(`
+        INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+        VALUES ('${vid}', '${plUser1}', false, 'PUBLIC', now())
+      `);
+    }
+
+    const appendPromises = concVideoIds.map((vid) =>
+      app!.inject({
+        method: 'POST',
+        url: `/v1/playlists/${concPlId}/items`,
+        headers: { 'x-user-id': plUser1 },
+        payload: { video_id: vid },
+      }),
+    );
+    const appendResults = await Promise.all(appendPromises);
+    for (const res of appendResults) {
+      expect(res.statusCode).toBe(201);
+    }
+
+    const positionsRes = await pool.query(
+      'SELECT video_id, position FROM social.playlist_items WHERE playlist_id = $1 ORDER BY position ASC',
+      [concPlId],
+    );
+    expect(positionsRes.rows).toHaveLength(20);
+    const positions = positionsRes.rows.map((r) => Number(r.position));
+    const uniquePositions = new Set(positions);
+    expect(uniquePositions.size).toBe(20);
+    // Every position must be strictly ascending
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i]).toBeGreaterThan(positions[i - 1]);
+    }
+
+    // 9. Move to front/middle/end
+    const mvVid1 = concVideoIds[0];
+    const mvVid2 = concVideoIds[1];
+
+    // Move to end: before_video_id: null
+    const moveToEndRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${concPlId}/items/${mvVid1}/move`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { before_video_id: null },
+    });
+    expect(moveToEndRes.statusCode).toBe(200);
+    const endPos = moveToEndRes.json().position;
+    const maxOtherPos = Math.max(
+      ...positionsRes.rows.filter((r) => r.video_id !== mvVid1).map((r) => Number(r.position)),
+    );
+    expect(endPos).toBeGreaterThan(maxOtherPos);
+
+    // Move to front: before_video_id: mvVid2 (which is now first)
+    const moveToFrontRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${concPlId}/items/${mvVid1}/move`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { before_video_id: mvVid2 },
+    });
+    expect(moveToFrontRes.statusCode).toBe(200);
+    expect(moveToFrontRes.json().position).toBeLessThan(positions[1]);
+
+    // Move before self: no-op 200
+    const moveSelfRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${concPlId}/items/${mvVid1}/move`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { before_video_id: mvVid1 },
+    });
+    expect(moveSelfRes.statusCode).toBe(200);
+
+    // 10. Forced renumber (insert positions 1, 2, 3 by SQL, move between 1 and 2) keeps order
+    const renumberPlRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: { title: 'Renumber Test', visibility: 'PUBLIC' },
+    });
+    const rnPlId = renumberPlRes.json().id;
+    const rnV1 = concVideoIds[3];
+    const rnV2 = concVideoIds[4];
+    const rnV3 = concVideoIds[5];
+
+    await pool.query(`
+      INSERT INTO social.playlist_items (playlist_id, video_id, position)
+      VALUES
+        ('${rnPlId}', '${rnV1}', 1),
+        ('${rnPlId}', '${rnV2}', 2),
+        ('${rnPlId}', '${rnV3}', 3)
+    `);
+
+    // Move rnV3 before rnV2 (between rnV1 [pos 1] and rnV2 [pos 2]) -> no integer gap -> renumber triggered
+    const renumberMoveRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${rnPlId}/items/${rnV3}/move`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { before_video_id: rnV2 },
+    });
+    expect(renumberMoveRes.statusCode).toBe(200);
+
+    const renumberedItems = await pool.query(
+      'SELECT video_id, position FROM social.playlist_items WHERE playlist_id = $1 ORDER BY position ASC',
+      [rnPlId],
+    );
+    expect(renumberedItems.rows.map((r) => r.video_id)).toEqual([rnV1, rnV3, rnV2]);
+    expect(Number(renumberedItems.rows[0].position)).toBe(1048576);
+    expect(Number(renumberedItems.rows[1].position)).toBe(2097152);
+    expect(Number(renumberedItems.rows[2].position)).toBe(3145728);
+
+    // 11. 5 000 cap -> 409 PLAYLIST_FULL
+    await pool.query('UPDATE social.playlists SET item_count = 5000 WHERE id = $1', [rnPlId]);
+    const extraVid = concVideoIds[6];
+    const capRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${rnPlId}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: extraVid },
+    });
+    expect(capRes.statusCode).toBe(409);
+    expect(validateProblem(capRes.json())).toBe(true);
+    expect(capRes.json().code).toBe('PLAYLIST_FULL');
+
+    // 12. 200 playlists -> 409 PLAYLIST_LIMIT
+    const pl200Owner = plUser4;
+    // Insert 200 playlists for pl200Owner
+    const insertPlVals = Array.from(
+      { length: 200 },
+      () => `('${uuidv7()}', '${pl200Owner}', 'P', 'PUBLIC', 0)`,
+    ).join(',');
+    await pool.query(`
+      INSERT INTO social.playlists (id, owner_id, title, visibility, item_count)
+      VALUES ${insertPlVals}
+    `);
+
+    const limit200Res = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': pl200Owner },
+      payload: { title: 'One too many' },
+    });
+    expect(limit200Res.statusCode).toBe(409);
+    expect(validateProblem(limit200Res.json())).toBe(true);
+    expect(limit200Res.json().code).toBe('PLAYLIST_LIMIT');
+
+    // getWatchLater does NOT fail even with 200 playlists
+    const wlAtLimitRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/watch-later',
+      headers: { 'x-user-id': pl200Owner },
+    });
+    expect(wlAtLimitRes.statusCode).toBe(200);
+    expect(wlAtLimitRes.json().kind).toBe('WATCH_LATER');
+
+    // 13. Cursor walk 45 items limit 20 = 20/20/5
+    const walkPlRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: { title: 'Cursor Walk 45', visibility: 'PUBLIC' },
+    });
+    const walkPlId = walkPlRes.json().id;
+
+    // Generate 45 videos
+    const walkVideos: string[] = [];
+    for (let i = 0; i < 45; i++) {
+      const vid = uuidv7();
+      walkVideos.push(vid);
+    }
+    const vidInsertSql = walkVideos
+      .map((vid) => `('${vid}', '${plUser1}', false, 'PUBLIC', now())`)
+      .join(',');
+    await pool.query(
+      `INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at) VALUES ${vidInsertSql}`,
+    );
+
+    const itemInsertSql = walkVideos
+      .map((vid, idx) => `('${walkPlId}', '${vid}', ${(idx + 1) * 1048576}, now())`)
+      .join(',');
+    await pool.query(
+      `INSERT INTO social.playlist_items (playlist_id, video_id, position, added_at) VALUES ${itemInsertSql}`,
+    );
+
+    // Page 1: 20
+    const p1 = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${walkPlId}/items?limit=20`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(p1.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(p1.json())).toBe(true);
+    expect(p1.json().items).toHaveLength(20);
+    expect(p1.json().next_cursor).not.toBeNull();
+
+    // Page 2: 20
+    const p2 = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${walkPlId}/items?limit=20&cursor=${p1.json().next_cursor}`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(p2.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(p2.json())).toBe(true);
+    expect(p2.json().items).toHaveLength(20);
+    expect(p2.json().next_cursor).not.toBeNull();
+
+    // Page 3: 5
+    const p3 = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${walkPlId}/items?limit=20&cursor=${p2.json().next_cursor}`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(p3.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(p3.json())).toBe(true);
+    expect(p3.json().items).toHaveLength(5);
+    expect(p3.json().next_cursor).toBeNull();
+
+    const allWalkCollected = [
+      ...p1.json().items.map((i: any) => i.video_id),
+      ...p2.json().items.map((i: any) => i.video_id),
+      ...p3.json().items.map((i: any) => i.video_id),
+    ];
+    expect(allWalkCollected).toHaveLength(45);
+    expect(allWalkCollected).toEqual(walkVideos);
   }, 120_000);
 });

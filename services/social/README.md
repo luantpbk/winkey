@@ -46,6 +46,18 @@ Part of **Task C1**, owned by **Antigravity 3**.
     - `GET /v1/notifications/unread-count`: Efficient unread badge counter (`count: min(n, 100)`, `capped: n > 100`).
     - `POST /v1/notifications/read`: Mark notifications as read using either `ids` (1-100 UUIDs) or `up_to` (ISO timestamp). Returns 204.
   - Janitor: Periodic background worker using Postgres advisory lock (`821390`) to batch delete notifications older than retention days (default 90 days).
+- **Playlists & Watch Later (Task PL1 / ADR-024)**:
+  - `POST /v1/playlists`: Create playlist owned by caller (default `PRIVATE` visibility, at most 200 playlists/user -> 409 `PLAYLIST_LIMIT`, rate limit 30/min).
+  - `GET /v1/playlists/:playlist_id`: One playlist details (`PUBLIC`/`UNLISTED` accessible to anyone, `PRIVATE`/`WATCH_LATER` accessible only to owner -> 404 otherwise). `Cache-Control: private, no-store`.
+  - `PATCH /v1/playlists/:playlist_id`: Update title, description, or visibility (owner only; watch later -> 409 `WATCH_LATER_IMMUTABLE`).
+  - `DELETE /v1/playlists/:playlist_id`: Delete playlist and cascade items (owner only; watch later -> 409 `WATCH_LATER_IMMUTABLE`).
+  - `GET /v1/playlists/:playlist_id/items`: List items in position ASC order with keyset cursor pagination (`position > cursor`). Filters out hidden or private videos unless owned by caller. `Cache-Control: private, no-store`.
+  - `POST /v1/playlists/:playlist_id/items`: Append video to playlist (at most 5000 items -> 409 `PLAYLIST_FULL`, rate limit 120/min, idempotent 200 vs 201; sparse position `max(position) + 2^20`).
+  - `DELETE /v1/playlists/:playlist_id/items/:video_id`: Remove video from playlist (idempotent 204).
+  - `POST /v1/playlists/:playlist_id/items/:video_id/move`: Reposition item before another or to the end (`before_video_id: null`). Uses midpoint sparse positioning; triggers automatic deferred renumbering (`SET CONSTRAINTS social.playlist_items_position DEFERRED`) when no integer gap exists. Moving before itself is a no-op 200.
+  - `GET /v1/channels/:channel_id/playlists`: List channel's playlists. Channel owner sees all playlists (watch later pinned first, then `(updated_at, id)` DESC); others see only `PUBLIC` regular playlists. Keyset pagination on `(updated_at, id)`.
+  - `GET /v1/me/watch-later`: Lazily creates and returns caller's private watch-later playlist with title "Xem sau" (exempt from 200 playlist limit).
+  - `GET /v1/videos/:video_id/playlist-membership`: Returns array of caller-owned playlist IDs containing the given video.
 - **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.
 
@@ -81,6 +93,8 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 | `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`). |
 | `social_notifications_fanout_seconds` | Histogram | None | Latency of subscriber notification fanout on video publication. |
 | `social_notifications_janitor_deleted_total` | Counter | None | Total expired notification rows deleted by background janitor. |
+| `social_playlist_items_added_total` | Counter | None | Total playlist items appended to playlists (excluding idempotent repeats). |
+| `social_playlist_renumbers_total` | Counter | None | Total sparse position renumbering operations triggered when no integer gap exists. |
 | Standard Node.js runtime metrics | Various | `service="social-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
 
 ---

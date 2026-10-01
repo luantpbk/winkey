@@ -92,6 +92,28 @@ export interface NotificationsTable {
   read_at: Date | string | null;
 }
 
+export type PlaylistKind = 'REGULAR' | 'WATCH_LATER';
+export type PlaylistVisibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
+
+export interface PlaylistsTable {
+  id: string;
+  owner_id: string;
+  kind: Generated<PlaylistKind>;
+  title: string;
+  description: Generated<string>;
+  visibility: Generated<PlaylistVisibility>;
+  item_count: Generated<number>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface PlaylistItemsTable {
+  playlist_id: string;
+  video_id: string;
+  position: string | number;
+  added_at: Generated<Date>;
+}
+
 export interface Database {
   'social.videos': VideosTable;
   'social.comments': CommentsTable;
@@ -100,6 +122,8 @@ export interface Database {
   'social.subscriptions': SubscriptionsTable;
   'social.reports': ReportsTable;
   'social.notifications': NotificationsTable;
+  'social.playlists': PlaylistsTable;
+  'social.playlist_items': PlaylistItemsTable;
   'social.outbox': OutboxTable;
   'auth.public_profiles': PublicProfilesTable;
 }
@@ -213,4 +237,36 @@ export interface UnreadCountDto {
 export interface MarkNotificationsReadRequestDto {
   ids?: string[];
   up_to?: string;
+}
+
+export interface PlaylistDto {
+  id: string;
+  owner: PublicProfileDto;
+  kind: PlaylistKind;
+  title: string;
+  description: string;
+  visibility: PlaylistVisibility;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlaylistPageDto {
+  items: PlaylistDto[];
+  next_cursor: string | null;
+}
+
+export interface PlaylistItemDto {
+  video_id: string;
+  position: number;
+  added_at: string;
+}
+
+export interface PlaylistItemPageDto {
+  items: PlaylistItemDto[];
+  next_cursor: string | null;
+}
+
+export interface PlaylistMembershipDto {
+  playlist_ids: string[];
 }
