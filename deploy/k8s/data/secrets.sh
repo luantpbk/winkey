@@ -34,6 +34,8 @@ ensure_pg_secret "winkey-pg-owner" "winkey_owner"
 ensure_pg_secret "winkey-pg-auth-svc" "auth_svc"
 ensure_pg_secret "winkey-pg-media-svc" "media_svc"
 ensure_pg_secret "winkey-pg-social-svc" "social_svc"
+ensure_pg_secret "winkey-pg-analytics-svc" "analytics_svc"
+
 
 echo "==> [2/3] Ensuring NATS authorization secret exists..."
 if ! kubectl get secret "nats-auth" -n "$NAMESPACE" >/dev/null 2>&1; then
@@ -271,6 +273,7 @@ fi
 PG_AUTH_PWD=$(kubectl get secret winkey-pg-auth-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_MEDIA_PWD=$(kubectl get secret winkey-pg-media-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_SOCIAL_PWD=$(kubectl get secret winkey-pg-social-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
+PG_ANALYTICS_PWD=$(kubectl get secret winkey-pg-analytics-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
 
 NATS_AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
 NATS_UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
@@ -318,4 +321,6 @@ echo "==========================================================================
 echo " gpu-01 Analytics Worker DSNs (over Tailscale NodePorts: 100.113.240.3)"
 echo "=========================================================================="
 echo "NATS_URL=nats://analytics:${NATS_ANALYTICS_PWD}@100.113.240.3:30422"
+echo "POSTGRES_URL=postgres://analytics_svc:${PG_ANALYTICS_PWD}@100.113.240.3:30432/winkey?sslmode=require"
 echo "=========================================================================="
+

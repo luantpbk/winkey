@@ -58,13 +58,22 @@ Set `CLICKHOUSE_PASSWORD` in `.env`.
 
 Retrieve the NATS `analytics` user password from `edge-1`:
 ```bash
+kubectl get secret nats-auth -n default -o jsonpath='{.data.analytics_password}' | base64 -d
+```
 Set `NATS_ANALYTICS_PASSWORD` in `.env`.
+
+Retrieve the PostgreSQL `analytics_svc` user password from `edge-1` (Task R1-b):
+```bash
+kubectl get secret winkey-pg-analytics-svc -n default -o jsonpath='{.data.password}' | base64 -d
+```
+Set `POSTGRES_URL=postgres://analytics_svc:<password>@100.113.240.3:30432/winkey?sslmode=require` in `.env`.
 
 Set `ANALYTICS_WORKER_IMAGE` in `.env` to the pinned digest published by the CI images workflow (e.g. from GitHub Packages):
 ```bash
 # Example format:
 ANALYTICS_WORKER_IMAGE=ghcr.io/luantpbk/winkey-analytics-worker@sha256:<sha256-from-ci-build>
 ```
+
 
 ### Step 3: Start the Stack
 ```bash

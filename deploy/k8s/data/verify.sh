@@ -43,7 +43,7 @@ echo "schema_migrations: $MIG_INFO"
 MIG_VER=$(echo "$MIG_INFO" | cut -d'|' -f1)
 MIG_DIRTY=$(echo "$MIG_INFO" | cut -d'|' -f2)
 
-if [ "$MIG_VER" -lt 7 ] || [ "$MIG_DIRTY" != "f" ]; then
+if [ "$MIG_VER" -lt 15 ] || [ "$MIG_DIRTY" != "f" ]; then
     echo "ERROR: Migrations not complete or dirty: version=$MIG_VER, dirty=$MIG_DIRTY" >&2
     exit 1
 fi
@@ -78,7 +78,23 @@ if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d win
     exit 1
 fi
 echo "  PASS: social_svc SELECT on auth.users was denied (Permission Denied)."
+
+echo "Test 3.6: analytics_svc can read analytics.video_daily..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE analytics_svc; SELECT count(*) FROM analytics.video_daily;" >/dev/null
+echo "  PASS: analytics_svc queried analytics.video_daily."
+
+echo "Test 3.7: analytics_svc CANNOT read media.videos (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE analytics_svc; SELECT count(*) FROM media.videos;" >/dev/null 2>&1; then
+    echo "ERROR: analytics_svc was able to SELECT from media.videos!" >&2
+    exit 1
+fi
+echo "  PASS: analytics_svc SELECT on media.videos was denied (Permission Denied)."
+
+echo "Test 3.8: media_svc can read analytics.video_daily..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE media_svc; SELECT count(*) FROM analytics.video_daily;" >/dev/null
+echo "  PASS: media_svc queried analytics.video_daily."
 echo "SUCCESS: Database RBAC and isolation rules verified."
+
 
 echo ""
 echo "=========================================================================="
