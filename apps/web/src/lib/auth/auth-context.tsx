@@ -1,6 +1,14 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import type { User, LoginRequest, RegisterRequest, Problem } from '@winkey/api-client';
 import { api, refreshAccessToken } from '../api-client';
 import { tokenStore } from './token-store';
@@ -28,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const token = await refreshAccessToken();
       if (token) {
@@ -46,18 +54,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     // Session restore on initial mount
     refresh();
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     resetCachedWatchLaterId();
   }, [user?.id]);
 
-  const login = async (credentials: LoginRequest) => {
+  const login = useCallback(async (credentials: LoginRequest) => {
     setIsLoading(true);
     try {
       const { data, error, response } = await api.auth.POST('/v1/auth/login', {
@@ -74,22 +82,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         success: false,
         error: error as Problem,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
         error: {
           type: '/problems/unknown',
           title: 'Network Error',
           status: 500,
-          detail: err?.message || 'Failed to sign in',
+          detail: (err as { message?: string })?.message || 'Failed to sign in',
         },
       };
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const register = async (regData: RegisterRequest) => {
+  const register = useCallback(async (regData: RegisterRequest) => {
     setIsLoading(true);
     try {
       const { data, error, response } = await api.auth.POST('/v1/auth/register', {
@@ -106,22 +114,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         success: false,
         error: error as Problem,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         success: false,
         error: {
           type: '/problems/unknown',
           title: 'Network Error',
           status: 500,
-          detail: err?.message || 'Failed to register',
+          detail: (err as { message?: string })?.message || 'Failed to register',
         },
       };
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.auth.POST('/v1/auth/logout');
     } finally {
@@ -129,44 +137,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       resetCachedWatchLaterId();
     }
-  };
+  }, []);
 
-  const updateUser = (updatedUser: User) => {
+  const updateUser = useCallback((updatedUser: User) => {
     setUser(updatedUser);
-  };
+  }, []);
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     tokenStore.clear();
     setUser(null);
     resetCachedWatchLaterId();
-  };
+  }, []);
 
   const isCreator = !!user?.roles?.includes('creator');
   const isModerator = !!user?.roles?.includes('moderator');
   const isAdmin = !!user?.roles?.includes('admin');
   const canAccessAdmin = isModerator || isAdmin;
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        isAuthenticated: !!user,
-        isCreator,
-        isModerator,
-        isAdmin,
-        canAccessAdmin,
-        login,
-        register,
-        logout,
-        refresh,
-        updateUser,
-        clearSession,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const contextValue = useMemo(
+    () => ({
+      user,
+      isLoading,
+      isAuthenticated: !!user,
+      isCreator,
+      isModerator,
+      isAdmin,
+      canAccessAdmin,
+      login,
+      register,
+      logout,
+      refresh,
+      updateUser,
+      clearSession,
+    }),
+    [
+      user,
+      isLoading,
+      isCreator,
+      isModerator,
+      isAdmin,
+      canAccessAdmin,
+      login,
+      register,
+      logout,
+      refresh,
+      updateUser,
+      clearSession,
+    ],
   );
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

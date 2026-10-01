@@ -80,6 +80,17 @@ export function setMockPlaylistLimit(val: boolean) {
   mockPlaylistLimit = val;
 }
 
+let usedVerifyEmailTokens = new Set<string>();
+let usedResetPasswordTokens = new Set<string>();
+
+export function resetAuthTokensMock() {
+  usedVerifyEmailTokens = new Set<string>();
+  usedResetPasswordTokens = new Set<string>();
+  if (mockUsers.spammer) {
+    mockUsers.spammer.email_verified = false;
+  }
+}
+
 const initialMockPlaylists: Playlist[] = [
   {
     id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
@@ -988,6 +999,208 @@ export const handlers = [
         'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
       },
     });
+  }),
+
+  // Task A6: Forgot Password (ADR-026)
+  http.post('*/v1/auth/password/forgot', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (!body?.email || typeof body.email !== 'string' || !body.email.includes('@')) {
+      const problem: Problem = {
+        type: '/problems/validation',
+        title: 'Validation Failed',
+        status: 400,
+        code: 'VALIDATION_FAILED',
+        errors: [{ field: 'email', message: 'Email is required and must be valid' }],
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    if (body.email === 'rate-limited@winkey.vn') {
+      const problem: Problem = {
+        type: '/problems/too-many-requests',
+        title: 'Too Many Requests',
+        status: 429,
+        code: 'RATE_LIMITED',
+        detail: 'Too many requests. Please try again later.',
+      };
+      return HttpResponse.json(problem, {
+        status: 429,
+        headers: { 'Retry-After': '60' },
+      });
+    }
+
+    // Always 202 whether email exists or not
+    return new HttpResponse(null, {
+      status: 202,
+      headers: { 'Content-Length': '0' },
+    });
+  }),
+
+  // Task A6: Reset Password (ADR-026)
+  http.post('*/v1/auth/password/reset', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const token = body?.token;
+    const newPassword = body?.new_password;
+
+    if (token === 'rate-limited-token') {
+      const problem: Problem = {
+        type: '/problems/too-many-requests',
+        title: 'Too Many Requests',
+        status: 429,
+        code: 'RATE_LIMITED',
+        detail: 'Too many requests. Please try again later.',
+      };
+      return HttpResponse.json(problem, {
+        status: 429,
+        headers: { 'Retry-After': '60' },
+      });
+    }
+
+    if (
+      !token ||
+      token === 'invalid-token' ||
+      usedResetPasswordTokens.has(token) ||
+      (typeof token === 'string' &&
+        token.length !== 43 &&
+        !token.startsWith('valid-token') &&
+        token !== 'test-reset-token')
+    ) {
+      const problem: Problem = {
+        type: '/problems/invalid-token',
+        title: 'Invalid Token',
+        status: 400,
+        code: 'INVALID_TOKEN',
+        detail: 'Liên kết không hợp lệ hoặc đã hết hạn',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    const errors: { field: string; message: string }[] = [];
+    if (!newPassword || newPassword.length < 8) {
+      errors.push({ field: 'new_password', message: 'Password must be at least 8 characters' });
+    } else if (newPassword.length > 128) {
+      errors.push({ field: 'new_password', message: 'Password must be at most 128 characters' });
+    }
+
+    if (errors.length > 0) {
+      const problem: Problem = {
+        type: '/problems/validation',
+        title: 'Validation Failed',
+        status: 400,
+        code: 'VALIDATION_FAILED',
+        errors,
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    usedResetPasswordTokens.add(token);
+    // Revoke all sessions
+    currentUser = null;
+
+    return new HttpResponse(null, {
+      status: 204,
+      headers: {
+        'Set-Cookie': 'wk_rt=; HttpOnly; Path=/; Max-Age=0',
+      },
+    });
+  }),
+
+  // Task A6: Resend Email Verification (ADR-026)
+  http.post('*/v1/auth/email/verification', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    if (caller.email === 'rate-limited@winkey.vn') {
+      const problem: Problem = {
+        type: '/problems/too-many-requests',
+        title: 'Too Many Requests',
+        status: 429,
+        code: 'RATE_LIMITED',
+        detail: 'Too many requests. Please try again later.',
+      };
+      return HttpResponse.json(problem, {
+        status: 429,
+        headers: { 'Retry-After': '60' },
+      });
+    }
+
+    if (caller.email_verified) {
+      const problem: Problem = {
+        type: '/problems/conflict',
+        title: 'Email Already Verified',
+        status: 409,
+        code: 'EMAIL_ALREADY_VERIFIED',
+        detail: 'Email is already verified.',
+      };
+      return HttpResponse.json(problem, { status: 409 });
+    }
+
+    return new HttpResponse(null, {
+      status: 202,
+      headers: { 'Content-Length': '0' },
+    });
+  }),
+
+  // Task A6: Verify Email (ADR-026)
+  http.post('*/v1/auth/email/verify', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const token = body?.token;
+
+    if (token === 'rate-limited-token') {
+      const problem: Problem = {
+        type: '/problems/too-many-requests',
+        title: 'Too Many Requests',
+        status: 429,
+        code: 'RATE_LIMITED',
+        detail: 'Too many requests. Please try again later.',
+      };
+      return HttpResponse.json(problem, {
+        status: 429,
+        headers: { 'Retry-After': '60' },
+      });
+    }
+
+    if (
+      !token ||
+      token === 'invalid-token' ||
+      usedVerifyEmailTokens.has(token) ||
+      (typeof token === 'string' &&
+        token.length !== 43 &&
+        !token.startsWith('valid-token') &&
+        token !== 'test-verify-token')
+    ) {
+      const problem: Problem = {
+        type: '/problems/invalid-token',
+        title: 'Invalid Token',
+        status: 400,
+        code: 'INVALID_TOKEN',
+        detail: 'Liên kết không hợp lệ hoặc đã dùng. Đăng nhập và kiểm tra trang Cài đặt.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    usedVerifyEmailTokens.add(token);
+
+    if (currentUser) {
+      currentUser = { ...currentUser, email_verified: true };
+    }
+    for (const key of Object.keys(mockUsers)) {
+      if (mockUsers[key].email === 'spammer@winkey.vn') {
+        mockUsers[key] = { ...mockUsers[key], email_verified: true };
+      }
+    }
+
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get('*/v1/users/:handle', async ({ params }) => {
