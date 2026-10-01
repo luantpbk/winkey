@@ -118,3 +118,48 @@ func (c *Valkey) Ping(ctx context.Context) error { return c.client.Ping(ctx).Err
 
 // Close releases the connection pool.
 func (c *Valkey) Close() error { return c.client.Close() }
+
+// Related caches the final JSON of GET /v1/videos/{id}/related (task R2-c). Same fail-open rules as Valkey.
+type Related struct {
+	client    *redis.Client
+	log       *slog.Logger
+	downUntil atomic.Int64
+}
+
+// NewRelated wraps a client (see NewClient).
+func NewRelated(client *redis.Client, log *slog.Logger) *Related {
+	return &Related{client: client, log: log}
+}
+
+func (c *Related) open() bool { return time.Now().UnixNano() < c.downUntil.Load() }
+
+func (c *Related) tripped(ctx context.Context, op string, err error) {
+	if c.downUntil.Swap(time.Now().Add(breakerFor).UnixNano()) < time.Now().UnixNano() {
+		c.log.WarnContext(ctx, "related cache unavailable; bypassing it for a few seconds", "op", op, "error", err)
+	}
+}
+
+// GetRelated returns the stored body; any error is a miss.
+func (c *Related) GetRelated(ctx context.Context, key string) ([]byte, bool) {
+	if c.open() {
+		return nil, false
+	}
+	raw, err := c.client.Get(ctx, key).Bytes()
+	if err != nil {
+		if err != redis.Nil {
+			c.tripped(ctx, "get", err)
+		}
+		return nil, false
+	}
+	return raw, true
+}
+
+// SetRelated stores the body for ttl; errors are ignored (the next request recomputes).
+func (c *Related) SetRelated(ctx context.Context, key string, body []byte, ttl time.Duration) {
+	if c.open() {
+		return
+	}
+	if err := c.client.Set(ctx, key, body, ttl).Err(); err != nil {
+		c.tripped(ctx, "set", err)
+	}
+}

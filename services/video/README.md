@@ -270,6 +270,27 @@ The first is for the owner or an admin; anyone else, and a missing or deleted vi
   Channel numbers join `media.videos` with `owner_id = caller`, so deleted or transferred videos never count.
   `top_videos`: at most 10 by `watch_time_ms`, then `starts`, then `video_id`; videos with no starts are left out.
 
+### Related videos (R2-c, ADR-025)
+
+`GET /v1/videos/{video_id}/related?limit=` (`listRelatedVideos`, optional auth, `limit` 1..24, default 12, else
+`400 VALIDATION_ERROR` field `limit`). No personalisation: the answer is the same for every caller, so it is cached in Valkey
+for 300 s per `(video_id, limit)` (fails open; a Valkey outage just recomputes) and sent with
+`Cache-Control: public, max-age=300`. Metrics: `video_related_items` (histogram of items per answer),
+`video_related_cache_total{result=hit|miss}`.
+
+* The source must be a video the public could open: readable like `getVideo` AND READY, not PRIVATE and not hidden, even for its
+  owner or an admin, otherwise `404` (the answer is shared and cached publicly).
+* Candidates are only PUBLIC, READY, VISIBLE videos of active owners, never the source, never twice. Three short queries:
+  1. similar (at most 8): `ts_rank(search_vector, q)` where `q` ORs the words of the source title (letters and digits, lower
+     case, words shorter than 2 runes and duplicates dropped, at most 12, each quoted; folded in SQL by `winkey_fold`). It
+     matches on `media.videos.search_vector` with the predicate of the partial index `videos_search_fts`, in an inner query on
+     `media.videos` alone; the integration test shows its `EXPLAIN` (Bitmap Index Scan on `videos_search_fts`). A title without
+     words skips this source;
+  2. same channel (at most 4): the owner's newest videos;
+  3. trending: `media.trending` by rank, `limit + 13` rows so that duplicates never leave the list short.
+* Merge (`MergeRelated`, pure): the sources are taken in the fixed pattern 1, 1, 2, 1, 3 repeated; an empty source is replaced by
+  the next source of the pattern; duplicates are skipped; the list stops at `limit` and can be shorter, even empty.
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).
