@@ -15,6 +15,7 @@ import {
 } from '../src/lib/playlist/playlist-utils';
 import { api } from '../src/lib/api-client';
 import type { Playlist, PlaylistItem, VideoSummary, PublicProfile } from '@winkey/api-client';
+import { server } from '../src/mocks/server';
 import viMessages from '../messages/vi.json';
 import enMessages from '../messages/en.json';
 
@@ -450,6 +451,44 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
         }),
       );
     });
+
+    it('invalidates cache on logout and account switch (A caches -> logout -> B logs in -> calls getWatchLater again)', async () => {
+      let callCount = 0;
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/me/watch-later') {
+          callCount++;
+          return {
+            data: {
+              id: currentUserId === 'user-A' ? 'wl-A' : 'wl-B',
+              owner: { id: currentUserId },
+              kind: 'WATCH_LATER',
+            },
+            response: new Response(),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      // User A caches
+      currentUserId = 'user-A';
+      const idA = await getCachedWatchLaterId('user-A');
+      expect(idA).toBe('wl-A');
+      expect(callCount).toBe(1);
+
+      // Calling again with same user -> cached, no additional GET
+      const idA2 = await getCachedWatchLaterId('user-A');
+      expect(idA2).toBe('wl-A');
+      expect(callCount).toBe(1);
+
+      // User A logs out -> cache reset
+      resetCachedWatchLaterId();
+      currentUserId = 'user-B';
+
+      // User B logs in -> getWatchLater called again
+      const idB = await getCachedWatchLaterId('user-B');
+      expect(idB).toBe('wl-B');
+      expect(callCount).toBe(2);
+    });
   });
 
   // =========================================================================
@@ -544,6 +583,7 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
         '/v1/videos/batch',
         expect.objectContaining({
           params: { query: { ids: ['vid-1', 'vid-2-deleted', 'vid-3'] } },
+          querySerializer: { array: { style: 'form', explode: false } },
         }),
       );
 
@@ -582,6 +622,44 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
       // Unavailable row should NOT be rendered for non-owner
       expect(screen.queryByText('Video không còn khả dụng')).toBeNull();
       expect(screen.queryByTestId('remove-unavailable-vid-2-deleted')).toBeNull();
+    });
+
+    it('sends ids with style: form, explode: false producing comma-separated ids in request URL', async () => {
+      server.listen({ onUnhandledRequest: 'bypass' });
+      let capturedUrl = '';
+      server.events.on('request:start', ({ request }) => {
+        if (request.url.includes('/v1/videos/batch')) {
+          capturedUrl = request.url;
+        }
+      });
+
+      try {
+        await api.video.GET('/v1/videos/batch', {
+          params: { query: { ids: ['vid-1', 'vid-3'] } },
+          querySerializer: { array: { style: 'form', explode: false } },
+        });
+
+        expect(capturedUrl).toMatch(/ids=vid-1(%2C|,)vid-3/);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('MSW batch handler requires single comma-separated ids parameter (rejects exploded form)', async () => {
+      server.listen({ onUnhandledRequest: 'bypass' });
+      try {
+        // 1. Exploded form (?ids=a&ids=b) -> 400 Bad Request
+        const badRes = await fetch('http://localhost:8080/v1/videos/batch?ids=vid-1&ids=vid-3');
+        expect(badRes.status).toBe(400);
+        const badJson = await badRes.json();
+        expect(badJson.status).toBe(400);
+
+        // 2. Comma-separated form (?ids=a,b) -> 200 OK
+        const okRes = await fetch('http://localhost:8080/v1/videos/batch?ids=vid-1,vid-3');
+        expect(okRes.status).toBe(200);
+      } finally {
+        server.close();
+      }
     });
   });
 

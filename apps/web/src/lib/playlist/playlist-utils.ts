@@ -1,16 +1,18 @@
 import { api } from '../api-client';
 
-let cachedWatchLaterId: string | null = null;
+let cachedWatchLater: { userId?: string; id: string } | null = null;
 
-export async function getCachedWatchLaterId(): Promise<string> {
-  if (cachedWatchLaterId) {
-    return cachedWatchLaterId;
+export async function getCachedWatchLaterId(userId?: string): Promise<string> {
+  if (cachedWatchLater) {
+    if (!userId || !cachedWatchLater.userId || cachedWatchLater.userId === userId) {
+      return cachedWatchLater.id;
+    }
   }
 
   const { data, error } = await api.social.GET('/v1/me/watch-later');
   if (data?.id) {
-    cachedWatchLaterId = data.id;
-    return cachedWatchLaterId;
+    cachedWatchLater = { userId: userId || data.owner?.id, id: data.id };
+    return cachedWatchLater.id;
   }
 
   throw new Error(
@@ -21,14 +23,15 @@ export async function getCachedWatchLaterId(): Promise<string> {
 }
 
 export function resetCachedWatchLaterId() {
-  cachedWatchLaterId = null;
+  cachedWatchLater = null;
 }
 
-export function setCachedWatchLaterId(id: string) {
-  cachedWatchLaterId = id;
+export function setCachedWatchLaterId(id: string, userId?: string) {
+  cachedWatchLater = { userId, id };
 }
 
 export interface AddToWatchLaterOptions {
+  userId?: string;
   showToast?: (toast: {
     title: string;
     description?: string;
@@ -43,7 +46,7 @@ export async function addToWatchLater(
   options?: AddToWatchLaterOptions,
 ): Promise<boolean> {
   try {
-    const watchLaterId = await getCachedWatchLaterId();
+    const watchLaterId = await getCachedWatchLaterId(options?.userId);
     const res = await api.social.POST('/v1/playlists/{playlist_id}/items', {
       params: { path: { playlist_id: watchLaterId } },
       body: { video_id: videoId },

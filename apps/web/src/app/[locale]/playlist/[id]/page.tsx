@@ -65,12 +65,7 @@ export default function PlaylistPage() {
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  const isOwner = Boolean(
-    isAuthenticated &&
-    user &&
-    playlist &&
-    (user.id === playlist.owner.id || playlist.kind === 'WATCH_LATER'),
-  );
+  const isOwner = Boolean(isAuthenticated && user && playlist && user.id === playlist.owner.id);
 
   // Load playlist metadata
   const loadPlaylist = useCallback(async () => {
@@ -117,6 +112,7 @@ export default function PlaylistPage() {
         const videoIds = rawItems.map((it) => it.video_id);
         const batchRes = await api.video.GET('/v1/videos/batch', {
           params: { query: { ids: videoIds } },
+          querySerializer: { array: { style: 'form', explode: false } },
         });
 
         const batchVideos = batchRes.data?.items || [];
@@ -166,6 +162,7 @@ export default function PlaylistPage() {
         const videoIds = newRawItems.map((it) => it.video_id);
         const batchRes = await api.video.GET('/v1/videos/batch', {
           params: { query: { ids: videoIds } },
+          querySerializer: { array: { style: 'form', explode: false } },
         });
 
         const batchVideos = batchRes.data?.items || [];

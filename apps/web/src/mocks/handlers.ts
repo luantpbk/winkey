@@ -1171,13 +1171,23 @@ export const handlers = [
 
   http.get('*/v1/videos/batch', async ({ request }) => {
     const url = new URL(request.url);
-    const idsParam = url.searchParams.get('ids') || '';
-    const ids = idsParam.includes(',')
-      ? idsParam
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : url.searchParams.getAll('ids').filter(Boolean);
+    const allIds = url.searchParams.getAll('ids');
+    if (allIds.length !== 1) {
+      return HttpResponse.json(
+        {
+          type: 'https://winkey.vn/problems/invalid-parameter',
+          title: 'Invalid parameter',
+          status: 400,
+          detail:
+            'ids parameter must be single comma-separated query parameter (style: form, explode: false)',
+        },
+        { status: 400 },
+      );
+    }
+    const ids = allIds[0]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     const caller = callerFromRequest(request);
     const allVideos = getDynamicVideos();
