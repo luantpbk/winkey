@@ -79,8 +79,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.uploaded", "_INBOX.>"]
+        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.>"]
+        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.>"]
       }
     },
     {
@@ -190,8 +190,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.uploaded", "_INBOX.>"]
+        publish: ["video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.>"]
+        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.>"]
       }
     },
     {
