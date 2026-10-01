@@ -28,16 +28,64 @@ func scan(row pgx.Row) (domain.Video, error) {
 	return v, err
 }
 
-func (p *Postgres) Insert(ctx context.Context, v domain.NewVideo) error {
-	_, err := p.Pool.Exec(ctx, `
+// usageSQL reads the owner's usage in ONE query: the 24-hour window (count, bytes, oldest) and the
+// UPLOADING rows of any age. Every row counts whatever its later status; the rows of deleted
+// uploads are gone, which is why aborting an upload frees its slot. The index videos_owner_created
+// (owner_id, created_at DESC) serves the window; the UPLOADING aggregate reads the same owner's rows.
+const usageSQL = `
+	SELECT
+		count(*) FILTER (WHERE created_at > now() - interval '24 hours'),
+		coalesce(sum(size_bytes) FILTER (WHERE created_at > now() - interval '24 hours'), 0)::bigint,
+		count(*) FILTER (WHERE status = 'UPLOADING'),
+		min(created_at) FILTER (WHERE created_at > now() - interval '24 hours'),
+		now()
+	FROM media.videos
+	WHERE owner_id = $1 AND (created_at > now() - interval '24 hours' OR status = 'UPLOADING')`
+
+func (p *Postgres) Create(ctx context.Context, v domain.NewVideo, check func(domain.Usage) error,
+	startUpload func(context.Context) (string, error)) error {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	if check != nil {
+		// One owner at a time: a second request waits here until the first one has committed
+		// (the lock is released at commit), then reads usage that includes the first row.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('upload-quota:' || $1::text, 0))`, v.OwnerID.String()); err != nil {
+			return fmt.Errorf("quota lock: %w", err)
+		}
+		var u domain.Usage
+		var oldest *time.Time
+		if err := tx.QueryRow(ctx, usageSQL, v.OwnerID).Scan(&u.Count, &u.Bytes, &u.Uploading, &oldest, &u.Now); err != nil {
+			return fmt.Errorf("quota usage: %w", err)
+		}
+		if oldest != nil {
+			u.Oldest = *oldest
+		}
+		if err := check(u); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO media.videos
 			(id, owner_id, title, description, visibility, status, raw_bucket, raw_key,
-			 s3_upload_id, content_type, size_bytes)
-		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9, $10)`,
+			 content_type, size_bytes)
+		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9)`,
 		v.ID, v.OwnerID, v.Title, v.Description, v.Visibility, v.RawBucket, v.RawKey,
-		v.S3UploadID, v.ContentType, v.SizeBytes)
-	if err != nil {
+		v.ContentType, v.SizeBytes); err != nil {
 		return fmt.Errorf("insert video: %w", err)
+	}
+	uploadID, err := startUpload(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE media.videos SET s3_upload_id = $2 WHERE id = $1`, v.ID, uploadID); err != nil {
+		return fmt.Errorf("store upload id: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
 }
