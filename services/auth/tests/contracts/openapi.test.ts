@@ -25,6 +25,9 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
   let validateUpdateMeRequest: ValidateFunction;
   let validateChangePasswordRequest: ValidateFunction;
   let validateDeleteMeRequest: ValidateFunction;
+  let validatePasswordResetRequest: ValidateFunction;
+  let validateResetPasswordRequest: ValidateFunction;
+  let validateVerifyEmailRequest: ValidateFunction;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -73,6 +76,15 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     )!;
     validateDeleteMeRequest = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/DeleteMeRequest',
+    )!;
+    validatePasswordResetRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/PasswordResetRequest',
+    )!;
+    validateResetPasswordRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/ResetPasswordRequest',
+    )!;
+    validateVerifyEmailRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/VerifyEmailRequest',
     )!;
 
     // 3. Build test app
@@ -425,5 +437,52 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
       payload: { confirm_handle: 'a3_contract', password: 'NewSecurePassword123!' },
     });
     expect(delRes.statusCode).toBe(204);
+  });
+
+  it('Validates A6 password reset and email verification contract schemas and responses', async () => {
+    // 1. PasswordResetRequest schema validation
+    const forgotPayload = { email: 'user@winkey.vn', locale: 'vi' };
+    expect(validatePasswordResetRequest(forgotPayload)).toBe(true);
+
+    const forgotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/password/forgot',
+      payload: forgotPayload,
+    });
+    expect(forgotRes.statusCode).toBe(202);
+    expect(forgotRes.body).toBe('');
+
+    // 2. ResetPasswordRequest schema validation
+    const resetPayload = {
+      token: 'abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE',
+      new_password: 'NewStrongPassword123!',
+    };
+    expect(validateResetPasswordRequest(resetPayload)).toBe(true);
+
+    const resetBadRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/password/reset',
+      payload: resetPayload,
+    });
+    expect(resetBadRes.statusCode).toBe(400);
+    const resetProblem = resetBadRes.json();
+    expect(validateProblem(resetProblem)).toBe(true);
+    expect(resetProblem.code).toBe('INVALID_TOKEN');
+
+    // 3. VerifyEmailRequest schema validation
+    const verifyPayload = {
+      token: 'abcdefghijklmnopqrstuvwxyz0123456789-_ABCDE',
+    };
+    expect(validateVerifyEmailRequest(verifyPayload)).toBe(true);
+
+    const verifyBadRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/email/verify',
+      payload: verifyPayload,
+    });
+    expect(verifyBadRes.statusCode).toBe(400);
+    const verifyProblem = verifyBadRes.json();
+    expect(validateProblem(verifyProblem)).toBe(true);
+    expect(verifyProblem.code).toBe('INVALID_TOKEN');
   });
 });
