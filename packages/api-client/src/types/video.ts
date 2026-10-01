@@ -164,6 +164,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/studio/videos/{video_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Daily player statistics of one of the caller's videos (task R1-b). Owner or admin only.
+         * @description Read from `analytics.video_daily` in PostgreSQL, which analytics-worker refreshes from ClickHouse every few
+         *     minutes (ADR-022 addendum R1-b). While gpu-01 is off the numbers stop advancing; `refreshed_at` says how old
+         *     they are. Days are calendar days in `Asia/Ho_Chi_Minh`. `days` holds EVERY day of the range in ascending
+         *     order, with zeros (and null ratios/percentiles) for days without plays. `starts` counts player sessions,
+         *     which is not the anti-fraud `view_count`; `view_count` is the lifetime counter of the video.
+         *     Any other caller (also for a missing or deleted video) gets `404`, never `403`.
+         *     `Cache-Control: private, no-store`. Rate limit 60 requests/min per user, shared with `getChannelStats`.
+         */
+        get: operations["getVideoStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/studio/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily player statistics summed over all of the caller's videos, plus the top 10 videos (task R1-b).
+         * @description Same source, timezone, day filling and freshness rules as `getVideoStats`. Only videos that still exist and
+         *     belong to the caller count. `viewers` is NOT summed (unique viewers are not additive), so channel days have
+         *     no `viewers` field. `top_videos` ranks the caller's videos by `watch_time_ms` over the range (ties by
+         *     `starts` then `video_id`), at most 10, omitting videos with no plays. `Cache-Control: private, no-store`.
+         */
+        get: operations["getChannelStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/videos/{video_id}/moderation": {
         parameters: {
             query?: never;
@@ -394,6 +445,72 @@ export interface components {
             /** Format: uri */
             thumbnail_url: string;
         };
+        StatsTotals: {
+            /** @description Player sessions started in the range. */
+            starts: number;
+            watch_time_ms: number;
+            /** @description watch_time_ms / starts, rounded down; null when starts is 0. */
+            avg_watch_ms: number | null;
+            /** @description rebuffer_ms / (watched_ms + rebuffer_ms); null when both are 0. */
+            rebuffer_ratio: number | null;
+            /** @description Sessions that ended with a player error. */
+            errors: number;
+        };
+        VideoStatsDay: {
+            /** Format: date */
+            day: string;
+            starts: number;
+            watch_time_ms: number;
+            /** @description Approximate unique viewers of that day. */
+            viewers: number;
+            rebuffer_ratio: number | null;
+            startup_p50_ms: number | null;
+            startup_p95_ms: number | null;
+        };
+        VideoStats: {
+            video_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @constant */
+            timezone: "Asia/Ho_Chi_Minh";
+            /** @description Lifetime counted views of the video (same as `Video.view_count`). */
+            view_count: number;
+            totals: components["schemas"]["StatsTotals"];
+            days: components["schemas"]["VideoStatsDay"][];
+            /**
+             * Format: date-time
+             * @description Latest refresh of any returned day; null when the range has no data at all.
+             */
+            refreshed_at: string | null;
+        };
+        ChannelStatsDay: {
+            /** Format: date */
+            day: string;
+            starts: number;
+            watch_time_ms: number;
+            rebuffer_ratio: number | null;
+        };
+        ChannelStatsTopVideo: {
+            video_id: components["schemas"]["Uuid"];
+            title: string;
+            starts: number;
+            watch_time_ms: number;
+        };
+        ChannelStats: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @constant */
+            timezone: "Asia/Ho_Chi_Minh";
+            totals: components["schemas"]["StatsTotals"];
+            days: components["schemas"]["ChannelStatsDay"][];
+            top_videos: components["schemas"]["ChannelStatsTopVideo"][];
+            /** Format: date-time */
+            refreshed_at: string | null;
+        };
         VideoBatch: {
             items: components["schemas"]["VideoSummary"][];
         };
@@ -613,6 +730,13 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description First day (inclusive, `Asia/Ho_Chi_Minh`). Default `to` minus 27 days. Must not be after `to`, at most 89
+         *     days before `to` (a range holds 1 to 90 days) and not more than 730 days before today, else `400`.
+         */
+        StatsFrom: string;
+        /** @description Last day (inclusive, `Asia/Ho_Chi_Minh`). Default today; a later day is clamped to today. */
+        StatsTo: string;
         /** @description Opaque cursor copied from `next_cursor` of the previous page. */
         Cursor: string;
         Limit: number;
@@ -844,6 +968,71 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getVideoStats: {
+        parameters: {
+            query?: {
+                /**
+                 * @description First day (inclusive, `Asia/Ho_Chi_Minh`). Default `to` minus 27 days. Must not be after `to`, at most 89
+                 *     days before `to` (a range holds 1 to 90 days) and not more than 730 days before today, else `400`.
+                 */
+                from?: components["parameters"]["StatsFrom"];
+                /** @description Last day (inclusive, `Asia/Ho_Chi_Minh`). Default today; a later day is clamped to today. */
+                to?: components["parameters"]["StatsTo"];
+            };
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The statistics of the range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoStats"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getChannelStats: {
+        parameters: {
+            query?: {
+                /**
+                 * @description First day (inclusive, `Asia/Ho_Chi_Minh`). Default `to` minus 27 days. Must not be after `to`, at most 89
+                 *     days before `to` (a range holds 1 to 90 days) and not more than 730 days before today, else `400`.
+                 */
+                from?: components["parameters"]["StatsFrom"];
+                /** @description Last day (inclusive, `Asia/Ho_Chi_Minh`). Default today; a later day is clamped to today. */
+                to?: components["parameters"]["StatsTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The channel statistics of the range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelStats"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     moderateVideo: {

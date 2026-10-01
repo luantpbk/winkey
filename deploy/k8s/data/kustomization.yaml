@@ -44,6 +44,8 @@ configMapGenerator:
       - migrations/000013_notifications.down.sql
       - migrations/000014_playlists.up.sql
       - migrations/000014_playlists.down.sql
+      - migrations/000015_video_stats.up.sql
+      - migrations/000015_video_stats.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
