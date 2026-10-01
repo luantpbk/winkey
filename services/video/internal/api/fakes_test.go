@@ -14,21 +14,23 @@ import (
 // memStore is an in-memory domain.Store with the same semantics as the
 // PostgreSQL one (filters, ordering, keyset comparison).
 type memStore struct {
-	mu             sync.Mutex
-	videos         map[uuid.UUID]domain.Video
-	progress       map[uuid.UUID]float64
-	raw            map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
-	errs           map[uuid.UUID]string    // owner-safe failure messages
-	deleted        []domain.DeletedEvent
-	moderated      []domain.ModeratedEvent // video.moderated events, in order
-	gets           int
-	subtitleWrites int
-	putSubtitleErr error
-	ranking        []rankedVideo
-	follows        map[uuid.UUID]map[uuid.UUID]bool
-	trendingReads  int
-	mediaChecks    int
-	lists          int
+	mu              sync.Mutex
+	videos          map[uuid.UUID]domain.Video
+	progress        map[uuid.UUID]float64
+	raw             map[uuid.UUID][2]string // raw bucket, raw key (not part of the API record)
+	errs            map[uuid.UUID]string    // owner-safe failure messages
+	deleted         []domain.DeletedEvent
+	moderated       []domain.ModeratedEvent // video.moderated events, in order
+	gets            int
+	subtitleWrites  int
+	putSubtitleErr  error
+	ranking         []rankedVideo
+	follows         map[uuid.UUID]map[uuid.UUID]bool
+	playbackLookups []int // ids per VideosForPlayback call
+	playbackErr     error
+	trendingReads   int
+	mediaChecks     int
+	lists           int
 
 	searches  []domain.SearchQuery
 	suggests  []string
@@ -353,6 +355,24 @@ func (s *memStore) ListSubscriptionFeed(_ context.Context, q domain.Subscription
 	sort.Slice(out, func(i, j int) bool { return less(out[j].PublishedAt, out[j].ID, out[i].PublishedAt, out[i].ID) })
 	if len(out) > q.Limit {
 		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+// VideosForPlayback returns the visibility-relevant part of the videos that exist, counting the calls.
+func (s *memStore) VideosForPlayback(_ context.Context, ids []uuid.UUID) ([]domain.Video, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.playbackLookups = append(s.playbackLookups, len(ids))
+	if s.playbackErr != nil {
+		return nil, s.playbackErr
+	}
+	var out []domain.Video
+	for _, id := range ids {
+		if v, ok := s.videos[id]; ok {
+			out = append(out, domain.Video{ID: v.ID, OwnerID: v.OwnerID, Status: v.Status, Visibility: v.Visibility,
+				ModerationState: v.ModerationState, Owner: domain.Profile{ID: v.OwnerID, Missing: v.Owner.Missing}})
+		}
 	}
 	return out, nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/luantpbk/winkey/libs/go/httpx"
+	"github.com/luantpbk/winkey/services/video/internal/analytics"
 	"github.com/luantpbk/winkey/services/video/internal/cursor"
 	"github.com/luantpbk/winkey/services/video/internal/domain"
 )
@@ -63,6 +64,11 @@ type Handler struct {
 	Limiter          Limiter
 	SearchRateLimit  int // per minute; default 60
 	SuggestRateLimit int // per minute; default 120
+
+	// Player analytics (task R1). Analytics nil = telemetry off: heartbeats are accepted and forgotten.
+	Analytics          analytics.Publisher
+	AnalyticsSalt      []byte // ANALYTICS_VIEWER_SALT, never logged
+	HeartbeatRateLimit int    // requests per client IP per minute; default 30
 }
 
 // Routes mounts the API on r.
@@ -74,6 +80,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/v1/videos", h.listVideos)
 		r.Get("/v1/videos/{video_id}", h.getVideo)
 		r.Post("/v1/videos/{video_id}/views", h.recordView)
+		r.Post("/v1/playback/heartbeats", h.recordPlaybackHeartbeats)
 		r.Get("/v1/search", h.searchVideos)
 		r.Get("/v1/search/suggest", h.suggestSearch)
 	})

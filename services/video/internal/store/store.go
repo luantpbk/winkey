@@ -63,6 +63,33 @@ func (p *Postgres) GetVideo(ctx context.Context, id uuid.UUID) (domain.Video, er
 	return v, nil
 }
 
+// VideosForPlayback returns the visibility-relevant part of every video in ids that exists, in ONE query (the
+// owner is LEFT JOINed to the profile view like GetVideo does: a suspended or deleted owner has no row there).
+func (p *Postgres) VideosForPlayback(ctx context.Context, ids []uuid.UUID) ([]domain.Video, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := p.Pool.Query(ctx, `
+		SELECT v.id, v.owner_id, v.status::text, v.visibility::text, v.moderation_state::text, p.id IS NULL
+		FROM media.videos v
+		LEFT JOIN auth.public_profiles p ON p.id = v.owner_id
+		WHERE v.id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("videos for playback: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Video
+	for rows.Next() {
+		var v domain.Video
+		if err := rows.Scan(&v.ID, &v.OwnerID, &v.Status, &v.Visibility, &v.ModerationState, &v.Owner.Missing); err != nil {
+			return nil, err
+		}
+		v.Owner.ID = v.OwnerID
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (p *Postgres) loadRenditions(ctx context.Context, v *domain.Video) error {
 	v.Renditions = []domain.Rendition{}
 	if v.Status != domain.StatusReady {

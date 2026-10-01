@@ -35,6 +35,12 @@ func Streams() []jetstream.StreamConfig {
 		cfg("USER", "user.>", 7*24*time.Hour),
 		cfg("SOCIAL", "social.>", 7*24*time.Hour),
 		cfg("DLQ", "dlq.>", 30*24*time.Hour),
+		// ANALYTICS (ADR-022): telemetry, bounded so a gpu-01 that is off for days cannot fill the disk of edge-1.
+		func() jetstream.StreamConfig {
+			c := cfg("ANALYTICS", "analytics.>", 7*24*time.Hour)
+			c.MaxBytes, c.Discard = 5<<30, jetstream.DiscardOld
+			return c
+		}(),
 	}
 }
 
