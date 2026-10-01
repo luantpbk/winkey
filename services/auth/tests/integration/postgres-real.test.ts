@@ -919,6 +919,17 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     expect(oauthLoginRes.statusCode).toBe(200);
   });
 
+  it('Google OAuth: GET /v1/auth/oauth/google returns 302 to /login?error=oauth_unavailable when GOOGLE_CLIENT_ID is not configured', async () => {
+    if (!app) return;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/oauth/google?return_to=/',
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login?error=oauth_unavailable');
+  });
+
   it('Task A3: deleteMe scrubs row, deletes oauth_identities, revokes tokens, clears cookie, allows re-registration, and enforces LAST_ADMIN', async () => {
     if (!app || !pool || !testEnv) return;
 
