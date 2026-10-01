@@ -87,6 +87,7 @@ This creates:
 - `winkey-pg-auth-svc`: User `auth_svc` password
 - `winkey-pg-media-svc`: User `media_svc` password
 - `winkey-pg-social-svc`: User `social_svc` password
+- `winkey-pg-analytics-svc`: User `analytics_svc` password (task R1-b)
 - `nats-auth`: ConfigMap with bcrypt credentials referenced by NATS server
 - `nats-users-secrets`: Plaintext credentials for client services
 - `valkey-secret`: Valkey `requirepass` password
@@ -114,6 +115,7 @@ kubectl wait --for=condition=complete job/nats-bootstrap --timeout=120s
 | `winkey-pg-auth-svc` | `username`, `password` | Dedicated user for auth service | `services/auth` |
 | `winkey-pg-media-svc` | `username`, `password` | Dedicated user for video/upload/transcoder | `services/video`, `services/upload`, `services/transcoder` |
 | `winkey-pg-social-svc` | `username`, `password` | Dedicated user for social service | `services/social` |
+| `winkey-pg-analytics-svc` | `username`, `password` | Dedicated user for analytics rollup worker | `services/analytics` (on gpu-01) |
 | `nats-auth` | `auth.conf` | Dynamic auth configuration for NATS server | `pod/nats-0` |
 | `nats-users-secrets` | `<service>_USER`, `<service>_PASSWORD` | NATS client credentials | All microservices |
 | `valkey-secret` | `VALKEY_PASSWORD` | Valkey authentication token | Microservices using cache |

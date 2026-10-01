@@ -45,6 +45,11 @@ spec:
         login: true
         passwordSecret:
           name: winkey-pg-social-svc
+      - name: analytics_svc
+        ensure: present
+        login: true
+        passwordSecret:
+          name: winkey-pg-analytics-svc
 
   backup:
     barmanObjectStore:
