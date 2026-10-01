@@ -23,6 +23,8 @@ type Config struct {
 
 	BatchMaxMessages int           `env:"BATCH_MAX_MESSAGES" default:"5000"`
 	BatchMaxWait     time.Duration `env:"BATCH_MAX_WAIT" default:"2s"`
+	// InsertTimeout bounds one INSERT attempt; the durable's ack_wait is 60 s, so it must stay below 30 s.
+	InsertTimeout time.Duration `env:"CLICKHOUSE_INSERT_TIMEOUT" default:"30s"`
 }
 
 // Load reads and validates the environment.
@@ -41,6 +43,9 @@ func (c Config) Validate() error {
 	}
 	if c.BatchMaxWait < 100*time.Millisecond {
 		return errors.New("BATCH_MAX_WAIT must be at least 100ms")
+	}
+	if c.InsertTimeout < time.Second || c.InsertTimeout > 30*time.Second {
+		return errors.New("CLICKHOUSE_INSERT_TIMEOUT must be between 1s and 30s (half of the 60s ack_wait)")
 	}
 	return nil
 }

@@ -244,6 +244,68 @@ func TestAFailingInsertIsRetriedWithTheSameBatchAndToken(t *testing.T) {
 	}
 }
 
+// blockingCH hangs like a dead connection: it returns only when its context is done. From the third call on it works.
+type blockingCH struct {
+	fakeCH
+	hang     int
+	deadline []bool // whether the context of each call had a deadline
+}
+
+func (b *blockingCH) InsertBatch(ctx context.Context, rows []event.Row, token string) error {
+	b.mu.Lock()
+	_, has := ctx.Deadline()
+	b.deadline = append(b.deadline, has)
+	hang := b.hang > 0
+	if hang {
+		b.hang--
+	}
+	b.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return b.fakeCH.InsertBatch(ctx, rows, token)
+}
+
+// A hung INSERT must not hold the batch until ack_wait runs out: every attempt has its own deadline, the attempt that
+// times out is retried with the same token, and the messages are acknowledged only after the one that works.
+func TestAHangingInsertAttemptTimesOutAndIsRetriedWithTheSameToken(t *testing.T) {
+	ch := &blockingCH{hang: 2}
+	ms := msgs(900, 20)
+	w := worker(nil, ch)
+	w.InsertTimeout = 50 * time.Millisecond
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- w.ProcessBatch(context.Background(), asMsgs(ms)) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a hanging INSERT blocked the batch forever: no per-attempt deadline")
+	}
+	if time.Since(start) < 100*time.Millisecond {
+		t.Fatal("the hanging attempts ended without waiting for their deadline")
+	}
+	if len(ch.deadline) != 3 {
+		t.Fatalf("%d attempts", len(ch.deadline))
+	}
+	for i, d := range ch.deadline {
+		if !d {
+			t.Fatalf("attempt %d had no deadline", i+1)
+		}
+	}
+	for _, tok := range ch.calls {
+		if tok != "900-919" {
+			t.Fatalf("token %s", tok)
+		}
+	}
+	if ch.rowCount() != 20 || count(ms, func(m *fakeMsg) int32 { return m.acked.Load() }) != 20 {
+		t.Fatal("after the timeouts the batch must be written and acknowledged exactly once")
+	}
+}
+
 // The INSERT committed but the answer was lost: the retry has the same token, so ClickHouse drops it and the hourly
 // sums count the batch once (the reason for the token and for deduplicate_blocks_in_dependent_materialized_views).
 func TestARetryOfACommittedBatchCountsOnce(t *testing.T) {

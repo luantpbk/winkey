@@ -29,6 +29,7 @@ Moves `analytics.playback` v1 events from the JetStream stream `ANALYTICS` into 
 | `CLICKHOUSE_MIGRATIONS_DIR` | `/migrations` | directory with the `.sql` files |
 | `BATCH_MAX_MESSAGES` | `5000` | 1..20000 |
 | `BATCH_MAX_WAIT` | `2s` | at least 100 ms |
+| `CLICKHOUSE_INSERT_TIMEOUT` | `30s` | deadline of ONE INSERT attempt, 1s..30s (below half of ack_wait) |
 | `HTTP_ADDR` | `:8081` | `/healthz`, `/readyz`, `/metrics` |
 | `LOG_LEVEL` | `info` | |
 

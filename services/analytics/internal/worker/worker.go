@@ -84,6 +84,9 @@ type Worker struct {
 	// KeepAliveEvery is how often InProgress is sent for a batch that is waiting for the database (the ack wait of the
 	// durable is 60 s). Default 20 s.
 	KeepAliveEvery time.Duration
+	// InsertTimeout bounds ONE INSERT attempt; it must stay below ack_wait/2 so a hung connection cannot let the
+	// messages expire before the retry starts. Default 30 s (CLICKHOUSE_INSERT_TIMEOUT).
+	InsertTimeout time.Duration
 }
 
 // DefaultBackoff is 5 s x attempt, capped at 60 s.
@@ -100,6 +103,9 @@ func (w *Worker) defaults() {
 	}
 	if w.Backoff == nil {
 		w.Backoff = DefaultBackoff
+	}
+	if w.InsertTimeout <= 0 {
+		w.InsertTimeout = 30 * time.Second
 	}
 	if w.KeepAliveEvery <= 0 {
 		w.KeepAliveEvery = 20 * time.Second
@@ -184,7 +190,13 @@ func (w *Worker) ProcessBatch(ctx context.Context, msgs []Msg) error {
 
 	for attempt := 1; ; attempt++ {
 		start := time.Now()
-		err := w.Inserter.InsertBatch(ctx, rows, token)
+		timeout := w.InsertTimeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := w.Inserter.InsertBatch(attemptCtx, rows, token)
+		cancel()
 		if err == nil {
 			batchSeconds.Observe(time.Since(start).Seconds())
 			batchesTotal.WithLabelValues("inserted").Inc()

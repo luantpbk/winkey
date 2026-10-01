@@ -101,7 +101,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 
 	src := &worker.JetStreamSource{JS: js, Log: log}
 	w := &worker.Worker{Source: src, Inserter: &chdb.Inserter{Conn: conn}, Log: log,
-		MaxBatch: cfg.BatchMaxMessages, MaxWait: cfg.BatchMaxWait}
+		MaxBatch: cfg.BatchMaxMessages, MaxWait: cfg.BatchMaxWait, InsertTimeout: cfg.InsertTimeout}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); _ = w.Run(ctx) }()
