@@ -48,6 +48,8 @@ configMapGenerator:
       - migrations/000015_video_stats.down.sql
       - migrations/000016_email_tokens.up.sql
       - migrations/000016_email_tokens.down.sql
+      - migrations/000017_upload_ledger.up.sql
+      - migrations/000017_upload_ledger.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

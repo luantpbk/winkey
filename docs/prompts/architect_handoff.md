@@ -48,37 +48,31 @@ issue #47 (the project log) before doing anything.
 - Antigravity 3: auth, social, realtime, shared TS packages.
 - Antigravity 4: systest/, loadtest/.
 
-# STATE AT HANDOFF (2026-10-01 07:00 UTC, main = cc3de6c)
-Merged today:
-- #153 DEMO-1: prod digests at 73e66a7; transcoder NATS permissions scoped.
-- #155 V5a-b: storyboard-backfill CLI.
-- #156 R2-c contract (ADR-025).
-- #145 PL1-web.
-- #157 A6 + UQ1 contracts (ADR-026/027, migration 000016).
-- #159 this handoff.
+# STATE AT HANDOFF (2026-10-01 08:20 UTC, main = 92618f6 + the UQ1-b design PR)
+Roles (docs/prompts/architect_pair_protocol.md): Opus A = reviewer/merger, Opus B = designer. Opus B is paused
+(quota), so Opus A covers both roles. In a cloud session there is no `gh`: use the GitHub MCP tools
+(`get_job_logs` with `tail_lines`, `merge_pull_request` with `expectedHeadSha`).
 
-Sonnet is paused at the user's request after PR #158. Its record, all merged:
-- libs/go foundation (#8) and the shared S3 client (#43);
-- V3b reconciler (#19) and V3c hwaccel decode (#33);
-- S1 video-svc (#36), S2 like_count (#45), S4 moderation (#71);
-- C3 views (#52) and C4-b visibility events (#87);
-- SR1 search (#75, #78) and SEC1-a signed media URLs (#82);
-- V5a storyboard (#86) and V5b subtitles (#91);
-- R2-a trending (#101) and R2-b subscription feed (#110);
-- R1 analytics (#131), PL1-v batchGetVideos (#142), R1-b creator stats (#151);
-- DATA on k3s (#81).
-Areas it owned, now without an active owner: services/video, services/analytics, libs/go. Sonnet 2 owns
-services/upload and services/transcoder only, so do not move Sonnet's areas to Sonnet 2 without asking the user.
+Merged on 2026-10-01:
+- #153 DEMO-1, #155 V5a-b, #156 R2-c contract, #145 PL1-web, #157 A6 + UQ1 contracts (migration 000016), #159.
+- #162 two-architect protocol.
+- #161 UQ1 upload quotas (Sonnet 2).
+- #158 R2-c related videos (Sonnet, last task before its pause).
+- #163 architect unblock: likes consumer re-creates its durable after SOCIAL is recreated (root cause of the
+  flaky `TestConsumerWaitsForTheStream`).
+- UQ1-b design: ADR-027 addendum, migration 000017_upload_ledger, brief docs/prompts/sonnet-2_UQ1b_upload-ledger.md.
+
+Sonnet is PAUSED until the user says otherwise. Its areas (services/video, services/analytics, libs/go) have no
+active owner; do not move them to Sonnet 2 without asking the user.
 
 In progress:
 | Agent | Task | Branch / PR | What to check |
 |---|---|---|---|
-| Sonnet | R2-c related videos: last task, then **PAUSED** | PR #158 | CI was green on e7bb185 but the PR conflicts with main in docs/DECISIONS.md (the branch carries the pre-squash #156 commit). Sonnet merges origin/main (keeping main's docs/, contracts/ and packages/api-client) and pushes, then stops. You review #158: EXPLAIN uses videos_search_fts; merge pattern 1,1,2,1,3; cache hit = 0 queries; PRIVATE source 404 even for owner; integration tests really ran in CI (`go (services/video)` log, WINKEY_REQUIRE_DOCKER=1, 0 skipped). Then merge. Give Sonnet no new work until the user says so. |
+| Sonnet 2 | UQ1-b upload ledger | agent/sonnet2/uq1b-upload-ledger | ledger row in the same tx as the video; daily limits from the ledger, concurrent from media.videos; janitor 48 h retention in batches; CI log shows integration ran |
 | Antigravity 1 | R1-b-web studio stats | agent/ag1/r1b-web-studio-stats | Asia/Ho_Chi_Minh dates; null rules; no NaN |
-| Antigravity 3 | A6 password reset + verify email | agent/ag3/a6-password-reset | no enumeration; tokens never logged; params cleared; ADR-019 revocation reused |
-| Sonnet 2 | UQ1 upload quotas | agent/sonnet2/uq1-upload-quotas | advisory lock; race test 10→3; no S3 multipart on refusal |
-| Antigravity 4 | #147 QA2 | PR #147 | 200/500 VU re-run with ws_hint_samples ≥ 90 % of VUs, then QA3 playlists systest (agent/ag4/qa3-playlists) |
-| Antigravity 2 | #153 post-merge evidence | comment on #153 + agent/ag2/verify-pass-line | verify.sh 5.19/5.20 PASS on edge-1; gpu-01 transcoder pinned by digest from run 36817609398; rollup metrics + `SELECT count(*), max(refreshed_at) FROM analytics.video_daily`; storyboard-backfill dry-run + real run summaries; restore the 5.18 PASS echo line |
+| Antigravity 3 | A6 password reset + verify email | agent/ag3/a6-password-reset | no enumeration; tokens never logged; params cleared; ADR-019 revocation reused. After A6: social pg pool `pool.on('error')` + `await pool.end()` before stopping the container (57P01 flake on main at cc3de6c) |
+| Antigravity 4 | #147 QA2 | PR #147 | 200/500 VU re-run with ws_hint_samples ≥ 90 % of VUs, then QA3 playlists systest (agent/ag4/qa3-playlists, no PR yet) |
+| Antigravity 2 | #153 post-merge evidence | comment on #153 + agent/ag2/verify-pass-line | verify.sh 5.19/5.20 PASS on edge-1; gpu-01 transcoder pinned by digest from run 36817609398; rollup metrics + `SELECT count(*), max(refreshed_at) FROM analytics.video_daily`; storyboard-backfill dry-run + real run summaries; restore the 5.18 PASS echo line. Also: apply migration 000017 on edge-1 with the next DATA rollout |
 
 Waiting on the user:
 - choose an SMTP provider for production (blocks A6 in prod);
@@ -87,8 +81,8 @@ Waiting on the user:
 - LEGAL;
 - a time window for LT2 (1,000-viewer load test).
 
-Next design work once agents free up (Sonnet only when the user resumes it): R2 recommendation v1 (co-view from analytics.video_daily, A/B), web pages for A6
-(Antigravity 1), "Xem tiếp" column for R2-c (Antigravity 1).
+Design queue (architect_pair_protocol.md): A6-web brief and R2-c-web "Xem tiếp" brief for Antigravity 1 (after
+R1-b-web); R2 recommendation v1 only when the user resumes Sonnet.
 
 # FIRST STEPS
 1. `gh pr list --state open`, `gh run list --branch main -L 5`, read the newest #47 comments.

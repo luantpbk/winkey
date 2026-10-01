@@ -410,3 +410,9 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Role `admin` được miễn.
 - Khi vượt: `429 UPLOAD_QUOTA_EXCEEDED` kèm `Retry-After`, và metric `upload_quota_rejections_total{limit}`.
 **Hệ quả.** Một tài khoản chỉ gây thiệt hại tối đa 50 GiB mỗi ngày. Creator lớn cần hạn mức cao hơn thì nâng env, hoặc sau này làm hạn mức theo user.
+**Bổ sung 2026-10-01 (UQ1-b, sửa thiết kế).** Gạch đầu dòng "xoá rồi upload lại không lách được" ở trên **sai**: video bị xoá cứng (`DELETE FROM media.videos` ở video-svc, và ở upload-svc khi abort), nên dòng đã xoá biến khỏi cửa sổ 24 giờ.
+- Migration `000017_upload_ledger` thêm `media.upload_ledger (video_id, owner_id, size_bytes, created_at)`: một dòng cho mỗi `createUpload` qua được kiểm tra, ghi **trong cùng transaction** với dòng video. Không FK tới `media.videos` hay `auth.users`, nên xoá video không ảnh hưởng tới sổ.
+- Sổ chỉ append: trigger chặn `UPDATE`, và chặn `DELETE` dòng trẻ hơn 25 giờ. Janitor của upload-svc xoá dòng cũ hơn 48 giờ.
+- `daily_count` và `daily_bytes` tính từ sổ. `concurrent` vẫn tính từ `media.videos` (`status = 'UPLOADING'`), vì upload đã xoá thì không còn chiếm chỗ.
+- Upload bị abort vẫn được tính trong hạn mức ngày, và đó là chủ ý: 20 lần mỗi ngày là đủ cho người dùng thật.
+- Migration chép các video tạo trong 25 giờ gần nhất vào sổ, nên lúc chuyển sang sổ không mất số liệu.
