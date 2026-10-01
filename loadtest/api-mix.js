@@ -12,9 +12,16 @@ const status5xx = new Counter('status_5xx');
 
 export const options = {
   thresholds: {
-    api_errors: ['rate<0.05'], // error rate < 5% (safety threshold)
+    api_errors: ['rate<0.005'], // Target api_errors < 0.5%
     http_req_duration: ['p(95)<500'], // 95th percentile response time < 500 ms
     status_429: ['count==0'], // Must respect rate limits (0 429s)
+    'status_4xx_other{endpoint:PUT /v1/videos/:id/like}': ['count>=0'],
+    'status_4xx_other{endpoint:POST /v1/videos/:id/comments}': ['count>=0'],
+    'status_4xx_other{endpoint:GET /v1/videos}': ['count>=0'],
+    'status_4xx_other{endpoint:GET /v1/videos/:id}': ['count>=0'],
+    'status_4xx_other{endpoint:GET /v1/videos?sort=trending}': ['count>=0'],
+    'status_4xx_other{endpoint:GET /v1/videos/:id/comments}': ['count>=0'],
+    'status_4xx_other{endpoint:GET /v1/videos/:id/like}': ['count>=0'],
   },
   scenarios: {
     api_mix: {
@@ -53,22 +60,34 @@ export function setup() {
       const u = seedUsers[i];
       const email = u.email || `${u.handle}@example.com`;
       const password = u.password || 'Password123!';
-      const res = http.post(`${TARGET_URL}/v1/auth/login`, JSON.stringify({ email, password }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.status === 200) {
-        const body = JSON.parse(res.body);
-        freshUsers.push({
-          id: body.user.id,
-          handle: body.user.handle,
-          email,
-          password,
-          token: body.access_token,
+      let loggedIn = false;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = http.post(`${TARGET_URL}/v1/auth/login`, JSON.stringify({ email, password }), {
+          headers: { 'Content-Type': 'application/json' },
         });
-      } else {
+        if (res.status === 200) {
+          const body = JSON.parse(res.body);
+          freshUsers.push({
+            id: body.user.id,
+            handle: body.user.handle,
+            email,
+            password,
+            token: body.access_token,
+          });
+          loggedIn = true;
+          break;
+        } else if (res.status === 429) {
+          sleep(61.0);
+        } else {
+          break;
+        }
+      }
+
+      if (!loggedIn) {
         freshUsers.push(u);
       }
-      sleep(0.1);
+      sleep(0.15);
     }
     return { users: freshUsers };
   } catch (err) {
@@ -83,7 +102,8 @@ export default function (data) {
   const selectedVideo = videos.length > 0 ? videos[(__VU + __ITER) % videos.length] : null;
   const selectedUser = userPool.length > 0 ? userPool[(__VU - 1) % userPool.length] : null;
 
-  const authHeaders = selectedUser
+  const authHeaders = selectedUser ? { Authorization: `Bearer ${selectedUser.token}` } : {};
+  const jsonAuthHeaders = selectedUser
     ? {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${selectedUser.token}`,
@@ -135,7 +155,7 @@ export default function (data) {
           body: `Load test comment ${Date.now().toString(36)}`,
         });
         res = http.post(`${TARGET_URL}/v1/videos/${selectedVideo.id}/comments`, payload, {
-          headers: authHeaders,
+          headers: jsonAuthHeaders,
         });
       } else {
         endpointName = 'PUT /v1/videos/:id/like';
