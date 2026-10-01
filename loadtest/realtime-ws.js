@@ -152,6 +152,9 @@ export default function (data) {
     videos.find((v) => v.creator_id === currentUser.id) || videos[(__VU - 1) % videos.length];
 
   const authHeaders = { Authorization: `Bearer ${currentUser.token}` };
+  if (useDirectAuthLocalhost) {
+    authHeaders['X-Forwarded-For'] = `10.42.0.${((__VU - 1) % 250) + 1}`;
+  }
 
   // 1. Request ticket from HTTP API
   const ticketRes = http.post(`${TARGET_URL}/v1/realtime/ticket`, null, { headers: authHeaders });
@@ -183,27 +186,24 @@ export default function (data) {
         const staggerMs = 1000 + Math.floor(((__VU - 1) / vusCount) * 25000);
         socket.setTimeout(function () {
           commentPostTime = Date.now();
+          const commHeaders = { Authorization: `Bearer ${commenterUser.token}` };
+          if (useDirectAuthLocalhost) {
+            commHeaders['X-Forwarded-For'] = `10.42.0.${(__VU % 250) + 1}`;
+          }
           if (userVideo && userVideo.creator_id === currentUser.id) {
             const postPayload = JSON.stringify({
               body: `Loadtest realtime comment for VU ${__VU} at ${Date.now()}`,
             });
             http.post(`${TARGET_URL}/v1/videos/${userVideo.id}/comments`, postPayload, {
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${commenterUser.token}`,
-              },
+              headers: Object.assign({ 'Content-Type': 'application/json' }, commHeaders),
             });
           } else {
             // Unsubscribe first so the subsequent PUT inserts a new row and fires notification.hint
             http.del(`${TARGET_URL}/v1/channels/${currentUser.id}/subscription`, null, {
-              headers: {
-                Authorization: `Bearer ${commenterUser.token}`,
-              },
+              headers: commHeaders,
             });
             http.put(`${TARGET_URL}/v1/channels/${currentUser.id}/subscription`, null, {
-              headers: {
-                Authorization: `Bearer ${commenterUser.token}`,
-              },
+              headers: commHeaders,
             });
           }
         }, staggerMs);
