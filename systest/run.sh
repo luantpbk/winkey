@@ -54,6 +54,7 @@ MEDIA_LINK_SECRET="$(cat "${KEYS_DIR}/media_link_secret.txt" | tr -d '[:space:]'
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap >/dev/null 2>&1 || true
 
 GEN_ENV="${REPO_ROOT}/deploy/compose/.generated.env"
 for _ in $(seq 1 30); do
@@ -92,7 +93,7 @@ fi
 
 # 4. Bring up full stack with apps override
 echo "[systest] Building and starting all services..."
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --wait
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --force-recreate --wait
 
 # 3b. Poll /readyz for services without internal healthcheck (3002, 3003, 8084)
 echo "[systest] Polling /readyz endpoints for upload-svc, video-svc, transcoder..."

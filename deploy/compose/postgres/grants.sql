@@ -41,3 +41,10 @@ BEGIN
     END IF;
 END
 $$;
+
+-- 5. analytics schema: USAGE and SELECT for media_svc (studio stats)
+GRANT USAGE ON SCHEMA analytics TO media_svc;
+GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO media_svc;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA analytics
+    GRANT SELECT ON TABLES TO media_svc;
