@@ -206,7 +206,11 @@ describe('Winkey System Integration Test Suite', () => {
       body: clipBuf,
     });
     assert.ok(partPut.status >= 200 && partPut.status < 300, `PUT part failed: ${partPut.status}`);
-    const etag = partPut.headers.get('etag') || 'dummy-etag';
+    const rawEtag = partPut.headers.get('etag');
+    if (!rawEtag) {
+      assert.fail('ETag header missing from PUT part response');
+    }
+    const etag = rawEtag.replace(/"/g, '');
 
     // 4. Complete upload
     const completeRes = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId}/complete`, {
@@ -216,7 +220,7 @@ describe('Winkey System Integration Test Suite', () => {
         Authorization: `Bearer ${creatorToken}`,
       },
       body: JSON.stringify({
-        parts: [{ part_number: 1, etag: etag.replace(/"/g, '') }],
+        parts: [{ part_number: 1, etag }],
       }),
     });
     await checkRes(completeRes, 202, 'Complete upload');
@@ -934,14 +938,18 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // S13: Notifications & Realtime WebSocket Hints (N1/N2)
   // ---------------------------------------------------------------------------
   it('S13: notifications & WS hints (N1/N2)', async () => {
     const startTime = Date.now();
 
-    const regB = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const regB = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.131',
+      },
       body: JSON.stringify({
         email: `user_b_n1_${Date.now()}@example.com`,
         password: 'Password123!',
@@ -953,9 +961,12 @@ describe('Winkey System Integration Test Suite', () => {
     const tokenB = userB.access_token;
     const userBData = userB.user;
 
-    const regC = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const regC = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.132',
+      },
       body: JSON.stringify({
         email: `user_c_n1_${Date.now()}@example.com`,
         password: 'Password123!',
@@ -1153,10 +1164,318 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // S14: Playlists, Batch Videos & Studio Stats (QA3)
+  // ---------------------------------------------------------------------------
+  it('S14: playlists CRUD, concurrent watch-later, private access, hidden video, batch & studio stats', async () => {
+    const startTime = Date.now();
+    assert.ok(fs.existsSync(CLIP_PATH), `Test clip missing at ${CLIP_PATH}`);
+    const clipBuf = fs.readFileSync(CLIP_PATH);
+
+    // 1. Upload second test video
+    const createRes2 = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Hà Nội ngày về',
+        description: 'Second video clip for playlist test',
+        filename: 'clip.mp4',
+        content_type: 'video/mp4',
+        size_bytes: clipBuf.length,
+      }),
+    });
+    const uploadedVideoId2 = (await checkRes(createRes2, 201, 'Create second video upload')).json
+      .video_id;
+
+    const presignRes2 = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId2}/parts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({ part_numbers: [1] }),
+    });
+    const partUrl2 = (await checkRes(presignRes2, 200, 'Presign second video part')).json.urls[0]
+      .url;
+
+    const partPut2 = await fetch(partUrl2, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'video/mp4' },
+      body: clipBuf,
+    });
+    assert.ok(
+      partPut2.status >= 200 && partPut2.status < 300,
+      `PUT part 2 failed: ${partPut2.status}`,
+    );
+    const rawEtag2 = partPut2.headers.get('etag');
+    if (!rawEtag2) {
+      assert.fail('ETag header missing from PUT part 2 response');
+    }
+    const etag2 = rawEtag2.replace(/"/g, '');
+
+    const completeRes2 = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId2}/complete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({
+        parts: [{ part_number: 1, etag: etag2 }],
+      }),
+    });
+    await checkRes(completeRes2, 202, 'Complete second video upload');
+
+    let status2 = 'PROCESSING';
+    const pollDeadline2 = Date.now() + 60000;
+    while (Date.now() < pollDeadline2) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const stRes = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId2}`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      if (stRes.status === 200) {
+        const sData = await stRes.json();
+        if (sData.status === 'READY') {
+          status2 = 'READY';
+          break;
+        }
+      }
+    }
+    assert.equal(status2, 'READY', 'Second video did not reach READY');
+
+    // 2. Playlist CRUD: create, add video, reorder, delete item
+    const createPl = await fetch(`${GATEWAY_URL}/v1/playlists`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({
+        title: 'My Favorite Playlist',
+        description: 'System test playlist',
+        visibility: 'PUBLIC',
+      }),
+    });
+    const playlistId = (await checkRes(createPl, 201, 'Create playlist')).json.id;
+
+    const addV1 = await fetch(`${GATEWAY_URL}/v1/playlists/${playlistId}/items`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({ video_id: uploadedVideoId }),
+    });
+    await checkRes(addV1, 201, 'Add video 1 to playlist');
+
+    const addV2 = await fetch(`${GATEWAY_URL}/v1/playlists/${playlistId}/items`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({ video_id: uploadedVideoId2 }),
+    });
+    await checkRes(addV2, 201, 'Add video 2 to playlist');
+
+    const itemsRes1 = await fetch(`${GATEWAY_URL}/v1/playlists/${playlistId}/items`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const itemsData1 = (await checkRes(itemsRes1, 200, 'Get playlist items')).json;
+    assert.equal(itemsData1.items.length, 2);
+    assert.equal(itemsData1.items[0].video_id, uploadedVideoId);
+    assert.equal(itemsData1.items[1].video_id, uploadedVideoId2);
+
+    const moveRes = await fetch(
+      `${GATEWAY_URL}/v1/playlists/${playlistId}/items/${uploadedVideoId2}/move`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${creatorToken}`,
+        },
+        body: JSON.stringify({ before_video_id: uploadedVideoId }),
+      },
+    );
+    await checkRes(moveRes, 200, 'Move playlist item');
+
+    const itemsRes2 = await fetch(`${GATEWAY_URL}/v1/playlists/${playlistId}/items`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const itemsData2 = (await checkRes(itemsRes2, 200, 'Get reordered items')).json;
+    assert.equal(itemsData2.items[0].video_id, uploadedVideoId2);
+    assert.equal(itemsData2.items[1].video_id, uploadedVideoId);
+
+    const delItemRes = await fetch(
+      `${GATEWAY_URL}/v1/playlists/${playlistId}/items/${uploadedVideoId2}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      },
+    );
+    await checkRes(delItemRes, 204, 'Remove playlist item');
+
+    const itemsRes3 = await fetch(`${GATEWAY_URL}/v1/playlists/${playlistId}/items`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const itemsData3 = (await checkRes(itemsRes3, 200, 'Get items after deletion')).json;
+    assert.equal(itemsData3.items.length, 1);
+    assert.equal(itemsData3.items[0].video_id, uploadedVideoId);
+
+    // 3. Concurrent "Watch Later" requests -> exactly 1 playlist
+    const activeViewerReg = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.141',
+      },
+      body: JSON.stringify({
+        email: `viewer_active_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `viewer_active_${Date.now()}`,
+        display_name: 'Active Viewer',
+      }),
+    });
+    const activeViewerToken = (await checkRes(activeViewerReg, 201, 'Register active viewer')).json
+      .access_token;
+
+    const [wl1, wl2] = await Promise.all([
+      fetch(`${GATEWAY_URL}/v1/me/watch-later`, {
+        headers: { Authorization: `Bearer ${activeViewerToken}` },
+      }),
+      fetch(`${GATEWAY_URL}/v1/me/watch-later`, {
+        headers: { Authorization: `Bearer ${activeViewerToken}` },
+      }),
+    ]);
+    const wlData1 = (await checkRes(wl1, 200, 'Watch later req 1')).json;
+    const wlData2 = (await checkRes(wl2, 200, 'Watch later req 2')).json;
+    assert.equal(
+      wlData1.id,
+      wlData2.id,
+      'Concurrent watch-later requests must return same playlist id',
+    );
+
+    // 4. PRIVATE playlist: non-owner gets 404
+    const privPlRes = await fetch(`${GATEWAY_URL}/v1/playlists`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creatorToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Private Secrets Playlist',
+        visibility: 'PRIVATE',
+      }),
+    });
+    const privPlId = (await checkRes(privPlRes, 201, 'Create PRIVATE playlist')).json.id;
+
+    const ownerPrivGet = await fetch(`${GATEWAY_URL}/v1/playlists/${privPlId}`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    await checkRes(ownerPrivGet, 200, 'Owner read PRIVATE playlist');
+
+    const otherPrivGet = await fetch(`${GATEWAY_URL}/v1/playlists/${privPlId}`, {
+      headers: { Authorization: `Bearer ${activeViewerToken}` },
+    });
+    assert.equal(otherPrivGet.status, 404, 'Non-owner read PRIVATE playlist should return 404');
+
+    // 5. Hidden video: only owner sees it
+    const hideRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId2}/moderation`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${moderatorToken}`,
+      },
+      body: JSON.stringify({ state: 'HIDDEN', reason: 'QA3 testing hidden video' }),
+    });
+    await checkRes(hideRes, 200, 'Hide video for access test');
+
+    const ownerHiddenGet = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId2}`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    await checkRes(ownerHiddenGet, 200, 'Owner read hidden video');
+
+    const otherHiddenGet = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId2}`, {
+      headers: { Authorization: `Bearer ${activeViewerToken}` },
+    });
+    assert.equal(otherHiddenGet.status, 404, 'Non-owner read hidden video should return 404');
+
+    // 6. GET /v1/videos/batch?ids=a,b,c preserves order & drops unviewable/unknown ids
+    const fakeUuid = '00000000-0000-7000-8000-000000000000';
+
+    // Active viewer: uploadedVideoId is visible, uploadedVideoId2 is HIDDEN, fakeUuid is unknown -> returns only uploadedVideoId
+    const batchResOther = await fetch(
+      `${GATEWAY_URL}/v1/videos/batch?ids=${uploadedVideoId},${uploadedVideoId2},${fakeUuid}`,
+      {
+        headers: { Authorization: `Bearer ${activeViewerToken}` },
+      },
+    );
+    const batchDataOther = (await checkRes(batchResOther, 200, 'Batch get videos non-owner')).json;
+    assert.equal(batchDataOther.items.length, 1, 'Hidden and unknown videos must be omitted');
+    assert.equal(batchDataOther.items[0].id, uploadedVideoId);
+
+    // Creator A (owner): both uploadedVideoId2 (hidden) and uploadedVideoId are viewable -> preserves requested order
+    const batchResOwner = await fetch(
+      `${GATEWAY_URL}/v1/videos/batch?ids=${uploadedVideoId2},${uploadedVideoId}`,
+      {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      },
+    );
+    const batchDataOwner = (await checkRes(batchResOwner, 200, 'Batch get videos owner')).json;
+    assert.equal(batchDataOwner.items.length, 2);
+    assert.equal(
+      batchDataOwner.items[0].id,
+      uploadedVideoId2,
+      'First item must match requested order',
+    );
+    assert.equal(
+      batchDataOwner.items[1].id,
+      uploadedVideoId,
+      'Second item must match requested order',
+    );
+
+    // Restore video 2
+    const restoreV2 = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId2}/moderation`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${moderatorToken}`,
+      },
+      body: JSON.stringify({ state: 'VISIBLE' }),
+    });
+    await checkRes(restoreV2, 200, 'Restore video 2');
+
+    // 7. GET /v1/studio/stats for creator returns 200 with all days
+    const statsRes = await fetch(`${GATEWAY_URL}/v1/studio/stats`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const statsData = (await checkRes(statsRes, 200, 'Creator studio stats')).json;
+    assert.ok(Array.isArray(statsData.days), 'Studio stats days must be an array');
+    assert.ok(statsData.days.length >= 1, 'Studio stats must return all days');
+    assert.ok(statsData.from, 'Studio stats must include "from" date');
+    assert.ok(statsData.to, 'Studio stats must include "to" date');
+    assert.ok(statsData.totals, 'Studio stats must include "totals"');
+
+    recordResult('S14', 'playlists, batch & studio stats', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
   // S11: Video Deletion & Master Playlist Poll
   // ---------------------------------------------------------------------------
   it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
     const startTime = Date.now();
+
+    // Re-authenticate Creator A with new password
+    const loginA = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: creatorUser.email,
+        password: 'NewPassword123!',
+      }),
+    });
+    creatorToken = (await checkRes(loginA, 200, 'Re-authenticate Creator A')).json.access_token;
 
     // 1. Delete video
     const delRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
@@ -1169,8 +1488,16 @@ describe('Winkey System Integration Test Suite', () => {
     const getVid = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`);
     assert.equal(getVid.status, 404);
 
-    const getComm = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
-    assert.equal(getComm.status, 404);
+    // Verify 404 on GET comments (poll up to 10s for async video.deleted event in social-svc)
+    let commStatus = 0;
+    const commDeadline = Date.now() + 10000;
+    while (Date.now() < commDeadline) {
+      const getComm = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
+      commStatus = getComm.status;
+      if (commStatus === 404) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    assert.equal(commStatus, 404, 'Comments endpoint should return 404 after video deletion');
 
     // 3. Poll master playlist URL until 404 (≤ 60s)
     let mediaDeleted = false;

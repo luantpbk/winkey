@@ -41,3 +41,7 @@ BEGIN
     END IF;
 END
 $$;
+
+-- 5. analytics schema: USAGE and SELECT on video_daily for media_svc (studio stats)
+GRANT USAGE ON SCHEMA analytics TO media_svc;
+GRANT SELECT ON analytics.video_daily TO media_svc;
