@@ -281,6 +281,26 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - `event_id` trùng trong cùng một lô bị bỏ trước khi INSERT. Message sai schema bị `Term`.
 - Testkit pin ClickHouse 26.9.6.6 cho CI, còn gpu-01 chạy 25.8 LTS (do CPU không có AVX2). SQL trong `db/clickhouse/` phải tương thích cả hai.
 
+**Bổ sung (2026-10-01): R1-b, thống kê cho creator.**
+- **Vấn đề.** ClickHouse chỉ nghe loopback trên gpu-01, và gpu-01 có uptime yếu (ADR-015). Nếu video-svc đọc thẳng ClickHouse, ta phải mở ClickHouse ra tailnet (thêm bề mặt tấn công), và trang thống kê sẽ lỗi mỗi khi gpu-01 tắt.
+- **Quyết định.** analytics-worker tổng hợp `video_qoe_hourly` thành **`analytics.video_daily` trong PostgreSQL** (migration 000015). video-svc chỉ đọc PostgreSQL.
+  - Worker kết nối PG qua NodePort 30432, giống transcoder. Role `analytics_svc` chỉ được `USAGE` và CRUD trên schema `analytics`. `media_svc` được `USAGE` và `SELECT` trên `analytics.video_daily`.
+  - Ngày tính theo **Asia/Ho_Chi_Minh** (UTC+7, không có giờ mùa hè, nên `toDate(hour, 'Asia/Ho_Chi_Minh')` trên giờ UTC là đúng).
+  - Mỗi `ROLLUP_INTERVAL` (mặc định 10 phút), worker tính lại các ngày trong `ROLLUP_WINDOW_DAYS` (mặc định 3, tính cả hôm nay) rồi `INSERT … ON CONFLICT (video_id, day) DO UPDATE`. Lúc khởi động, cửa sổ là `ROLLUP_BACKFILL_DAYS` (mặc định 8), đủ phủ 7 ngày stream giữ lại sau khi gpu-01 tắt lâu. Thao tác idempotent, chạy lại bao nhiêu lần cũng ra cùng kết quả.
+  - Mỗi ngày một lần, worker xoá các dòng có `day` cũ hơn 730 ngày.
+  - Lỗi rollup không làm worker `not ready` (ingest vẫn chạy), chỉ tăng metric `analytics_rollup_errors_total` và để `analytics_rollup_last_success_timestamp_seconds` đứng yên.
+- **API** (`video.v1.yaml`, tag `studio`): `getVideoStats` (`GET /v1/studio/videos/{id}/stats`) và `getChannelStats` (`GET /v1/studio/stats`).
+  - Khoảng thời gian 1–90 ngày, không cũ quá 730 ngày. Mặc định 28 ngày gần nhất.
+  - `days` liệt kê đủ mọi ngày trong khoảng, ngày không có dữ liệu thì điền 0.
+  - Chỉ owner hoặc admin xem được; người khác nhận `404`.
+  - `refreshed_at` cho biết số liệu cũ đến đâu.
+- **Hệ quả và giới hạn.**
+  - `starts` là số phiên phát, khác `view_count` chống gian lận (C3). API trả cả hai và ghi rõ nghĩa từng số.
+  - `viewers` là số người xem duy nhất trong ngày (xấp xỉ, `uniq`). Số này không cộng dồn được nên không có ở tổng kênh.
+  - Rủi ro đếm đôi đã nêu ở bổ sung R1 vẫn còn ở bảng ngày.
+  - Dòng của video đã xoá vẫn ở lại đến hạn 730 ngày nhưng không bao giờ hiển thị, vì mọi truy vấn đều join `media.videos` để kiểm tra chủ sở hữu.
+  - Khi gpu-01 tắt, số liệu chỉ đứng yên, trang không lỗi.
+
 ### ADR-023 — Thông báo trong app (N1)
 **Bối cảnh.** Người dùng đã comment, reply và subscribe được (C1), nhưng không biết khi kênh mình theo dõi ra video mới hay khi có người trả lời mình. Catalog event ghi consumer "notify (P3)" nhưng chưa có thiết kế. Chưa có hạ tầng gửi push/e-mail, và chưa cần: bản beta chỉ cần chuông thông báo trên web.
 **Quyết định.**

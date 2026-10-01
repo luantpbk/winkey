@@ -330,6 +330,71 @@ paths:
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 
+  /v1/studio/videos/{video_id}/stats:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [studio]
+      operationId: getVideoStats
+      summary: Daily player statistics of one of the caller's videos (task R1-b). Owner or admin only.
+      description: |
+        Read from `analytics.video_daily` in PostgreSQL, which analytics-worker refreshes from ClickHouse every few
+        minutes (ADR-022 addendum R1-b). While gpu-01 is off the numbers stop advancing; `refreshed_at` says how old
+        they are. Days are calendar days in `Asia/Ho_Chi_Minh`. `days` holds EVERY day of the range in ascending
+        order, with zeros (and null ratios/percentiles) for days without plays. `starts` counts player sessions,
+        which is not the anti-fraud `view_count`; `view_count` is the lifetime counter of the video.
+        Any other caller (also for a missing or deleted video) gets `404`, never `403`.
+        `Cache-Control: private, no-store`. Rate limit 60 requests/min per user, shared with `getChannelStats`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StatsFrom'
+        - $ref: '#/components/parameters/StatsTo'
+      responses:
+        '200':
+          description: The statistics of the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoStats'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/studio/stats:
+    get:
+      tags: [studio]
+      operationId: getChannelStats
+      summary: Daily player statistics summed over all of the caller's videos, plus the top 10 videos (task R1-b).
+      description: |
+        Same source, timezone, day filling and freshness rules as `getVideoStats`. Only videos that still exist and
+        belong to the caller count. `viewers` is NOT summed (unique viewers are not additive), so channel days have
+        no `viewers` field. `top_videos` ranks the caller's videos by `watch_time_ms` over the range (ties by
+        `starts` then `video_id`), at most 10, omitting videos with no plays. `Cache-Control: private, no-store`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StatsFrom'
+        - $ref: '#/components/parameters/StatsTo'
+      responses:
+        '200':
+          description: The channel statistics of the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelStats'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
   /v1/videos/{video_id}/moderation:
     parameters:
       - $ref: './common.yaml#/components/parameters/VideoId'
@@ -590,6 +655,25 @@ components:
   securitySchemes:
     bearerAuth:
       $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  parameters:
+    StatsFrom:
+      name: from
+      in: query
+      required: false
+      description: |
+        First day (inclusive, `Asia/Ho_Chi_Minh`). Default `to` minus 27 days. Must not be after `to`, at most 89
+        days before `to` (a range holds 1 to 90 days) and not more than 730 days before today, else `400`.
+      schema:
+        type: string
+        format: date
+    StatsTo:
+      name: to
+      in: query
+      required: false
+      description: Last day (inclusive, `Asia/Ho_Chi_Minh`). Default today; a later day is clamped to today.
+      schema:
+        type: string
+        format: date
   schemas:
     Rendition:
       type: object
@@ -719,6 +803,154 @@ components:
           type: string
           format: uri
 
+    StatsTotals:
+      type: object
+      additionalProperties: false
+      required: [starts, watch_time_ms, avg_watch_ms, rebuffer_ratio, errors]
+      properties:
+        starts:
+          type: integer
+          minimum: 0
+          description: Player sessions started in the range.
+        watch_time_ms:
+          type: integer
+          minimum: 0
+        avg_watch_ms:
+          type: [integer, 'null']
+          minimum: 0
+          description: watch_time_ms / starts, rounded down; null when starts is 0.
+        rebuffer_ratio:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+          description: rebuffer_ms / (watched_ms + rebuffer_ms); null when both are 0.
+        errors:
+          type: integer
+          minimum: 0
+          description: Sessions that ended with a player error.
+    VideoStatsDay:
+      type: object
+      additionalProperties: false
+      required: [day, starts, watch_time_ms, viewers, rebuffer_ratio, startup_p50_ms, startup_p95_ms]
+      properties:
+        day:
+          type: string
+          format: date
+        starts:
+          type: integer
+          minimum: 0
+        watch_time_ms:
+          type: integer
+          minimum: 0
+        viewers:
+          type: integer
+          minimum: 0
+          description: Approximate unique viewers of that day.
+        rebuffer_ratio:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+        startup_p50_ms:
+          type: [integer, 'null']
+          minimum: 0
+        startup_p95_ms:
+          type: [integer, 'null']
+          minimum: 0
+    VideoStats:
+      type: object
+      additionalProperties: false
+      required: [video_id, from, to, timezone, view_count, totals, days, refreshed_at]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        timezone:
+          type: string
+          const: Asia/Ho_Chi_Minh
+        view_count:
+          type: integer
+          minimum: 0
+          description: Lifetime counted views of the video (same as `Video.view_count`).
+        totals:
+          $ref: '#/components/schemas/StatsTotals'
+        days:
+          type: array
+          minItems: 1
+          maxItems: 90
+          items:
+            $ref: '#/components/schemas/VideoStatsDay'
+        refreshed_at:
+          type: [string, 'null']
+          format: date-time
+          description: Latest refresh of any returned day; null when the range has no data at all.
+    ChannelStatsDay:
+      type: object
+      additionalProperties: false
+      required: [day, starts, watch_time_ms, rebuffer_ratio]
+      properties:
+        day:
+          type: string
+          format: date
+        starts:
+          type: integer
+          minimum: 0
+        watch_time_ms:
+          type: integer
+          minimum: 0
+        rebuffer_ratio:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+    ChannelStatsTopVideo:
+      type: object
+      additionalProperties: false
+      required: [video_id, title, starts, watch_time_ms]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        title:
+          type: string
+        starts:
+          type: integer
+          minimum: 0
+        watch_time_ms:
+          type: integer
+          minimum: 0
+    ChannelStats:
+      type: object
+      additionalProperties: false
+      required: [from, to, timezone, totals, days, top_videos, refreshed_at]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        timezone:
+          type: string
+          const: Asia/Ho_Chi_Minh
+        totals:
+          $ref: '#/components/schemas/StatsTotals'
+        days:
+          type: array
+          minItems: 1
+          maxItems: 90
+          items:
+            $ref: '#/components/schemas/ChannelStatsDay'
+        top_videos:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ChannelStatsTopVideo'
+        refreshed_at:
+          type: [string, 'null']
+          format: date-time
     VideoBatch:
       type: object
       additionalProperties: false

@@ -9,6 +9,7 @@ PostgreSQL ≥ 16 (production target: 17, chạy bằng CloudNativePG). Migratio
 | `auth` | auth-svc | mọi service: **chỉ** view `auth.public_profiles` | Không bao giờ để service khác đọc `auth.users` |
 | `media` | upload-svc, transcoder, video-svc | video-svc | Chung một domain media |
 | `social` | social-svc | — | Comment 2 cấp, like video, subscription; projection `social.videos` từ `video.ready`/`video.deleted` (migration 000005); thông báo trong app `social.notifications` (migration 000013, ADR-023); playlist và xem sau `social.playlists`/`social.playlist_items` (migration 000014, ADR-024) |
+| `analytics` | analytics-worker (role `analytics_svc`, từ gpu-01) | video-svc: `SELECT` trên `analytics.video_daily` | Thống kê theo ngày cho creator, tổng hợp từ ClickHouse (migration 000015, ADR-022 bổ sung R1-b). Ngày theo `Asia/Ho_Chi_Minh` |
 
 - Không tạo FK chéo schema (ví dụ `media.videos.owner_id` → `auth.users.id`). Tính nhất quán được giữ bằng event (ADR-007).
 - ID là **UUIDv7 do ứng dụng sinh ra**, nên cột ID không có default.
@@ -34,6 +35,8 @@ Migration chạy bằng role **owner của database, không cần superuser**. C
 | `auth_svc` | `USAGE` trên `auth`; CRUD trên các bảng `auth.*` |
 | `media_svc` | `USAGE` trên `media`; CRUD trên các bảng `media.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |
 | `social_svc` | `USAGE` trên `social`; CRUD trên các bảng `social.*`; `USAGE` trên `auth` + `SELECT` **chỉ** trên `auth.public_profiles` |
+| `analytics_svc` | `USAGE` trên `analytics`; CRUD trên các bảng `analytics.*`. Không có quyền gì khác |
+| `media_svc` (bổ sung) | `USAGE` trên `analytics` + `SELECT` **chỉ** trên `analytics.video_daily` |
 
 ## ClickHouse (analytics, ADR-022)
 
