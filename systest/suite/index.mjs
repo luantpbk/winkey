@@ -206,7 +206,11 @@ describe('Winkey System Integration Test Suite', () => {
       body: clipBuf,
     });
     assert.ok(partPut.status >= 200 && partPut.status < 300, `PUT part failed: ${partPut.status}`);
-    const etag = partPut.headers.get('etag') || 'dummy-etag';
+    const rawEtag = partPut.headers.get('etag');
+    if (!rawEtag) {
+      assert.fail('ETag header missing from PUT part response');
+    }
+    const etag = rawEtag.replace(/"/g, '');
 
     // 4. Complete upload
     const completeRes = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId}/complete`, {
@@ -216,7 +220,7 @@ describe('Winkey System Integration Test Suite', () => {
         Authorization: `Bearer ${creatorToken}`,
       },
       body: JSON.stringify({
-        parts: [{ part_number: 1, etag: etag.replace(/"/g, '') }],
+        parts: [{ part_number: 1, etag }],
       }),
     });
     await checkRes(completeRes, 202, 'Complete upload');
@@ -934,9 +938,9 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // S13: Playlists, Batch Videos & Studio Stats (QA3)
+  // S14: Playlists, Batch Videos & Studio Stats (QA3)
   // ---------------------------------------------------------------------------
-  it('S13: playlists CRUD, concurrent watch-later, private access, hidden video, batch & studio stats', async () => {
+  it('S14: playlists CRUD, concurrent watch-later, private access, hidden video, batch & studio stats', async () => {
     const startTime = Date.now();
     assert.ok(fs.existsSync(CLIP_PATH), `Test clip missing at ${CLIP_PATH}`);
     const clipBuf = fs.readFileSync(CLIP_PATH);
@@ -979,7 +983,11 @@ describe('Winkey System Integration Test Suite', () => {
       partPut2.status >= 200 && partPut2.status < 300,
       `PUT part 2 failed: ${partPut2.status}`,
     );
-    const etag2 = partPut2.headers.get('etag') || 'dummy-etag';
+    const rawEtag2 = partPut2.headers.get('etag');
+    if (!rawEtag2) {
+      assert.fail('ETag header missing from PUT part 2 response');
+    }
+    const etag2 = rawEtag2.replace(/"/g, '');
 
     const completeRes2 = await fetch(`${GATEWAY_URL}/v1/uploads/${uploadedVideoId2}/complete`, {
       method: 'POST',
@@ -988,7 +996,7 @@ describe('Winkey System Integration Test Suite', () => {
         Authorization: `Bearer ${creatorToken}`,
       },
       body: JSON.stringify({
-        parts: [{ part_number: 1, etag: etag2.replace(/"/g, '') }],
+        parts: [{ part_number: 1, etag: etag2 }],
       }),
     });
     await checkRes(completeRes2, 202, 'Complete second video upload');
@@ -1220,7 +1228,7 @@ describe('Winkey System Integration Test Suite', () => {
     assert.ok(statsData.to, 'Studio stats must include "to" date');
     assert.ok(statsData.totals, 'Studio stats must include "totals"');
 
-    recordResult('S13', 'playlists, batch & studio stats', 'PASSED', Date.now() - startTime);
+    recordResult('S14', 'playlists, batch & studio stats', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
