@@ -944,9 +944,12 @@ describe('Winkey System Integration Test Suite', () => {
   it('S13: notifications & WS hints (N1/N2)', async () => {
     const startTime = Date.now();
 
-    const regB = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const regB = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.131',
+      },
       body: JSON.stringify({
         email: `user_b_n1_${Date.now()}@example.com`,
         password: 'Password123!',
@@ -958,9 +961,12 @@ describe('Winkey System Integration Test Suite', () => {
     const tokenB = userB.access_token;
     const userBData = userB.user;
 
-    const regC = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const regC = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.132',
+      },
       body: JSON.stringify({
         email: `user_c_n1_${Date.now()}@example.com`,
         password: 'Password123!',
@@ -1318,9 +1324,12 @@ describe('Winkey System Integration Test Suite', () => {
     assert.equal(itemsData3.items[0].video_id, uploadedVideoId);
 
     // 3. Concurrent "Watch Later" requests -> exactly 1 playlist
-    const activeViewerReg = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const activeViewerReg = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.141',
+      },
       body: JSON.stringify({
         email: `viewer_active_${Date.now()}@example.com`,
         password: 'Password123!',
