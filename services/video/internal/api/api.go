@@ -94,6 +94,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 		r.Get("/v1/feed/subscriptions", h.subscriptionFeed)
+		r.Get("/v1/studio/stats", h.getChannelStats)
+		r.Get("/v1/studio/videos/{video_id}/stats", h.getVideoStats)
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -408,4 +409,104 @@ ON CONFLICT (video_id, hour) DO UPDATE SET views = media.video_views_hourly.view
 		return 0, fmt.Errorf("add views: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+// VideoStats reads the video's owner and view_count together with its daily rows in ONE query. The LEFT JOIN keeps
+// the video row when the range has no data, so "no such video" (no row at all) is told apart from "no plays".
+func (p *Postgres) VideoStats(ctx context.Context, id uuid.UUID, from, to time.Time) (domain.VideoStatsData, error) {
+	rows, err := p.Pool.Query(ctx, `
+		SELECT v.owner_id, v.view_count,
+		       d.day, d.starts, d.watched_ms, d.rebuffer_ms, d.errors, d.viewers, d.startup_p50_ms, d.startup_p95_ms, d.refreshed_at
+		FROM media.videos v
+		LEFT JOIN analytics.video_daily d ON d.video_id = v.id AND d.day BETWEEN $2 AND $3
+		WHERE v.id = $1
+		ORDER BY d.day`, id, from, to)
+	if err != nil {
+		return domain.VideoStatsData{}, fmt.Errorf("video stats: %w", err)
+	}
+	defer rows.Close()
+	var out domain.VideoStatsData
+	found := false
+	for rows.Next() {
+		var (
+			day                                      *time.Time
+			starts, watched, rebuffer, errs, viewers *int64
+			p50, p95                                 *int32
+			refreshed                                *time.Time
+		)
+		if err := rows.Scan(&out.OwnerID, &out.ViewCount, &day, &starts, &watched, &rebuffer, &errs, &viewers, &p50, &p95, &refreshed); err != nil {
+			return domain.VideoStatsData{}, fmt.Errorf("video stats: %w", err)
+		}
+		found = true
+		if day == nil {
+			continue
+		}
+		d := domain.DailyStats{Day: *day, Starts: *starts, WatchedMs: *watched, RebufferMs: *rebuffer, Errors: *errs,
+			Viewers: *viewers, RefreshedAt: *refreshed}
+		if p50 != nil {
+			v := int(*p50)
+			d.StartupP50Ms = &v
+		}
+		if p95 != nil {
+			v := int(*p95)
+			d.StartupP95Ms = &v
+		}
+		out.Days = append(out.Days, d)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.VideoStatsData{}, fmt.Errorf("video stats: %w", err)
+	}
+	if !found {
+		return domain.VideoStatsData{}, domain.ErrNotFound
+	}
+	return out, nil
+}
+
+// ChannelStats reads the owner's per-day sums and the top videos: two queries, both joined to media.videos with
+// v.owner_id = owner so deleted and transferred videos never count (their rows stay in analytics.video_daily).
+func (p *Postgres) ChannelStats(ctx context.Context, owner uuid.UUID, from, to time.Time) (domain.ChannelStatsData, error) {
+	var out domain.ChannelStatsData
+	rows, err := p.Pool.Query(ctx, `
+		SELECT d.day, sum(d.starts)::bigint, sum(d.watched_ms)::bigint, sum(d.rebuffer_ms)::bigint, sum(d.errors)::bigint,
+		       max(d.refreshed_at)
+		FROM analytics.video_daily d
+		JOIN media.videos v ON v.id = d.video_id AND v.owner_id = $1
+		WHERE d.owner_id = $1 AND d.day BETWEEN $2 AND $3
+		GROUP BY d.day ORDER BY d.day`, owner, from, to)
+	if err != nil {
+		return out, fmt.Errorf("channel stats days: %w", err)
+	}
+	for rows.Next() {
+		var d domain.ChannelDay
+		if err := rows.Scan(&d.Day, &d.Starts, &d.WatchedMs, &d.RebufferMs, &d.Errors, &d.RefreshedAt); err != nil {
+			rows.Close()
+			return out, fmt.Errorf("channel stats days: %w", err)
+		}
+		out.Days = append(out.Days, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("channel stats days: %w", err)
+	}
+	top, err := p.Pool.Query(ctx, `
+		SELECT v.id, v.title, sum(d.starts)::bigint AS starts, sum(d.watched_ms)::bigint AS watched
+		FROM analytics.video_daily d
+		JOIN media.videos v ON v.id = d.video_id AND v.owner_id = $1
+		WHERE d.owner_id = $1 AND d.day BETWEEN $2 AND $3
+		GROUP BY v.id, v.title
+		HAVING sum(d.starts) > 0
+		ORDER BY watched DESC, starts DESC, v.id
+		LIMIT 10`, owner, from, to)
+	if err != nil {
+		return out, fmt.Errorf("channel stats top: %w", err)
+	}
+	defer top.Close()
+	for top.Next() {
+		var t domain.TopVideo
+		if err := top.Scan(&t.ID, &t.Title, &t.Starts, &t.WatchedMs); err != nil {
+			return out, fmt.Errorf("channel stats top: %w", err)
+		}
+		out.Top = append(out.Top, t)
+	}
+	return out, top.Err()
 }

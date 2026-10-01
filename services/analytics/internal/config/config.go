@@ -25,6 +25,13 @@ type Config struct {
 	BatchMaxWait     time.Duration `env:"BATCH_MAX_WAIT" default:"2s"`
 	// InsertTimeout bounds one INSERT attempt; the durable's ack_wait is 60 s, so it must stay below 30 s.
 	InsertTimeout time.Duration `env:"CLICKHOUSE_INSERT_TIMEOUT" default:"30s"`
+
+	// Rollup of video_qoe_hourly into analytics.video_daily in PostgreSQL (task R1-b).
+	RollupEnabled  bool          `env:"ROLLUP_ENABLED" default:"true"`
+	PostgresURL    string        `env:"POSTGRES_URL"` // required when ROLLUP_ENABLED
+	RollupEvery    time.Duration `env:"ROLLUP_INTERVAL" default:"10m"`
+	RollupWindow   int           `env:"ROLLUP_WINDOW_DAYS" default:"3"`
+	RollupBackfill int           `env:"ROLLUP_BACKFILL_DAYS" default:"8"`
 }
 
 // Load reads and validates the environment.
@@ -46,6 +53,20 @@ func (c Config) Validate() error {
 	}
 	if c.InsertTimeout < time.Second || c.InsertTimeout > 30*time.Second {
 		return errors.New("CLICKHOUSE_INSERT_TIMEOUT must be between 1s and 30s (half of the 60s ack_wait)")
+	}
+	if c.RollupEnabled {
+		if c.PostgresURL == "" {
+			return errors.New("POSTGRES_URL is required when ROLLUP_ENABLED=true")
+		}
+		if c.RollupEvery < time.Minute || c.RollupEvery > time.Hour {
+			return errors.New("ROLLUP_INTERVAL must be between 1m and 1h")
+		}
+		if c.RollupWindow < 1 || c.RollupWindow > 8 {
+			return errors.New("ROLLUP_WINDOW_DAYS must be between 1 and 8")
+		}
+		if c.RollupBackfill < 1 || c.RollupBackfill > 30 {
+			return errors.New("ROLLUP_BACKFILL_DAYS must be between 1 and 30")
+		}
 	}
 	return nil
 }
