@@ -24,6 +24,7 @@ func (s *stubStore) StaleUploads(_ context.Context, d time.Duration, _ int) ([]d
 	s.asked = d
 	return s.stale, nil
 }
+func (s *stubStore) PurgeLedger(context.Context, time.Duration, int) (int, error) { return 0, nil }
 func (s *stubStore) DeleteUploading(_ context.Context, id uuid.UUID) (bool, error) {
 	s.deleted = append(s.deleted, id)
 	return true, nil

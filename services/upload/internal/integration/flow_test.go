@@ -7,10 +7,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +42,7 @@ type stack struct {
 	owner string
 	store *store.Postgres
 	stor  *storage.S3
+	flaky *flakyStorage // what the handler uses: stor, unless fail is set
 }
 
 func start(t *testing.T) *stack { return startQuota(t, quota.Limits{}) }
@@ -63,7 +66,8 @@ func startQuota(t *testing.T, limits quota.Limits) *stack {
 	stor := storage.New(s3c)
 	st := &store.Postgres{Pool: pg.Pool}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := &api.Handler{Store: st, Storage: stor, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
+	flaky := &flakyStorage{Storage: stor}
+	h := &api.Handler{Store: st, Storage: flaky, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
 	r := httpx.NewRouter("upload-test", log)
 	h.Routes(r)
 	srv := httptest.NewServer(r)
@@ -76,7 +80,7 @@ func startQuota(t *testing.T, limits quota.Limits) *stack {
 	t.Cleanup(cancel)
 	go func() { _ = relay.Run(ctx) }()
 
-	return &stack{srv: srv, pg: pg, nats: ns, s3: g.S3Client(), owner: ids.NewString(), store: st, stor: stor}
+	return &stack{srv: srv, pg: pg, nats: ns, s3: g.S3Client(), owner: ids.NewString(), store: st, stor: stor, flaky: flaky}
 }
 
 func (s *stack) call(t *testing.T, user, method, path string, body any, out any) int {
@@ -297,4 +301,17 @@ func TestAbortAndJanitor(t *testing.T) {
 	if code := s.call(t, s.owner, "GET", "/v1/uploads/"+stale.VideoID, nil, nil); code != 404 {
 		t.Fatalf("stale upload must be gone: %d", code)
 	}
+}
+
+// flakyStorage fails CreateMultipart while fail is set (an S3 outage); everything else is the real storage.
+type flakyStorage struct {
+	domain.Storage
+	fail atomic.Bool
+}
+
+func (f *flakyStorage) CreateMultipart(ctx context.Context, bucket, key, contentType string) (string, error) {
+	if f.fail.Load() {
+		return "", errors.New("injected: S3 CreateMultipartUpload failed")
+	}
+	return f.Storage.CreateMultipart(ctx, bucket, key, contentType)
 }

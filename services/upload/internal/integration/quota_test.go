@@ -98,6 +98,12 @@ func (q *quotaStack) seed(t *testing.T, owner string, age time.Duration, size in
 		id, owner, testkit.RawBucket, owner+"/"+id.String()+"/source", size, age.Seconds()); err != nil {
 		t.Fatal(err)
 	}
+	// createUpload writes the ledger row in the same transaction as the video row; the seed does too.
+	if _, err := q.pg.Pool.Exec(ctx, `
+		INSERT INTO media.upload_ledger (video_id, owner_id, size_bytes, created_at)
+		VALUES ($1, $2, $3, now() - make_interval(secs => $4))`, id, owner, size, age.Seconds()); err != nil {
+		t.Fatal(err)
+	}
 	var path []string
 	switch status {
 	case "UPLOADING":
