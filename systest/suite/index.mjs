@@ -883,12 +883,12 @@ describe('Winkey System Integration Test Suite', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // S11: Video Deletion & Master Playlist Poll
+  // S12: Subtitles (V5b Merged)
   // ---------------------------------------------------------------------------
-  it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
+  it('S12: subtitles track upload 201 & playback listing', async () => {
     const startTime = Date.now();
 
-    // Re-authenticate Creator A with new password
+    // Re-authenticate Creator A with new password (changed in S10)
     const loginA = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -898,46 +898,6 @@ describe('Winkey System Integration Test Suite', () => {
       }),
     });
     creatorToken = (await checkRes(loginA, 200, 'Re-authenticate Creator A')).json.access_token;
-
-    // 1. Delete video
-    const delRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${creatorToken}` },
-    });
-    await checkRes(delRes, 204, 'Delete video');
-
-    // 2. Verify 404 on GET video & comments
-    const getVid = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`);
-    assert.equal(getVid.status, 404);
-
-    const getComm = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
-    assert.equal(getComm.status, 404);
-
-    // 3. Poll master playlist URL until 404 (≤ 60s)
-    let mediaDeleted = false;
-    const pollDeadline = Date.now() + 60000;
-    // Query Garage S3 web endpoint directly (port 3902) to bypass Nginx proxy_cache
-    const directS3Url = masterPlaylistUrl.replace(':8081', ':3902');
-    while (Date.now() < pollDeadline) {
-      const mediaRes = await fetch(directS3Url, {
-        headers: { Host: 'winkey-media.web.garage.localhost' },
-      });
-      if (mediaRes.status === 404 || mediaRes.status === 403) {
-        mediaDeleted = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    assert.ok(mediaDeleted, 'Master playlist media object was not deleted within 60s');
-
-    recordResult('S11', 'video deletion & media purge', 'PASSED', Date.now() - startTime);
-  });
-
-  // ---------------------------------------------------------------------------
-  // S12: Subtitles (V5b Merged)
-  // ---------------------------------------------------------------------------
-  it('S12: subtitles track upload 201 & playback listing', async () => {
-    const startTime = Date.now();
 
     // Upload subtitle track for video
     const subRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/subtitles/vi`, {
@@ -971,5 +931,264 @@ describe('Winkey System Integration Test Suite', () => {
     assert.ok(vttObj.text.includes('WEBVTT'), 'Subtitle VTT file content invalid');
 
     recordResult('S12', 'subtitles (V5b)', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S13: Notifications & Realtime WebSocket Hints (N1/N2)
+  // ---------------------------------------------------------------------------
+  it('S13: notifications & WS hints (N1/N2)', async () => {
+    const startTime = Date.now();
+
+    const regB = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: `user_b_n1_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `user_b_n1_${Date.now().toString(36)}`,
+        display_name: 'User B',
+      }),
+    });
+    const userB = (await checkRes(regB, 201, 'Register User B')).json;
+    const tokenB = userB.access_token;
+    const userBData = userB.user;
+
+    const regC = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: `user_c_n1_${Date.now()}@example.com`,
+        password: 'Password123!',
+        handle: `user_c_n1_${Date.now().toString(36)}`,
+        display_name: 'User C',
+      }),
+    });
+    const userC = (await checkRes(regC, 201, 'Register User C')).json;
+    const tokenC = userC.access_token;
+
+    // Helper for WebSocket connection
+    async function openWebSocketWithTicket(userToken) {
+      const ticketRes = await fetch(`${GATEWAY_URL}/v1/realtime/ticket`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${userToken}` },
+      });
+      const ticketData = (await checkRes(ticketRes, 201, 'Get WebSocket ticket')).json;
+
+      const wsUrl = GATEWAY_URL.replace(/^http/, 'ws') + `/v1/realtime?ticket=${ticketData.ticket}`;
+      const ws = new WebSocket(wsUrl);
+
+      const msgs = [];
+      const listeners = [];
+
+      ws.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          msgs.push(parsed);
+          for (const fn of listeners) {
+            fn(parsed);
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS connect timeout')), 5000);
+        ws.onopen = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        ws.onerror = (err) => {
+          clearTimeout(timer);
+          reject(err);
+        };
+      });
+
+      return {
+        ws,
+        msgs,
+        waitForEvent: (predicate, timeoutMs = 5000) => {
+          return new Promise((resolve, reject) => {
+            for (const m of msgs) {
+              if (predicate(m)) return resolve(m);
+            }
+            const timer = setTimeout(
+              () => reject(new Error(`Timeout waiting for WS event (${timeoutMs}ms)`)),
+              timeoutMs,
+            );
+            listeners.push((m) => {
+              if (predicate(m)) {
+                clearTimeout(timer);
+                resolve(m);
+              }
+            });
+          });
+        },
+        close: () => ws.close(),
+      };
+    }
+
+    const wsA = await openWebSocketWithTicket(creatorToken);
+    const wsC = await openWebSocketWithTicket(tokenC);
+
+    try {
+      // 1. User B comments on User A's video -> VIDEO_COMMENT
+      const comm1Res = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenB}`,
+        },
+        body: JSON.stringify({ body: 'N1 test top level comment' }),
+      });
+      await checkRes(comm1Res, 201, 'B comments on A video');
+
+      const hint1 = await wsA.waitForEvent(
+        (m) =>
+          m.type === 'event' && m.event === 'notification.hint' && m.data?.kind === 'VIDEO_COMMENT',
+        5000,
+      );
+      assert.ok(hint1, 'User A should receive VIDEO_COMMENT hint over WS');
+
+      const cHasHint = wsC.msgs.some((m) => m.type === 'event' && m.event === 'notification.hint');
+      assert.equal(cHasHint, false, 'User C should not receive User A notification hint');
+
+      // 2. User B replies to User A's comment -> COMMENT_REPLY
+      const commARes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${creatorToken}`,
+        },
+        body: JSON.stringify({ body: 'User A top comment' }),
+      });
+      const commA = (await checkRes(commARes, 201, 'User A comment')).json;
+
+      const replyRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenB}`,
+        },
+        body: JSON.stringify({
+          body: 'User B reply to A',
+          parent_id: commA.id,
+        }),
+      });
+      await checkRes(replyRes, 201, 'B replies to A comment');
+
+      const hint2 = await wsA.waitForEvent(
+        (m) =>
+          m.type === 'event' && m.event === 'notification.hint' && m.data?.kind === 'COMMENT_REPLY',
+        5000,
+      );
+      assert.ok(hint2, 'User A should receive COMMENT_REPLY hint over WS');
+
+      // 3. User B subscribes to channel A -> NEW_SUBSCRIBER
+      const subRes = await fetch(`${GATEWAY_URL}/v1/channels/${creatorUser.id}/subscription`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${tokenB}` },
+      });
+      await checkRes(subRes, 200, 'B subscribes to A');
+
+      const hint3 = await wsA.waitForEvent(
+        (m) =>
+          m.type === 'event' &&
+          m.event === 'notification.hint' &&
+          m.data?.kind === 'NEW_SUBSCRIBER',
+        5000,
+      );
+      assert.ok(hint3, 'User A should receive NEW_SUBSCRIBER hint over WS');
+
+      // 4. Verify GET /v1/notifications/unread-count -> increases
+      const unreadRes = await fetch(`${GATEWAY_URL}/v1/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      const unreadData = (await checkRes(unreadRes, 200, 'GET unread count')).json;
+      assert.ok(unreadData.count >= 3, `Unread count should be >= 3, got ${unreadData.count}`);
+
+      // 5. Dedup check: User B subscribes again (idempotent repeat) -> no new notification line
+      const subDupRes = await fetch(`${GATEWAY_URL}/v1/channels/${creatorUser.id}/subscription`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${tokenB}` },
+      });
+      await checkRes(subDupRes, 200, 'B subscribes to A again');
+
+      const notifsRes = await fetch(`${GATEWAY_URL}/v1/notifications`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      const notifsData = (await checkRes(notifsRes, 200, 'GET notifications')).json;
+      const subNotifs = notifsData.items.filter(
+        (n) => n.kind === 'NEW_SUBSCRIBER' && n.actor?.id === userBData.id,
+      );
+      assert.equal(
+        subNotifs.length,
+        1,
+        'Dedup: should only have 1 NEW_SUBSCRIBER notification for same actor and target',
+      );
+
+      // 6. POST /v1/notifications/read -> resets unread count to 0
+      const readRes = await fetch(`${GATEWAY_URL}/v1/notifications/read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${creatorToken}`,
+        },
+        body: JSON.stringify({ up_to: new Date().toISOString() }),
+      });
+      await checkRes(readRes, 204, 'Mark notifications read');
+
+      const unreadAfterRes = await fetch(`${GATEWAY_URL}/v1/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      const unreadAfterData = (await checkRes(unreadAfterRes, 200, 'GET unread count after read'))
+        .json;
+      assert.equal(unreadAfterData.count, 0, 'Unread count should be 0 after marking read');
+    } finally {
+      wsA.close();
+      wsC.close();
+    }
+
+    recordResult('S13', 'notifications & WS hints (N1/N2)', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S11: Video Deletion & Master Playlist Poll
+  // ---------------------------------------------------------------------------
+  it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {
+    const startTime = Date.now();
+
+    // 1. Delete video
+    const delRes = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    await checkRes(delRes, 204, 'Delete video');
+
+    // 2. Verify 404 on GET video & comments
+    const getVid = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`);
+    assert.equal(getVid.status, 404);
+
+    const getComm = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`);
+    assert.equal(getComm.status, 404);
+
+    // 3. Poll master playlist URL until 404 (≤ 60s)
+    let mediaDeleted = false;
+    const pollDeadline = Date.now() + 60000;
+    // Query Garage S3 web endpoint directly (port 3902) to bypass Nginx proxy_cache
+    const directS3Url = masterPlaylistUrl.replace(':8081', ':3902');
+    while (Date.now() < pollDeadline) {
+      const mediaRes = await fetch(directS3Url, {
+        headers: { Host: 'winkey-media.web.garage.localhost' },
+      });
+      if (mediaRes.status === 404 || mediaRes.status === 403) {
+        mediaDeleted = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    assert.ok(mediaDeleted, 'Master playlist media object was not deleted within 60s');
+
+    recordResult('S11', 'video deletion & media purge', 'PASSED', Date.now() - startTime);
   });
 });
