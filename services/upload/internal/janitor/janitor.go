@@ -19,6 +19,11 @@ type Janitor struct {
 	Interval   time.Duration // default 10m
 	StaleAfter time.Duration // default 24h
 	BatchSize  int           // default 100
+
+	// Upload ledger retention (UQ1-b): rows older than LedgerRetention are deleted, at most
+	// LedgerBatch per statement, until none are left. The database refuses rows younger than 25 h.
+	LedgerRetention time.Duration // default 48h
+	LedgerBatch     int           // default 1000
 }
 
 // Run sweeps immediately and then every Interval until ctx is cancelled.
@@ -52,9 +57,14 @@ func (j *Janitor) Sweep(ctx context.Context) (int, error) {
 	if j.BatchSize <= 0 {
 		j.BatchSize = 100
 	}
+	// The ledger retention runs on every sweep, whatever happens to the stale uploads below.
+	purged, perr := j.purgeLedger(ctx)
+	if purged > 0 {
+		j.Log.InfoContext(ctx, "upload janitor purged ledger rows", "count", purged)
+	}
 	stale, err := j.Store.StaleUploads(ctx, j.StaleAfter, j.BatchSize)
 	if err != nil {
-		return 0, err
+		return 0, errors.Join(err, perr)
 	}
 	deleted := 0
 	for _, v := range stale {
@@ -77,5 +87,27 @@ func (j *Janitor) Sweep(ctx context.Context) (int, error) {
 			deleted++
 		}
 	}
-	return deleted, nil
+	return deleted, perr
+}
+
+// purgeLedger deletes ledger rows older than LedgerRetention in batches and returns the total.
+func (j *Janitor) purgeLedger(ctx context.Context) (int, error) {
+	if j.LedgerRetention <= 0 {
+		j.LedgerRetention = 48 * time.Hour
+	}
+	if j.LedgerBatch <= 0 {
+		j.LedgerBatch = 1000
+	}
+	total := 0
+	for ctx.Err() == nil {
+		n, err := j.Store.PurgeLedger(ctx, j.LedgerRetention, j.LedgerBatch)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n < j.LedgerBatch {
+			break
+		}
+	}
+	return total, nil
 }

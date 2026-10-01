@@ -97,6 +97,7 @@ func (s *fakeStore) DeleteUploading(_ context.Context, id uuid.UUID) (bool, erro
 	}
 	return false, nil
 }
+func (s *fakeStore) PurgeLedger(context.Context, time.Duration, int) (int, error) { return 0, nil }
 func (s *fakeStore) StaleUploads(context.Context, time.Duration, int) ([]domain.Video, error) {
 	return nil, nil
 }

@@ -39,6 +39,20 @@ type quotaStack struct {
 // schema, media type, and Retry-After on a 429). pathTemplate is the OpenAPI path.
 func (q *quotaStack) api(t *testing.T, owner, roles, method, pathTemplate, path string, body any) (int, http.Header, []byte) {
 	t.Helper()
+	code, hdr, raw := q.send(t, owner, roles, method, path, body)
+	if code == 0 {
+		return 0, nil, nil
+	}
+	q.spec.Check(t, method, pathTemplate, code, hdr.Get("Content-Type"), raw)
+	if code == http.StatusTooManyRequests {
+		contract.CheckRetryAfter(t, hdr.Get("Retry-After"))
+	}
+	return code, hdr, raw
+}
+
+// send performs the request without checking the response against the contract.
+func (q *quotaStack) send(t *testing.T, owner, roles, method, path string, body any) (int, http.Header, []byte) {
+	t.Helper()
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -54,11 +68,17 @@ func (q *quotaStack) api(t *testing.T, owner, roles, method, pathTemplate, path 
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	q.spec.Check(t, method, pathTemplate, resp.StatusCode, resp.Header.Get("Content-Type"), raw)
-	if resp.StatusCode == http.StatusTooManyRequests {
-		contract.CheckRetryAfter(t, resp.Header.Get("Retry-After"))
-	}
 	return resp.StatusCode, resp.Header, raw
+}
+
+// createRaw is create without the contract check. Only for a response the contract deliberately does not
+// document: the 500 of an infrastructure failure (S3 down). Everything else goes through create.
+func (q *quotaStack) createRaw(t *testing.T, owner, roles string, size int64) int {
+	t.Helper()
+	code, _, _ := q.send(t, owner, roles, "POST", "/v1/uploads", map[string]any{
+		"title": "clip", "filename": "clip.mp4", "content_type": "video/mp4", "size_bytes": size,
+	})
+	return code
 }
 
 type created struct {
@@ -96,6 +116,12 @@ func (q *quotaStack) seed(t *testing.T, owner string, age time.Duration, size in
 		INSERT INTO media.videos (id, owner_id, title, status, raw_bucket, raw_key, content_type, size_bytes, created_at)
 		VALUES ($1, $2, 'seed', 'UPLOADING', $3, $4, 'video/mp4', $5, now() - make_interval(secs => $6))`,
 		id, owner, testkit.RawBucket, owner+"/"+id.String()+"/source", size, age.Seconds()); err != nil {
+		t.Fatal(err)
+	}
+	// createUpload writes the ledger row in the same transaction as the video row; the seed does too.
+	if _, err := q.pg.Pool.Exec(ctx, `
+		INSERT INTO media.upload_ledger (video_id, owner_id, size_bytes, created_at)
+		VALUES ($1, $2, $3, now() - make_interval(secs => $4))`, id, owner, size, age.Seconds()); err != nil {
 		t.Fatal(err)
 	}
 	var path []string
