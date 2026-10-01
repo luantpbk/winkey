@@ -71,7 +71,7 @@ authorization: {
       user: "upload"
       password: "${UPLOAD_PWD}"
       permissions: {
-        publish: ["video.uploaded", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.>", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["rt.video.*.progress", "_INBOX.>"]
       }
     },
@@ -79,15 +79,15 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
-        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
+        publish: ["video.>", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "video.deleted", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
       }
     },
     {
       user: "video"
       password: "${VIDEO_PWD}"
       permissions: {
-        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.>", "analytics.>", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.SOCIAL.video-subscriptions.>"]
         subscribe: ["social.video.like_changed", "social.subscription.changed", "_INBOX.>"]
       }
     },
@@ -95,8 +95,8 @@ authorization: {
       user: "social"
       password: "${SOCIAL_PWD}"
       permissions: {
-        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.ready", "video.deleted", "video.moderated", "_INBOX.>"]
+        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.social-videos.>"]
+        subscribe: ["video.ready", "video.deleted", "video.moderated", "video.visibility_changed", "_INBOX.>"]
       }
     },
     {
@@ -183,7 +183,7 @@ authorization: {
       user: "upload"
       password: "${UPLOAD_PWD}"
       permissions: {
-        publish: ["video.uploaded", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.>", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["rt.video.*.progress", "_INBOX.>"]
       }
     },
@@ -191,15 +191,15 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
-        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
+        publish: ["video.>", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "video.deleted", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
       }
     },
     {
       user: "video"
       password: "${VIDEO_PWD}"
       permissions: {
-        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.>", "analytics.>", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.SOCIAL.video-subscriptions.>"]
         subscribe: ["social.video.like_changed", "social.subscription.changed", "_INBOX.>"]
       }
     },
@@ -207,8 +207,8 @@ authorization: {
       user: "social"
       password: "${SOCIAL_PWD}"
       permissions: {
-        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.ready", "video.deleted", "video.moderated", "_INBOX.>"]
+        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.social-videos.>"]
+        subscribe: ["video.ready", "video.deleted", "video.moderated", "video.visibility_changed", "_INBOX.>"]
       }
     },
     {
