@@ -68,7 +68,7 @@ func (s *stack) do(a *actor, method, path, body string) (int, http.Header, []byt
 	w := httptest.NewRecorder()
 	s.h.ServeHTTP(w, req)
 	p, _, _ := strings.Cut(path, "?")
-	if videoPath.MatchString(p) {
+	if videoPath.MatchString(p) && p != "/v1/videos/batch" {
 		p = "/v1/videos/{video_id}"
 	}
 	s.spec.Check(s.t, method, p, w.Code, w.Header().Get("Content-Type"), w.Body.Bytes())

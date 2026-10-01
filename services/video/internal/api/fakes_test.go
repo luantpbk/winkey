@@ -28,6 +28,8 @@ type memStore struct {
 	follows         map[uuid.UUID]map[uuid.UUID]bool
 	playbackLookups []int // ids per VideosForPlayback call
 	playbackErr     error
+	batchLookups    []int // ids per VideosByID call
+	batchErr        error
 	trendingReads   int
 	mediaChecks     int
 	lists           int
@@ -355,6 +357,24 @@ func (s *memStore) ListSubscriptionFeed(_ context.Context, q domain.Subscription
 	sort.Slice(out, func(i, j int) bool { return less(out[j].PublishedAt, out[j].ID, out[i].PublishedAt, out[i].ID) })
 	if len(out) > q.Limit {
 		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+// VideosByID returns the stored rows without renditions or subtitles (like the real query), counting the calls.
+func (s *memStore) VideosByID(_ context.Context, ids []uuid.UUID) ([]domain.Video, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.batchLookups = append(s.batchLookups, len(ids))
+	if s.batchErr != nil {
+		return nil, s.batchErr
+	}
+	var out []domain.Video
+	for _, id := range ids {
+		if v, ok := s.videos[id]; ok {
+			v.Renditions, v.Subtitles = nil, nil
+			out = append(out, v)
+		}
 	}
 	return out, nil
 }
