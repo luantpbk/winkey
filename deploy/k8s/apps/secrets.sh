@@ -47,6 +47,32 @@ else
     echo "  Secret auth-secrets already exists." >&2
 fi
 
+echo "==> Ensuring auth-google secret exists..."
+if kubectl get secret auth-google -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "  Secret auth-google already exists." >&2
+else
+    echo -n "Enter GOOGLE_CLIENT_ID (leave blank to skip): " >&2
+    GOOGLE_CLIENT_ID=""
+    read -r -s GOOGLE_CLIENT_ID || true
+    echo >&2
+    if [ -z "${GOOGLE_CLIENT_ID:-}" ]; then
+        echo "WARNING: GOOGLE_CLIENT_ID is empty; skipping creation of secret auth-google." >&2
+    else
+        echo -n "Enter GOOGLE_CLIENT_SECRET: " >&2
+        GOOGLE_CLIENT_SECRET=""
+        read -r -s GOOGLE_CLIENT_SECRET || true
+        echo >&2
+        if [ -z "${GOOGLE_CLIENT_SECRET:-}" ]; then
+            echo "WARNING: GOOGLE_CLIENT_SECRET is empty; skipping creation of secret auth-google." >&2
+        else
+            kubectl create secret generic auth-google -n "$NAMESPACE" \
+              --from-literal=GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+              --from-literal=GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET"
+            echo "  Created secret auth-google." >&2
+        fi
+    fi
+fi
+
 echo "==> [3/6] Ensuring upload-secrets exists..."
 if ! kubectl get secret upload-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
