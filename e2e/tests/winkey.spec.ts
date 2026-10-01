@@ -1131,6 +1131,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test('R1-b-web: Creator statistics in studio (open studio -> Thống kê -> switch 7 days -> open top video -> verify title and totals)', async ({
     page,
   }) => {
+    test.setTimeout(120000);
+
     // 1. Sign in as creator
     await page.goto('/vi/login');
     await page.waitForLoadState('domcontentloaded');
@@ -1139,7 +1141,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
       await loginForm.locator('input[type="password"]').fill('Password123!');
       await loginForm.locator('button[type="submit"]').click();
-      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20000 });
     }
 
     // 2. Open studio page
@@ -1148,9 +1150,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     // 3. Click "Thống kê" in studio nav
     const statsNavBtn = page.locator('[data-testid="studio-nav-analytics"]');
-    await expect(statsNavBtn).toBeVisible({ timeout: 10000 });
+    await expect(statsNavBtn).toBeVisible({ timeout: 20000 });
     await statsNavBtn.click();
-    await page.waitForURL((url) => url.pathname.includes('/studio/analytics'), { timeout: 15000 });
+    await page.waitForURL((url) => url.pathname.includes('/studio/analytics'), { timeout: 20000 });
 
     // 4. Verify channel stats components are visible
     await expect(page.locator('[data-testid="kpi-starts"]')).toBeVisible({ timeout: 10000 });

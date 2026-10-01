@@ -51,10 +51,10 @@ export function getStatsDateRange(
 
 /**
  * Format total watch time (ms) as h:mm.
- * Returns '0:00' when null, undefined or 0.
+ * Returns '0:00' when null, undefined or not finite.
  */
 export function formatWatchTime(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || isNaN(ms)) return '0:00';
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return '0:00';
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -64,10 +64,10 @@ export function formatWatchTime(ms: number | null | undefined): string {
 
 /**
  * Format average watch time (ms) as m:ss.
- * Returns '—' when null or undefined. Never returns NaN.
+ * Returns '—' when null, undefined or not finite. Never returns NaN.
  */
 export function formatAvgWatchTime(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || isNaN(ms)) return '—';
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -77,29 +77,29 @@ export function formatAvgWatchTime(ms: number | null | undefined): string {
 
 /**
  * Format rebuffer ratio (0..1) as a percentage string (e.g. 1.5%).
- * Returns '—' when null or undefined. Never returns NaN.
+ * Returns '—' when null, undefined or not finite. Never returns NaN.
  */
 export function formatRebufferRatio(ratio: number | null | undefined): string {
-  if (ratio === null || ratio === undefined || isNaN(ratio)) return '—';
+  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return '—';
   const pct = ratio * 100;
   return `${pct.toFixed(1)}%`;
 }
 
 /**
  * Format startup latency (ms) for p50/p95.
- * Returns '—' when null or undefined.
+ * Returns '—' when null, undefined or not finite.
  */
 export function formatStartupMs(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || isNaN(ms)) return '—';
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
   return `${Math.round(ms)} ms`;
 }
 
 /**
  * Format starts count with locale separators.
  */
-export function formatStarts(starts: number | null | undefined): string {
-  if (starts === null || starts === undefined || isNaN(starts)) return '0';
-  return new Intl.NumberFormat('vi-VN').format(starts);
+export function formatStarts(starts: number | null | undefined, locale: string = 'vi'): string {
+  if (starts === null || starts === undefined || !Number.isFinite(starts)) return '0';
+  return new Intl.NumberFormat(locale === 'vi' ? 'vi-VN' : 'en-US').format(starts);
 }
 
 /**
@@ -112,7 +112,7 @@ export function formatRefreshedAt(
 ): string | null {
   if (!isoString) return null;
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return null;
+  if (!Number.isFinite(date.getTime())) return null;
 
   return new Intl.DateTimeFormat(locale === 'vi' ? 'vi-VN' : 'en-US', {
     timeZone: STATS_TIMEZONE,

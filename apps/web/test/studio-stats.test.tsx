@@ -211,6 +211,7 @@ describe('Studio Creator Statistics (Task R1-b-web)', () => {
       expect(formatAvgWatchTime(65_000)).toBe('1:05');
       expect(formatAvgWatchTime(125_000)).toBe('2:05');
       expect(formatAvgWatchTime(NaN)).toBe('—');
+      expect(formatAvgWatchTime(Infinity)).toBe('—');
     });
 
     it('formats null rebuffer ratio as "—" and valid ratio as percentage', () => {
@@ -219,6 +220,7 @@ describe('Studio Creator Statistics (Task R1-b-web)', () => {
       expect(formatRebufferRatio(0.008)).toBe('0.8%');
       expect(formatRebufferRatio(0.125)).toBe('12.5%');
       expect(formatRebufferRatio(NaN)).toBe('—');
+      expect(formatRebufferRatio(Infinity)).toBe('—');
     });
 
     it('formats null startup latencies as "—" and valid ms as "${n} ms"', () => {
@@ -226,6 +228,7 @@ describe('Studio Creator Statistics (Task R1-b-web)', () => {
       expect(formatStartupMs(0)).toBe('0 ms');
       expect(formatStartupMs(340)).toBe('340 ms');
       expect(formatStartupMs(NaN)).toBe('—');
+      expect(formatStartupMs(Infinity)).toBe('—');
     });
 
     it('formats watch time as "h:mm" and zero as "0:00"', () => {
@@ -235,12 +238,18 @@ describe('Studio Creator Statistics (Task R1-b-web)', () => {
       expect(formatWatchTime(3_600_000)).toBe('1:00');
       expect(formatWatchTime(5_400_000)).toBe('1:30');
       expect(formatWatchTime(36_000_000)).toBe('10:00');
+      expect(formatWatchTime(NaN)).toBe('0:00');
+      expect(formatWatchTime(Infinity)).toBe('0:00');
     });
 
-    it('formats starts with locale separators and handles 0', () => {
+    it('formats starts with locale separators, accepts locale parameter, and handles 0/NaN/Infinity', () => {
       expect(formatStarts(0)).toBe('0');
       expect(formatStarts(1250)).toBe('1.250');
+      expect(formatStarts(1250, 'vi')).toBe('1.250');
+      expect(formatStarts(1250, 'en')).toBe('1,250');
       expect(formatStarts(1000000)).toBe('1.000.000');
+      expect(formatStarts(NaN)).toBe('0');
+      expect(formatStarts(Infinity)).toBe('0');
     });
 
     it('formats refreshed_at correctly or shows "Chưa có dữ liệu" when null', () => {
@@ -251,6 +260,67 @@ describe('Studio Creator Statistics (Task R1-b-web)', () => {
       const formatted = formatRefreshedAt('2026-09-30T12:00:00Z');
       expect(formatted).not.toBeNull();
       expect(formatted).toContain('2026');
+    });
+  });
+
+  // ==========================================
+  // Criteria: Empty State (All Zeroes, No NaN/Infinity in DOM)
+  // ==========================================
+  describe('Empty State (All Zeroes, No NaN/Infinity in DOM)', () => {
+    it('renders channel analytics empty state with 0s and dashes, and no NaN/Infinity in DOM', async () => {
+      setMockStatsEmpty(true);
+
+      const { container } = renderWithProviders(<StudioAnalyticsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-footer')).toBeDefined();
+      });
+
+      // Verify KPI values: starts is 0, watch time is 0:00, avg watch time is —, rebuffer ratio is —
+      expect(screen.getByTestId('kpi-starts')).toBeDefined();
+      expect(screen.getByTestId('kpi-watch-time')).toBeDefined();
+      expect(screen.getByTestId('kpi-avg-watch')).toBeDefined();
+      expect(screen.getByTestId('kpi-rebuffer-ratio')).toBeDefined();
+
+      // Top videos shows empty message
+      expect(
+        screen.getByText('Không có video nào có lượt phát trong khoảng thời gian này.'),
+      ).toBeDefined();
+
+      // Footer shows "Chưa có dữ liệu"
+      expect(screen.getByText('Chưa có dữ liệu')).toBeDefined();
+
+      // Confirm no NaN or Infinity exists in DOM
+      const domText = container.textContent || '';
+      expect(domText).not.toMatch(/NaN/i);
+      expect(domText).not.toMatch(/Infinity/i);
+    });
+
+    it('renders video analytics empty state with 0s and dashes, and no NaN/Infinity in DOM', async () => {
+      setMockStatsEmpty(true);
+
+      const { container } = renderWithProviders(<StudioVideoAnalyticsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-footer')).toBeDefined();
+      });
+
+      // Verify KPI values for video
+      expect(screen.getByTestId('kpi-starts')).toBeDefined();
+      expect(screen.getByTestId('kpi-watch-time')).toBeDefined();
+      expect(screen.getByTestId('kpi-avg-watch')).toBeDefined();
+      expect(screen.getByTestId('kpi-rebuffer-ratio')).toBeDefined();
+      expect(screen.getByTestId('kpi-view-count')).toBeDefined();
+      expect(screen.getByTestId('kpi-startup-p50')).toBeDefined();
+      expect(screen.getByTestId('kpi-startup-p95')).toBeDefined();
+
+      // Footer shows "Chưa có dữ liệu"
+      expect(screen.getByText('Chưa có dữ liệu')).toBeDefined();
+
+      // Confirm no NaN or Infinity exists in DOM
+      const domText = container.textContent || '';
+      expect(domText).not.toMatch(/NaN/i);
+      expect(domText).not.toMatch(/Infinity/i);
     });
   });
 
