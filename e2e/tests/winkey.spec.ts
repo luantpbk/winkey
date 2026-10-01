@@ -1127,4 +1127,58 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(page.locator('text=Đã xóa video khỏi danh sách')).toBeVisible({ timeout: 5000 });
     await expect(itemLocator).toBeHidden({ timeout: 5000 });
   });
+
+  test('R1-b-web: Creator statistics in studio (open studio -> Thống kê -> switch 7 days -> open top video -> verify title and totals)', async ({
+    page,
+  }) => {
+    test.setTimeout(120000);
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20000 });
+    }
+
+    // 2. Open studio page
+    await page.goto('/vi/studio');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 3. Click "Thống kê" in studio nav
+    const statsNavBtn = page.locator('[data-testid="studio-nav-analytics"]');
+    await expect(statsNavBtn).toBeVisible({ timeout: 20000 });
+    await statsNavBtn.click();
+    await page.waitForURL((url) => url.pathname.includes('/studio/analytics'), { timeout: 20000 });
+
+    // 4. Verify channel stats components are visible
+    await expect(page.locator('[data-testid="kpi-starts"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="stats-daily-chart"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="top-videos-table"]')).toBeVisible({ timeout: 10000 });
+
+    // 5. Switch to 7 days range
+    const range7Btn = page.locator('[data-testid="range-btn-7"]');
+    await expect(range7Btn).toBeVisible({ timeout: 5000 });
+    await range7Btn.click();
+
+    // 6. Open a top video
+    const firstTopVideoLink = page.locator('[data-testid^="top-video-link-"]').first();
+    await expect(firstTopVideoLink).toBeVisible({ timeout: 10000 });
+    const videoTitle = await firstTopVideoLink.locator('span').first().innerText();
+    await firstTopVideoLink.click();
+
+    // 7. Its stats page loads and shows the right title and totals
+    await page.waitForURL((url) => url.pathname.includes('/analytics'), { timeout: 15000 });
+    const headerTitle = page.locator('[data-testid="video-studio-title"]');
+    await expect(headerTitle).toBeVisible({ timeout: 10000 });
+    await expect(headerTitle).toHaveText(videoTitle);
+
+    // Verify video KPI cards
+    await expect(page.locator('[data-testid="kpi-starts"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="kpi-watch-time"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="kpi-view-count"]')).toBeVisible({ timeout: 10000 });
+  });
 });

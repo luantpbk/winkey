@@ -22,6 +22,7 @@ import {
 
 import { useRealtime } from '../../../lib/realtime/realtime-context';
 import { VideoSubtitlesDialog } from '../../../components/studio/video-subtitles-dialog';
+import { StudioNav } from '../../../components/studio/studio-nav';
 
 export default function StudioPage() {
   const [selectedSubtitlesVideoId, setSelectedSubtitlesVideoId] = React.useState<string | null>(
@@ -297,6 +298,9 @@ export default function StudioPage() {
           </Link>
         </div>
       </div>
+
+      {/* Studio Sub Navigation */}
+      <StudioNav />
 
       {/* Videos Table */}
       <div className="overflow-x-auto rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white shadow-xl">

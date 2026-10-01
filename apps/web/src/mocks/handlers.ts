@@ -45,7 +45,14 @@ import type {
   CreatePlaylistRequest,
   UpdatePlaylistRequest,
   MovePlaylistItemRequest,
+  ChannelStats,
+  ChannelStatsDay,
+  ChannelStatsTopVideo,
+  VideoStats,
+  VideoStatsDay,
+  StatsTotals,
 } from '@winkey/api-client';
+import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
   mockUsers,
   mockPublicProfiles,
@@ -143,6 +150,40 @@ export function resetPlaylistMocks() {
   mockPlaylistLimit = false;
   dynamicPlaylists = JSON.parse(JSON.stringify(initialMockPlaylists));
   dynamicPlaylistItems = JSON.parse(JSON.stringify(initialMockPlaylistItems));
+}
+
+let mockStatsRateLimit = false;
+let mockStatsEmpty = false;
+
+export function setMockStatsRateLimit(enabled: boolean) {
+  mockStatsRateLimit = enabled;
+}
+
+export function setMockStatsEmpty(enabled: boolean) {
+  mockStatsEmpty = enabled;
+}
+
+export function resetStatsMocks() {
+  mockStatsRateLimit = false;
+  mockStatsEmpty = false;
+}
+
+function generateDaysRange(fromStr: string, toStr: string): string[] {
+  const result: string[] = [];
+  const [fromY, fromM, fromD] = fromStr.split('-').map(Number);
+  const [toY, toM, toD] = toStr.split('-').map(Number);
+  let curUtc = Date.UTC(fromY, fromM - 1, fromD);
+  const endUtc = Date.UTC(toY, toM - 1, toD);
+
+  while (curUtc <= endUtc) {
+    const d = new Date(curUtc);
+    const yStr = d.getUTCFullYear();
+    const mStr = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dStr = String(d.getUTCDate()).padStart(2, '0');
+    result.push(`${yStr}-${mStr}-${dStr}`);
+    curUtc += 86_400_000;
+  }
+  return result;
 }
 
 export function setMockCurrentUser(user: User | null) {
@@ -3531,5 +3572,271 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     dynamicPlaylistItems = dynamicPlaylistItems.filter((x) => x.playlist_id !== playlistId);
 
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // --- STUDIO STATS ENDPOINTS ---
+  http.get('*/v1/studio/stats', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    if (mockStatsRateLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'RATE_LIMITED',
+          detail: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.',
+        },
+        { status: 429 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from') || getStatsDateRange(28).from;
+    const to = url.searchParams.get('to') || getStatsDateRange(28).to;
+
+    const daysList = generateDaysRange(from, to);
+
+    if (mockStatsEmpty) {
+      const channelStats: ChannelStats = {
+        from,
+        to,
+        timezone: 'Asia/Ho_Chi_Minh',
+        totals: {
+          starts: 0,
+          watch_time_ms: 0,
+          avg_watch_ms: null,
+          rebuffer_ratio: null,
+          errors: 0,
+        },
+        days: daysList.map((day) => ({
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          rebuffer_ratio: null,
+        })),
+        top_videos: [],
+        refreshed_at: null,
+      };
+      return HttpResponse.json(channelStats);
+    }
+
+    // Realistic stats
+    let totalStarts = 0;
+    let totalWatchTimeMs = 0;
+    let totalRebufferTimeMs = 0;
+
+    const days: ChannelStatsDay[] = daysList.map((day, idx) => {
+      // Create realistic data variation, with one day having 0 starts/null ratio to test null handling in charts
+      if (idx === 3 && daysList.length > 5) {
+        return {
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          rebuffer_ratio: null,
+        };
+      }
+      const starts = 120 + (idx % 7) * 35;
+      const watchTimeMs = starts * 185_000;
+      const rebufferTimeMs = Math.round(watchTimeMs * 0.008);
+      totalStarts += starts;
+      totalWatchTimeMs += watchTimeMs;
+      totalRebufferTimeMs += rebufferTimeMs;
+      return {
+        day,
+        starts,
+        watch_time_ms: watchTimeMs,
+        rebuffer_ratio: 0.008,
+      };
+    });
+
+    const userVideos = getDynamicVideos().filter((v) => v.owner?.id === caller.id);
+    const topVideos: ChannelStatsTopVideo[] = (userVideos.length > 0 ? userVideos : mockVideos)
+      .slice(0, 10)
+      .map((v, i) => {
+        const factor = Math.max(1, 10 - i);
+        return {
+          video_id: v.id,
+          title: v.title,
+          starts: Math.round(totalStarts * (factor / 25)),
+          watch_time_ms: Math.round(totalWatchTimeMs * (factor / 25)),
+        };
+      });
+
+    const totals: StatsTotals = {
+      starts: totalStarts,
+      watch_time_ms: totalWatchTimeMs,
+      avg_watch_ms: totalStarts > 0 ? Math.floor(totalWatchTimeMs / totalStarts) : null,
+      rebuffer_ratio:
+        totalWatchTimeMs + totalRebufferTimeMs > 0
+          ? totalRebufferTimeMs / (totalWatchTimeMs + totalRebufferTimeMs)
+          : null,
+      errors: 4,
+    };
+
+    const channelStats: ChannelStats = {
+      from,
+      to,
+      timezone: 'Asia/Ho_Chi_Minh',
+      totals,
+      days,
+      top_videos: topVideos,
+      refreshed_at: '2026-09-30T12:00:00Z',
+    };
+
+    return HttpResponse.json(channelStats);
+  }),
+
+  http.get('*/v1/studio/videos/:video_id/stats', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    if (mockStatsRateLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'RATE_LIMITED',
+          detail: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.',
+        },
+        { status: 429 },
+      );
+    }
+
+    const videoId = params.video_id as string;
+    const video = getDynamicVideos().find((v) => v.id === videoId);
+
+    // Contract: Any other caller (also for a missing or deleted video) gets 404, never 403. Owner or admin only.
+    const isOwner = video && video.owner?.id === caller.id;
+    const isAdmin = caller.roles?.includes('admin');
+
+    if (!video || (!isOwner && !isAdmin)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Video not found',
+          status: 404,
+          code: 'VIDEO_NOT_FOUND',
+          detail: 'Không tìm thấy video',
+        },
+        { status: 404 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from') || getStatsDateRange(28).from;
+    const to = url.searchParams.get('to') || getStatsDateRange(28).to;
+
+    const daysList = generateDaysRange(from, to);
+
+    if (mockStatsEmpty) {
+      const videoStats: VideoStats = {
+        video_id: videoId,
+        from,
+        to,
+        timezone: 'Asia/Ho_Chi_Minh',
+        view_count: 0,
+        totals: {
+          starts: 0,
+          watch_time_ms: 0,
+          avg_watch_ms: null,
+          rebuffer_ratio: null,
+          errors: 0,
+        },
+        days: daysList.map((day) => ({
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          viewers: 0,
+          rebuffer_ratio: null,
+          startup_p50_ms: null,
+          startup_p95_ms: null,
+        })),
+        refreshed_at: null,
+      };
+      return HttpResponse.json(videoStats);
+    }
+
+    // Realistic stats
+    let totalStarts = 0;
+    let totalWatchTimeMs = 0;
+    let totalRebufferTimeMs = 0;
+
+    const days: VideoStatsDay[] = daysList.map((day, idx) => {
+      // Day with 0 starts to test null ratio / percentiles
+      if (idx === 2 && daysList.length > 5) {
+        return {
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          viewers: 0,
+          rebuffer_ratio: null,
+          startup_p50_ms: null,
+          startup_p95_ms: null,
+        };
+      }
+      const starts = 45 + (idx % 6) * 15;
+      const watchTimeMs = starts * 160_000;
+      const viewers = Math.round(starts * 0.85);
+      const rebufferTimeMs = Math.round(watchTimeMs * 0.005);
+      totalStarts += starts;
+      totalWatchTimeMs += watchTimeMs;
+      totalRebufferTimeMs += rebufferTimeMs;
+      return {
+        day,
+        starts,
+        watch_time_ms: watchTimeMs,
+        viewers,
+        rebuffer_ratio: 0.005,
+        startup_p50_ms: 320 + (idx % 4) * 20,
+        startup_p95_ms: 850 + (idx % 4) * 50,
+      };
+    });
+
+    const totals: StatsTotals = {
+      starts: totalStarts,
+      watch_time_ms: totalWatchTimeMs,
+      avg_watch_ms: totalStarts > 0 ? Math.floor(totalWatchTimeMs / totalStarts) : null,
+      rebuffer_ratio:
+        totalWatchTimeMs + totalRebufferTimeMs > 0
+          ? totalRebufferTimeMs / (totalWatchTimeMs + totalRebufferTimeMs)
+          : null,
+      errors: 1,
+    };
+
+    const videoStats: VideoStats = {
+      video_id: videoId,
+      from,
+      to,
+      timezone: 'Asia/Ho_Chi_Minh',
+      view_count: video.view_count || 1420,
+      totals,
+      days,
+      refreshed_at: '2026-09-30T12:00:00Z',
+    };
+
+    return HttpResponse.json(videoStats);
   }),
 ];
