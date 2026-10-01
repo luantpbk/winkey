@@ -11,6 +11,11 @@ import (
 	"github.com/luantpbk/winkey/services/upload/internal/store"
 )
 
+// insert creates the row without a quota check, as the S3 call returns v.S3UploadID.
+func insert(ctx context.Context, st *store.Postgres, v domain.NewVideo) error {
+	return st.Create(ctx, v, nil, func(context.Context) (string, error) { return v.S3UploadID, nil })
+}
+
 func TestUploadStore(t *testing.T) {
 	pg := testkit.StartPostgres(t)
 	ctx := context.Background()
@@ -25,7 +30,7 @@ func TestUploadStore(t *testing.T) {
 		}
 	}
 	v := mk()
-	if err := st.Insert(ctx, v); err != nil {
+	if err := insert(ctx, st, v); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.Get(ctx, v.ID)
@@ -80,7 +85,7 @@ func TestUploadStore(t *testing.T) {
 
 	// MarkFailed, DeleteUploading, StaleUploads
 	f := mk()
-	_ = st.Insert(ctx, f)
+	_ = insert(ctx, st, f)
 	if ok, err := st.MarkFailed(ctx, f.ID, "size mismatch"); err != nil || !ok {
 		t.Fatalf("mark failed: %v %v", ok, err)
 	}
@@ -89,8 +94,8 @@ func TestUploadStore(t *testing.T) {
 		t.Fatalf("failed row: %+v", ff)
 	}
 	old, fresh := mk(), mk()
-	_ = st.Insert(ctx, old)
-	_ = st.Insert(ctx, fresh)
+	_ = insert(ctx, st, old)
+	_ = insert(ctx, st, fresh)
 	if _, err := pg.Pool.Exec(ctx, `UPDATE media.videos SET created_at = now() - interval '25 hours' WHERE id=$1`, old.ID); err != nil {
 		t.Fatal(err)
 	}

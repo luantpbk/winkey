@@ -27,6 +27,7 @@ import (
 	"github.com/luantpbk/winkey/services/upload/internal/api"
 	"github.com/luantpbk/winkey/services/upload/internal/domain"
 	"github.com/luantpbk/winkey/services/upload/internal/janitor"
+	"github.com/luantpbk/winkey/services/upload/internal/quota"
 	"github.com/luantpbk/winkey/services/upload/internal/storage"
 	"github.com/luantpbk/winkey/services/upload/internal/store"
 )
@@ -41,7 +42,10 @@ type stack struct {
 	stor  *storage.S3
 }
 
-func start(t *testing.T) *stack {
+func start(t *testing.T) *stack { return startQuota(t, quota.Limits{}) }
+
+// startQuota is start with the upload quota limits of ADR-027 (zero fields: no limit).
+func startQuota(t *testing.T, limits quota.Limits) *stack {
 	t.Helper()
 	pg := testkit.StartPostgres(t)
 	ns := testkit.StartNATS(t)
@@ -59,7 +63,7 @@ func start(t *testing.T) *stack {
 	stor := storage.New(s3c)
 	st := &store.Postgres{Pool: pg.Pool}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := &api.Handler{Store: st, Storage: stor, RawBucket: testkit.RawBucket, Log: log}
+	h := &api.Handler{Store: st, Storage: stor, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
 	r := httpx.NewRouter("upload-test", log)
 	h.Routes(r)
 	srv := httptest.NewServer(r)
