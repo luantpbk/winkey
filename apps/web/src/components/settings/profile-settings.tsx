@@ -6,7 +6,7 @@ import type { User, UpdateMeRequest, Problem } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
-import { UserCheck, AlertCircle } from 'lucide-react';
+import { UserCheck, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface ProfileSettingsProps {
   user: User;
@@ -14,12 +14,13 @@ interface ProfileSettingsProps {
 
 export function ProfileSettings({ user }: ProfileSettingsProps) {
   const t = useTranslations('settings.account');
-  const { updateUser } = useAuth();
+  const { updateUser, refresh } = useAuth();
   const { showToast } = useToast();
 
   const [displayName, setDisplayName] = useState(user.display_name);
   const [handle, setHandle] = useState(user.handle);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
@@ -91,6 +92,27 @@ export function ProfileSettings({ user }: ProfileSettingsProps) {
       setGeneralError(t('errors.generic'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setIsResending(true);
+    try {
+      const res = await api.auth.POST('/v1/auth/email/verification');
+      if (res.response.status === 202) {
+        showToast({ title: t('profile.resendSuccess'), type: 'success' });
+      } else if (res.response.status === 409) {
+        await refresh();
+        showToast({ title: t('profile.alreadyVerified'), type: 'info' });
+      } else if (res.response.status === 429) {
+        showToast({ title: t('profile.rateLimited'), type: 'error' });
+      } else {
+        showToast({ title: t('errors.generic'), type: 'error' });
+      }
+    } catch {
+      showToast({ title: t('errors.generic'), type: 'error' });
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -181,19 +203,44 @@ export function ProfileSettings({ user }: ProfileSettingsProps) {
         </div>
 
         <div>
-          <label
-            htmlFor="email"
-            className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5"
-          >
-            {t('profile.email')}
-          </label>
-          <input
-            id="email"
-            type="email"
-            disabled
-            value={user.email}
-            className="w-full h-10 rounded-xl border border-zinc-200 dark:border-[#2a2a2a] bg-zinc-100 dark:bg-[#181818] px-3.5 text-sm text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
-          />
+          <div className="flex items-center justify-between mb-1.5">
+            <label
+              htmlFor="email"
+              className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+            >
+              {t('profile.email')}
+            </label>
+            {user.email_verified ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <CheckCircle className="h-3 w-3" />
+                {t('profile.emailVerified')}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <AlertCircle className="h-3 w-3" />
+                {t('profile.emailUnverified')}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              id="email"
+              type="email"
+              disabled
+              value={user.email}
+              className="flex-1 h-10 rounded-xl border border-zinc-200 dark:border-[#2a2a2a] bg-zinc-100 dark:bg-[#181818] px-3.5 text-sm text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
+            />
+            {!user.email_verified && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={isResending}
+                className="h-10 px-3.5 rounded-xl border border-zinc-300 dark:border-[#383838] bg-zinc-50 dark:bg-[#1e1e1e] text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-[#282828] transition disabled:opacity-50 shrink-0"
+              >
+                {isResending ? '...' : t('profile.resendVerification')}
+              </button>
+            )}
+          </div>
           <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
             {t('profile.emailHelp')}
           </p>

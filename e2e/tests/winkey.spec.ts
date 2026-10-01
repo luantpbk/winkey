@@ -1181,4 +1181,80 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(page.locator('[data-testid="kpi-watch-time"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="kpi-view-count"]')).toBeVisible({ timeout: 10000 });
   });
+
+  test('A6-web: Forgot password -> reset password -> login; and verify email link -> success', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+
+    // ----------------------------------------------------
+    // Flow 1: Forgot password -> Reset link -> Login
+    // ----------------------------------------------------
+    // 1. Start from /vi/login
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Click "Quên mật khẩu?" link
+    const forgotLink = page.locator('a', { hasText: 'Quên mật khẩu?' });
+    await expect(forgotLink).toBeVisible({ timeout: 10000 });
+    await forgotLink.click();
+
+    // Lands on forgot-password page
+    await page.waitForURL((url) => url.pathname.includes('/forgot-password'), { timeout: 15000 });
+    const forgotEmailInput = page.locator('#forgot-email');
+    await expect(forgotEmailInput).toBeVisible({ timeout: 10000 });
+
+    // Submit email
+    await forgotEmailInput.fill('creator@winkey.vn');
+    await page.locator('button[type="submit"]', { hasText: 'Gửi liên kết đặt lại' }).click();
+
+    // Verify 202 generic success message
+    await expect(
+      page.locator('text=Nếu email này có tài khoản, chúng tôi đã gửi liên kết đặt lại mật khẩu'),
+    ).toBeVisible({ timeout: 10000 });
+
+    // 2. Open the reset password link with token
+    const resetToken = 'valid-token-playwright-reset-43charslong1';
+    await page.goto(`/reset-password?token=${resetToken}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify token was scrubbed from URL address bar immediately
+    await expect(page).toHaveURL(/\/reset-password$/);
+
+    // Fill new password and confirm
+    const newPasswordInput = page.locator('#new-password');
+    const confirmPasswordInput = page.locator('#confirm-password');
+    await expect(newPasswordInput).toBeVisible({ timeout: 10000 });
+
+    await newPasswordInput.fill('NewSecretPassword123!');
+    await confirmPasswordInput.fill('NewSecretPassword123!');
+    await page.locator('button[type="submit"]', { hasText: 'Đặt lại mật khẩu' }).click();
+
+    // Verify 204 password changed message
+    await expect(page.locator('text=Đã đổi mật khẩu, mọi thiết bị đã đăng xuất')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Click "Đăng nhập" button -> back to login page
+    const loginBtn = page.getByRole('main').getByRole('link', { name: 'Đăng nhập' });
+    await expect(loginBtn).toBeVisible({ timeout: 5000 });
+    await loginBtn.click();
+    await page.waitForURL((url) => url.pathname.includes('/login'), { timeout: 15000 });
+
+    // ----------------------------------------------------
+    // Flow 2: Verify email link -> success
+    // ----------------------------------------------------
+    const verifyToken = 'valid-token-playwright-verify-43charslong';
+    await page.goto(`/verify-email?token=${verifyToken}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify token was scrubbed from URL address bar
+    await expect(page).toHaveURL(/\/verify-email$/);
+
+    // Verify success message
+    await expect(page.locator('text=Email đã được xác minh')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('main').getByRole('link', { name: 'Trang chủ' })).toBeVisible({
+      timeout: 5000,
+    });
+  });
 });

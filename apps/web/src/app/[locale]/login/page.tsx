@@ -12,6 +12,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('return_to');
+  const errorParam = searchParams.get('error');
   const safeReturnTo =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
   const { login } = useAuth();
@@ -61,8 +62,31 @@ function LoginForm() {
           </p>
         </div>
 
+        {errorParam === 'oauth_unavailable' && (
+          <div
+            role="alert"
+            className="mb-4 flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-500"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{t('oauthUnavailable')}</span>
+          </div>
+        )}
+
+        {errorParam === 'ACCOUNT_SUSPENDED' && (
+          <div
+            role="alert"
+            className="mb-4 flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-500"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{t('accountSuspended')}</span>
+          </div>
+        )}
+
         {generalError && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-500">
+          <div
+            role="alert"
+            className="mb-4 flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-500"
+          >
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{generalError}</span>
           </div>
@@ -106,9 +130,16 @@ function LoginForm() {
                   : 'border-[#383838] dark:border-[#383838] border-gray-300 focus:border-red-500 focus:ring-red-500'
               }`}
             />
-            {fieldErrors.password && (
-              <p className="mt-1 text-xs text-red-500 font-medium">{fieldErrors.password}</p>
-            )}
+            <div className="flex items-center justify-between mt-1">
+              {fieldErrors.password ? (
+                <p className="text-xs text-red-500 font-medium">{fieldErrors.password}</p>
+              ) : (
+                <span />
+              )}
+              <Link href="/forgot-password" className="text-xs text-red-500 hover:underline">
+                {t('forgotPasswordLink')}
+              </Link>
+            </div>
           </div>
 
           <button

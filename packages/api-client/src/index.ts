@@ -22,6 +22,9 @@ export type LoginRequest = AuthComponents['schemas']['LoginRequest'];
 export type UpdateMeRequest = AuthComponents['schemas']['UpdateMeRequest'];
 export type ChangePasswordRequest = AuthComponents['schemas']['ChangePasswordRequest'];
 export type DeleteMeRequest = AuthComponents['schemas']['DeleteMeRequest'];
+export type PasswordResetRequest = AuthComponents['schemas']['PasswordResetRequest'];
+export type ResetPasswordRequest = AuthComponents['schemas']['ResetPasswordRequest'];
+export type VerifyEmailRequest = AuthComponents['schemas']['VerifyEmailRequest'];
 export type Problem = AuthComponents['schemas']['Problem'];
 export type ProblemError = NonNullable<Problem['errors']>[number];
 
