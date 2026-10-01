@@ -320,7 +320,11 @@ echo ""
 echo "=========================================================================="
 echo " gpu-01 Analytics Worker DSNs (over Tailscale NodePorts: 100.113.240.3)"
 echo "=========================================================================="
-echo "NATS_URL=nats://analytics:${NATS_ANALYTICS_PWD}@100.113.240.3:30422"
-echo "POSTGRES_URL=postgres://analytics_svc:${PG_ANALYTICS_PWD}@100.113.240.3:30432/winkey?sslmode=require"
+echo "NATS_URL=nats://analytics:<password>@100.113.240.3:30422"
+echo "# Password: kubectl get secret nats-auth -n $NAMESPACE -o jsonpath='{.data.analytics_password}' | base64 -d"
+echo ""
+echo "POSTGRES_URL=postgres://analytics_svc:<password>@100.113.240.3:30432/winkey?sslmode=require"
+echo "# Password: kubectl get secret winkey-pg-analytics-svc -n $NAMESPACE -o jsonpath='{.data.password}' | base64 -d"
 echo "=========================================================================="
+
 
