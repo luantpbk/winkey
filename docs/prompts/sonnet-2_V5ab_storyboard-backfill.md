@@ -48,7 +48,7 @@ internal/objects, and cmd/replay-dlq (the existing one-shot CLI: copy its config
    Never touch a video that is not READY.
 6. README in services/transcoder: a "Storyboard backfill" section with the env table, a dry-run example, and the
    command for gpu-01: `docker run --rm --env-file … <transcoder-cpu image> storyboard-backfill`
-   Adjust the path to the binary in the image.
+   The binary goes in /usr/local/bin like replay-dlq: add it to both Dockerfile.cpu and Dockerfile.nvenc.
 
 # DEFINITION OF DONE
 - Unit tests: selection query order/paging, dry-run writes nothing, the lost-race path deletes the uploaded
