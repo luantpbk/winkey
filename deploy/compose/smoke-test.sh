@@ -72,13 +72,15 @@ if [ "$SOCIAL_PRIORITY" -le "$VIDEO_PRIORITY" ]; then
     exit 1
 fi
 
-TEST_PATH="/v1/videos/01923456-789a-7bcd-ef01-23456789abcd/comments"
-if ! echo "$TEST_PATH" | grep -qE '^/v1/videos/[^/]+/(comments|like)$'; then
-    echo "FAILED: Test path $TEST_PATH does not match regex pattern!" >&2
-    exit 1
-fi
+for test_subpath in comments like playlist-membership; do
+    TEST_PATH="/v1/videos/01923456-789a-7bcd-ef01-23456789abcd/${test_subpath}"
+    if ! echo "$TEST_PATH" | grep -qE '^/v1/videos/[^/]+/(comments|like|playlist-membership)$'; then
+        echo "FAILED: Test path $TEST_PATH does not match regex pattern!" >&2
+        exit 1
+    fi
+done
 
-echo "SUCCESS: Router social@file targets social-svc with priority $SOCIAL_PRIORITY (higher than video-svc priority $VIDEO_PRIORITY) and rule matching $TEST_PATH."
+echo "SUCCESS: Router social@file targets social-svc with priority $SOCIAL_PRIORITY (higher than video-svc priority $VIDEO_PRIORITY) and rule matching comments, like, and playlist-membership."
 
 # 5. Check that router realtime@file targets realtime-svc with rule matching /v1/realtime (Issue #103)
 echo "Checking Traefik router configuration for realtime-svc..."
@@ -109,14 +111,20 @@ for prefix in "/v1/search" "/v1/feed" "/v1/playback"; do
 done
 echo "SUCCESS: Router video@file rule contains /v1/search, /v1/feed, and /v1/playback."
 
-# 7. Check that router social@file rule matches /v1/reports and /v1/moderation (Issue #112)
-for prefix in "/v1/reports" "/v1/moderation"; do
+# 7. Check that router social@file rule matches /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/me/subscriptions, /v1/me/watch-later
+for prefix in "/v1/reports" "/v1/moderation" "/v1/notifications" "/v1/playlists"; do
     if ! echo "$SOCIAL_RULE" | grep -q "PathPrefix(\`${prefix}\`)"; then
         echo "FAILED: Router social@file rule does not contain PathPrefix(\`${prefix}\`)!" >&2
         exit 1
     fi
 done
-echo "SUCCESS: Router social@file rule contains /v1/reports and /v1/moderation."
+for exact_path in "/v1/me/subscriptions" "/v1/me/watch-later"; do
+    if ! echo "$SOCIAL_RULE" | grep -q "Path(\`${exact_path}\`)"; then
+        echo "FAILED: Router social@file rule does not contain Path(\`${exact_path}\`)!" >&2
+        exit 1
+    fi
+done
+echo "SUCCESS: Router social@file rule contains /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/me/subscriptions, and /v1/me/watch-later."
 
 # 8. Check that router auth-protected@file rule matches /v1/admin
 AUTH_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/auth-protected@file" || true)

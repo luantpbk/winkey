@@ -101,8 +101,8 @@ spec:
           namespace: default
 
     # 4a. Social service routes (external, with rate-limiting)
-    # Higher priority (85) than video router (80) so /v1/videos/{id}/comments and /like route to social-svc
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
+    # Higher priority (85) than video router (80) so /v1/videos/{id}/comments, /like, /playlist-membership route to social-svc
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like|playlist-membership)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || PathPrefix(`/v1/notifications`) || PathPrefix(`/v1/playlists`) || Path(`/v1/me/subscriptions`) || Path(`/v1/me/watch-later`))'
       kind: Rule
       priority: 85
       middlewares:
@@ -118,7 +118,7 @@ spec:
           namespace: default
 
     # 4b. Social service routes (in-cluster SSR, separate router without rate-limiting)
-    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || Path(`/v1/me/subscriptions`))'
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathRegexp(`^/v1/videos/[^/]+/(comments|like|playlist-membership)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || PathPrefix(`/v1/notifications`) || PathPrefix(`/v1/playlists`) || Path(`/v1/me/subscriptions`) || Path(`/v1/me/watch-later`))'
       kind: Rule
       priority: 85
       middlewares:
