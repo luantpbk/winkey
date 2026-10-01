@@ -496,4 +496,3 @@ describe('email-verification routes (unit)', () => {
     });
   });
 });
-

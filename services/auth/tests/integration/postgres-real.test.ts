@@ -1977,4 +1977,3 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
   });
 });
-
