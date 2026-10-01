@@ -107,6 +107,41 @@ Measured with `TestStoryboardOverhead` on a **Windows / amd64 laptop, 4 CPUs, x2
 
 Not measured on gpu-01 or on arm64 edge nodes.
 
+## Storyboard backfill (V5a-b)
+
+Videos that became `READY` before V5a, or whose best-effort storyboard step failed, have `media.videos.storyboard_key IS NULL` and no seek preview. `storyboard-backfill` (`cmd/storyboard-backfill`, installed in both images next to `transcoder` and `replay-dlq`) makes it for them, once. No contract, migration or event change: `Playback.storyboard_url` already exists.
+
+Per video, newest first (`created_at DESC, id DESC`, keyset-paged, at most `BACKFILL_LIMIT`; only `status = 'READY' AND storyboard_key IS NULL`):
+
+1. pick the rendition V5a picks (`media.StoryboardRendition` over `media.video_renditions`; none qualifies: the video is skipped and logged, the source is never downloaded);
+2. download its `index.m3u8`, init segment and media segments into a temp dir under `SCRATCH_DIR` and run the same `Tools.Storyboard` (`KeyframesOnly`);
+3. upload the sheets and `storyboard.vtt` under `v/{id}/a{attempt}/storyboard/` (the attempt of the video's current `hls_master_key`), same keys, Content-Type and Cache-Control as the pipeline (`job.UploadStoryboard`);
+4. `UPDATE media.videos SET storyboard_key = $2 WHERE id = $1 AND status = 'READY' AND storyboard_key IS NULL`; when no row changed (deleted or already done) the objects just uploaded are deleted.
+
+The temp dir is always removed (error, SIGINT, SIGTERM). Failures are per video (JSON log with `video_id`, `error_class`, ffmpeg stderr tail) and the run goes on. Re-running is safe: a second run selects only what is still `NULL`. Exit code 0 when the run finished (even with per-video failures), 1 on a configuration, database or S3 connection error. The last line is a summary: `selected`, `done`, `skipped_no_rendition`, `failed`, `lost_race`, `duration` (a dry run adds `would_do`).
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | required | PostgreSQL, role `media_svc` |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_MEDIA_BUCKET` | as the worker | the raw bucket is not used |
+| `FFMPEG_PATH` | required | `ffprobe` and NATS are not needed |
+| `SCRATCH_DIR` | `<os temp>/winkey-scratch` | one `backfill-<video id>-*` directory per video, removed afterwards |
+| `BACKFILL_LIMIT` | `100` | videos per run, 1 to 10000 |
+| `BACKFILL_CONCURRENCY` | `1` | parallel ffmpeg runs, 1 to 4 (gpu-01 uses 1) |
+| `LOG_LEVEL` | `info` | JSON logs |
+
+```bash
+# list what would be done, write nothing
+DATABASE_URL=... S3_ENDPOINT=... S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... FFMPEG_PATH=/usr/local/bin/ffmpeg \
+  storyboard-backfill -dry-run
+
+# gpu-01 (the image's entrypoint is the worker, so the binary is selected with --entrypoint)
+docker run --rm --env-file /etc/winkey/transcoder.env -e BACKFILL_CONCURRENCY=1 \
+  --entrypoint /usr/local/bin/storyboard-backfill <transcoder-cpu image> -dry-run
+docker run --rm --env-file /etc/winkey/transcoder.env -e BACKFILL_CONCURRENCY=1 \
+  --entrypoint /usr/local/bin/storyboard-backfill <transcoder-cpu image>
+```
+
 ## Test
 
 ```bash
