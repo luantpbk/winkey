@@ -68,6 +68,7 @@ Ensure the data plane secrets (`winkey-pg-auth-svc`, `winkey-pg-media-svc`, `win
 This generates and provisions:
 - `auth-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `JWT_PRIVATE_KEY` (RS256 2048-bit), `JWT_KID`, `COOKIE_SECRET`.
 - `auth-google`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In Google Cloud Console, configure Authorized redirect URI as `https://winkey.vn/v1/auth/oauth/google/callback`.
+- `auth-smtp`: `SMTP_URL` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In auth-svc, `MAIL_TRANSPORT` defaults to `log` until an SMTP provider is configured via `SMTP_URL`.
 - `upload-secrets`: `DATABASE_URL`, `NATS_URL`.
 - `video-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `MEDIA_LINK_SECRET` (≥ 32 bytes), `CURSOR_SECRET`.
 - `social-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`.

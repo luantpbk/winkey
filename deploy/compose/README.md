@@ -14,6 +14,7 @@ The stack runs all stateful dependencies and edge ingress required for developin
 - **media-cache**: Local Nginx proxy cache on port 8081 fronting Garage web endpoint with byte-range and immutable caching.
 - **Traefik Gateway (v3.7)**: API Gateway on port 8080 routing `/v1/*` endpoints with security middleware stripping spoofed identity headers (matches production k3s on edge-1).
 - **whoami**: Mock upstream used for gateway smoke testing.
+- **Mailpit (v1.22)**: Local SMTP capture server (:1025) and Web UI / REST API (:8025) for outbound email testing (A6).
 
 ## 2. Ports & Endpoints
 
@@ -28,6 +29,8 @@ The stack runs all stateful dependencies and edge ingress required for developin
 | **NATS Monitoring** | `8222` | `http://nats:8222` | NATS health & metrics |
 | **Garage S3 API** | `3900` | `http://garage:3900` | S3 compatible API endpoint |
 | **Garage Web Endpoint**| `3902` | `http://garage:3902` | Direct S3 website hosting |
+| **Mailpit Web UI & API** | `8025` | `http://mailpit:8025` | Mailpit email inbox UI and REST API |
+| **Mailpit SMTP** | `1025` | `mailpit:1025` | Outbound SMTP capture server |
 
 ### Network Binding & Security
 - Default bind IP is **`127.0.0.1`** (`DEV_BIND_IP=127.0.0.1`).

@@ -19,6 +19,8 @@ services:
       MEDIA_BASE_URL: http://127.0.0.1:8081
       COOKIE_SECRET: ${COOKIE_SECRET:-winkey-dev-cookie-secret-min-32-chars-long!}
       TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,172.16.0.0/12
+      MAIL_TRANSPORT: smtp
+      SMTP_URL: smtp://mailpit:1025
     healthcheck:
       test:
         [
@@ -39,6 +41,8 @@ services:
         condition: service_healthy
       nats-bootstrap:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
 
   upload-svc:
     build:

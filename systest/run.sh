@@ -53,7 +53,7 @@ MEDIA_LINK_SECRET="$(cat "${KEYS_DIR}/media_link_secret.txt" | tr -d '[:space:]'
 
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap >/dev/null 2>&1 || true
 
 GEN_ENV="${REPO_ROOT}/deploy/compose/.generated.env"
