@@ -494,9 +494,10 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       .innerJoin('social.videos as v', 'v.id', 'pi.video_id')
       .select(['pi.video_id', 'pi.position', 'pi.added_at'])
       .where('pi.playlist_id', '=', playlist_id)
-      .where('v.hidden', '=', false)
       .where(
-        sql<boolean>`(v.visibility <> 'PRIVATE' OR ${caller.userId ? sql`v.owner_id = ${caller.userId}` : sql`false`})`,
+        sql<boolean>`((NOT v.hidden AND v.visibility <> 'PRIVATE') OR ${
+          caller.userId ? sql`v.owner_id = ${caller.userId}` : sql`false`
+        })`,
       )
       .orderBy('pi.position', 'asc');
 
@@ -572,7 +573,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
     }
 
     const isReadable =
-      !video.hidden && (video.visibility !== 'PRIVATE' || video.owner_id === caller.userId);
+      (!video.hidden && video.visibility !== 'PRIVATE') || video.owner_id === caller.userId;
     if (!isReadable) {
       throw ProblemError.notFound('Video not found or not accessible', 'VIDEO_NOT_FOUND');
     }

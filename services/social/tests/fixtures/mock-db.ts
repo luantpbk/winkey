@@ -1326,9 +1326,9 @@ export function createMockDb(store: MockStore = createMockStore()): {
           .filter((pi) => {
             const v = store.videos.find((vid) => vid.id === pi.video_id);
             if (!v) return false;
-            if (v.hidden) return false;
-            if (v.visibility === 'PRIVATE' && (!callerId || v.owner_id !== callerId)) return false;
-            return true;
+            const isOwner = Boolean(callerId && v.owner_id === callerId);
+            if (isOwner) return true;
+            return !v.hidden && v.visibility !== 'PRIVATE';
           })
           .sort((a, b) => a.position - b.position);
 

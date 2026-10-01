@@ -595,15 +595,38 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       expect(res.json().code).toBe('VIDEO_NOT_FOUND');
     });
 
-    it('returns 404 VIDEO_NOT_FOUND when video is hidden', async () => {
+    it('returns 404 VIDEO_NOT_FOUND when video is hidden and belongs to someone else', async () => {
+      const plIdB = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b0031';
+      store.playlists.push({
+        id: plIdB,
+        owner_id: userB,
+        kind: 'REGULAR',
+        title: 'User B Playlist',
+        description: '',
+        visibility: 'PUBLIC',
+        item_count: 0,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/playlists/${plIdB}/items`,
+        headers: { 'x-user-id': userB },
+        payload: { video_id: videoHidden },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('VIDEO_NOT_FOUND');
+    });
+
+    it('allows owner to add their own hidden video', async () => {
       const res = await app.inject({
         method: 'POST',
         url: `/v1/playlists/${plId}/items`,
         headers: { 'x-user-id': userA },
         payload: { video_id: videoHidden },
       });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('VIDEO_NOT_FOUND');
+      expect(res.statusCode).toBe(201);
+      expect(res.json().video_id).toBe(videoHidden);
     });
 
     it('returns 404 VIDEO_NOT_FOUND when video is PRIVATE and belongs to someone else', async () => {
@@ -947,8 +970,8 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       expect(body.items.map((i: any) => i.video_id)).toEqual([video1, video2]);
     });
 
-    it('includes private videos if caller owns the video (hidden videos are never returned)', async () => {
-      // userA owns videoPrivateA and videoHidden. videoPrivateA is included, videoHidden is excluded.
+    it('includes private and hidden videos if caller owns the video', async () => {
+      // userA owns videoPrivateA and videoHidden. Both are included for userA in their own playlist view.
       const res = await app.inject({
         method: 'GET',
         url: `/v1/playlists/${plPublic}/items`,
@@ -956,8 +979,13 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.items).toHaveLength(3);
-      expect(body.items.map((i: any) => i.video_id)).toEqual([video1, videoPrivateA, video2]);
+      expect(body.items).toHaveLength(4);
+      expect(body.items.map((i: any) => i.video_id)).toEqual([
+        video1,
+        videoPrivateA,
+        videoHidden,
+        video2,
+      ]);
     });
 
     it('supports keyset pagination with cursor and limit', async () => {

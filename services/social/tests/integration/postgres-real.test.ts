@@ -2558,17 +2558,17 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(unknownVidRes.statusCode).toBe(404);
     expect(unknownVidRes.json().code).toBe('VIDEO_NOT_FOUND');
 
-    // Hidden video
-    const hiddenVid = uuidv7();
+    // Hidden video owned by plUser2 -> plUser1 cannot add it (404 VIDEO_NOT_FOUND)
+    const hiddenVidUser2 = uuidv7();
     await pool.query(`
       INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
-      VALUES ('${hiddenVid}', '${plUser1}', true, 'PUBLIC', now())
+      VALUES ('${hiddenVidUser2}', '${plUser2}', true, 'PUBLIC', now())
     `);
     const hiddenVidRes = await app.inject({
       method: 'POST',
       url: `/v1/playlists/${privatePl.id}/items`,
       headers: { 'x-user-id': plUser1 },
-      payload: { video_id: hiddenVid },
+      payload: { video_id: hiddenVidUser2 },
     });
     expect(hiddenVidRes.statusCode).toBe(404);
     expect(hiddenVidRes.json().code).toBe('VIDEO_NOT_FOUND');
@@ -2588,7 +2588,63 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(privateVidRes.statusCode).toBe(404);
     expect(privateVidRes.json().code).toBe('VIDEO_NOT_FOUND');
 
-    // 6. Hidden/PRIVATE video filtered from items for others but shown to its owner
+    // 6. Hidden/PRIVATE video filtered from items for others but shown to its owner:
+    // Video owned by U and hidden, in U's PUBLIC playlist -> U sees it in items, another user does not
+    const pubPlForHidden = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': plUser1 },
+      payload: { title: 'U Public Playlist for Hidden Test', visibility: 'PUBLIC' },
+    });
+    const uPublicPlId = pubPlForHidden.json().id;
+
+    const hiddenVidOwnedByU = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${hiddenVidOwnedByU}', '${plUser1}', true, 'PUBLIC', now())
+    `);
+
+    // U adds both public video and own hidden video to their PUBLIC playlist
+    await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${uPublicPlId}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: testVideo1 },
+    });
+    const addHiddenRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${uPublicPlId}/items`,
+      headers: { 'x-user-id': plUser1 },
+      payload: { video_id: hiddenVidOwnedByU },
+    });
+    expect(addHiddenRes.statusCode).toBe(201);
+
+    // List items by owner U (plUser1) -> U sees both testVideo1 and hiddenVidOwnedByU
+    const listItemsU = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${uPublicPlId}/items`,
+      headers: { 'x-user-id': plUser1 },
+    });
+    expect(listItemsU.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(listItemsU.json())).toBe(true);
+    expect(listItemsU.json().items).toHaveLength(2);
+    expect(listItemsU.json().items.some((i: any) => i.video_id === hiddenVidOwnedByU)).toBe(true);
+
+    // List items by another user (plUser2) -> sees only testVideo1, hiddenVidOwnedByU is filtered out
+    const listItemsOutsider = await app.inject({
+      method: 'GET',
+      url: `/v1/playlists/${uPublicPlId}/items`,
+      headers: { 'x-user-id': plUser2 },
+    });
+    expect(listItemsOutsider.statusCode).toBe(200);
+    expect(validatePlaylistItemPage(listItemsOutsider.json())).toBe(true);
+    expect(listItemsOutsider.json().items).toHaveLength(1);
+    expect(listItemsOutsider.json().items[0].video_id).toBe(testVideo1);
+    expect(listItemsOutsider.json().items.some((i: any) => i.video_id === hiddenVidOwnedByU)).toBe(
+      false,
+    );
+
+    // Also verify PRIVATE video owned by plUser1 in privatePl
     const privateVidUser1 = uuidv7();
     await pool.query(`
       INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
