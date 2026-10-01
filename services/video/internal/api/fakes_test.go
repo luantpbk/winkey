@@ -33,9 +33,17 @@ type memStore struct {
 	daily           map[uuid.UUID][]domain.DailyStats // by video, for VideoStats
 	channel         domain.ChannelStatsData
 	statsReads      int
-	trendingReads   int
-	mediaChecks     int
-	lists           int
+
+	// related videos (R2-c): what the three queries return, and what they were asked
+	relSimilar, relChannel, relTrending []domain.Summary
+	relQuery                            string
+	relSimilarLimit, relChannelLimit    int
+	relTrendingLimit                    int
+	relSource, relOwner                 uuid.UUID
+	relCalls, relSimilarCalls           int
+	trendingReads                       int
+	mediaChecks                         int
+	lists                               int
 
 	searches  []domain.SearchQuery
 	suggests  []string
@@ -387,6 +395,31 @@ func (s *memStore) ChannelStats(_ context.Context, _ uuid.UUID, _, _ time.Time) 
 	defer s.mu.Unlock()
 	s.statsReads++
 	return s.channel, nil
+}
+
+func (s *memStore) RelatedSimilar(_ context.Context, exclude uuid.UUID, q string, limit int) ([]domain.Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relCalls++
+	s.relSimilarCalls++
+	s.relSource, s.relQuery, s.relSimilarLimit = exclude, q, limit
+	return s.relSimilar, nil
+}
+
+func (s *memStore) RelatedSameChannel(_ context.Context, owner, exclude uuid.UUID, limit int) ([]domain.Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relCalls++
+	s.relOwner, s.relChannelLimit = owner, limit
+	return s.relChannel, nil
+}
+
+func (s *memStore) RelatedTrending(_ context.Context, exclude uuid.UUID, limit int) ([]domain.Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relCalls++
+	s.relTrendingLimit = limit
+	return s.relTrending, nil
 }
 
 // VideosByID returns the stored rows without renditions or subtitles (like the real query), counting the calls.

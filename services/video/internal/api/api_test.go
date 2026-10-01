@@ -51,6 +51,7 @@ type env struct {
 	cache *memCache
 	spec  *contract.Spec
 	n     int
+	h0    *Handler // the handler behind h, for tests that wire an extra dependency
 }
 
 func newEnv(t *testing.T, withCache bool) *env {
@@ -66,7 +67,7 @@ func newEnv(t *testing.T, withCache bool) *env {
 	}
 	r := httpx.NewRouter("video-test", log)
 	h.Routes(r)
-	e.h = r
+	e.h, e.h0 = r, h
 	return e
 }
 
@@ -76,6 +77,9 @@ var subtitlePath = regexp.MustCompile(`^/v1/videos/[^/]+/subtitles/[^/]+$`)
 
 func templateFor(path string) string {
 	p, _, _ := strings.Cut(path, "?")
+	if strings.HasPrefix(p, "/v1/videos/") && strings.HasSuffix(p, "/related") {
+		return "/v1/videos/{video_id}/related"
+	}
 	if p == "/v1/studio/stats" {
 		return p
 	}
