@@ -8,7 +8,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create an account with email and password. */
+        /**
+         * Create an account with email and password.
+         * @description Also queues a `VERIFY_EMAIL` mail in the same transaction (task A6, see `resendEmailVerification`).
+         *     An unverified email blocks nothing yet; the user sees a reminder in the web app.
+         */
         post: operations["register"];
         delete?: never;
         options?: never;
@@ -128,6 +132,108 @@ export interface paths {
          */
         put: operations["changePassword"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/password/forgot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a password-reset link (task A6, ADR-026).
+         * @description Always answers `202` with an empty body, whether or not the email belongs to an account, so the
+         *     endpoint cannot be used to find accounts. When the email belongs to an `ACTIVE` user, auth-svc stores
+         *     a one-time token (SHA-256 only, valid 1 hour) and queues a `RESET_PASSWORD` mail with the link
+         *     `{PUBLIC_ORIGIN}/{locale}/reset-password?token={token}`. Earlier unused reset tokens of that user
+         *     stay valid until they expire or one of them is used. At most 3 reset mails per user per hour: extra
+         *     requests still answer `202` and send nothing. Rate limited per IP like `login` → `429`.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/password/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password with a reset token (task A6, ADR-026).
+         * @description The token must exist, be a `RESET_PASSWORD` token, be unused, not expired, belong to an `ACTIVE` user
+         *     and have been sent to the user's current email; otherwise `400` with code `INVALID_TOKEN` (one code for
+         *     every case). On success, in one transaction:
+         *     - set the new password (also works for an OAuth-only account, which then gets a password);
+         *     - mark this token and every other unused reset token of the user as used;
+         *     - set `email_verified_at` if it was NULL (the user proved they read the mailbox);
+         *     - revoke every refresh-token family of the user and record the revocation mark (ADR-019), so every
+         *       device is signed out, including access tokens within seconds;
+         *     - queue a `PASSWORD_CHANGED` mail (no link).
+         *     Does not sign the caller in and sets no cookie. Rate limited per IP like `login` → `429`.
+         */
+        post: operations["resetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/email/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the email-verification link again (task A6, ADR-026).
+         * @description Queues a `VERIFY_EMAIL` mail for the caller's current email with a new token (valid 48 hours) and the
+         *     link `{PUBLIC_ORIGIN}/{locale}/verify-email?token={token}`. `409` with code `EMAIL_ALREADY_VERIFIED`
+         *     when `email_verified` is already true. At most 3 per user per hour, else `429`. `register` sends the
+         *     first one automatically. Mail language for this call and for `register`: `Accept-Language` starting
+         *     with `en` → English, anything else → Vietnamese.
+         */
+        post: operations["resendEmailVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/email/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm an email address with a verification token (task A6, ADR-026).
+         * @description No authentication: the link may be opened on another device. The token must be a `VERIFY_EMAIL` token,
+         *     unused, not expired, of an `ACTIVE` user, and its email must still equal the user's current email;
+         *     otherwise `400` with code `INVALID_TOKEN`. On success the token is marked used and `email_verified_at`
+         *     is set (kept if already set). Using a token twice gives `400 INVALID_TOKEN`; the web page should then
+         *     tell the user to sign in and check the settings page. Rate limited per IP like `login` → `429`.
+         */
+        post: operations["verifyEmail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -381,6 +487,24 @@ export interface components {
         ChangePasswordRequest: {
             current_password?: string;
             new_password: string;
+        };
+        PasswordResetRequest: {
+            /** Format: email */
+            email: string;
+            /**
+             * @description Language of the mail and of the link.
+             * @default vi
+             * @enum {string}
+             */
+            locale: "vi" | "en";
+        };
+        ResetPasswordRequest: {
+            /** @description The value of `token` in the link (256-bit random value, base64url without padding). */
+            token: string;
+            new_password: string;
+        };
+        VerifyEmailRequest: {
+            token: string;
         };
         DeleteMeRequest: {
             confirm_handle: string;
@@ -766,6 +890,99 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted. A mail is sent only if the account exists and is active. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed; sign in again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    resendEmailVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mail queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Email verified. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
             429: components["responses"]["TooManyRequests"];
         };
     };
