@@ -204,6 +204,47 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /v1/videos/{video_id}/related:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [videos]
+      operationId: listRelatedVideos
+      summary: Videos to watch next, shown beside the player (task R2-c). No auth needed.
+      description: |
+        Recommendation v1 without personalisation (ADR-025). Candidates are only videos the public can watch
+        (`PUBLIC`, `READY`, not hidden), never the video itself, each at most once. Built from three sources:
+        1. up to 8 videos whose title/description match the source title (the search index of SR1);
+        2. up to 4 newest videos of the same channel;
+        3. the current trending ranking (R2-a) to fill up to `limit`.
+        Order of `items`: the sources interleaved in the order 1, 1, 2, 1, 3, ... with duplicates skipped (see
+        ADR-025). Same answer for every caller, so `Cache-Control: public, max-age=300`. The source video
+        itself must be readable by the caller like `getVideo`, otherwise `404`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: 1 to 24, default 12.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+            default: 12
+      responses:
+        '200':
+          description: The related videos, best first. May be shorter than `limit` (even empty).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelatedVideos'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
   /v1/videos/{video_id}/views:
     parameters:
       - $ref: './common.yaml#/components/parameters/VideoId'
@@ -951,6 +992,16 @@ components:
         refreshed_at:
           type: [string, 'null']
           format: date-time
+    RelatedVideos:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/VideoSummary'
     VideoBatch:
       type: object
       additionalProperties: false

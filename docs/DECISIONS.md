@@ -351,3 +351,17 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Mỗi trang playlist cần 2 request (items, rồi batch videos). Chấp nhận được; nếu cần có thể gộp phía BFF sau này.
 - Video bị ẩn vẫn chiếm chỗ trong giới hạn 5 000 item của playlist; chấp nhận.
 - Mở rộng sau: playlist cộng tác, lưu playlist của người khác, phát liên tục (autoplay next) trên trang xem, tìm kiếm playlist.
+
+### ADR-025 — Video liên quan v1 (R2-c), chưa cá nhân hoá
+**Bối cảnh.** Trang xem chưa có danh sách "xem tiếp", nên người xem rời trang sau mỗi video. Recommendation đầy đủ (R2: co-view, theo lịch sử) cần dữ liệu xem đủ lớn mà beta chưa có. Hạ tầng có sẵn: chỉ mục tìm kiếm SR1 (`search_vector`), bảng `media.trending` (R2-a) và chủ kênh của video.
+**Quyết định.**
+- Thêm endpoint `listRelatedVideos` (`GET /v1/videos/{id}/related`, video-svc). Không cần migration, mọi dữ liệu đã có trong schema `media`.
+- Ứng viên chỉ gồm video công khai xem được (`PUBLIC`, `READY`, `moderation_state = VISIBLE`), bỏ chính video nguồn, mỗi video xuất hiện tối đa 1 lần. Ba nguồn:
+  1. **Tương tự:** tối đa 8 video, xếp theo `ts_rank(search_vector, q)`, với `q` = `plainto_tsquery('simple', winkey_fold(title nguồn))` nối bằng OR (dùng `websearch_to_tsquery` hoặc ghép `|`), để có kết quả cả khi không khớp toàn bộ từ. Dùng chỉ mục `videos_search_fts`.
+  2. **Cùng kênh:** tối đa 4 video mới nhất của chủ video nguồn.
+  3. **Thịnh hành:** lấy theo `media.trending.rank` để lấp cho đủ `limit`.
+- **Thứ tự trộn cố định:** 1, 1, 2, 1, 3, rồi lặp lại; nguồn nào hết thì lấy nguồn kế tiếp; bỏ trùng. Kết quả giống nhau với mọi người xem, nên cache 5 phút (Valkey, khoá theo `video_id` + `limit`) kèm `Cache-Control: public, max-age=300`.
+- Nếu video nguồn không xem được với người gọi (riêng tư, ẩn, chưa READY), trả `404` như `getVideo`. Video riêng tư của chính owner cũng trả 404 vì kết quả là chung cho mọi người.
+**Hệ quả.**
+- Có "xem tiếp" ngay, không tốn hạ tầng mới. Chi phí là 3 truy vấn ngắn khi cache trượt.
+- Chất lượng chỉ ở mức khá: dựa vào chữ trong tiêu đề, chưa hiểu nội dung. R2 (co-view từ `analytics.video_daily` và ClickHouse, theo subscription, A/B) thay thế sau mà không đổi contract, vì contract không hứa cách xếp hạng.
