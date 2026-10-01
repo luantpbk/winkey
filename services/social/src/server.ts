@@ -4,6 +4,7 @@ import { commentsRoute } from './routes/comments.js';
 import { likesRoute } from './routes/likes.js';
 import { subscriptionsRoute } from './routes/subscriptions.js';
 import { reportsRoute } from './routes/reports.js';
+import { notificationsRoute } from './routes/notifications.js';
 import { healthRoute } from './routes/health.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
@@ -12,6 +13,8 @@ import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { NatsConnection } from 'nats';
+import { metricsPlugin, type Registry } from '@winkey/metrics';
+import { socialRegistry } from './metrics.js';
 
 export interface BuildAppOptions {
   env?: Env;
@@ -19,6 +22,7 @@ export interface BuildAppOptions {
   rateLimiter?: RateLimiter;
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
+  metricsRegistry?: Registry;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -92,11 +96,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       });
   });
 
+  // Register Prometheus /metrics & HTTP request telemetry
+  await app.register(metricsPlugin, {
+    registry: options.metricsRegistry ?? socialRegistry,
+  });
+
   // Register routes
   await app.register(commentsRoute, { db, env, rateLimiter });
   await app.register(likesRoute, { db, env, rateLimiter });
   await app.register(subscriptionsRoute, { db, env, rateLimiter });
   await app.register(reportsRoute, { db, env, rateLimiter });
+  await app.register(notificationsRoute, { db, env });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

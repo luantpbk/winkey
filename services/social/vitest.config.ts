@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   test: {
     alias: {
+      '@winkey/metrics': path.resolve(__dirname, '../../packages/metrics/src/index.ts'),
       '@winkey/outbox': path.resolve(__dirname, '../../packages/outbox/src/index.ts'),
     },
     hookTimeout: 120_000,

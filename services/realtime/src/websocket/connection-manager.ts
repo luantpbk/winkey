@@ -2,9 +2,11 @@ import { WebSocket } from 'ws';
 import { v7 as uuidv7 } from 'uuid';
 import {
   validateClientMessage,
+  validateServerMessage,
   type ServerMessage,
   type ServerEventName,
 } from '../schemas/validation.js';
+import { invalidServerFramesCounter, notificationHintsCounter } from '../metrics.js';
 import type { VideoClient } from '../video/video-client.js';
 
 export interface ConnectionMeta {
@@ -480,6 +482,28 @@ export class ConnectionManager {
     }
 
     const ts = new Date().toISOString();
+    const serverMsg: ServerMessage = {
+      type: 'event',
+      room,
+      event,
+      data,
+      ts,
+    };
+
+    const validation = validateServerMessage(serverMsg);
+    if (!validation.valid) {
+      this.logger?.warn?.(
+        { error: validation.error, serverMsg },
+        'Outgoing broadcast frame failed server schema validation, dropping',
+      );
+      invalidServerFramesCounter.inc();
+      return;
+    }
+
+    if (event === 'notification.hint' && typeof (data as { kind?: unknown })?.kind === 'string') {
+      notificationHintsCounter.inc({ kind: (data as { kind: string }).kind });
+    }
+
     const isUploadRoom = room.startsWith('upload:');
 
     for (const connId of subs) {
@@ -495,18 +519,9 @@ export class ConnectionManager {
         }
       }
 
-      conn.send(
-        {
-          type: 'event',
-          room,
-          event,
-          data,
-          ts,
-        },
-        () => {
-          this.droppedMessagesTotal++;
-        },
-      );
+      conn.send(serverMsg, () => {
+        this.droppedMessagesTotal++;
+      });
     }
   }
 

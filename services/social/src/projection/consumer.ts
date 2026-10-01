@@ -1,8 +1,10 @@
 import type { NatsConnection, JsMsg } from 'nats';
 import { AckPolicy } from 'nats';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
+import { v7 as uuidv7 } from 'uuid';
 import type { Database, VideoVisibility } from '../db/types.js';
 import { isValidUuid } from '../utils/auth.js';
+import { notificationsCreatedCounter, notificationsFanoutDuration } from '../metrics.js';
 
 export interface Logger {
   info(obj: unknown, msg?: string): void;
@@ -158,29 +160,50 @@ export class VideoProjectionConsumer {
         }
 
         try {
-          if (rawVisibility !== undefined) {
-            const visibility = rawVisibility as VideoVisibility;
-            await this.db
-              .insertInto('social.videos')
-              .values({ id: videoId, owner_id: ownerId, visibility })
-              .onConflict((oc) =>
-                oc.column('id').doUpdateSet({
-                  owner_id: ownerId,
-                  visibility,
-                }),
-              )
-              .execute();
-          } else {
-            await this.db
-              .insertInto('social.videos')
-              .values({ id: videoId, owner_id: ownerId })
-              .onConflict((oc) =>
-                oc.column('id').doUpdateSet({
-                  owner_id: ownerId,
-                }),
-              )
-              .execute();
-          }
+          await this.db.transaction().execute(async (trx) => {
+            const prev = await trx
+              .selectFrom('social.videos')
+              .select(['id', 'owner_id', 'hidden', 'visibility'])
+              .where('id', '=', videoId)
+              .forUpdate()
+              .executeTakeFirst();
+
+            const wasPublic = prev !== undefined && prev.visibility === 'PUBLIC' && !prev.hidden;
+
+            const visibility: VideoVisibility =
+              (rawVisibility as VideoVisibility) ?? prev?.visibility ?? 'PUBLIC';
+
+            if (rawVisibility !== undefined) {
+              await trx
+                .insertInto('social.videos')
+                .values({ id: videoId, owner_id: ownerId, visibility })
+                .onConflict((oc) =>
+                  oc.column('id').doUpdateSet({
+                    owner_id: ownerId,
+                    visibility,
+                  }),
+                )
+                .execute();
+            } else {
+              await trx
+                .insertInto('social.videos')
+                .values({ id: videoId, owner_id: ownerId })
+                .onConflict((oc) =>
+                  oc.column('id').doUpdateSet({
+                    owner_id: ownerId,
+                  }),
+                )
+                .execute();
+            }
+
+            const isNowHidden = prev ? Boolean(prev.hidden) : false;
+            const isNowPublic = visibility === 'PUBLIC' && !isNowHidden;
+
+            if (!wasPublic && isNowPublic) {
+              await this.fanoutVideoPublished(trx, ownerId, videoId);
+            }
+          });
+
           m.ack();
         } catch (dbErr) {
           this.logger.error(
@@ -276,11 +299,34 @@ export class VideoProjectionConsumer {
         }
 
         try {
-          await this.db
-            .updateTable('social.videos')
-            .set({ visibility: visibility as VideoVisibility })
-            .where('id', '=', videoId)
-            .execute();
+          await this.db.transaction().execute(async (trx) => {
+            const prev = await trx
+              .selectFrom('social.videos')
+              .select(['id', 'owner_id', 'hidden', 'visibility'])
+              .where('id', '=', videoId)
+              .forUpdate()
+              .executeTakeFirst();
+
+            if (!prev) {
+              // Video not in projection yet, skip
+              return;
+            }
+
+            const wasPublic = prev.visibility === 'PUBLIC' && !prev.hidden;
+
+            await trx
+              .updateTable('social.videos')
+              .set({ visibility: visibility as VideoVisibility })
+              .where('id', '=', videoId)
+              .execute();
+
+            const isNowPublic = (visibility as VideoVisibility) === 'PUBLIC' && !prev.hidden;
+
+            if (!wasPublic && isNowPublic) {
+              await this.fanoutVideoPublished(trx, ownerId, videoId);
+            }
+          });
+
           m.ack();
         } catch (dbErr) {
           this.logger.error(
@@ -307,6 +353,62 @@ export class VideoProjectionConsumer {
       } catch {
         // Ignore nak error if connection dropped
       }
+    }
+  }
+
+  private async fanoutVideoPublished(
+    trx: Kysely<Database>,
+    ownerId: string,
+    videoId: string,
+  ): Promise<void> {
+    const endTimer = notificationsFanoutDuration.startTimer();
+    try {
+      let lastSubscriberId: string | null = null;
+      const pageSize = 1000;
+
+      while (true) {
+        let query = trx
+          .selectFrom('social.subscriptions')
+          .select('subscriber_id')
+          .where('channel_id', '=', ownerId)
+          .orderBy('subscriber_id', 'asc')
+          .limit(pageSize);
+
+        if (lastSubscriberId) {
+          query = query.where('subscriber_id', '>', lastSubscriberId);
+        }
+
+        const subscribers = await query.execute();
+        if (subscribers.length === 0) {
+          break;
+        }
+
+        const validSubscribers = subscribers.filter((s) => s.subscriber_id !== ownerId);
+
+        if (validSubscribers.length > 0) {
+          const ids = validSubscribers.map(() => uuidv7());
+          const userIds = validSubscribers.map((s) => s.subscriber_id);
+
+          const inserted = await sql<{ id: string }>`
+            INSERT INTO social.notifications (id, user_id, kind, actor_id, video_id, comment_id)
+            SELECT u.id, u.user_id, 'VIDEO_PUBLISHED'::social.notification_kind, ${ownerId}::uuid, ${videoId}::uuid, NULL
+            FROM unnest(${sql.val(ids)}::uuid[], ${sql.val(userIds)}::uuid[]) AS u(id, user_id)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+          `.execute(trx);
+
+          if (inserted.rows.length > 0) {
+            notificationsCreatedCounter.inc({ kind: 'VIDEO_PUBLISHED' }, inserted.rows.length);
+          }
+        }
+
+        lastSubscriberId = subscribers[subscribers.length - 1].subscriber_id;
+        if (subscribers.length < pageSize) {
+          break;
+        }
+      }
+    } finally {
+      endTimer();
     }
   }
 

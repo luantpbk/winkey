@@ -41,6 +41,7 @@ spec:
                 NAME="$1"
                 SUBJECT="$2"
                 AGE="$3"
+                MAX_BYTES="${4:--1}"
                 cat <<EOF > "/tmp/${NAME}.json"
               {
                 "name": "${NAME}",
@@ -48,7 +49,7 @@ spec:
                 "retention": "limits",
                 "max_consumers": -1,
                 "max_msgs": -1,
-                "max_bytes": -1,
+                "max_bytes": ${MAX_BYTES},
                 "discard": "old",
                 "max_age": ${AGE},
                 "storage": "file",
@@ -69,6 +70,7 @@ spec:
               create_or_update_stream "USER" "user.>" 604800000000000
               create_or_update_stream "SOCIAL" "social.>" 604800000000000
               create_or_update_stream "DLQ" "dlq.>" 2592000000000000
+              create_or_update_stream "ANALYTICS" "analytics.>" 604800000000000 5368709120
 
               echo "Streams configured successfully:"
               nats stream ls --server="$NATS_SERVER"

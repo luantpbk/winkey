@@ -103,6 +103,9 @@ export default async function WatchPage({ params }: WatchPageProps) {
           poster={video.playback?.thumbnail_url}
           title={video.title}
           renditions={video.playback?.renditions}
+          subtitles={video.playback?.subtitles}
+          storyboardUrl={video.playback?.storyboard_url}
+          expiresAt={video.playback?.expires_at}
         />
 
         {/* Video Title */}

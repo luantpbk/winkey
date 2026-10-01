@@ -22,6 +22,7 @@ create_or_update_stream() {
     NAME="$1"
     SUBJECT="$2"
     AGE="$3"
+    MAX_BYTES="${4:--1}"
     cat <<EOF > "/tmp/${NAME}.json"
 {
   "name": "${NAME}",
@@ -29,7 +30,7 @@ create_or_update_stream() {
   "retention": "limits",
   "max_consumers": -1,
   "max_msgs": -1,
-  "max_bytes": -1,
+  "max_bytes": ${MAX_BYTES},
   "discard": "old",
   "max_age": ${AGE},
   "storage": "file",
@@ -57,6 +58,9 @@ create_or_update_stream "SOCIAL" "social.>" 604800000000000
 
 # DLQ stream: dlq.> file storage, 1 replica, max age 30d (2592000s), dupe window 2m (120s)
 create_or_update_stream "DLQ" "dlq.>" 2592000000000000
+
+# ANALYTICS stream: analytics.> file storage, 1 replica, max age 7d (604800s), max bytes 5 GiB, dupe window 2m (120s)
+create_or_update_stream "ANALYTICS" "analytics.>" 604800000000000 5368709120
 
 echo "NATS streams configured successfully:"
 nats stream ls --server="$NATS_SERVER"

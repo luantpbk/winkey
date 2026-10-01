@@ -7,4 +7,4 @@ resources:
 
 images:
   - name: ghcr.io/luantpbk/winkey-realtime
-    digest: sha256:a084b20df44ad67ddeb3b569696b7a6c4466f0b92e03579ad3d7870cf0817b92
+    digest: sha256:9349a2f36fdd95071a8da73a6348273825185440e3f0fd414eb1bf72ee44aa70

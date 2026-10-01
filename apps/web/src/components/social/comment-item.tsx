@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   MessageSquare,
@@ -26,6 +26,8 @@ export interface CommentItemProps {
   onCommentUpdated?: (updated: Comment) => void;
   onCommentDeleted?: (commentId: string) => void;
   onReplyCreated?: (newReply: Comment) => void;
+  highlightedCommentId?: string | null;
+  autoExpandReplyId?: string | null;
 }
 
 export function CommentItem({
@@ -34,6 +36,8 @@ export function CommentItem({
   onCommentUpdated,
   onCommentDeleted,
   onReplyCreated,
+  highlightedCommentId,
+  autoExpandReplyId,
 }: CommentItemProps) {
   const t = useTranslations('social');
   const router = useRouter();
@@ -52,6 +56,19 @@ export function CommentItem({
   const [repliesCursor, setRepliesCursor] = useState<string | null>(null);
   const [isLoadingReplies, setIsLoadingReplies] = useState<boolean>(false);
 
+  const isHighlighted = highlightedCommentId === comment.id;
+  const itemRef = React.useRef<HTMLDivElement>(null);
+
+  // Scroll to comment and highlight when targeted
+  useEffect(() => {
+    if (isHighlighted && itemRef.current) {
+      const timer = setTimeout(() => {
+        itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isHighlighted]);
+
   const isDeleted = comment.status === 'DELETED';
   const isHidden = comment.status === 'HIDDEN';
 
@@ -64,7 +81,7 @@ export function CommentItem({
     ? comment.id
     : topLevelParentId || comment.parent_id || comment.id;
 
-  const loadReplies = async (cursor?: string | null) => {
+  const loadReplies = async (cursor?: string | null, targetReplyId?: string | null) => {
     setIsLoadingReplies(true);
     try {
       const { data, response } = await api.social.GET('/v1/comments/{comment_id}/replies', {
@@ -74,10 +91,23 @@ export function CommentItem({
         },
       });
       if (response.ok && data) {
+        let items = data.items;
+        if (targetReplyId && !cursor && !items.some((r) => r.id === targetReplyId)) {
+          try {
+            const singleRes = await api.social.GET('/v1/comments/{comment_id}', {
+              params: { path: { comment_id: targetReplyId } },
+            });
+            if (singleRes.response.ok && singleRes.data) {
+              items = [...items, singleRes.data];
+            }
+          } catch {
+            // Ignore
+          }
+        }
         if (cursor) {
-          setReplies((prev) => [...prev, ...data.items]);
+          setReplies((prev) => [...prev, ...items]);
         } else {
-          setReplies(data.items);
+          setReplies(items);
         }
         setRepliesCursor(data.next_cursor);
       }
@@ -87,6 +117,14 @@ export function CommentItem({
       setIsLoadingReplies(false);
     }
   };
+
+  // Auto-expand replies thread if a child reply is targeted
+  useEffect(() => {
+    if (autoExpandReplyId && isTopLevel) {
+      setShowReplies(true);
+      void loadReplies(null, autoExpandReplyId);
+    }
+  }, [autoExpandReplyId, isTopLevel]);
 
   const toggleReplies = () => {
     if (!showReplies) {
@@ -186,7 +224,15 @@ export function CommentItem({
   };
 
   return (
-    <div className="flex flex-col gap-2 py-3 border-b border-[#222] dark:border-[#222] border-gray-100 last:border-0">
+    <div
+      ref={itemRef}
+      id={`comment-${comment.id}`}
+      data-testid={`comment-item-${comment.id}`}
+      data-highlighted={isHighlighted ? 'true' : undefined}
+      className={`flex flex-col gap-2 py-3 border-b border-[#222] dark:border-[#222] border-gray-100 last:border-0 transition-all duration-500 ${
+        isHighlighted ? 'bg-red-500/10 ring-2 ring-red-500 rounded-xl px-3 my-1' : ''
+      }`}
+    >
       {/* Tombstone for deleted comments */}
       {isDeleted ? (
         <div className="flex items-center gap-3 py-2 text-xs italic text-gray-500 dark:text-gray-400 bg-gray-50/50 dark:bg-zinc-900/40 px-3 rounded-lg">
@@ -375,6 +421,7 @@ export function CommentItem({
                   key={reply.id}
                   comment={reply}
                   topLevelParentId={comment.id}
+                  highlightedCommentId={highlightedCommentId}
                   onCommentUpdated={(updated) => {
                     setReplies((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
                   }}

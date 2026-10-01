@@ -1,11 +1,24 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
-import { AlertCircle, RotateCcw } from 'lucide-react';
-import type { Rendition } from '@winkey/api-client';
+import {
+  AlertCircle,
+  RotateCcw,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+} from 'lucide-react';
+import type { Rendition, SubtitleTrack } from '@winkey/api-client';
+import { api } from '../../lib/api-client';
 import { QualityMenu, type QualityLevel } from './quality-menu';
+import { CcMenu } from './cc-menu';
+import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
+import { PlaybackTracker } from '../../lib/video/playback-tracker';
 
 export interface VideoPlayerProps {
   videoId?: string;
@@ -14,6 +27,9 @@ export interface VideoPlayerProps {
   poster?: string;
   title?: string;
   renditions?: Rendition[];
+  subtitles?: SubtitleTrack[];
+  storyboardUrl?: string | null;
+  expiresAt?: string | null;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
 }
 
@@ -24,11 +40,35 @@ export function VideoPlayer({
   poster,
   title,
   renditions,
+  subtitles,
+  storyboardUrl,
+  expiresAt,
   onRecordView,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+
+  // Playback overrides populated after a signed-URL auto-refresh
+  const [refreshedPlayback, setRefreshedPlayback] = useState<{
+    hls_url?: string;
+    subtitles?: SubtitleTrack[];
+    storyboard_url?: string | null;
+    expires_at?: string | null;
+  } | null>(null);
+
+  // Reset refreshed playback if videoId or src changes
+  useEffect(() => {
+    setRefreshedPlayback(null);
+  }, [videoId, src]);
+
+  const activeSrc = refreshedPlayback?.hls_url ?? src;
+  const activeSubtitles = useMemo(
+    () => refreshedPlayback?.subtitles ?? subtitles ?? [],
+    [refreshedPlayback?.subtitles, subtitles],
+  );
+  const activeStoryboardUrl = refreshedPlayback?.storyboard_url ?? storyboardUrl ?? null;
+  const activeExpiresAt = refreshedPlayback?.expires_at ?? expiresAt ?? null;
 
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -38,6 +78,23 @@ export function VideoPlayer({
   ]);
   const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [currentHeight, setCurrentHeight] = useState<number | undefined>(undefined);
+
+  // Playback & UI state
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(durationMs ? durationMs / 1000 : 0);
+  const [bufferedTime, setBufferedTime] = useState<number>(0);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [showControls, setShowControls] = useState<boolean>(true);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Subtitle state
+  const [selectedSubtitleLang, setSelectedSubtitleLang] = useState<string | null>(null);
+
+  // Signed URL auto-refresh tracking
+  const hasRefreshedOnAuthErrorRef = useRef<boolean>(false);
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // QoE metrics tracking
   const loadStartTimeRef = useRef<number>(performance.now());
@@ -49,11 +106,39 @@ export function VideoPlayer({
   const lastSavedTimeRef = useRef<number>(0);
 
   // View counter hook
-  const { onPlay, onTimeUpdate, onSeeking, onSeeked, onEnded } = useViewCounter({
+  const { onPlay, onTimeUpdate, onSeeking, onSeeked, onEnded, playbackIdRef } = useViewCounter({
     videoId: videoId || '',
     durationMs,
     onRecordView,
   });
+
+  // Playback tracker for QoE / analytics (R1)
+  const trackerRef = useRef<PlaybackTracker | null>(null);
+
+  useEffect(() => {
+    if (!videoId) {
+      if (trackerRef.current) {
+        trackerRef.current.destroy();
+        trackerRef.current = null;
+      }
+      return;
+    }
+
+    if (trackerRef.current) {
+      trackerRef.current.destroy();
+    }
+
+    const tracker = new PlaybackTracker({
+      videoId,
+      playbackId: playbackIdRef.current,
+    });
+    trackerRef.current = tracker;
+
+    return () => {
+      tracker.destroy();
+      trackerRef.current = null;
+    };
+  }, [videoId, playbackIdRef]);
 
   // LocalStorage progress helper
   const getStorageKey = useCallback(() => {
@@ -61,17 +146,17 @@ export function VideoPlayer({
   }, [videoId]);
 
   const savePlaybackPosition = useCallback(
-    (currentTime: number, force = false) => {
+    (time: number, force = false) => {
       const key = getStorageKey();
-      if (!key || currentTime <= 0) return;
-      if (!force && Math.abs(currentTime - lastSavedTimeRef.current) < 5) {
+      if (!key || time <= 0) return;
+      if (!force && Math.abs(time - lastSavedTimeRef.current) < 5) {
         return;
       }
-      lastSavedTimeRef.current = currentTime;
+      lastSavedTimeRef.current = time;
       try {
-        localStorage.setItem(key, currentTime.toString());
+        localStorage.setItem(key, time.toString());
       } catch {
-        // Ignore storage exceptions (quota, private mode)
+        // Ignore storage exceptions
       }
     },
     [getStorageKey],
@@ -97,7 +182,6 @@ export function VideoPlayer({
       if (saved) {
         const time = parseFloat(saved);
         if (!isNaN(time) && time > 2) {
-          // Only resume if not already at the end
           const maxResume = video.duration > 5 ? video.duration - 5 : video.duration;
           if (time < maxResume) {
             video.currentTime = time;
@@ -109,10 +193,140 @@ export function VideoPlayer({
     }
   }, [getStorageKey]);
 
+  // Subtitle track selection and mode switching
+  const applySubtitleMode = useCallback((lang: string | null) => {
+    const video = videoRef.current;
+    if (!video || !video.textTracks) return;
+
+    for (let i = 0; i < video.textTracks.length; i++) {
+      const track = video.textTracks[i];
+      if (lang && (track.language === lang || track.label === lang)) {
+        track.mode = 'showing';
+      } else {
+        track.mode = 'disabled';
+      }
+    }
+  }, []);
+
+  const handleSelectSubtitle = useCallback(
+    (lang: string | null) => {
+      setSelectedSubtitleLang(lang);
+      applySubtitleMode(lang);
+
+      try {
+        if (lang) {
+          localStorage.setItem('winkey.subtitle_lang', lang);
+        } else {
+          localStorage.setItem('winkey.subtitle_lang', 'off');
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    },
+    [applySubtitleMode],
+  );
+
+  // Initialize subtitle language from localStorage preference when subtitles change
+  const subtitleLangsKey = activeSubtitles.map((s) => s.lang).join(',');
+  useEffect(() => {
+    if (!activeSubtitles || activeSubtitles.length === 0) {
+      setSelectedSubtitleLang(null);
+      return;
+    }
+
+    try {
+      const savedPref = localStorage.getItem('winkey.subtitle_lang');
+      if (savedPref && savedPref !== 'off') {
+        const hasTrack = activeSubtitles.some((t) => t.lang === savedPref);
+        if (hasTrack) {
+          setSelectedSubtitleLang(savedPref);
+          applySubtitleMode(savedPref);
+          return;
+        }
+      }
+    } catch {
+      // Ignore localStorage exceptions
+    }
+
+    setSelectedSubtitleLang(null);
+    applySubtitleMode(null);
+  }, [subtitleLangsKey, activeSubtitles, applySubtitleMode]);
+
+  // Signed URL auto-refresh logic
+  const refreshSignedUrls = useCallback(async () => {
+    if (!videoId) return;
+
+    try {
+      const { data: updatedVideo, response } = await api.video.GET('/v1/videos/{video_id}', {
+        params: { path: { video_id: videoId } },
+      });
+
+      if (!response.ok || !updatedVideo || !updatedVideo.playback) return;
+
+      const newPlayback = updatedVideo.playback;
+      const video = videoRef.current;
+      if (!video) return;
+
+      const savedTime = video.currentTime;
+      const wasPlaying = !video.paused;
+
+      setRefreshedPlayback({
+        hls_url: newPlayback.hls_url,
+        subtitles: newPlayback.subtitles,
+        storyboard_url: newPlayback.storyboard_url,
+        expires_at: newPlayback.expires_at,
+      });
+
+      if (hlsRef.current) {
+        hlsRef.current.loadSource(newPlayback.hls_url);
+        video.currentTime = savedTime;
+        if (wasPlaying) {
+          void video.play().catch(() => {});
+        }
+      } else {
+        video.src = newPlayback.hls_url;
+        video.currentTime = savedTime;
+        if (wasPlaying) {
+          void video.play().catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn('[VideoPlayer] Failed to refresh signed URLs:', err);
+    }
+  }, [videoId]);
+
+  // Schedule timer to refresh ~5 minutes before expires_at
+  useEffect(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
+    if (!activeExpiresAt) return;
+
+    const expiresTime = new Date(activeExpiresAt).getTime();
+    if (isNaN(expiresTime)) return;
+
+    // Refresh 5 minutes before expires_at (300_000 ms)
+    const refreshTime = expiresTime - 5 * 60 * 1000;
+    const delay = Math.max(0, refreshTime - Date.now());
+
+    refreshTimerRef.current = setTimeout(() => {
+      void refreshSignedUrls();
+    }, delay);
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, [activeExpiresAt, refreshSignedUrls]);
+
   // Setup HLS / Video playback
   const setupMedia = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !src) return;
+    if (!video || !activeSrc) return;
 
     setHasError(false);
     setErrorMessage('');
@@ -122,6 +336,7 @@ export function VideoPlayer({
     rebufferStartTimeRef.current = null;
     totalRebufferDurationRef.current = 0;
     recoverAttemptsRef.current = 0;
+    hasRefreshedOnAuthErrorRef.current = false;
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -135,7 +350,7 @@ export function VideoPlayer({
       });
       hlsRef.current = hls;
 
-      hls.loadSource(src);
+      hls.loadSource(activeSrc);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
@@ -149,23 +364,42 @@ export function VideoPlayer({
           });
         });
         setQualityLevels(levels);
+        if (data.levels && data.levels.length > 0) {
+          const first = data.levels[0];
+          const renditionName = first.height ? `${first.height}p` : first.name || null;
+          const bitrateKbps = first.bitrate ? Math.round(first.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
+        }
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         const lvl = hls.levels[data.level];
         if (lvl) {
           setCurrentHeight(lvl.height);
-          console.debug('[QoE] Rendition switched:', {
-            level: data.level,
-            height: lvl.height,
-            bitrate: lvl.bitrate,
-          });
+          const renditionName = lvl.height ? `${lvl.height}p` : lvl.name || null;
+          const bitrateKbps = lvl.bitrate ? Math.round(lvl.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
         }
       });
 
       hls.on(Hls.Events.ERROR, (_, data) => {
+        // Check for 403/410 signed URL expiration
+        const statusCode = (data as unknown as { response?: { code?: number } }).response?.code;
+        if (
+          activeExpiresAt &&
+          !hasRefreshedOnAuthErrorRef.current &&
+          (statusCode === 403 || statusCode === 410)
+        ) {
+          hasRefreshedOnAuthErrorRef.current = true;
+          void refreshSignedUrls();
+          return;
+        }
+
         if (data.fatal) {
           if (recoverAttemptsRef.current >= 3 || data.type === Hls.ErrorTypes.OTHER_ERROR) {
+            const errCode =
+              (data as unknown as { details?: string }).details || data.type || 'fatalError';
+            trackerRef.current?.recordError(errCode, videoRef.current?.currentTime);
             hls.destroy();
             hlsRef.current = null;
             setHasError(true);
@@ -189,9 +423,8 @@ export function VideoPlayer({
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS for Safari/iOS
       setIsUsingHls(false);
-      video.src = src;
+      video.src = activeSrc;
 
-      // Provide renditions from props if available
       if (renditions && renditions.length > 0) {
         const levels: QualityLevel[] = [{ index: -1, label: 'Tự động' }];
         renditions.forEach((r, idx) => {
@@ -203,13 +436,15 @@ export function VideoPlayer({
           });
         });
         setQualityLevels(levels);
+        const first = renditions[0];
+        trackerRef.current?.setRendition(`${first.height}p`, first.bitrate_kbps);
       }
     } else {
       setIsUsingHls(false);
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
-  }, [src, renditions]);
+  }, [activeSrc, renditions, activeExpiresAt, refreshSignedUrls]);
 
   useEffect(() => {
     setupMedia();
@@ -222,12 +457,41 @@ export function VideoPlayer({
   }, [setupMedia]);
 
   // Quality switch handler
-  const handleSelectLevel = useCallback((levelIndex: number) => {
-    setCurrentLevel(levelIndex);
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = levelIndex;
+  const handleSelectLevel = useCallback(
+    (levelIndex: number) => {
+      setCurrentLevel(levelIndex);
+      if (hlsRef.current) {
+        hlsRef.current.currentLevel = levelIndex;
+        if (levelIndex >= 0 && hlsRef.current.levels[levelIndex]) {
+          const lvl = hlsRef.current.levels[levelIndex];
+          const renditionName = lvl.height ? `${lvl.height}p` : lvl.name || null;
+          const bitrateKbps = lvl.bitrate ? Math.round(lvl.bitrate / 1000) : null;
+          trackerRef.current?.setRendition(renditionName, bitrateKbps);
+        }
+      } else if (renditions && renditions[levelIndex]) {
+        const r = renditions[levelIndex];
+        trackerRef.current?.setRendition(`${r.height}p`, r.bitrate_kbps);
+      }
+    },
+    [renditions],
+  );
+
+  // Controls auto-hide
+  const scheduleControlsHide = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
     }
-  }, []);
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false);
+      }
+    }, 2500);
+  }, [isPlaying]);
+
+  const handleMouseMove = () => {
+    setShowControls(true);
+    scheduleControlsHide();
+  };
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -255,39 +519,52 @@ export function VideoPlayer({
         case 'KeyK':
           e.preventDefault();
           if (video.paused) {
+            trackerRef.current?.recordPlayRequest();
             void video.play();
           } else {
             video.pause();
           }
           break;
         case 'KeyJ':
-          // Seek -10s
           video.currentTime = Math.max(0, video.currentTime - 10);
           break;
         case 'KeyL':
-          // Seek +10s
           video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
           break;
         case 'ArrowLeft':
-          // Seek -5s
           e.preventDefault();
           video.currentTime = Math.max(0, video.currentTime - 5);
           break;
         case 'ArrowRight':
-          // Seek +5s
           e.preventDefault();
           video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
           break;
         case 'KeyM':
-          // Toggle mute
           video.muted = !video.muted;
+          setIsMuted(video.muted);
           break;
         case 'KeyF':
-          // Toggle fullscreen
           if (document.fullscreenElement) {
             void document.exitFullscreen();
           } else if (containerRef.current?.requestFullscreen) {
             void containerRef.current.requestFullscreen();
+          }
+          break;
+        case 'KeyC':
+          // Toggle Closed Captions
+          if (selectedSubtitleLang) {
+            handleSelectSubtitle(null);
+          } else if (activeSubtitles.length > 0) {
+            let chosen = activeSubtitles[0].lang;
+            try {
+              const pref = localStorage.getItem('winkey.subtitle_lang');
+              if (pref && pref !== 'off' && activeSubtitles.some((t) => t.lang === pref)) {
+                chosen = pref;
+              }
+            } catch {
+              // ignore
+            }
+            handleSelectSubtitle(chosen);
           }
           break;
         default:
@@ -299,10 +576,18 @@ export function VideoPlayer({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [selectedSubtitleLang, activeSubtitles, handleSelectSubtitle]);
 
   // Video event handlers
   const handlePlayEvent = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setIsPlaying(true);
+    trackerRef.current?.recordPlayRequest();
+    onPlay(video.currentTime);
+  };
+
+  const handlePlayingEvent = () => {
     const video = videoRef.current;
     if (!video) return;
 
@@ -316,37 +601,47 @@ export function VideoPlayer({
       const rebuffDuration = performance.now() - rebufferStartTimeRef.current;
       totalRebufferDurationRef.current += rebuffDuration;
       rebufferStartTimeRef.current = null;
-      console.debug('[QoE] Rebuffer stats:', {
-        count: rebufferCountRef.current,
-        totalDurationMs: Math.round(totalRebufferDurationRef.current),
-      });
     }
 
-    onPlay(video.currentTime);
+    trackerRef.current?.recordPlaying(video.currentTime);
   };
 
   const handleTimeUpdateEvent = () => {
     const video = videoRef.current;
     if (!video) return;
 
+    setCurrentTime(video.currentTime);
+    if (video.duration && !isNaN(video.duration) && video.duration > 0) {
+      setDuration(video.duration);
+    }
+    if (video.buffered && video.buffered.length > 0) {
+      setBufferedTime(video.buffered.end(video.buffered.length - 1));
+    }
+
     savePlaybackPosition(video.currentTime, false);
     onTimeUpdate(video.currentTime);
+    trackerRef.current?.recordTimeUpdate(video.currentTime);
   };
 
   const handlePauseEvent = () => {
     const video = videoRef.current;
     if (!video) return;
+    setIsPlaying(false);
+    setShowControls(true);
     savePlaybackPosition(video.currentTime, true);
+    trackerRef.current?.recordPause();
   };
 
   const handleSeekingEvent = () => {
     onSeeking();
+    trackerRef.current?.recordSeeking();
   };
 
   const handleSeekedEvent = () => {
     const video = videoRef.current;
     if (!video) return;
     onSeeked(video.currentTime);
+    trackerRef.current?.recordSeeked(video.currentTime);
   };
 
   const handleWaitingEvent = () => {
@@ -354,31 +649,79 @@ export function VideoPlayer({
       rebufferCountRef.current += 1;
       rebufferStartTimeRef.current = performance.now();
     }
+    trackerRef.current?.recordWaiting();
   };
 
   const handleEndedEvent = () => {
+    setIsPlaying(false);
+    setShowControls(true);
     clearPlaybackPosition();
     onEnded();
+    const video = videoRef.current;
+    trackerRef.current?.recordEnded(video?.currentTime);
   };
 
   const handleVideoError = () => {
+    if (activeExpiresAt && !hasRefreshedOnAuthErrorRef.current) {
+      hasRefreshedOnAuthErrorRef.current = true;
+      void refreshSignedUrls();
+      return;
+    }
+    const video = videoRef.current;
+    const mediaError = video?.error;
+    const errCode = mediaError ? `media_error_${mediaError.code}` : 'video_error';
+    trackerRef.current?.recordError(errCode, video?.currentTime);
     setHasError(true);
     setErrorMessage('Lỗi tải video. Vui lòng kiểm tra kết nối mạng và thử lại.');
+  };
+
+  const togglePlayPause = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      trackerRef.current?.recordPlayRequest();
+      void video.play();
+    } else {
+      video.pause();
+    }
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  };
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      setIsFullscreen(false);
+    } else if (containerRef.current?.requestFullscreen) {
+      void containerRef.current.requestFullscreen();
+      setIsFullscreen(true);
+    }
   };
 
   return (
     <div
       ref={containerRef}
-      className="group relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-2xl flex items-center justify-center"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => isPlaying && setShowControls(false)}
+      className="group relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-2xl flex items-center justify-center select-none"
     >
       <video
         ref={videoRef}
         poster={poster}
-        controls
         playsInline
+        crossOrigin="anonymous"
         aria-label={title || 'Video Player'}
-        onLoadedMetadata={resumePlaybackPosition}
+        onLoadedMetadata={() => {
+          resumePlaybackPosition();
+          applySubtitleMode(selectedSubtitleLang);
+        }}
         onPlay={handlePlayEvent}
+        onPlaying={handlePlayingEvent}
         onPause={handlePauseEvent}
         onTimeUpdate={handleTimeUpdateEvent}
         onSeeking={handleSeekingEvent}
@@ -386,18 +729,112 @@ export function VideoPlayer({
         onWaiting={handleWaitingEvent}
         onEnded={handleEndedEvent}
         onError={handleVideoError}
-        className="h-full w-full object-contain"
-      />
-
-      {/* Quality Menu Overlay (positioned at top right when video is hover/controls visible) */}
-      {!hasError && isUsingHls && qualityLevels.length > 1 && (
-        <div className="absolute top-3 right-3 z-30 transition-opacity duration-200">
-          <QualityMenu
-            levels={qualityLevels}
-            currentLevel={currentLevel}
-            currentHeight={currentHeight}
-            onSelectLevel={handleSelectLevel}
+        onClick={togglePlayPause}
+        className="h-full w-full object-contain cursor-pointer"
+      >
+        {/* Native WebVTT Text Tracks - Rendered only by browser engine, NEVER innerHTML (ADR-018) */}
+        {activeSubtitles.map((track) => (
+          <track
+            key={track.lang}
+            kind="subtitles"
+            srcLang={track.lang}
+            label={track.label}
+            src={track.url}
+            default={selectedSubtitleLang === track.lang}
           />
+        ))}
+      </video>
+
+      {/* Custom Control Bar Overlay */}
+      {!hasError && (
+        <div
+          data-testid="player-controls"
+          className={`absolute inset-x-0 bottom-0 z-30 flex flex-col justify-end bg-gradient-to-t from-black/85 via-black/40 to-transparent px-4 pb-3 pt-8 transition-opacity duration-300 ${
+            showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          {/* Seek Bar with Storyboard Scrub Previews */}
+          <div className="mb-2">
+            <SeekBar
+              currentTime={currentTime}
+              duration={duration}
+              buffered={bufferedTime}
+              storyboardUrl={activeStoryboardUrl}
+              onSeek={(time) => {
+                if (videoRef.current) {
+                  videoRef.current.currentTime = time;
+                }
+              }}
+            />
+          </div>
+
+          {/* Action Buttons Row */}
+          <div className="flex items-center justify-between gap-3 text-white">
+            {/* Left Controls: Play/Pause, Volume, Time */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                aria-label={isPlaying ? 'Tạm dừng (k)' : 'Phát (k)'}
+                data-testid="play-pause-button"
+                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleMute}
+                aria-label={isMuted ? 'Bật âm thanh (m)' : 'Tắt tiếng (m)'}
+                data-testid="volume-mute-button"
+                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+              </button>
+
+              <div
+                data-testid="time-display"
+                className="text-xs font-mono font-medium text-gray-200"
+              >
+                <span>{formatTime(currentTime)}</span>
+                <span className="mx-1 text-gray-500">/</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+
+            {/* Right Controls: CC Menu, Quality Menu, Fullscreen */}
+            <div className="flex items-center gap-2">
+              {/* CC Menu */}
+              {activeSubtitles.length > 0 && (
+                <CcMenu
+                  tracks={activeSubtitles}
+                  selectedLang={selectedSubtitleLang}
+                  onSelectTrack={handleSelectSubtitle}
+                />
+              )}
+
+              {/* Quality Menu */}
+              {isUsingHls && qualityLevels.length > 1 && (
+                <QualityMenu
+                  levels={qualityLevels}
+                  currentLevel={currentLevel}
+                  currentHeight={currentHeight}
+                  onSelectLevel={handleSelectLevel}
+                />
+              )}
+
+              {/* Fullscreen Button */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                aria-label={isFullscreen ? 'Thoát toàn màn hình (f)' : 'Toàn màn hình (f)'}
+                data-testid="fullscreen-button"
+                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

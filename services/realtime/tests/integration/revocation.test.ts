@@ -6,11 +6,13 @@ import { getEnv } from '../../src/config/env.js';
 import { TicketStore } from '../../src/tickets/ticket-store.js';
 import { VideoClient } from '../../src/video/video-client.js';
 import { ConnectionManager } from '../../src/websocket/connection-manager.js';
-import {
-  RevocationSweeper,
-  resetRevocationMetricsForTest,
-  getRevocationMetricCount,
-} from '../../src/revocation/revocation-sweeper.js';
+import { RevocationSweeper, realtimeRegistry } from '../../src/revocation/revocation-sweeper.js';
+import type { Counter } from '@winkey/metrics';
+
+async function getMetricCount(name: string): Promise<number> {
+  const metric = await (realtimeRegistry.getSingleMetric(name) as Counter<string>)?.get();
+  return metric?.values[0]?.value ?? 0;
+}
 
 function waitForOpen(ws: WebSocket, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -58,7 +60,7 @@ describe('Real Valkey Revocation Integration Tests (Task A5)', () => {
       }
       ctx.skip();
     }
-    resetRevocationMetricsForTest();
+    realtimeRegistry.resetMetrics();
   });
 
   beforeAll(async () => {
@@ -176,7 +178,7 @@ describe('Real Valkey Revocation Integration Tests (Task A5)', () => {
     const closeEvt = await closePromise1;
     expect(closeEvt.code).toBe(4401);
     expect(closeEvt.reason).toBe('session revoked');
-    expect(getRevocationMetricCount('realtime_revoked_closes_total')).toBe(1);
+    expect(await getMetricCount('realtime_revoked_closes_total')).toBe(1);
 
     // Socket 2 stays open
     expect(ws2.readyState).toBe(WebSocket.OPEN);
@@ -239,7 +241,7 @@ describe('Real Valkey Revocation Integration Tests (Task A5)', () => {
 
     // Sockets stay open (fail-open)
     expect(ws.readyState).toBe(WebSocket.OPEN);
-    expect(getRevocationMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
+    expect(await getMetricCount('realtime_revocation_sweep_errors_total')).toBe(1);
 
     // Restore real redis
     sweeper.setRedis(redis);

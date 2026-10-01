@@ -19,53 +19,8 @@ spec:
     spec:
       terminationGracePeriodSeconds: 30
       volumes:
-        - name: node-modules
+        - name: tmp
           emptyDir: {}
-      initContainers:
-        - name: patch-modules
-          image: ghcr.io/luantpbk/winkey-realtime
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            runAsUser: 0
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-          command:
-            - sh
-            - -c
-            - |
-              set -e
-              cp -a /app/node_modules/. /target/
-              mkdir -p /tmp/pkg
-              cd /tmp/pkg
-              npm install --no-save ajv@8.17.1 ajv-formats@3.0.1
-              cp -a /tmp/pkg/node_modules/. /target/
-              node -e '
-                const fs = require("fs");
-                const p = "/target/.pnpm/nats@2.29.3/node_modules/nats/lib/nats-base-client/options.js";
-                if (fs.existsSync(p)) {
-                  let code = fs.readFileSync(p, "utf8");
-                  const target = "function parseOptions(opts) {";
-                  const patch = `function parseOptions(opts) {
-                    if (opts && opts.servers && typeof opts.servers === "string" && opts.servers.includes("@")) {
-                      try {
-                        const u = new URL(opts.servers);
-                        if (u.username && !opts.user) {
-                          opts.user = decodeURIComponent(u.username);
-                          opts.pass = decodeURIComponent(u.password);
-                          opts.servers = u.protocol + "//" + u.host;
-                        }
-                      } catch (_) {}
-                    }`;
-                  code = code.replace(target, patch);
-                  fs.writeFileSync(p, code);
-                }
-              '
-              chmod -R a+rX /target 2>/dev/null || true
-          volumeMounts:
-            - name: node-modules
-              mountPath: /target
       containers:
         - name: realtime
           image: ghcr.io/luantpbk/winkey-realtime
@@ -117,13 +72,13 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
           volumeMounts:
-            - name: node-modules
-              mountPath: /app/node_modules
+            - name: tmp
+              mountPath: /tmp
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL

@@ -32,6 +32,14 @@ import type {
   UpdateMeRequest,
   ChangePasswordRequest,
   DeleteMeRequest,
+  SubtitleTrack,
+  PutSubtitleRequest,
+  PlaybackHeartbeatBatch,
+  PlaybackSample,
+  PlaybackHeartbeatResult,
+  Notification,
+  NotificationPage,
+  MarkNotificationsReadRequest,
 } from '@winkey/api-client';
 import {
   mockUsers,
@@ -107,6 +115,22 @@ export function setMockSubscriptionVideosOverride(videos: VideoSummary[] | null)
   mockSubscriptionVideosOverride = videos;
 }
 
+let mockHeartbeat429 = false;
+export function setMockHeartbeat429(val: boolean) {
+  mockHeartbeat429 = val;
+}
+export function getMockHeartbeat429(): boolean {
+  return mockHeartbeat429;
+}
+
+let mockRecordedHeartbeats: PlaybackSample[] = [];
+export function getMockRecordedHeartbeats(): PlaybackSample[] {
+  return mockRecordedHeartbeats;
+}
+export function clearMockRecordedHeartbeats(): void {
+  mockRecordedHeartbeats = [];
+}
+
 export function resetModerationMocks() {
   currentUser = mockUsers.creator;
   dynamicVideos = [...mockVideos];
@@ -117,6 +141,101 @@ export function resetModerationMocks() {
   mockTrendingEmpty = false;
   mockSubscriptionEmpty = false;
   mockSubscriptionVideosOverride = null;
+  mockHeartbeat429 = false;
+  mockRecordedHeartbeats = [];
+  resetNotificationMocks();
+}
+
+const initialMockNotifications: Notification[] = [
+  {
+    id: '0192f5e4-9000-7000-8000-000000000001',
+    kind: 'VIDEO_COMMENT',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+    read_at: null,
+    created_at: '2026-09-20T10:00:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000002',
+    kind: 'COMMENT_REPLY',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000002',
+    read_at: null,
+    created_at: '2026-09-20T09:30:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000003',
+    kind: 'VIDEO_PUBLISHED',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+    comment_id: null,
+    read_at: null,
+    created_at: '2026-09-20T09:00:00Z',
+  },
+  {
+    id: '0192f5e4-9000-7000-8000-000000000004',
+    kind: 'NEW_SUBSCRIBER',
+    actor: {
+      id: mockPublicProfiles.viet_coder.id,
+      handle: mockPublicProfiles.viet_coder.handle,
+      display_name: mockPublicProfiles.viet_coder.display_name,
+      avatar_url: mockPublicProfiles.viet_coder.avatar_url,
+    },
+    video_id: null,
+    comment_id: null,
+    read_at: '2026-09-19T08:00:00Z',
+    created_at: '2026-09-19T08:00:00Z',
+  },
+];
+
+let dynamicNotifications: Notification[] = [...initialMockNotifications];
+let mockNotificationsCapped = false;
+let mockNotificationsEmpty = false;
+let mockNotificationsError = false;
+
+export function setMockNotificationsCapped(val: boolean) {
+  mockNotificationsCapped = val;
+}
+export function getMockNotificationsCapped(): boolean {
+  return mockNotificationsCapped;
+}
+export function setMockNotificationsEmpty(val: boolean) {
+  mockNotificationsEmpty = val;
+}
+export function getMockNotificationsEmpty(): boolean {
+  return mockNotificationsEmpty;
+}
+export function setMockNotificationsError(val: boolean) {
+  mockNotificationsError = val;
+}
+export function setDynamicNotifications(notifications: Notification[]) {
+  dynamicNotifications = [...notifications];
+}
+export function getDynamicNotifications(): Notification[] {
+  return dynamicNotifications;
+}
+export function resetNotificationMocks() {
+  dynamicNotifications = initialMockNotifications.map((n) => ({ ...n }));
+  mockNotificationsCapped = false;
+  mockNotificationsEmpty = false;
+  mockNotificationsError = false;
 }
 
 const initialMockComments: Comment[] = [
@@ -1038,6 +1157,312 @@ export const handlers = [
     const currentStudio = getDynamicStudioVideos().filter((v) => v.id !== videoId);
     setDynamicStudioVideos(currentStudio);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // --- SUBTITLES & STORYBOARD ENDPOINTS (Task U7) ---
+  http.put('*/v1/videos/:id/subtitles/:lang', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.id as string;
+    const lang = params.lang as string;
+    const body = (await request.json()) as PutSubtitleRequest;
+
+    // Check size limit: max 524288 bytes
+    if (body.content && new TextEncoder().encode(body.content).length > 524288) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Subtitle too large',
+          status: 400,
+          code: 'SUBTITLE_TOO_LARGE',
+          detail: 'Subtitle file exceeds 524288 bytes',
+        },
+        { status: 400 },
+      );
+    }
+
+    // Check WebVTT validity: starts with WEBVTT
+    const cleanContent = (body.content || '').replace(/^\uFEFF/, '').trim();
+    if (!cleanContent.startsWith('WEBVTT')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Invalid WebVTT',
+          status: 400,
+          code: 'INVALID_WEBVTT',
+          detail: 'First line must be WEBVTT (line 1)',
+        },
+        { status: 400 },
+      );
+    }
+
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const video = currentVideos[videoIndex];
+    if (video.owner.id !== caller.id) {
+      return HttpResponse.json(
+        { type: '/problems/forbidden', title: 'Forbidden', status: 403, code: 'FORBIDDEN' },
+        { status: 403 },
+      );
+    }
+
+    if (video.status === 'FAILED') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Video failed',
+          status: 409,
+          code: 'VIDEO_FAILED',
+          detail: 'Cannot add subtitles to a failed video',
+        },
+        { status: 409 },
+      );
+    }
+
+    const currentSubtitles = [...(video.playback?.subtitles || [])];
+    const existingIndex = currentSubtitles.findIndex((t) => t.lang === lang);
+
+    if (existingIndex === -1 && currentSubtitles.length >= 20) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Too many subtitles',
+          status: 409,
+          code: 'TOO_MANY_SUBTITLES',
+          detail: 'Maximum 20 subtitle tracks per video',
+        },
+        { status: 409 },
+      );
+    }
+
+    const track: SubtitleTrack = {
+      lang,
+      label: body.label || lang,
+      source: 'UPLOAD',
+      url: `/v1/mock-subtitles/${videoId}/${lang}.vtt`,
+      updated_at: new Date().toISOString(),
+    };
+
+    let status = 200;
+    if (existingIndex !== -1) {
+      currentSubtitles[existingIndex] = track;
+    } else {
+      currentSubtitles.push(track);
+      status = 201;
+    }
+
+    if (video.playback) {
+      video.playback = {
+        ...video.playback,
+        subtitles: currentSubtitles,
+      };
+    }
+
+    currentVideos[videoIndex] = video;
+    setDynamicVideos(currentVideos);
+
+    return HttpResponse.json(track, { status });
+  }),
+
+  http.delete('*/v1/videos/:id/subtitles/:lang', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.id as string;
+    const lang = params.lang as string;
+
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Video not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+
+    const video = currentVideos[videoIndex];
+    if (video.owner.id !== caller.id) {
+      return HttpResponse.json(
+        { type: '/problems/forbidden', title: 'Forbidden', status: 403, code: 'FORBIDDEN' },
+        { status: 403 },
+      );
+    }
+
+    const currentSubtitles = [...(video.playback?.subtitles || [])];
+    const trackIndex = currentSubtitles.findIndex((t) => t.lang === lang);
+    if (trackIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Subtitle track not found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    currentSubtitles.splice(trackIndex, 1);
+    if (video.playback) {
+      video.playback = {
+        ...video.playback,
+        subtitles: currentSubtitles,
+      };
+    }
+
+    currentVideos[videoIndex] = video;
+    setDynamicVideos(currentVideos);
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/mock-subtitles/:id/:file', () => {
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+Chào mừng các bạn đến với Winkey VN!
+
+00:00:05.000 --> 00:00:10.000
+Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
+`;
+    return new HttpResponse(vtt, {
+      status: 200,
+      headers: { 'Content-Type': 'text/vtt; charset=utf-8' },
+    });
+  }),
+
+  http.get('*/v1/mock-storyboard/:id/storyboard.vtt', () => {
+    let vtt = 'WEBVTT\n\n';
+    for (let t = 0; t < 1500; t += 5) {
+      const start = new Date(t * 1000).toISOString().slice(11, 23);
+      const end = new Date((t + 5) * 1000).toISOString().slice(11, 23);
+      const col = (t / 5) % 5;
+      const row = Math.floor(t / 5 / 5) % 5;
+      vtt += `${start} --> ${end}\nsprites_0.jpg#xywh=${col * 160},${row * 90},160,90\n\n`;
+    }
+    return new HttpResponse(vtt, {
+      status: 200,
+      headers: { 'Content-Type': 'text/vtt; charset=utf-8' },
+    });
+  }),
+
+  http.get('*/v1/mock-storyboard/:id/:file', () => {
+    const mockPixel = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const binary = Uint8Array.from(atob(mockPixel), (c) => c.charCodeAt(0));
+    return new HttpResponse(binary, {
+      status: 200,
+      headers: { 'Content-Type': 'image/gif' },
+    });
+  }),
+
+  // --- PLAYBACK HEARTBEATS ENDPOINT (Task U8) ---
+  http.post('*/v1/playback/heartbeats', async ({ request }) => {
+    if (mockHeartbeat429) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'TOO_MANY_REQUESTS',
+          detail: 'Heartbeat rate limit exceeded',
+        },
+        { status: 429 },
+      );
+    }
+
+    const rawText = await request.text();
+    // Limits: body <= 16 KiB (16384 bytes)
+    if (new TextEncoder().encode(rawText).length > 16384) {
+      return HttpResponse.json(
+        {
+          type: '/problems/payload-too-large',
+          title: 'Payload Too Large',
+          status: 413,
+          code: 'PAYLOAD_TOO_LARGE',
+          detail: 'Body exceeds 16 KiB',
+        },
+        { status: 413 },
+      );
+    }
+
+    let body: PlaybackHeartbeatBatch;
+    try {
+      body = JSON.parse(rawText) as PlaybackHeartbeatBatch;
+    } catch {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Invalid JSON body',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      !body ||
+      !Array.isArray(body.samples) ||
+      body.samples.length === 0 ||
+      body.samples.length > 20
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Samples array must contain between 1 and 20 items',
+        },
+        { status: 400 },
+      );
+    }
+
+    mockRecordedHeartbeats.push(...body.samples);
+
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const existing = JSON.parse(window.sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+        existing.push(...body.samples);
+        window.sessionStorage.setItem('wk_mock_heartbeats', JSON.stringify(existing));
+      } catch {
+        // ignore
+      }
+    }
+
+    const result: PlaybackHeartbeatResult = {
+      accepted: body.samples.length,
+    };
+    return HttpResponse.json(result, { status: 202 });
   }),
 
   // --- UPLOAD & STUDIO ENDPOINTS ---
@@ -2354,5 +2779,141 @@ export const handlers = [
 
     const page: AuditEntryPage = { items, next_cursor: null };
     return HttpResponse.json(page);
+  }),
+
+  // --- Task N1: Notifications (ADR-023) ---
+  http.get('*/v1/notifications/unread-count', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsEmpty) {
+      return HttpResponse.json({ count: 0, capped: false });
+    }
+    if (mockNotificationsCapped) {
+      return HttpResponse.json({ count: 101, capped: true });
+    }
+    const unread = dynamicNotifications.filter((n) => !n.read_at);
+    if (unread.length > 100) {
+      return HttpResponse.json({ count: 100, capped: true });
+    }
+    return HttpResponse.json({ count: unread.length, capped: false });
+  }),
+
+  http.get('*/v1/notifications', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsEmpty) {
+      const page: NotificationPage = { items: [], next_cursor: null };
+      return HttpResponse.json(page);
+    }
+    const url = new URL(request.url);
+    const unreadOnly = url.searchParams.get('unread') === 'true';
+    const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+    const cursor = url.searchParams.get('cursor');
+
+    let filtered = dynamicNotifications;
+    if (unreadOnly) {
+      filtered = filtered.filter((n) => !n.read_at);
+    }
+
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = filtered.findIndex((n) => n.id === cursor);
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const items = filtered.slice(startIndex, startIndex + limit);
+    const nextItem = filtered[startIndex + limit];
+    const nextCursor = nextItem ? nextItem.id : null;
+
+    const page: NotificationPage = { items, next_cursor: nextCursor };
+    return HttpResponse.json(page);
+  }),
+
+  http.post('*/v1/notifications/read', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockNotificationsError) {
+      return HttpResponse.json(
+        {
+          type: '/problems/internal',
+          title: 'Internal Server Error',
+          status: 500,
+          code: 'INTERNAL_ERROR',
+        },
+        { status: 500 },
+      );
+    }
+    const body = (await request.json()) as MarkNotificationsReadRequest;
+    const now = new Date().toISOString();
+
+    if (body.ids && body.ids.length > 0) {
+      const idSet = new Set(body.ids);
+      dynamicNotifications = dynamicNotifications.map((n) =>
+        idSet.has(n.id) && !n.read_at ? { ...n, read_at: now } : n,
+      );
+    } else if (body.up_to) {
+      const upToTime = new Date(body.up_to).getTime();
+      dynamicNotifications = dynamicNotifications.map((n) =>
+        new Date(n.created_at).getTime() <= upToTime && !n.read_at ? { ...n, read_at: now } : n,
+      );
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/test/reset-notifications', async () => {
+    resetNotificationMocks();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/test/add-notification', async () => {
+    const newNotif: Notification = {
+      id: `0192f5e4-9000-7000-8000-${Date.now().toString(16).padStart(12, '0')}`,
+      kind: 'VIDEO_COMMENT',
+      actor: {
+        id: '018f3a22-7f91-7d9a-9e12-111111111111',
+        handle: 'fan123',
+        display_name: 'Fan 123',
+        avatar_url: null,
+      },
+      video_id: '018f3a22-7f91-7d9a-9e12-000000000001',
+      comment_id: '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+    dynamicNotifications.unshift(newNotif);
+    return HttpResponse.json(newNotif, { status: 201 });
   }),
 ];

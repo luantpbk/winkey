@@ -94,7 +94,37 @@
       "FAILED": "Lỗi xử lý",
       "HIDDEN": "Bị ẩn"
     },
-    "hiddenByModerator": "Bị ẩn bởi quản trị viên: {reason}"
+    "hiddenByModerator": "Bị ẩn bởi quản trị viên: {reason}",
+    "subtitles": {
+      "title": "Phụ đề",
+      "description": "Quản lý các bản phụ đề WebVTT cho video này (tối đa 20 bản)",
+      "trackList": "Danh sách phụ đề",
+      "noTracks": "Chưa có bản phụ đề nào cho video này.",
+      "uploadTitle": "Tải lên bản phụ đề mới",
+      "file": "Tập tin WebVTT (.vtt)",
+      "chooseFile": "Chọn tập tin .vtt",
+      "fileHint": "Tập tin .vtt hợp lệ, kích thước tối đa 512 KiB",
+      "lang": "Ngôn ngữ",
+      "customLang": "Mã ngôn ngữ (BCP-47)",
+      "customLangPlaceholder": "Ví dụ: vi, en, en-US, ja, ko, zh",
+      "label": "Tên hiển thị phụ đề",
+      "labelPlaceholder": "Ví dụ: Tiếng Việt, English",
+      "uploadButton": "Tải lên phụ đề",
+      "uploading": "Đang tải lên...",
+      "delete": "Xóa",
+      "deleteConfirm": "Bạn có chắc chắn muốn xóa bản phụ đề này không?",
+      "successUpload": "Tải lên phụ đề thành công!",
+      "successDelete": "Xóa phụ đề thành công!",
+      "errors": {
+        "tooLarge": "Tập tin phụ đề quá lớn (tối đa 512 KiB)",
+        "invalidWebVtt": "Tập tin WebVTT không hợp lệ (phải bắt đầu bằng WEBVTT)",
+        "tooManySubtitles": "Đã đạt giới hạn tối đa 20 bản phụ đề",
+        "videoFailed": "Không thể thêm phụ đề cho video bị lỗi",
+        "forbidden": "Bạn không có quyền quản lý phụ đề cho video này",
+        "notFound": "Không tìm thấy video hoặc bản phụ đề",
+        "invalidLang": "Mã ngôn ngữ không đúng định dạng BCP-47 (ví dụ: vi, en, en-US)"
+      }
+    }
   },
   "social": {
     "comments": "Bình luận",
@@ -379,5 +409,24 @@
     "exploreTrending": "Xem thịnh hành",
     "loadMore": "Tải thêm video",
     "error": "Lỗi khi tải danh sách video: {error}"
+  },
+  "notifications": {
+    "title": "Thông báo",
+    "bellAriaLabel": "Thông báo",
+    "markAllRead": "Đánh dấu đã đọc tất cả",
+    "viewAll": "Xem tất cả",
+    "all": "Tất cả",
+    "unread": "Chưa đọc",
+    "emptyAll": "Chưa có thông báo nào.",
+    "emptyUnread": "Không có thông báo chưa đọc.",
+    "errorLoading": "Không thể tải thông báo. Vui lòng thử lại.",
+    "retry": "Thử lại",
+    "unreadBadge": "chưa đọc",
+    "kinds": {
+      "VIDEO_PUBLISHED": "{actor} vừa đăng video mới",
+      "VIDEO_COMMENT": "{actor} đã bình luận về video của bạn",
+      "COMMENT_REPLY": "{actor} đã trả lời bình luận của bạn",
+      "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn"
+    }
   }
 }

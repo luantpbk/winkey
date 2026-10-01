@@ -60,6 +60,5 @@ spec:
   # Limits access to internal media authorization endpoint to host nginx on tailnet (ADR-017, SEC1-b)
   ipAllowList:
     sourceRange:
-      - 100.113.240.3/32
-    ipStrategy:
-      depth: 1
+      - '{{ tailscale_ipv4 }}/32'
+      - 10.42.0.1/32

@@ -80,4 +80,52 @@ fi
 
 echo "SUCCESS: Router social@file targets social-svc with priority $SOCIAL_PRIORITY (higher than video-svc priority $VIDEO_PRIORITY) and rule matching $TEST_PATH."
 
+# 5. Check that router realtime@file targets realtime-svc with rule matching /v1/realtime (Issue #103)
+echo "Checking Traefik router configuration for realtime-svc..."
+REALTIME_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/realtime@file" || true)
+if [ -z "$REALTIME_ROUTER" ] || echo "$REALTIME_ROUTER" | grep -qi "not found"; then
+    echo "FAILED: Router realtime@file was not found in Traefik API!" >&2
+    exit 1
+fi
+REALTIME_SERVICE=$(echo "$REALTIME_ROUTER" | jq -r '.service // empty')
+REALTIME_RULE=$(echo "$REALTIME_ROUTER" | jq -r '.rule // empty')
+if [ "$REALTIME_SERVICE" != "realtime-svc" ]; then
+    echo "FAILED: Router realtime@file targets service '$REALTIME_SERVICE' (expected 'realtime-svc')!" >&2
+    exit 1
+fi
+if ! echo "$REALTIME_RULE" | grep -q "PathPrefix(\`/v1/realtime\`)"; then
+    echo "FAILED: Router realtime@file rule does not match PathPrefix(\`/v1/realtime\`)!" >&2
+    exit 1
+fi
+echo "SUCCESS: Router realtime@file targets realtime-svc with rule $REALTIME_RULE."
+
+# 6. Check that router video@file rule matches /v1/search, /v1/feed, /v1/playback (Issue #112)
+VIDEO_RULE=$(echo "$VIDEO_ROUTER" | jq -r '.rule // empty')
+for prefix in "/v1/search" "/v1/feed" "/v1/playback"; do
+    if ! echo "$VIDEO_RULE" | grep -q "PathPrefix(\`${prefix}\`)"; then
+        echo "FAILED: Router video@file rule does not contain PathPrefix(\`${prefix}\`)!" >&2
+        exit 1
+    fi
+done
+echo "SUCCESS: Router video@file rule contains /v1/search, /v1/feed, and /v1/playback."
+
+# 7. Check that router social@file rule matches /v1/reports and /v1/moderation (Issue #112)
+for prefix in "/v1/reports" "/v1/moderation"; do
+    if ! echo "$SOCIAL_RULE" | grep -q "PathPrefix(\`${prefix}\`)"; then
+        echo "FAILED: Router social@file rule does not contain PathPrefix(\`${prefix}\`)!" >&2
+        exit 1
+    fi
+done
+echo "SUCCESS: Router social@file rule contains /v1/reports and /v1/moderation."
+
+# 8. Check that router auth-protected@file rule matches /v1/admin
+AUTH_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/auth-protected@file" || true)
+AUTH_RULE=$(echo "$AUTH_ROUTER" | jq -r '.rule // empty')
+if ! echo "$AUTH_RULE" | grep -q "PathPrefix(\`/v1/admin\`)"; then
+    echo "FAILED: Router auth-protected@file rule does not contain PathPrefix(\`/v1/admin\`)!" >&2
+    exit 1
+fi
+echo "SUCCESS: Router auth-protected@file rule contains /v1/admin."
+
+
 

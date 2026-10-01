@@ -144,6 +144,23 @@ export const mockVideos: Video[] = [
         { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800 },
         { name: '480p', width: 854, height: 480, bitrate_kbps: 1400 },
       ],
+      subtitles: [
+        {
+          lang: 'vi',
+          label: 'Tiếng Việt',
+          source: 'UPLOAD',
+          url: '/v1/mock-subtitles/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/vi.vtt',
+          updated_at: '2026-09-15T10:00:00Z',
+        },
+        {
+          lang: 'en',
+          label: 'English',
+          source: 'UPLOAD',
+          url: '/v1/mock-subtitles/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/en.vtt',
+          updated_at: '2026-09-15T10:00:00Z',
+        },
+      ],
+      storyboard_url: '/v1/mock-storyboard/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/storyboard.vtt',
     },
   },
   {

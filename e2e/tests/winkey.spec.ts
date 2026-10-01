@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import type { PlaybackHeartbeatBatch } from '../../packages/api-client/src';
 
 test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -125,6 +126,113 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     const viewsAfter = await getRecordedViews();
     const finalCount = Math.max(viewsAfter.length, responseViewCount);
     expect(finalCount).toBe(1);
+  });
+
+  test('PL2: Play watch page ~35s, capture start + heartbeat samples with valid OpenAPI schema (Task U8)', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+
+    const capturedBatches: PlaybackHeartbeatBatch[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/v1/playback/heartbeats') && req.method() === 'POST') {
+        try {
+          const data = req.postDataJSON() as PlaybackHeartbeatBatch;
+          if (data && Array.isArray(data.samples)) {
+            capturedBatches.push(data);
+          }
+        } catch {
+          // ignore non-json
+        }
+      }
+    });
+
+    const targetVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+    await page.goto(`/watch/${targetVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible();
+
+    // Trigger play and simulate forward playback in real browser time for ~32s
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('play'));
+        v.dispatchEvent(new Event('playing'));
+
+        // Emit timeupdate every 1 second
+        (
+          window as unknown as { __playbackInterval?: ReturnType<typeof setInterval> }
+        ).__playbackInterval = setInterval(() => {
+          const current = (v.currentTime || 0) + 1;
+          Object.defineProperty(v, 'currentTime', {
+            value: current,
+            configurable: true,
+            writable: true,
+          });
+          v.dispatchEvent(new Event('timeupdate'));
+        }, 1000);
+      }
+    });
+
+    // Wait for at least one start and one heartbeat sample to be captured
+    await expect
+      .poll(
+        async () => {
+          const fromStorage = await page.evaluate(() => {
+            try {
+              return JSON.parse(sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+            } catch {
+              return [];
+            }
+          });
+          const allSamples = [...capturedBatches.flatMap((b) => b?.samples || []), ...fromStorage];
+          const hasStart = allSamples.some((s: any) => s.kind === 'start');
+          const hasHeartbeat = allSamples.some((s: any) => s.kind === 'heartbeat');
+          return hasStart && hasHeartbeat;
+        },
+        { timeout: 60000, intervals: [1000] },
+      )
+      .toBe(true);
+
+    // Stop timer
+    await page.evaluate(() => {
+      const win = window as unknown as { __playbackInterval?: ReturnType<typeof setInterval> };
+      if (win.__playbackInterval) {
+        clearInterval(win.__playbackInterval);
+      }
+    });
+
+    // Validate captured samples conform to PlaybackHeartbeatBatch / PlaybackSample schema
+    const fromStorage = await page.evaluate(() => {
+      try {
+        return JSON.parse(sessionStorage.getItem('wk_mock_heartbeats') || '[]');
+      } catch {
+        return [];
+      }
+    });
+    const allSamples = [...capturedBatches.flatMap((b) => b?.samples || []), ...fromStorage];
+    const startSample = allSamples.find((s: any) => s.kind === 'start');
+    const heartbeatSample = allSamples.find((s: any) => s.kind === 'heartbeat');
+
+    expect(startSample).toBeDefined();
+    expect(startSample!.video_id).toBe(targetVideoId);
+    expect(startSample!.seq).toBe(0);
+    expect(startSample!.client).toBe('web');
+    expect(typeof startSample!.startup_ms).toBe('number');
+    expect(startSample!.playback_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(new Date(startSample!.sent_at).toISOString()).toBe(startSample!.sent_at);
+
+    expect(heartbeatSample).toBeDefined();
+    expect(heartbeatSample!.video_id).toBe(targetVideoId);
+    expect(heartbeatSample!.seq).toBeGreaterThanOrEqual(1);
+    expect(heartbeatSample!.client).toBe('web');
+    expect(heartbeatSample!.playback_id).toBe(startSample!.playback_id);
+    expect(heartbeatSample!.watched_ms).toBeGreaterThanOrEqual(15000);
+    expect(typeof heartbeatSample!.rebuffer_ms).toBe('number');
+    expect(typeof heartbeatSample!.rebuffer_count).toBe('number');
+    expect(new Date(heartbeatSample!.sent_at).toISOString()).toBe(heartbeatSample!.sent_at);
   });
 
   test('Flow 2: Register -> upload file -> appears in studio', async ({ page }) => {
@@ -589,8 +697,84 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(subsSidebarLink).toBeVisible({ timeout: 10000 });
   });
 
+  test('Flow 5: Task U7 — Player Subtitles, CC Menu, Storyboard Scrubbing and Studio Subtitles', async ({
+    page,
+  }) => {
+    test.setTimeout(120000);
+
+    // 1. Visit watch page with subtitles and storyboard
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    // Verify native <track> elements with crossOrigin="anonymous"
+    const tracks = page.locator('video track[kind="subtitles"]');
+    await expect(tracks).toHaveCount(2);
+    await expect(tracks.first()).toHaveAttribute('srclang', 'vi');
+
+    // Open CC Menu
+    const ccBtn = page.locator('[data-testid="cc-menu-button"]');
+    await expect(ccBtn).toBeVisible({ timeout: 10000 });
+    await ccBtn.click();
+
+    // Verify CC dropdown options
+    const ccDropdown = page.locator('[data-testid="cc-menu-dropdown"]');
+    await expect(ccDropdown).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-off"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-vi"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cc-option-en"]')).toBeVisible();
+
+    // Select Vietnamese subtitles
+    await page.locator('[data-testid="cc-option-vi"]').click();
+    await expect(ccDropdown).not.toBeVisible();
+
+    // Check localStorage persistence
+    const savedLang = await page.evaluate(() => localStorage.getItem('winkey.subtitle_lang'));
+    expect(savedLang).toBe('vi');
+
+    // Press 'c' key to toggle captions
+    await page.keyboard.press('c');
+    const toggledLang = await page.evaluate(() => localStorage.getItem('winkey.subtitle_lang'));
+    expect(toggledLang).toBe('off');
+
+    // 2. Storyboard Scrubbing Hover
+    const seekBar = page.locator('[data-testid="seek-bar"]');
+    await expect(seekBar).toBeVisible();
+    await seekBar.hover({ position: { x: 150, y: 5 } });
+
+    // Preview container should appear
+    const previewContainer = page.locator('[data-testid="seek-preview-container"]');
+    await expect(previewContainer).toBeVisible({ timeout: 5000 });
+
+    // 3. Studio Subtitles Management
+    await page.goto('/vi/login?return_to=/vi/studio');
+    await page.waitForLoadState('domcontentloaded');
+
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    await page.waitForURL(/\/studio(?:\?.*)?$/, { timeout: 20000 });
+    await expect(page.locator('h1')).toContainText(/Studio/i, { timeout: 15000 });
+
+    // Open subtitles dialog for the first video
+    const manageSubtitlesBtn = page.locator('[data-testid^="manage-subtitles-"]').first();
+    await expect(manageSubtitlesBtn).toBeVisible({ timeout: 10000 });
+    await manageSubtitlesBtn.click();
+
+    // Verify dialog and tracks list
+    const dialog = page.locator('[data-testid="video-subtitles-dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('[data-testid="subtitle-row-vi"]')).toBeVisible();
+    await expect(page.locator('[data-testid="subtitle-row-en"]')).toBeVisible();
+    await expect(page.locator('[data-testid="upload-subtitle-form"]')).toBeVisible();
+  });
+
   test('Capture screenshots across viewports: 375px, 768px, 1440px', async ({ page }) => {
-    test.setTimeout(240000);
+    test.setTimeout(300000);
 
     const viewports = [
       { name: '375', width: 375, height: 667 },
@@ -667,5 +851,230 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
         fullPage: false,
       });
     }
+  });
+
+  test('Capture U7 screenshots: CC Menu, Storyboard, Studio Subtitles', async ({ page }) => {
+    test.setTimeout(120000);
+
+    const screenshotDir = path.join(process.cwd(), 'screenshots');
+    const brainArtifactDir =
+      'C:\\Users\\Admin\\.gemini\\antigravity\\brain\\e5a1d785-628e-4928-82fd-05d52f2cfb0b';
+
+    const saveScreenshot = (srcName: string) => {
+      const srcPath = path.join(screenshotDir, srcName);
+      if (fs.existsSync(brainArtifactDir) && fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, path.join(brainArtifactDir, srcName));
+      }
+    };
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 1. Player with CC Menu open (light & dark vi)
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      const ccBtn = page.locator('[data-testid="cc-menu-button"]');
+      await expect(ccBtn).toBeVisible({ timeout: 10000 });
+      await ccBtn.click();
+      await page.waitForTimeout(300);
+
+      const fname = `player-cc-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
+    }
+
+    // 2. Player with Storyboard Hover Preview (light & dark vi)
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      const seekBar = page.locator('[data-testid="seek-bar"]');
+      await expect(seekBar).toBeVisible({ timeout: 10000 });
+      await seekBar.hover({ position: { x: 300, y: 8 } });
+      await page.waitForSelector('[data-testid="storyboard-thumbnail"]', { timeout: 10000 });
+      await page.waitForTimeout(300);
+
+      const fname = `player-storyboard-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
+    }
+
+    // 3. Studio Subtitles Section (light & dark vi)
+    // First, log in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    for (const theme of ['light', 'dark'] as const) {
+      await page.goto('/vi/studio/videos/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      await page.waitForLoadState('domcontentloaded');
+      await page.evaluate((th) => {
+        localStorage.setItem('winkey-theme', th);
+        if (th === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, theme);
+      await page.waitForTimeout(500);
+
+      await expect(page.locator('[data-testid="studio-subtitles-section"]')).toBeVisible({
+        timeout: 15000,
+      });
+      await page.waitForTimeout(300);
+
+      const fname = `studio-subtitles-${theme}-vi.png`;
+      await page.screenshot({ path: path.join(screenshotDir, fname), fullPage: false });
+      saveScreenshot(fname);
+    }
+  });
+
+  test('N1-web: In-app notification bell flow (sign in -> badge 3 -> click VIDEO_COMMENT -> watch page highlighted -> badge 2 -> mark all -> badge hidden)', async ({
+    page,
+  }) => {
+    // Reset notification state
+    await page.request.post('http://localhost:3000/v1/test/reset-notifications').catch(() => {});
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Bell button is visible, badge shows 3
+    const bellButton = page.locator('[data-testid="notification-bell-button"]');
+    await expect(bellButton).toBeVisible({ timeout: 10000 });
+    const badge = page.locator('[data-testid="notification-badge"]');
+    await expect(badge).toHaveText('3', { timeout: 10000 });
+
+    // 3. Open notification dropdown
+    await bellButton.click();
+    const dropdown = page.locator('[role="dialog"][aria-label="Thông báo"]');
+    await expect(dropdown).toBeVisible({ timeout: 5000 });
+
+    // 4. Click a VIDEO_COMMENT item
+    const commentItem = page.locator(
+      '[data-testid="notification-item-0192f5e4-9000-7000-8000-000000000001"]',
+    );
+    await expect(commentItem).toBeVisible({ timeout: 5000 });
+    await commentItem.click();
+
+    // 5. Lands on watch page with comment highlighted
+    await page.waitForURL(
+      (url) => url.pathname.includes('/watch/') && url.search.includes('comment='),
+      {
+        timeout: 15000,
+      },
+    );
+    const highlightedComment = page.locator(
+      '[data-testid="comment-item-0192f5e4-7c1a-7b3e-9d2a-c00000000001"]',
+    );
+    await expect(highlightedComment).toBeVisible({ timeout: 15000 });
+    await expect(highlightedComment).toHaveAttribute('data-highlighted', 'true', {
+      timeout: 10000,
+    });
+
+    // 6. Badge shows 2
+    await expect(badge).toHaveText('2', { timeout: 10000 });
+
+    // 7. Click bell again -> click "Đánh dấu đã đọc tất cả" -> badge hidden
+    await bellButton.click();
+    await expect(dropdown).toBeVisible({ timeout: 5000 });
+    const markAllBtn = dropdown.locator('button', { hasText: 'Đánh dấu đã đọc tất cả' });
+    await expect(markAllBtn).toBeVisible({ timeout: 5000 });
+    await markAllBtn.click();
+
+    // Badge is hidden
+    await expect(badge).toBeHidden({ timeout: 10000 });
+  });
+
+  test('N2-web: Realtime notification hint updates badge without waiting for polling', async ({
+    page,
+  }) => {
+    let socketServer: any = null;
+    let welcomeSent = false;
+
+    // Reset notifications
+    await page.request.post('http://localhost:3000/v1/test/reset-notifications').catch(() => {});
+
+    // Route WebSocket connections to mock realtime-gw
+    await page.routeWebSocket('**/v1/realtime*', (ws) => {
+      socketServer = ws;
+      ws.send(
+        JSON.stringify({
+          type: 'welcome',
+          connection_id: '018f3a22-7f91-7d9a-9e12-3456789abcde',
+          user_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+          heartbeat_interval_ms: 25000,
+        }),
+      );
+      welcomeSent = true;
+    });
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await loginForm.locator('button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Bell button is visible, initial badge shows 3
+    const bellButton = page.locator('[data-testid="notification-bell-button"]');
+    await expect(bellButton).toBeVisible({ timeout: 10000 });
+    const badge = page.locator('[data-testid="notification-badge"]');
+    await expect(badge).toHaveText('3', { timeout: 10000 });
+
+    // Ensure WebSocket is connected
+    await expect
+      .poll(() => welcomeSent, { message: 'Waiting for WebSocket connection' })
+      .toBe(true);
+
+    // 3. Add a new unread notification on the backend via test helper inside browser MSW
+    await page.evaluate(async () => {
+      const res = await fetch('/v1/test/add-notification', { method: 'POST' });
+      if (!res.ok) throw new Error(`Failed to add notification: ${res.status}`);
+    });
+
+    // Badge should still show 3 because polling is 5 minutes when realtime is connected
+    await expect(badge).toHaveText('3');
+
+    // 4. Push realtime notification.hint over WebSocket
+    socketServer.send(
+      JSON.stringify({
+        type: 'event',
+        room: 'user:0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        event: 'notification.hint',
+        data: { kind: 'VIDEO_COMMENT' },
+        ts: new Date().toISOString(),
+      }),
+    );
+
+    // 5. Badge updates to 4 after hint without waiting for 5-minute poll
+    await expect(badge).toHaveText('4', { timeout: 10000 });
   });
 });

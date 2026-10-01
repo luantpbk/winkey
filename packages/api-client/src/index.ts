@@ -40,6 +40,11 @@ export type StudioVideoPage = VideoComponents['schemas']['StudioVideoPage'];
 export type UpdateVideoRequest = VideoComponents['schemas']['UpdateVideoRequest'];
 export type Playback = VideoComponents['schemas']['Playback'];
 export type Rendition = VideoComponents['schemas']['Rendition'];
+export type SubtitleTrack = VideoComponents['schemas']['SubtitleTrack'];
+export type PutSubtitleRequest = VideoComponents['schemas']['PutSubtitleRequest'];
+export type PlaybackHeartbeatBatch = VideoComponents['schemas']['PlaybackHeartbeatBatch'];
+export type PlaybackSample = VideoComponents['schemas']['PlaybackSample'];
+export type PlaybackHeartbeatResult = VideoComponents['schemas']['PlaybackHeartbeatResult'];
 export type VideoStatus = VideoComponents['schemas']['VideoStatus'];
 export type Visibility = VideoComponents['schemas']['Visibility'];
 
@@ -52,6 +57,12 @@ export type LikeState = SocialComponents['schemas']['LikeState'];
 export type SubscriptionState = SocialComponents['schemas']['SubscriptionState'];
 export type Subscription = SocialComponents['schemas']['Subscription'];
 export type SubscriptionPage = SocialComponents['schemas']['SubscriptionPage'];
+export type NotificationKind = SocialComponents['schemas']['NotificationKind'];
+export type Notification = SocialComponents['schemas']['Notification'];
+export type NotificationPage = SocialComponents['schemas']['NotificationPage'];
+export type UnreadCount = SocialComponents['schemas']['UnreadCount'];
+export type MarkNotificationsReadRequest =
+  SocialComponents['schemas']['MarkNotificationsReadRequest'];
 
 export type AdminUser = AuthComponents['schemas']['AdminUser'];
 export type AdminUserPage = AuthComponents['schemas']['AdminUserPage'];

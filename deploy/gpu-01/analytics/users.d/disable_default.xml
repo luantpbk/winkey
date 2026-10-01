@@ -1,0 +1,10 @@
+<clickhouse>
+    <users>
+        <!-- Disable default user over the network per Task R1-infra DoD -->
+        <default>
+            <networks>
+                <!-- Empty networks block disables network login for default user -->
+            </networks>
+        </default>
+    </users>
+</clickhouse>

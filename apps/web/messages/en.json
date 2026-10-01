@@ -94,7 +94,37 @@
       "FAILED": "Failed",
       "HIDDEN": "Hidden"
     },
-    "hiddenByModerator": "Hidden by a moderator: {reason}"
+    "hiddenByModerator": "Hidden by a moderator: {reason}",
+    "subtitles": {
+      "title": "Subtitles",
+      "description": "Manage WebVTT subtitle tracks for this video (max 20 tracks)",
+      "trackList": "Subtitle tracks",
+      "noTracks": "No subtitles have been uploaded for this video yet.",
+      "uploadTitle": "Upload new subtitle track",
+      "file": "WebVTT file (.vtt)",
+      "chooseFile": "Choose .vtt file",
+      "fileHint": "Valid .vtt file, maximum size 512 KiB",
+      "lang": "Language",
+      "customLang": "Language code (BCP-47)",
+      "customLangPlaceholder": "e.g. vi, en, en-US, ja, ko, zh",
+      "label": "Display label",
+      "labelPlaceholder": "e.g. Tiếng Việt, English",
+      "uploadButton": "Upload subtitle",
+      "uploading": "Uploading...",
+      "delete": "Delete",
+      "deleteConfirm": "Are you sure you want to delete this subtitle track?",
+      "successUpload": "Subtitle track uploaded successfully!",
+      "successDelete": "Subtitle track deleted successfully!",
+      "errors": {
+        "tooLarge": "Subtitle file is too large (max 512 KiB)",
+        "invalidWebVtt": "Invalid WebVTT file (must start with WEBVTT)",
+        "tooManySubtitles": "Maximum limit of 20 subtitle tracks reached",
+        "videoFailed": "Cannot add subtitles to a failed video",
+        "forbidden": "You do not have permission to manage subtitles for this video",
+        "notFound": "Video or subtitle track not found",
+        "invalidLang": "Language code does not match BCP-47 format (e.g. vi, en, en-US)"
+      }
+    }
   },
   "social": {
     "comments": "Comments",
@@ -379,5 +409,24 @@
     "exploreTrending": "Explore Trending",
     "loadMore": "Load more videos",
     "error": "Failed to load video feed: {error}"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "bellAriaLabel": "Notifications",
+    "markAllRead": "Mark all as read",
+    "viewAll": "View all",
+    "all": "All",
+    "unread": "Unread",
+    "emptyAll": "No notifications yet.",
+    "emptyUnread": "No unread notifications.",
+    "errorLoading": "Failed to load notifications. Please try again.",
+    "retry": "Retry",
+    "unreadBadge": "unread",
+    "kinds": {
+      "VIDEO_PUBLISHED": "{actor} published a new video",
+      "VIDEO_COMMENT": "{actor} commented on your video",
+      "COMMENT_REPLY": "{actor} replied to your comment",
+      "NEW_SUBSCRIBER": "{actor} subscribed to your channel"
+    }
   }
 }

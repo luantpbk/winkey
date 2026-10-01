@@ -40,6 +40,22 @@ updates:
     commit-message:
       prefix: 'deps(transcoder)'
 
+  # Maintain Go dependencies in services/video
+  - package-ecosystem: 'gomod'
+    directory: '/services/video'
+    schedule:
+      interval: 'weekly'
+    commit-message:
+      prefix: 'deps(video)'
+
+  # Maintain Go dependencies in services/analytics
+  - package-ecosystem: 'gomod'
+    directory: '/services/analytics'
+    schedule:
+      interval: 'weekly'
+    commit-message:
+      prefix: 'deps(analytics)'
+
   # Maintain Docker dependencies in deploy/compose
   - package-ecosystem: 'docker'
     directory: '/deploy/compose'

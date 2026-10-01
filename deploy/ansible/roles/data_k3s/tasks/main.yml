@@ -66,20 +66,24 @@
   failed_when: false
   check_mode: false
 
+- name: Recreate setup jobs when manifests changed
+  ansible.builtin.command: /usr/local/bin/k3s kubectl delete job winkey-pg-setup nats-bootstrap -n default --ignore-not-found
+  when: data_manifests_sync.changed
+
 - name: Check for drift in data plane manifests
   ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/data-manifests/
   register: data_drift_check
-  changed_when: data_drift_check.rc == 1
-  failed_when: data_drift_check.rc > 1
+  changed_when: data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr)
+  failed_when: data_drift_check.rc > 1 and "field is immutable" not in data_drift_check.stderr
   check_mode: false
 
-- name: Recreate setup jobs when manifests changed or drift detected
+- name: Recreate setup jobs when drift detected
   ansible.builtin.command: /usr/local/bin/k3s kubectl delete job winkey-pg-setup nats-bootstrap -n default --ignore-not-found
-  when: data_manifests_sync.changed or data_drift_check.rc == 1
+  when: not data_manifests_sync.changed and (data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr))
 
 - name: Apply data plane kustomization
   ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/data-manifests/
-  when: data_manifests_sync.changed or pg_cluster_check.rc != 0 or data_drift_check.rc == 1
+  when: data_manifests_sync.changed or pg_cluster_check.rc != 0 or data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr)
 
 - name: Wait for PostgreSQL cluster winkey-pg
   ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready cluster/winkey-pg -n default --timeout=300s

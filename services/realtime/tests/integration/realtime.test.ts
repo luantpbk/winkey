@@ -153,10 +153,25 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
       try {
         await jsm.streams.add({
           name: 'SOCIAL',
-          subjects: ['social.comment.created', 'social.video.like_changed'],
+          subjects: [
+            'social.comment.created',
+            'social.video.like_changed',
+            'social.subscription.changed',
+          ],
         });
       } catch {
-        // Stream may already exist
+        try {
+          const streamInfo = await jsm.streams.info('SOCIAL');
+          const currentSubjects = streamInfo.config.subjects || [];
+          if (!currentSubjects.includes('social.subscription.changed')) {
+            await jsm.streams.update('SOCIAL', {
+              ...streamInfo.config,
+              subjects: [...currentSubjects, 'social.subscription.changed'],
+            });
+          }
+        } catch {
+          // Stream update error ignored
+        }
       }
 
       // 4. Start Realtime Gateway Server
@@ -774,5 +789,116 @@ describe('Realtime Gateway Integration (Real NATS JetStream + Valkey)', () => {
     expect(body.checks.consumer).toBe('ok');
     expect(body.checks.valkey).toBe('ok');
     expect(body.checks.nats).toBe('ok');
+  });
+
+  it('Task N2: channel owner receives notification.hint NEW_SUBSCRIBER on social.subscription.changed; second user and unsubscribe receive nothing', async () => {
+    const ownerId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd001';
+    const viewerId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd002';
+    const subscriberId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bd003';
+
+    // 1. Get tickets for owner and viewer
+    const ownerTicketRes = await gatewayServer!.app.inject({
+      method: 'POST',
+      url: '/v1/realtime/ticket',
+      headers: { 'x-user-id': ownerId, 'x-user-roles': 'creator' },
+    });
+    expect(ownerTicketRes.statusCode).toBe(201);
+    const { ticket: ownerTicket } = ownerTicketRes.json();
+
+    const viewerTicketRes = await gatewayServer!.app.inject({
+      method: 'POST',
+      url: '/v1/realtime/ticket',
+      headers: { 'x-user-id': viewerId, 'x-user-roles': 'viewer' },
+    });
+    expect(viewerTicketRes.statusCode).toBe(201);
+    const { ticket: viewerTicket } = viewerTicketRes.json();
+
+    // 2. Connect owner socket and viewer socket
+    const ownerWs = new WebSocket(
+      `ws://127.0.0.1:${gatewayPort}/v1/realtime?ticket=${ownerTicket}`,
+    );
+    await waitForFrame(ownerWs, (f) => f.type === 'welcome');
+
+    const viewerWs = new WebSocket(
+      `ws://127.0.0.1:${gatewayPort}/v1/realtime?ticket=${viewerTicket}`,
+    );
+    await waitForFrame(viewerWs, (f) => f.type === 'welcome');
+
+    // Setup listener on viewer socket to track any incoming frames
+    const viewerFrames: ServerMessage[] = [];
+    viewerWs.on('message', (data) => {
+      try {
+        viewerFrames.push(parseServerFrame(data));
+      } catch {
+        // ignore unparseable frame
+      }
+    });
+
+    // 3. Publish social.subscription.changed with subscribed: true
+    const js = nc!.jetstream();
+    const subscribeEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be001',
+      type: 'social.subscription.changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'social-svc',
+      data: {
+        subscriber_id: subscriberId,
+        channel_id: ownerId,
+        subscribed: true,
+        subscriber_count: 100,
+      },
+    };
+
+    await js.publish('social.subscription.changed', sc.encode(JSON.stringify(subscribeEvent)));
+
+    // 4. Owner socket receives notification.hint NEW_SUBSCRIBER
+    const hintFrame = await waitForFrame(
+      ownerWs,
+      (f) => f.type === 'event' && f.event === 'notification.hint',
+    );
+    expect(hintFrame.type).toBe('event');
+    if (hintFrame.type === 'event') {
+      expect(hintFrame.room).toBe(`user:${ownerId}`);
+      expect(hintFrame.event).toBe('notification.hint');
+      expect(hintFrame.data).toEqual({ kind: 'NEW_SUBSCRIBER' });
+    }
+
+    // 5. Verify viewer socket received nothing
+    expect(viewerFrames.filter((f) => f.type === 'event')).toHaveLength(0);
+
+    // 6. Publish social.subscription.changed with subscribed: false (unsubscribe)
+    const ownerFramesAfterUnsub: ServerMessage[] = [];
+    ownerWs.on('message', (data) => {
+      try {
+        ownerFramesAfterUnsub.push(parseServerFrame(data));
+      } catch {
+        // ignore unparseable frame
+      }
+    });
+
+    const unsubscribeEvent = {
+      event_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be002',
+      type: 'social.subscription.changed',
+      version: 1,
+      occurred_at: new Date().toISOString(),
+      producer: 'social-svc',
+      data: {
+        subscriber_id: subscriberId,
+        channel_id: ownerId,
+        subscribed: false,
+        subscriber_count: 99,
+      },
+    };
+
+    await js.publish('social.subscription.changed', sc.encode(JSON.stringify(unsubscribeEvent)));
+
+    // Wait a brief moment to ensure no frames are sent
+    await new Promise((r) => setTimeout(r, 500));
+    expect(ownerFramesAfterUnsub.filter((f) => f.type === 'event')).toHaveLength(0);
+    expect(viewerFrames.filter((f) => f.type === 'event')).toHaveLength(0);
+
+    ownerWs.close();
+    viewerWs.close();
   });
 });

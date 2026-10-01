@@ -151,6 +151,262 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's notifications, newest first (task N1).
+         * @description Ordered by (`created_at`, `id`) descending; the cursor encodes that position. Filtering rules in the tag
+         *     description. `Cache-Control: private, no-store`.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Number of unread notifications (capped at 100), for the badge (task N1).
+         * @description Cheap enough to poll every 60 s (partial index on unread rows). Counts with the same filtering rules as
+         *     `listNotifications`. `Cache-Control: private, no-store`.
+         */
+        get: operations["getUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark notifications as read (task N1).
+         * @description Either `ids` (at most 100 of the caller's notifications; unknown or foreign ids are ignored) or
+         *     `up_to` (every notification of the caller created at or before that time). Exactly one of the two.
+         *     Idempotent: already-read notifications keep their original `read_at`.
+         */
+        post: operations["markNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/playlists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a playlist owned by the caller (task PL1).
+         * @description At most 200 playlists per user (the watch-later list included) → `409` `PLAYLIST_LIMIT`. Rate limit
+         *     30/min per user → `429`.
+         */
+        post: operations["createPlaylist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/playlists/{playlist_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * One playlist. Optional auth.
+         * @description `PRIVATE` playlists (and the watch-later list, always private) → `404` for everyone but the owner.
+         *     `PUBLIC` and `UNLISTED` → anyone with the id. `Cache-Control: private, no-store`.
+         */
+        get: operations["getPlaylist"];
+        put?: never;
+        post?: never;
+        /** Delete an own playlist and its items. The watch-later list cannot be deleted (`409`). */
+        delete: operations["deletePlaylist"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, re-describe or change the visibility of an own playlist.
+         * @description Owner only (others → `404`). The watch-later list cannot be changed → `409` `WATCH_LATER_IMMUTABLE`.
+         */
+        patch: operations["updatePlaylist"];
+        trace?: never;
+    };
+    "/v1/playlists/{playlist_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Items in playlist order. Optional auth; same visibility rule as getPlaylist.
+         * @description Ordered by `position` ascending. Items whose video is hidden, deleted, or `PRIVATE` (unless the caller
+         *     owns that video) are not returned; `item_count` on the playlist counts all rows, so a page can hold fewer
+         *     visible items than stored ones. Titles and thumbnails come from video-svc `batchGetVideos` (one call per
+         *     page), never from social-svc.
+         */
+        get: operations["listPlaylistItems"];
+        put?: never;
+        /**
+         * Append a video to an own playlist. Idempotent.
+         * @description The video must be one the caller can currently read (known to social-svc, not hidden, not `PRIVATE` unless
+         *     the caller owns it) → otherwise `404` `VIDEO_NOT_FOUND`. Already in the playlist → `200` with the existing
+         *     item (position unchanged); new → `201`. At most 5 000 items per playlist → `409` `PLAYLIST_FULL`.
+         *     Rate limit 120/min per user → `429`.
+         */
+        post: operations["addPlaylistItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/playlists/{playlist_id}/items/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a video from an own playlist. Idempotent (`204` also when it was not there). */
+        delete: operations["removePlaylistItem"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/playlists/{playlist_id}/items/{video_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move an item before another one, or to the end (`before_video_id` null).
+         * @description Owner only. Item or `before_video_id` not in the playlist → `404`. Moving before itself is a no-op.
+         */
+        post: operations["movePlaylistItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels/{channel_id}/playlists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Playlists of a channel, most recently updated first. Optional auth.
+         * @description Others see only `PUBLIC` playlists (never `UNLISTED`, `PRIVATE` or watch-later). The owner sees all of
+         *     theirs, the watch-later list first.
+         */
+        get: operations["listChannelPlaylists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/videos/{video_id}/playlist-membership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Which of the caller's playlists contain this video (for the "Save" dialog).
+         * @description Ids of the caller's own playlists (watch-later included) that contain `video_id`; empty when none or when
+         *     the video is unknown. `Cache-Control: private, no-store`.
+         */
+        get: operations["getPlaylistMembership"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/watch-later": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's watch-later playlist, created on first use.
+         * @description Returns the `WATCH_LATER` playlist (always `PRIVATE`, one per user), creating it if needed. Add and remove
+         *     videos with the normal item endpoints using its `id`.
+         */
+        get: operations["getWatchLater"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reports": {
         parameters: {
             query?: never;
@@ -285,6 +541,101 @@ export interface components {
             items: components["schemas"]["Subscription"][];
             next_cursor: string | null;
         };
+        /**
+         * @description `VIDEO_PUBLISHED` — a channel you subscribe to published a video (actor = channel, `video_id` set); sent
+         *     once, when the video first becomes `PUBLIC` (`UNLISTED` never notifies).
+         *     `VIDEO_COMMENT` — someone left a top-level comment on your video (`video_id`, `comment_id`).
+         *     `COMMENT_REPLY` — someone replied to your comment (`video_id`, `comment_id` = the reply).
+         *     `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
+         * @enum {string}
+         */
+        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER";
+        Notification: {
+            id: components["schemas"]["Uuid"];
+            kind: components["schemas"]["NotificationKind"];
+            actor: components["schemas"]["PublicProfile"];
+            /** Format: uuid */
+            video_id: string | null;
+            /** Format: uuid */
+            comment_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            next_cursor: string | null;
+        };
+        UnreadCount: {
+            count: number;
+            /** @description `true` when there are more than 100 unread notifications (show "99+"). */
+            capped: boolean;
+        };
+        MarkNotificationsReadRequest: {
+            ids?: components["schemas"]["Uuid"][];
+            /** Format: date-time */
+            up_to?: string;
+        };
+        /** @enum {string} */
+        PlaylistKind: "REGULAR" | "WATCH_LATER";
+        Playlist: {
+            id: components["schemas"]["Uuid"];
+            owner: components["schemas"]["PublicProfile"];
+            kind: components["schemas"]["PlaylistKind"];
+            /** @description "Xem sau" for the watch-later list (the client localises by `kind`). */
+            title: string;
+            description: string;
+            visibility: components["schemas"]["Visibility"];
+            item_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Last change to the playlist or its items.
+             */
+            updated_at: string;
+        };
+        PlaylistPage: {
+            items: components["schemas"]["Playlist"][];
+            next_cursor: string | null;
+        };
+        CreatePlaylistRequest: {
+            title: string;
+            /** @default  */
+            description: string;
+            /** @description Defaults to `PRIVATE`. */
+            visibility?: components["schemas"]["Visibility"];
+        };
+        UpdatePlaylistRequest: {
+            title?: string;
+            description?: string;
+            visibility?: components["schemas"]["Visibility"];
+        };
+        PlaylistItem: {
+            video_id: components["schemas"]["Uuid"];
+            /** @description Opaque sort key (ascending). Not contiguous; do not show it to users. */
+            position: number;
+            /** Format: date-time */
+            added_at: string;
+        };
+        PlaylistItemPage: {
+            items: components["schemas"]["PlaylistItem"][];
+            next_cursor: string | null;
+        };
+        AddPlaylistItemRequest: {
+            video_id: components["schemas"]["Uuid"];
+        };
+        MovePlaylistItemRequest: {
+            /**
+             * Format: uuid
+             * @description Place the item right before this one; `null` moves it to the end.
+             */
+            before_video_id: string | null;
+        };
+        PlaylistMembership: {
+            playlist_ids: components["schemas"]["Uuid"][];
+        };
         /** @enum {string} */
         ReportTargetType: "VIDEO" | "COMMENT" | "USER";
         /** @enum {string} */
@@ -377,6 +728,12 @@ export interface components {
                 message: string;
             }[];
         };
+        /**
+         * @description Until task SEC1 (signed cookies) ships, PRIVATE/UNLISTED only affect listings and API reads;
+         *     media URLs are unguessable but not access-controlled.
+         * @enum {string}
+         */
+        Visibility: "PUBLIC" | "UNLISTED" | "PRIVATE";
     };
     responses: {
         /** @description Validation failed. */
@@ -439,6 +796,7 @@ export interface components {
         CommentId: components["schemas"]["Uuid"];
         /** @description User id of the channel owner. */
         ChannelId: components["schemas"]["Uuid"];
+        PlaylistId: components["schemas"]["Uuid"];
         VideoId: components["schemas"]["Uuid"];
         /** @description Opaque cursor copied from `next_cursor` of the previous page. */
         Cursor: string;
@@ -819,6 +1177,376 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                /** @description `true` returns only unread notifications. */
+                unread?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    markNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkNotificationsReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Marked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createPlaylist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlaylistRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playlist"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPlaylist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The playlist. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playlist"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deletePlaylist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updatePlaylist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlaylistRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playlist"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listPlaylistItems: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addPlaylistItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPlaylistItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Already present. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistItem"];
+                };
+            };
+            /** @description Added at the end. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistItem"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    removePlaylistItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    movePlaylistItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MovePlaylistItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The moved item with its new position. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistItem"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listChannelPlaylists: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of playlists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    getPlaylistMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Playlist ids. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistMembership"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getWatchLater: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The watch-later playlist. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Playlist"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
         };
     };

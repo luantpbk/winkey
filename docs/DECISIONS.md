@@ -271,3 +271,58 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Một ngoại lệ với ADR-008 (outbox), giới hạn ở subject `analytics.*` và ghi rõ trong `contracts/events/README.md`.
 - Gateway cần route `/v1/playback` tới video-svc (Traefik dev và k8s).
 - Hướng mở rộng: ClickHouse replica hoặc chuyển về edge khi có edge-2/3; GeoIP (`country`, hiện luôn null).
+**Bổ sung (2026-10-01, lúc chuẩn bị gpu-01).**
+- Không có ổ 512 GB trống riêng: `/srv/winkey-analytics` là bind mount của `/mnt/nvme_models/winkey-analytics` trên NVMe Kingmax, **dùng chung** với model ComfyUI và scratch của transcoder (còn trống 127 GB lúc cài). Dữ liệu thô chỉ giữ 90 ngày nên vẫn đủ cho beta; cảnh báo khi còn < 20 GB (I3). Có ổ riêng thì chỉ cần đổi mount, không đổi đường dẫn.
+- gpu-01 trước đó chưa có Docker. Chủ dự án đã cài `docker.io` + `docker-compose-v2` của Ubuntu với `iptables: false` (Docker không sửa firewall của máy đang chạy miner/ComfyUI) và `data-root` trên `/srv/winkey-analytics/docker` (ổ `/` chỉ còn khoảng 18 GB). Hệ quả: container dùng `network_mode: host`, ClickHouse tự giới hạn `listen_host` loopback.
+- Nhóm `docker` tương đương root, nên quy tắc "agent không sudo trên gpu-01" giờ được giữ bằng review: compose không `privileged`, chỉ mount `/srv/winkey-analytics/{clickhouse,backup}` và `db/clickhouse` (read-only).
+
+### ADR-023 — Thông báo trong app (N1)
+**Bối cảnh.** Người dùng đã comment, reply và subscribe được (C1), nhưng không biết khi kênh mình theo dõi ra video mới hay khi có người trả lời mình. Catalog event ghi consumer "notify (P3)" nhưng chưa có thiết kế. Chưa có hạ tầng gửi push/e-mail, và chưa cần: bản beta chỉ cần chuông thông báo trên web.
+**Quyết định.**
+- **Ở đâu:** trong social-svc, không tạo service mới. Mọi dữ liệu cần để tạo thông báo (subscription, comment, projection `social.videos`) đã nằm ở schema `social`. Bảng `social.notifications` (migration 000013), API `listNotifications`, `getUnreadNotificationCount`, `markNotificationsRead` trong `social.v1.yaml`; gateway chuyển `/v1/notifications` tới social-svc.
+- **Bốn loại, tạo lúc ghi (fan-out on write), một hàng cho mỗi người nhận:**
+  - `VIDEO_COMMENT` (chủ video, khi có comment cấp 1) và `COMMENT_REPLY` (tác giả comment cha, khi có reply): tạo **trong cùng transaction** với `INSERT` comment, cạnh outbox.
+  - `NEW_SUBSCRIBER` (chủ kênh): trong cùng transaction với lượt subscribe mới.
+  - `VIDEO_PUBLISHED` (mọi subscriber của kênh): consumer `social-videos` hiện có, trong cùng transaction với cập nhật projection, **chỉ khi** event làm video chuyển từ "chưa có / không PUBLIC" sang `PUBLIC` và không `hidden` (`video.ready` lần đầu hoặc `video.visibility_changed` → `PUBLIC`). `UNLISTED` không thông báo.
+  - Không bao giờ thông báo cho chính người gây ra (`CHECK user_id <> actor_id`).
+- **Idempotent:** unique index `(user_id, kind, COALESCE(comment_id, video_id, actor_id))`, mọi lệnh ghi dùng `ON CONFLICT DO NOTHING`. `video.ready` gửi lại khi re-encode, đổi PUBLIC → PRIVATE → PUBLIC, hay bỏ rồi subscribe lại đều không tạo thông báo thứ hai.
+- **ID:** UUIDv7 do app sinh như mọi bảng khác. Fan-out đọc `subscriber_id` theo trang 1 000 (keyset) và chèn bằng `unnest` của mảng id sinh trong app, cùng một transaction.
+- **Lọc lúc đọc, không xóa lúc ghi:** không trả thông báo có video `hidden` hoặc `PRIVATE`, comment không còn `VISIBLE`, hay actor không có trong `auth.public_profiles`. Video hoặc comment bị xóa thật thì FK `ON DELETE CASCADE` xóa luôn thông báo. Badge đếm theo cùng quy tắc, dừng ở 100 (`capped`).
+- **Giữ 90 ngày:** janitor trong social-svc xóa theo lô 5 000 hàng mỗi 10 phút, dùng `pg_try_advisory_lock` để chỉ một replica chạy.
+- **Giao tới client:** polling `getUnreadNotificationCount` mỗi 60 s khi tab đang hiện, và khi mở chuông thì gọi `listNotifications`. Không qua realtime-gw ở N1.
+- **Không kèm tiêu đề video / nội dung comment:** client lấy qua `getVideo` / `getComment` khi hiển thị. Đây là giới hạn đã biết: tiêu đề nằm ở video-svc, `video.ready` không mang tiêu đề, và chép sang social-svc thì phải đồng bộ khi đổi tên.
+**Hệ quả.**
+- Thêm một bảng lớn nhất của schema `social`. Kênh có N subscriber tạo N hàng mỗi video; ở quy mô beta (≤ 10⁵ subscriber mỗi kênh) mỗi lô fan-out vẫn nằm trong `ack_wait 30s` của consumer. Vượt mức này thì chuyển fan-out sang job riêng, hoặc fan-out on read cho kênh lớn.
+- Người mới subscribe không nhận thông báo cho video đã ra trước đó (đúng ý đồ).
+- Hướng mở rộng: push qua realtime-gw (room `user:{id}`), Web Push / e-mail tổng hợp, cài đặt tắt từng loại, gom nhóm ("A và 5 người khác đã comment").
+**Bổ sung (2026-10-01, N2: gợi ý realtime).**
+- realtime-gw gửi message `notification.hint {kind}` vào room `user:{id}` của người nhận, suy ra từ event đã có. Không cần event mới và không đụng social-svc:
+  - `social.comment.created` → `VIDEO_COMMENT` (cho chủ video) hoặc `COMMENT_REPLY` (cho tác giả comment cha), cùng điều kiện với N1;
+  - `social.subscription.changed` với `subscribed=true` → `NEW_SUBSCRIBER` (cho chủ kênh).
+- Gợi ý không mang id hay nội dung. Client chỉ gọi lại `getUnreadNotificationCount`. Như vậy quy tắc lọc (ẩn, PRIVATE, actor bị khóa, trùng lặp) vẫn chỉ nằm ở social-svc, và một gợi ý thừa chỉ tốn một request.
+- `VIDEO_PUBLISHED` không có gợi ý: fan-out tới mọi subscriber qua WebSocket quá tốn. Web vẫn poll, nhưng khi socket đang kết nối thì giãn chu kỳ từ 60 s lên 5 phút (N2-web, Antigravity 1).
+- Event tới realtime-gw sau khi outbox relay đã publish, tức là sau khi transaction ghi thông báo đã commit. Vì vậy request đếm lại luôn thấy thông báo mới.
+
+### ADR-024 — Danh sách phát và "Xem sau" (PL1)
+**Bối cảnh.** Người xem đã có feed, tìm kiếm và thông báo, nhưng chưa có cách lưu video để xem sau hay gom thành danh sách phát. Chủ kênh cũng chưa có danh sách phát trên trang kênh. Video nằm ở video-svc, còn quan hệ giữa người dùng và nội dung (comment, like, subscribe) nằm ở social-svc (ADR-007).
+**Quyết định.**
+- **Chủ sở hữu:** social-svc. Hai bảng `social.playlists` và `social.playlist_items` (migration 000014). Item tham chiếu projection `social.videos` bằng FK `ON DELETE CASCADE`, nên `video.deleted` tự xóa video khỏi mọi danh sách. Không cần consumer mới.
+- **"Xem sau"** là một playlist `kind = WATCH_LATER`:
+  - mỗi user tối đa 1 (unique index một phần), luôn `PRIVATE` (CHECK);
+  - tạo lười khi gọi `getWatchLater` lần đầu, bằng `INSERT … ON CONFLICT DO NOTHING`;
+  - thêm và bớt video bằng chính các endpoint item.
+- **Giới hạn:** 200 playlist mỗi user, 5 000 item mỗi playlist. Giới hạn item được bảo đảm bằng CHECK `item_count ≤ 5000`; trigger giữ `item_count` và `updated_at`.
+- **Thứ tự:** `position bigint` thưa, cách nhau 2^20.
+  - Thêm vào cuối: `max + 2^20`.
+  - Di chuyển: lấy điểm giữa hai hàng xóm. Khi không còn khe, đánh số lại cả playlist trong cùng transaction; ràng buộc unique `(playlist_id, position)` là `DEFERRABLE` nên được phép trùng tạm thời.
+- **Hiển thị:**
+  - Playlist `PRIVATE` chỉ chủ xem được; người khác nhận 404. `UNLISTED` thì ai có link cũng xem được. Trang kênh chỉ liệt kê `PUBLIC`, trừ khi chính chủ đang xem.
+  - Video trong playlist bị ẩn hoặc `PRIVATE` thì bị lọc lúc đọc, trừ khi người gọi là chủ video. Riêng `item_count` vẫn đếm mọi hàng.
+- **Tiêu đề và thumbnail:** social-svc chỉ lưu id video. Client gọi `batchGetVideos` mới ở video-svc (`GET /v1/videos/batch?ids=…`, tối đa 50 id, trả đúng thứ tự, lặng lẽ bỏ video không đọc được), mỗi trang một lần. Không chép tiêu đề sang social-svc, để khỏi phải đồng bộ khi đổi tên.
+- **Không phát event** ở PL1. Chưa ai cần; khi tìm kiếm playlist hoặc recommendation cần thì thêm `social.playlist.*` qua outbox.
+- **Gateway:** `/v1/playlists` và `/v1/me/watch-later` đi tới social-svc. `/v1/channels/{id}/playlists` đã đi sẵn nhờ `PathPrefix(/v1/channels)`. `/v1/videos/batch` đi tới video-svc qua route `/v1/videos` đã có.
+**Hệ quả.**
+- Có tính năng lưu video và playlist mà không cần đồng bộ dữ liệu mới giữa các service.
+- Mỗi trang playlist cần 2 request (items, rồi batch videos). Chấp nhận được; nếu cần có thể gộp phía BFF sau này.
+- Video bị ẩn vẫn chiếm chỗ trong giới hạn 5 000 item của playlist; chấp nhận.
+- Mở rộng sau: playlist cộng tác, lưu playlist của người khác, phát liên tục (autoplay next) trên trang xem, tìm kiếm playlist.

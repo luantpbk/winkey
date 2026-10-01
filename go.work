@@ -2,6 +2,7 @@ go 1.26.0
 
 use (
 	./libs/go
+	./services/analytics
 	./services/transcoder
 	./services/upload
 	./services/video

@@ -21,9 +21,9 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `video.moderated` | JetStream `VIDEO` | video-svc (A2) | social-svc (projection `social.videos.hidden`), search (P2) | [video.moderated](video.moderated.schema.json) |
 | `video.visibility_changed` | JetStream `VIDEO` | video-svc (C4) | social-svc (projection `social.videos.visibility`) | [video.visibility_changed](video.visibility_changed.schema.json) |
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
-| `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2), notify (P3) | [social.comment.created](social.comment.created.schema.json) |
+| `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2) | [social.comment.created](social.comment.created.schema.json) |
 | `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |
-| `social.subscription.changed` | JetStream `SOCIAL` | social-svc | video-svc (feed theo dõi, R2-b), notify (P3) | [social.subscription.changed](social.subscription.changed.schema.json) |
+| `social.subscription.changed` | JetStream `SOCIAL` | social-svc | video-svc (feed theo dõi, R2-b), realtime-gw (N2) | [social.subscription.changed](social.subscription.changed.schema.json) |
 | `analytics.playback` | JetStream `ANALYTICS` (telemetry, không qua outbox) | video-svc (R1) | analytics-worker trên gpu-01 → ClickHouse | [analytics.playback](analytics.playback.schema.json) |
 | `rt.video.{video_id}.progress` | core NATS | transcoder | realtime-gw, upload-svc (cache) | [video.progress](video.progress.schema.json) |
 | `dlq.video.uploaded` | JetStream `DLQ` | transcoder | con người (replay tool) | bản gốc của `video.uploaded` |
@@ -54,6 +54,7 @@ social-svc giữ projection `social.videos` (video nào nhận được comment/
 - `video.ready` → `INSERT … ON CONFLICT (id) DO NOTHING` (re-encode gửi lại event). `video.deleted` → `DELETE` (cascade comment + like). Cả hai idempotent.
 - `video.moderated` → `UPDATE social.videos SET hidden = (state = 'HIDDEN') WHERE id = video_id` (idempotent). Video chưa có trong projection thì bỏ qua và ack. Vì consumer xử lý tuần tự theo thứ tự stream, trạng thái cuối luôn khớp với video-svc.
 - `video.visibility_changed` (C4) → `UPDATE social.videos SET visibility = $visibility WHERE id = video_id` (idempotent; video chưa có trong projection thì bỏ qua và ack). `video.ready` mang `visibility` từ C4: upsert ghi cả `visibility` (event cũ không có trường này → giữ giá trị hiện có, mặc định `PUBLIC`).
+- Thông báo N1 (ADR-023): trong **cùng transaction** với cập nhật projection, nếu event làm video chuyển từ "chưa có / không `PUBLIC`" sang `PUBLIC` và `hidden = false` thì chèn `VIDEO_PUBLISHED` cho mọi subscriber của `owner_id` (`ON CONFLICT DO NOTHING`). Thông báo `social.comment.created` / `social.subscription.changed` **không** đi qua event: social-svc tạo chúng ngay trong transaction ghi comment / subscription.
 
 ## Consumer của video-svc cho feed theo dõi (R2-b)
 

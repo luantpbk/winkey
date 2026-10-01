@@ -130,12 +130,20 @@ Both key types use a TTL of **960 seconds** (15-minute access token lifespan + 6
 - **Fail-Open Policy:** If Valkey is down, unreachable, or takes longer than 50 ms to respond, `verify` allows valid cryptographic tokens to proceed (fail-open) and increments `auth_verify_revocation_check_total{result="error"}`. This prevents Valkey hiccups from taking down authenticated traffic across the cluster.
 - **Revoked Detection:** If `auth:revoked:sid:{sid}` exists or `iat <= cutoff`, `verify` returns `401 Unauthorized` (`Invalid or expired token`) and increments `auth_verify_revocation_check_total{result="revoked"}`.
 
-### OpenTelemetry Metrics
+### Prometheus Metrics (`GET /metrics`)
+
+> [!NOTE]
+> `/metrics` is an internal telemetry endpoint and is NOT exposed on public ingress routes.
+
+Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
+| `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
+| `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
 | `auth_revocation_write_total` | Counter | `result="ok"`, `result="error"` | Tracks revocation key write attempts to Valkey. |
 | `auth_verify_revocation_check_total` | Counter | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`. |
+| Standard Node.js runtime metrics | Various | `service="auth-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
 
 ---
 

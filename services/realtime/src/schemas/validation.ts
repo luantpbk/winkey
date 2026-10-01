@@ -74,7 +74,8 @@ export type ServerEventName =
   | 'video.failed'
   | 'comment.created'
   | 'comment.reply'
-  | 'like.count';
+  | 'like.count'
+  | 'notification.hint';
 
 export interface ServerEventMessage {
   type: 'event';

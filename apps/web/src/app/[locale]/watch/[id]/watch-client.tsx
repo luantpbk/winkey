@@ -4,16 +4,18 @@ import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
 import { Link } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
-import { Share2, Flag } from 'lucide-react';
+import { Share2, Flag, Subtitles } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
 import { SubscribeButton } from '../../../../components/social/subscribe-button';
 import { CommentSection } from '../../../../components/social/comment-section';
 import { ReportDialog } from '../../../../components/moderation/report-dialog';
+import { VideoSubtitlesDialog } from '../../../../components/studio/video-subtitles-dialog';
 import { useAuth } from '../../../../lib/auth/auth-context';
 
 export function WatchClientSection({ video }: { video: Video }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
+  const [showSubtitlesDialog, setShowSubtitlesDialog] = useState(false);
   const { user } = useAuth();
   const isOwner = user?.id === video.owner.id;
 
@@ -70,6 +72,19 @@ export function WatchClientSection({ video }: { video: Video }) {
             <span>Chia sẻ</span>
           </button>
 
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setShowSubtitlesDialog(true)}
+              aria-label="Quản lý phụ đề"
+              data-testid="owner-manage-subtitles"
+              className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+            >
+              <Subtitles className="h-4 w-4 text-red-500" />
+              <span>Phụ đề</span>
+            </button>
+          )}
+
           {!isOwner && (
             <button
               type="button"
@@ -106,7 +121,9 @@ export function WatchClientSection({ video }: { video: Video }) {
       </div>
 
       {/* Comments Section */}
-      <CommentSection videoId={video.id} />
+      <React.Suspense fallback={null}>
+        <CommentSection videoId={video.id} />
+      </React.Suspense>
 
       {/* Report Video Dialog */}
       <ReportDialog
@@ -115,6 +132,13 @@ export function WatchClientSection({ video }: { video: Video }) {
         targetType="VIDEO"
         targetId={video.id}
         targetTitle={video.title}
+      />
+
+      {/* Owner Subtitles Dialog */}
+      <VideoSubtitlesDialog
+        videoId={video.id}
+        isOpen={showSubtitlesDialog}
+        onClose={() => setShowSubtitlesDialog(false)}
       />
     </div>
   );

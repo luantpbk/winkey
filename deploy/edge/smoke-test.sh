@@ -451,8 +451,14 @@ echo "  Tampered signature returned HTTP 403."
 
 echo "  [11g] Testing expired signed URL (HTTP 410)..."
 EXPIRED_SIG=""
-if [ -z "${MEDIA_LINK_SECRET:-}" ] && [ -f /etc/nginx/winkey-media-link-secret ]; then
-    MEDIA_LINK_SECRET=$(sudo cat /etc/nginx/winkey-media-link-secret 2>/dev/null || true)
+if [ -z "${MEDIA_LINK_SECRET:-}" ]; then
+    if [ -f /etc/nginx/winkey-media-link-secret ] && [ -r /etc/nginx/winkey-media-link-secret ]; then
+        MEDIA_LINK_SECRET=$(cat /etc/nginx/winkey-media-link-secret 2>/dev/null || true)
+    elif [ -f /var/lib/rancher/k3s/media-link-secret ] && [ -r /var/lib/rancher/k3s/media-link-secret ]; then
+        MEDIA_LINK_SECRET=$(cat /var/lib/rancher/k3s/media-link-secret 2>/dev/null || true)
+    elif command -v sudo >/dev/null 2>&1; then
+        MEDIA_LINK_SECRET=$(sudo cat /etc/nginx/winkey-media-link-secret 2>/dev/null || sudo cat /var/lib/rancher/k3s/media-link-secret 2>/dev/null || true)
+    fi
 fi
 if [ -n "${MEDIA_LINK_SECRET:-}" ]; then
     EXP_TIME=$(( $(date +%s) - 3600 ))
@@ -473,7 +479,8 @@ if [ -n "$EXPIRED_SIG" ]; then
     fi
     echo "  Expired signed URL returned HTTP 410."
 else
-    echo "  Notice: MEDIA_LINK_SECRET not available, skipping expired 410 synthetic URL test."
+    echo "  SKIPPED: [11g] MEDIA_LINK_SECRET not available; expired 410 synthetic URL test skipped."
+    TEST_SKIPPED=1
 fi
 
 # Reset video back to PUBLIC
@@ -482,8 +489,15 @@ curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
   -H "Content-Type: application/json" \
   -d '{"visibility": "PUBLIC"}' > /dev/null
 echo "  Reset video back to PUBLIC."
-echo "SUCCESS: SEC1 media access control verified across all conditions."
 
-echo "=========================================================="
-echo " All Winkey Edge & Application Plane Smoke Tests PASSED!"
-echo "=========================================================="
+if [ "${TEST_SKIPPED:-0}" = "1" ]; then
+    echo "SUCCESS: SEC1 media access control verified (with skipped 11g synthetic test)."
+    echo "=========================================================="
+    echo " Winkey Edge Smoke Tests completed (1 test SKIPPED)."
+    echo "=========================================================="
+else
+    echo "SUCCESS: SEC1 media access control verified across all conditions."
+    echo "=========================================================="
+    echo " All Winkey Edge & Application Plane Smoke Tests PASSED!"
+    echo "=========================================================="
+fi
