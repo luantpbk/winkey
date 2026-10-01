@@ -10,7 +10,36 @@ const REALTIME_URL = process.env.REALTIME_URL || 'http://127.0.0.1:8003';
 const SOCIAL_URL = process.env.SOCIAL_URL || 'http://127.0.0.1:3004';
 const VIDEO_URL = process.env.VIDEO_URL || 'http://127.0.0.1:3003';
 const AUTH_URL = process.env.AUTH_URL || 'http://127.0.0.1:3001';
+const MAILPIT_URL = process.env.MAILPIT_URL || 'http://127.0.0.1:8025';
 const CLIP_PATH = process.env.CLIP_PATH || path.join(process.cwd(), 'systest/.run/clip.mp4');
+
+async function waitForMail(recipientEmail, subjectSubstring = '', maxWaitMs = 10000) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${MAILPIT_URL}/api/v1/messages`);
+    if (res.ok) {
+      const data = await res.json();
+      const msgs = data.messages || [];
+      const match = msgs.find((m) => {
+        const toMatch =
+          m.To && m.To.some((t) => t.Address.toLowerCase() === recipientEmail.toLowerCase());
+        if (!toMatch) return false;
+        if (subjectSubstring && !m.Subject.includes(subjectSubstring)) return false;
+        return true;
+      });
+      if (match) {
+        const detailRes = await fetch(`${MAILPIT_URL}/api/v1/message/${match.ID}`);
+        if (detailRes.ok) {
+          return await detailRes.json();
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  assert.fail(
+    `Mail not received for ${recipientEmail} (subject filter: "${subjectSubstring}") within ${maxWaitMs}ms`,
+  );
+}
 
 let creatorToken = '';
 let creatorUser = null;
@@ -1842,15 +1871,17 @@ describe('Winkey System Integration Test Suite', () => {
       `Invalid Retry-After on verification rate limit: ${checkResend3.headers.get('Retry-After')}`,
     );
 
-    // e. auth-svc logs check: assert 0 hits for test emails and 43-char tokens
+    // e. auth-svc logs check: assert 0 hits for test emails and 43-char token-like strings
     const authLogs = execSync('docker logs auth-svc', { encoding: 'utf8' });
     const targetEmails = [unknownEmail, activeUserData.user.email, freshVerifData.user.email];
     for (const email of targetEmails) {
       assert.ok(!authLogs.includes(email), `auth-svc log must not contain email: ${email}`);
     }
-    assert.ok(
-      !authLogs.includes(unknownToken43),
-      `auth-svc log must not contain 43-char token: ${unknownToken43}`,
+    const tokenLikeMatches = authLogs.match(/\b[A-Za-z0-9_-]{43}\b/g) || [];
+    assert.equal(
+      tokenLikeMatches.length,
+      0,
+      `auth-svc log must not contain 43-char token-like strings: ${tokenLikeMatches.join(', ')}`,
     );
 
     recordResult(
@@ -1883,6 +1914,128 @@ describe('Winkey System Integration Test Suite', () => {
     );
 
     recordResult('S17', 'Google OAuth not configured', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S18: Full Mail Flow (Email Verification, Password Reset & Token Revocation)
+  // ---------------------------------------------------------------------------
+  it('S18: full mail flow (verification, password reset & revocation)', async () => {
+    const startTime = Date.now();
+    const nonce = Date.now().toString(36);
+    const mailUserEmail = `mail_flow_${nonce}@example.com`;
+    const initialPassword = 'Password123!';
+    const newPassword = 'NewPassword456!';
+
+    // 1. Register fresh user via GATEWAY_URL (capturing response cookies & access token)
+    const regRes = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
+      body: JSON.stringify({
+        email: mailUserEmail,
+        password: initialPassword,
+        handle: `mail_${nonce}`,
+        display_name: 'Mail Flow User',
+      }),
+    });
+    const regResObj = await checkRes(regRes, 201, 'Register Mail Flow User');
+    const userToken = regResObj.json.access_token;
+    assert.ok(userToken, 'Access token missing from registration response');
+
+    // Extract set-cookie header for initial refresh token family
+    const setCookieHeader = regResObj.headers.get('set-cookie');
+    assert.ok(setCookieHeader, 'Set-Cookie header missing from registration response');
+
+    // 2. Read VERIFY_EMAIL message from Mailpit
+    const verifyMsg = await waitForMail(mailUserEmail, 'Xác minh');
+    const verifyTokenMatch = (verifyMsg.Text || verifyMsg.HTML || '').match(
+      /token=([A-Za-z0-9_-]{43})/,
+    );
+    assert.ok(verifyTokenMatch, 'Verification token missing from email body');
+    const verifyToken = verifyTokenMatch[1];
+
+    // Call verifyEmail -> 204
+    const verifyRes = await fetch(`${GATEWAY_URL}/v1/auth/email/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: verifyToken }),
+    });
+    await checkRes(verifyRes, 204, 'Verify email token');
+
+    // GET /v1/auth/me -> email_verified = true
+    const meRes = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${userToken}` },
+    });
+    const meData = (await checkRes(meRes, 200, 'GET /v1/auth/me verified user')).json;
+    assert.equal(meData.email_verified, true, 'email_verified must be true after verification');
+
+    // 3. Request password reset (forgot) -> 202
+    const forgotRes = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: mailUserEmail }),
+    });
+    await checkRes(forgotRes, 202, 'Forgot password request');
+
+    // Read RESET_PASSWORD message from Mailpit
+    const resetMsg = await waitForMail(mailUserEmail, 'Đặt lại');
+    const resetTokenMatch = (resetMsg.Text || resetMsg.HTML || '').match(
+      /token=([A-Za-z0-9_-]{43})/,
+    );
+    assert.ok(resetTokenMatch, 'Reset password token missing from email body');
+    const resetToken = resetTokenMatch[1];
+
+    // Call resetPassword -> 204
+    const resetRes = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+    });
+    await checkRes(resetRes, 204, 'Reset password with token');
+
+    // 4. Old refresh cookie must be rejected (401)
+    const oldRefreshRes = await fetch(`${GATEWAY_URL}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: setCookieHeader },
+    });
+    assert.equal(
+      oldRefreshRes.status,
+      401,
+      'Old refresh cookie must be rejected with 401 after password reset',
+    );
+
+    // Login with old password must fail (401)
+    const oldLoginRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: mailUserEmail, password: initialPassword }),
+    });
+    assert.equal(oldLoginRes.status, 401, 'Login with old password must fail with 401');
+
+    // Login with new password must succeed (200)
+    const newLoginRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: mailUserEmail, password: newPassword }),
+    });
+    const newLoginData = (await checkRes(newLoginRes, 200, 'Login with new password')).json;
+    assert.ok(newLoginData.access_token, 'Access token missing from login response');
+
+    // 5. Verify PASSWORD_CHANGED email arrived in Mailpit
+    await waitForMail(mailUserEmail, 'thay đổi');
+
+    // 6. Reuse reset token second time -> 400 INVALID_TOKEN
+    const reuseRes = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: resetToken, new_password: 'AnotherPassword789!' }),
+    });
+    const checkReuse = await checkRes(reuseRes, 400, 'Reuse reset password token');
+    assert.equal(checkReuse.json.code, 'INVALID_TOKEN');
+
+    recordResult('S18', 'full mail flow & token revocation', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------
