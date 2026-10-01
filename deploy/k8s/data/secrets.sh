@@ -113,7 +113,9 @@ authorization: {
           "_INBOX.>",
           "\$JS.API.STREAM.INFO.ANALYTICS",
           "\$JS.API.CONSUMER.CREATE.ANALYTICS.analytics-clickhouse",
+          "\$JS.API.CONSUMER.CREATE.ANALYTICS.analytics-clickhouse.>",
           "\$JS.API.CONSUMER.DURABLE.CREATE.ANALYTICS.analytics-clickhouse",
+          "\$JS.API.CONSUMER.DURABLE.CREATE.ANALYTICS.analytics-clickhouse.>",
           "\$JS.API.CONSUMER.INFO.ANALYTICS.analytics-clickhouse",
           "\$JS.API.CONSUMER.MSG.NEXT.ANALYTICS.analytics-clickhouse",
           "\$JS.ACK.ANALYTICS.analytics-clickhouse.>"
@@ -222,7 +224,9 @@ authorization: {
           "_INBOX.>",
           "\$JS.API.STREAM.INFO.ANALYTICS",
           "\$JS.API.CONSUMER.CREATE.ANALYTICS.analytics-clickhouse",
+          "\$JS.API.CONSUMER.CREATE.ANALYTICS.analytics-clickhouse.>",
           "\$JS.API.CONSUMER.DURABLE.CREATE.ANALYTICS.analytics-clickhouse",
+          "\$JS.API.CONSUMER.DURABLE.CREATE.ANALYTICS.analytics-clickhouse.>",
           "\$JS.API.CONSUMER.INFO.ANALYTICS.analytics-clickhouse",
           "\$JS.API.CONSUMER.MSG.NEXT.ANALYTICS.analytics-clickhouse",
           "\$JS.ACK.ANALYTICS.analytics-clickhouse.>"
