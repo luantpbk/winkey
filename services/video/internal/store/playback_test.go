@@ -72,3 +72,40 @@ func TestVideosForPlaybackIsOneQuery(t *testing.T) {
 		t.Fatalf("no ids: %v %v", got, err)
 	}
 }
+
+// Task PL1-v: one statement for the whole batch, whatever the number of videos; unknown ids are absent.
+func TestVideosByIDIsOneQuery(t *testing.T) {
+	_, pg := setup(t)
+	ctx := context.Background()
+	alice := testutil.SeedUser(t, pg.Pool, "alice", nil, "")
+	var ask []uuid.UUID
+	for i := 0; i < 25; i++ {
+		ask = append(ask, testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID}).ID)
+	}
+	ask = append(ask, ids.New())
+
+	cfg, err := pgxpool.ParseConfig(pg.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := &sqlLog{}
+	cfg.ConnConfig.Tracer = tr
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	got, err := (&Postgres{Pool: pool}).VideosByID(ctx, ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(tr.all()); n != 1 {
+		t.Fatalf("%d statements for %d ids: %v", n, len(ask), tr.all())
+	}
+	if len(got) != 25 || got[0].Title == "" || got[0].ThumbnailKey == nil || got[0].PublishedAt == nil || got[0].Owner.Handle != "alice" {
+		t.Fatalf("%d videos, first %+v", len(got), got[0])
+	}
+	if got, err := (&Postgres{Pool: pool}).VideosByID(ctx, nil); err != nil || got != nil {
+		t.Fatalf("no ids: %v %v", got, err)
+	}
+}

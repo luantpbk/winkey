@@ -239,6 +239,17 @@ A user that follows thousands of channels makes the query heavier (thousands of 
 | `ANALYTICS_VIEWER_SALT` | required | At least 32 bytes, a secret, never logged; fail fast at start. Changing it makes every viewer a new one |
 | `ANALYTICS_ENABLED` | `true` | `false`: heartbeats are accepted and dropped |
 
+### Batch get (PL1-v, ADR-024)
+
+`GET /v1/videos/batch?ids=a,b,c` (optional auth; registered before `/v1/videos/{video_id}`) returns `VideoSummary` items for
+1 to 50 distinct ids, in the order of `ids`. Bad, duplicate, missing or more than 50 ids give `400 VALIDATION_ERROR`
+(field `ids`). A video is returned only when `getVideo` would return it to the caller right now (`domain.CanView`) and it
+is READY; unknown or unreadable ids are left out silently, so `items` can be shorter than `ids`. Videos already in the
+video cache are used as they are; ALL the others are read with ONE query (`id = ANY($1)`, `Store.VideosByID`) and are not
+written to the cache (the row has no renditions or subtitles). Thumbnails of videos the public cannot watch (private, hidden)
+are signed URLs. `Cache-Control` is `private, no-store` when authenticated, `public, max-age=30` otherwise. Metric:
+`video_batch_get_ids` (histogram of ids per request).
+
 ### Moderation
 
 `PUT /v1/videos/{id}/moderation` with `{"state": "HIDDEN" | "VISIBLE", "reason"}` (task S4, ADR-016). Only `moderator` and `admin` (from `X-User-Roles`, checked before anything is read: anonymous `401`, everyone else `403`, also for ids that do not exist).

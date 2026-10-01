@@ -63,6 +63,27 @@ func (p *Postgres) GetVideo(ctx context.Context, id uuid.UUID) (domain.Video, er
 	return v, nil
 }
 
+// VideosByID reads the summary-relevant columns of every video in ids that exists, in ONE query.
+func (p *Postgres) VideosByID(ctx context.Context, ids []uuid.UUID) ([]domain.Video, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := p.Pool.Query(ctx, videoSelect+` WHERE v.id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("videos by id: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.Video
+	for rows.Next() {
+		v, err := scanVideo(rows)
+		if err != nil {
+			return nil, fmt.Errorf("videos by id: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // VideosForPlayback returns the visibility-relevant part of every video in ids that exists, in ONE query (the
 // owner is LEFT JOINed to the profile view like GetVideo does: a suspended or deleted owner has no row there).
 func (p *Postgres) VideosForPlayback(ctx context.Context, ids []uuid.UUID) ([]domain.Video, error) {

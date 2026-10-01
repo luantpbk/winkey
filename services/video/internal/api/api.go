@@ -78,6 +78,7 @@ func (h *Handler) Routes(r chi.Router) {
 	r.Group(func(r chi.Router) { // anonymous callers allowed
 		r.Use(httpx.OptionalAuthenticate)
 		r.Get("/v1/videos", h.listVideos)
+		r.Get("/v1/videos/batch", h.batchGetVideos) // static route: before {video_id}
 		r.Get("/v1/videos/{video_id}", h.getVideo)
 		r.Post("/v1/videos/{video_id}/views", h.recordView)
 		r.Post("/v1/playback/heartbeats", h.recordPlaybackHeartbeats)

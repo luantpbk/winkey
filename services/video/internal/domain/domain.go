@@ -279,6 +279,9 @@ type Store interface {
 	// exists (ID, OwnerID, Status, Visibility, ModerationState, Owner.Missing). Unknown ids are absent from the
 	// result. Task R1 (playback heartbeats).
 	VideosForPlayback(ctx context.Context, ids []uuid.UUID) ([]Video, error)
+	// VideosByID reads the rows of every video in ids that exists, in ONE query (no renditions or subtitles: the
+	// result is for summaries and must not be cached as a full Video). Unknown ids are absent. Task PL1-v.
+	VideosByID(ctx context.Context, ids []uuid.UUID) ([]Video, error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)
