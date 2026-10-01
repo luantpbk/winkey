@@ -47,9 +47,10 @@ echo "==========================================================================
 echo " 4. OAuth Configuration Check (/v1/auth/oauth/google)"
 echo "=========================================================================="
 AUTH_IP=$(kubectl get svc auth-svc -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+AUTH_PORT=$(kubectl get svc auth-svc -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "3001")
 OAUTH_RESP=""
-if [ -n "$AUTH_IP" ]; then
-    OAUTH_RESP=$(curl -s -i "http://${AUTH_IP}:3001/v1/auth/oauth/google" 2>/dev/null || true)
+if [ -n "$AUTH_IP" ] && [ -n "$AUTH_PORT" ]; then
+    OAUTH_RESP=$(curl -s -i "http://${AUTH_IP}:${AUTH_PORT}/v1/auth/oauth/google" 2>/dev/null || true)
 fi
 if [ -z "$OAUTH_RESP" ]; then
     OAUTH_RESP=$(curl -s -i "https://winkey.vn/v1/auth/oauth/google" 2>/dev/null || true)
