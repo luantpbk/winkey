@@ -1,25 +1,39 @@
-/* global fetch, setTimeout, console, process */
+/* global fetch, setTimeout, console, process, URL */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
-const CLIP_PATH = process.env.CLIP_PATH || path.join(__dirname, '../systest/.run/clip_5m.mp4');
+const AUTH_URL_ENV = process.env.AUTH_URL || 'http://127.0.0.1:3001';
+const defaultClip = fs.existsSync(path.join(__dirname, '../systest/.run/clip.mp4'))
+  ? path.join(__dirname, '../systest/.run/clip.mp4')
+  : path.join(__dirname, '../systest/.run/clip_5m.mp4');
+const CLIP_PATH = process.env.CLIP_PATH || defaultClip;
 
 const NUM_VIDEOS = parseInt(process.env.NUM_VIDEOS || '5', 10);
 const NUM_USERS = parseInt(process.env.NUM_USERS || '5', 10);
 
-const isLocalhost =
-  GATEWAY_URL.includes('localhost') ||
-  GATEWAY_URL.includes('127.0.0.1') ||
-  GATEWAY_URL.includes('[::1]');
-const defaultPassword = isLocalhost ? 'Password123!' : undefined;
+function isLocalhostUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  } catch {
+    return urlStr.includes('localhost') || urlStr.includes('127.0.0.1') || urlStr.includes('[::1]');
+  }
+}
+
+const isGatewayLocal = isLocalhostUrl(GATEWAY_URL);
+const isAuthLocal = isLocalhostUrl(AUTH_URL_ENV);
+const useDirectAuthLocalhost = isGatewayLocal && isAuthLocal;
+
+const defaultPassword = isGatewayLocal ? 'Password123!' : undefined;
 const seedPassword = process.env.LOADTEST_USER_PASSWORD || defaultPassword;
 
 if (!seedPassword) {
   throw new Error(
-    '[seed] LOADTEST_USER_PASSWORD environment variable is required when GATEWAY_URL is not localhost.',
+    '[seed] LOADTEST_USER_PASSWORD environment variable is required when GATEWAY_URL / TARGET_URL is not localhost.',
   );
 }
 
@@ -63,6 +77,15 @@ async function fetchWithRetry(
 
 async function main() {
   console.log(`[seed] Starting seed generation for target ${GATEWAY_URL}...`);
+  if (useDirectAuthLocalhost) {
+    console.log(
+      `[seed] Seeding mode: Direct AUTH_URL (${AUTH_URL_ENV}) with X-Forwarded-For (both GATEWAY_URL and AUTH_URL are localhost).`,
+    );
+  } else {
+    console.log(
+      `[seed] Seeding mode: Gateway (${GATEWAY_URL}) with rate-limit pacing (non-localhost or gateway-only target).`,
+    );
+  }
   console.log(`[seed] Target: ${NUM_VIDEOS} videos, ${NUM_USERS} users.`);
 
   if (!fs.existsSync(CLIP_PATH)) {
@@ -82,24 +105,23 @@ async function main() {
     const email = `${handle}@example.com`;
     const password = seedPassword;
     const clientIp = `10.42.0.${(i % 250) + 1}`;
-    const AUTH_URL = process.env.AUTH_URL || 'http://127.0.0.1:3001';
+    const authTargetBase = useDirectAuthLocalhost ? AUTH_URL_ENV : GATEWAY_URL;
+
+    const reqHeaders = { 'Content-Type': 'application/json' };
+    if (useDirectAuthLocalhost) {
+      reqHeaders['X-Forwarded-For'] = clientIp;
+    }
 
     // Try login first if user already exists
-    let loginRes = await fetch(`${AUTH_URL}/v1/auth/login`, {
+    let loginRes = await fetch(`${authTargetBase}/v1/auth/login`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-For': clientIp,
-      },
+      headers: reqHeaders,
       body: JSON.stringify({ email, password }),
     });
-    if (loginRes.status !== 200 && password !== 'Password123!') {
-      loginRes = await fetch(`${AUTH_URL}/v1/auth/login`, {
+    if (loginRes.status !== 200 && isGatewayLocal && password !== 'Password123!') {
+      loginRes = await fetch(`${authTargetBase}/v1/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Forwarded-For': clientIp,
-        },
+        headers: reqHeaders,
         body: JSON.stringify({ email, password: 'Password123!' }),
       });
     }
@@ -110,25 +132,31 @@ async function main() {
         id: loginData.user.id,
         handle: loginData.user.handle,
         email,
-        password: 'Password123!',
+        password,
         token: loginData.access_token,
       });
       console.log(`[seed] User ${handle} logged in successfully.`);
-      await sleep(10);
+      if (!useDirectAuthLocalhost) {
+        await sleep(1000);
+      } else {
+        await sleep(10);
+      }
       continue;
+    } else if (!isGatewayLocal) {
+      const errText = await loginRes.text();
+      console.error(
+        `[seed] Login failed for user ${email} on non-localhost target (status ${loginRes.status}): ${errText}`,
+      );
     }
 
-    // Register user if login failed (target auth-svc directly so XFF is preserved)
+    // Register user if login failed
     let regRes;
     try {
       regRes = await fetchWithRetry(
-        `${AUTH_URL}/v1/auth/register`,
+        `${authTargetBase}/v1/auth/register`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Forwarded-For': clientIp,
-          },
+          headers: reqHeaders,
           body: JSON.stringify({
             email,
             password,
@@ -149,21 +177,15 @@ async function main() {
       console.log(`[seed] User ${handle} registered successfully.`);
     } catch (err) {
       if (err.message && err.message.includes('409')) {
-        let retryLogin = await fetch(`${AUTH_URL}/v1/auth/login`, {
+        let retryLogin = await fetch(`${authTargetBase}/v1/auth/login`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Forwarded-For': clientIp,
-          },
+          headers: reqHeaders,
           body: JSON.stringify({ email, password }),
         });
-        if (retryLogin.status !== 200 && password !== 'Password123!') {
-          retryLogin = await fetch(`${AUTH_URL}/v1/auth/login`, {
+        if (retryLogin.status !== 200 && isGatewayLocal && password !== 'Password123!') {
+          retryLogin = await fetch(`${authTargetBase}/v1/auth/login`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Forwarded-For': clientIp,
-            },
+            headers: reqHeaders,
             body: JSON.stringify({ email, password: 'Password123!' }),
           });
         }
@@ -173,7 +195,7 @@ async function main() {
             id: lData.user.id,
             handle: lData.user.handle,
             email,
-            password: 'Password123!',
+            password,
             token: lData.access_token,
           });
           console.log(`[seed] User ${handle} recovered via login after 409.`);
@@ -184,13 +206,17 @@ async function main() {
         throw err;
       }
     }
-    await sleep(10);
+    if (!useDirectAuthLocalhost) {
+      await sleep(12000);
+    } else {
+      await sleep(10);
+    }
   }
   console.log(`[seed] Successfully prepared ${users.length} users.`);
 
-  // 2. Upload videos using registered users (round-robin)
-  console.log(`[seed] Uploading ${NUM_VIDEOS} video clips...`);
-  const uploadedVideoIds = [];
+  // 2. Upload videos using registered users (round-robin) and wait for READY state per video
+  console.log(`[seed] Uploading and processing ${NUM_VIDEOS} video clips sequentially...`);
+  const videos = [];
 
   for (let i = 0; i < NUM_VIDEOS; i++) {
     const creatorUser = users[i % users.length];
@@ -259,21 +285,13 @@ async function main() {
       202,
       `Complete upload #${i + 1}`,
     );
-    uploadedVideoIds.push({ videoId, creatorToken: creatorUser.token, title });
-    console.log(`[seed] Upload #${i + 1} (${videoId}) submitted for transcoding.`);
-    await sleep(200);
-  }
 
-  // 3. Poll uploaded videos until READY
-  console.log(`[seed] Polling ${uploadedVideoIds.length} videos until READY state...`);
-  const videos = [];
-
-  for (const { videoId, creatorToken, title } of uploadedVideoIds) {
+    // Poll until READY
     let ready = false;
-    const videoDeadline = Date.now() + 300000; // 5 min per video
+    const videoDeadline = Date.now() + 120000; // 120s max per video
     while (Date.now() < videoDeadline) {
       const statusRes = await fetch(`${GATEWAY_URL}/v1/uploads/${videoId}`, {
-        headers: { Authorization: `Bearer ${creatorToken}` },
+        headers: { Authorization: `Bearer ${creatorUser.token}` },
       });
       if (statusRes.status === 200) {
         const text = await statusRes.text();
@@ -291,11 +309,11 @@ async function main() {
           throw new Error(`Video ${videoId} transcoding FAILED: ${text}`);
         }
       }
-      await sleep(2000);
+      await sleep(1000);
     }
 
     if (!ready) {
-      throw new Error(`Video ${videoId} failed to reach READY status in 300s`);
+      throw new Error(`Video ${videoId} failed to reach READY status in 60s`);
     }
 
     // Fetch video playback info
@@ -312,8 +330,9 @@ async function main() {
       title: title,
       hls_url: videoObj.playback.hls_url,
       storyboard_url: videoObj.playback.storyboard_url,
+      creator_id: creatorUser.id,
     });
-    console.log(`[seed] Video ${videoId} is READY. HLS URL: ${videoObj.playback.hls_url}`);
+    console.log(`[seed] Video #${i + 1}/${NUM_VIDEOS} (${videoId}) is READY.`);
   }
 
   const outData = {

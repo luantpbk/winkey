@@ -98,13 +98,20 @@ export function setup() {
       }
 
       if (!loggedIn) {
+        if (!isLocalhost) {
+          throw new Error(
+            `[setup] Login failed for user ${email} on non-localhost target ${TARGET_URL}`,
+          );
+        }
         freshUsers.push(u);
       }
       sleep(0.15);
     }
     return { users: freshUsers };
   } catch (err) {
-    void err;
+    if (!isLocalhost) {
+      throw err;
+    }
     return { users: [] };
   }
 }
