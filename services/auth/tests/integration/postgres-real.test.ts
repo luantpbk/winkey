@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { parse as parseYaml } from 'yaml';
+import { Ajv, type ValidateFunction } from 'ajv';
+import addFormats from 'ajv-formats';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
@@ -16,6 +19,9 @@ import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { authRegistry } from '../../src/revocation/revocation.js';
 import type { Counter } from '@winkey/metrics';
+import { MailQueueWorker } from '../../src/mail/worker.js';
+import { NodeMailerSender } from '../../src/mail/mailer.js';
+import { generateEmailToken } from '../../src/tokens/email-tokens.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,11 +59,17 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
   let pool: pg.Pool | null = null;
   let stopContainer: (() => Promise<void>) | null = null;
   let valkeyContainerStop: (() => Promise<void>) | null = null;
+  let mailpitContainerStop: (() => Promise<void>) | null = null;
+  let mailpitApiUrl: string | null = null;
+  let mailWorker: MailQueueWorker | null = null;
   let redisClient: Redis | null = null;
   let app: FastifyInstance | null = null;
   let dbUrl: string | null = null;
   let isReady = false;
   let testEnv: ReturnType<typeof getEnv> | null = null;
+  let validateProblem: ValidateFunction;
+  let validateTokenResponse: ValidateFunction;
+  let validateUser: ValidateFunction;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -138,6 +150,28 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
     }
 
+    // 2c. Start Mailpit container if available (task A6)
+    let smtpUrl = process.env.TEST_SMTP_URL || process.env.SMTP_URL || null;
+    if (!smtpUrl) {
+      try {
+        const { GenericContainer } = await import('testcontainers');
+        const mailpitContainer = await new GenericContainer('axllent/mailpit:latest')
+          .withExposedPorts(1025, 8025)
+          .start();
+        const smtpPort = mailpitContainer.getMappedPort(1025);
+        const apiPort = mailpitContainer.getMappedPort(8025);
+        const host = mailpitContainer.getHost();
+        smtpUrl = `smtp://${host}:${smtpPort}`;
+        mailpitApiUrl = `http://${host}:${apiPort}`;
+        mailpitContainerStop = async () => {
+          await mailpitContainer.stop();
+        };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[postgres-real.test.ts] mailpit testcontainer failed to start: ${msg}`);
+      }
+    }
+
     // 3. Docker requirement gating (like libs/go/testkit)
     if (!isReady || !pool || !dbUrl || !redisClient) {
       if (process.env.WINKEY_REQUIRE_DOCKER === '1') {
@@ -156,12 +190,40 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     // 4b. Register custom enum array parsers so auth.role[] is parsed as string[]
     await registerArrayParsers(pool);
 
-    // 5. Initialize Fastify app with real DB and real Valkey
+    // 4c. Setup Ajv OpenAPI contract validation
+    try {
+      const authYamlPath = path.resolve(repoRoot, 'contracts/openapi/auth.v1.yaml');
+      const commonYamlPath = path.resolve(repoRoot, 'contracts/openapi/common.yaml');
+      const authSpec = parseYaml(fs.readFileSync(authYamlPath, 'utf8'));
+      const commonSpec = parseYaml(fs.readFileSync(commonYamlPath, 'utf8'));
+      commonSpec.$id = 'https://winkey.vn/contracts/openapi/common.yaml';
+      authSpec.$id = 'https://winkey.vn/contracts/openapi/auth.v1.yaml';
+      const ajv = new Ajv({ strict: false, allErrors: true });
+      (addFormats as unknown as (a: unknown) => void)(ajv);
+      ajv.addSchema(commonSpec);
+      ajv.addSchema(authSpec);
+      validateProblem = ajv.getSchema(
+        'https://winkey.vn/contracts/openapi/common.yaml#/components/schemas/Problem',
+      )!;
+      validateTokenResponse = ajv.getSchema(
+        'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/TokenResponse',
+      )!;
+      validateUser = ajv.getSchema(
+        'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/User',
+      )!;
+    } catch (ajvErr) {
+      console.warn('[postgres-real.test.ts] Ajv setup error:', ajvErr);
+    }
+
+    // 5. Initialize Fastify app with real DB, real Valkey, and Mailpit SMTP
     const keys = getTestKeys();
     const env = getEnv({
       JWT_PRIVATE_KEY: keys.privateKey,
       DATABASE_URL: dbUrl,
       VALKEY_URL: valkeyUrl ?? undefined,
+      MAIL_TRANSPORT: smtpUrl ? 'smtp' : 'log',
+      SMTP_URL: smtpUrl ?? undefined,
+      MAIL_FROM: 'Winkey <no-reply@winkey.vn>',
       NODE_ENV: 'test',
       TRUST_PROXY_CIDRS: '10.42.0.0/16,127.0.0.1',
     });
@@ -179,9 +241,15 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       rateLimiter,
       redis: redisClient,
     });
+
+    const mailer = new NodeMailerSender(env);
+    mailWorker = new MailQueueWorker({ db, mailer });
   }, 120_000);
 
   afterAll(async () => {
+    if (mailWorker) {
+      await mailWorker.stop();
+    }
     if (app) {
       await app.close();
     }
@@ -196,6 +264,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     }
     if (valkeyContainerStop) {
       await valkeyContainerStop();
+    }
+    if (mailpitContainerStop) {
+      await mailpitContainerStop();
     }
   }, 60_000);
 
@@ -919,6 +990,17 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     expect(oauthLoginRes.statusCode).toBe(200);
   });
 
+  it('Google OAuth: GET /v1/auth/oauth/google returns 302 to /login?error=oauth_unavailable when GOOGLE_CLIENT_ID is not configured', async () => {
+    if (!app) return;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/oauth/google?return_to=/',
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login?error=oauth_unavailable');
+  });
+
   it('Task A3: deleteMe scrubs row, deletes oauth_identities, revokes tokens, clears cookie, allows re-registration, and enforces LAST_ADMIN', async () => {
     if (!app || !pool || !testEnv) return;
 
@@ -1508,6 +1590,401 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         await failOpenApp.close();
         await brokenRedis.quit().catch(() => {});
       }
+    });
+  });
+
+  describe('Task A6: Password Reset & Email Verification Integration (DoD)', () => {
+    async function getMailpitMessages(): Promise<
+      Array<{ ID: string; To: Array<{ Address: string }> }>
+    > {
+      if (!mailpitApiUrl) return [];
+      const res = await fetch(`${mailpitApiUrl}/api/v1/messages`);
+      const data = (await res.json()) as {
+        messages?: Array<{ ID: string; To: Array<{ Address: string }> }>;
+      };
+      return data.messages || [];
+    }
+
+    async function getMailpitMessageDetail(
+      id: string,
+    ): Promise<{ Text?: string; HTML?: string } | null> {
+      if (!mailpitApiUrl) return null;
+      const res = await fetch(`${mailpitApiUrl}/api/v1/message/${id}`);
+      return (await res.json()) as { Text?: string; HTML?: string };
+    }
+
+    async function clearMailpitMessages(): Promise<void> {
+      if (!mailpitApiUrl) return;
+      await fetch(`${mailpitApiUrl}/api/v1/messages`, { method: 'DELETE' });
+    }
+
+    function extractTokenFromMail(content: string): string {
+      const match = content.match(/token=([A-Za-z0-9_-]{43})/);
+      if (!match) throw new Error(`Token not found in email content: ${content}`);
+      return match[1];
+    }
+
+    // DoD Case 1: register -> Mailpit inbox has the verify mail -> verifyEmail -> getMe.email_verified = true
+    it('DoD 1: register -> Mailpit inbox has verify mail -> verifyEmail -> getMe.email_verified = true', async () => {
+      if (!app || !pool || !mailWorker) return;
+
+      await clearMailpitMessages();
+
+      // 1. Register new user
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        headers: {
+          'accept-language': 'vi-VN,vi;q=0.9',
+        },
+        payload: {
+          email: 'dod1_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'dod1_user',
+          display_name: 'DoD 1 User',
+        },
+      });
+
+      expect(regRes.statusCode).toBe(201);
+      const regBody = regRes.json();
+      if (validateTokenResponse) {
+        expect(validateTokenResponse(regBody)).toBe(true);
+      }
+      const accessToken = regBody.access_token;
+      expect(regBody.user.email_verified).toBe(false);
+
+      // 2. Background worker delivers email from queue to Mailpit
+      const sentCount = await mailWorker.processBatchOnce();
+      expect(sentCount).toBeGreaterThanOrEqual(1);
+
+      // 3. Inspect Mailpit inbox
+      const messages = await getMailpitMessages();
+      const verifyMsg = messages.find((m) =>
+        m.To.some((to) => to.Address.toLowerCase() === 'dod1_user@winkey.vn'),
+      );
+      expect(verifyMsg).toBeDefined();
+
+      const detail = await getMailpitMessageDetail(verifyMsg!.ID);
+      expect(detail).not.toBeNull();
+      const token = extractTokenFromMail(detail!.Text || detail!.HTML || '');
+      expect(token).toHaveLength(43);
+
+      // 4. verifyEmail
+      const verifyRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/email/verify',
+        payload: { token },
+      });
+      expect(verifyRes.statusCode).toBe(204);
+
+      // 5. getMe reflects verified email
+      const meRes = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(meRes.statusCode).toBe(200);
+      const meBody = meRes.json();
+      if (validateUser) {
+        expect(validateUser(meBody)).toBe(true);
+      }
+      expect(meBody.email_verified).toBe(true);
+    });
+
+    // DoD Case 2: Forgot password for an unknown email: 202 and no mail
+    it('DoD 2: Forgot password for an unknown email: 202 and no mail', async () => {
+      if (!app || !pool || !mailWorker) return;
+
+      await clearMailpitMessages();
+
+      const forgotRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/forgot',
+        payload: {
+          email: 'unknown_ghost_user@winkey.vn',
+          locale: 'en',
+        },
+      });
+
+      expect(forgotRes.statusCode).toBe(202);
+      expect(forgotRes.body).toBe('');
+
+      await mailWorker.processBatchOnce();
+
+      const messages = await getMailpitMessages();
+      expect(messages).toHaveLength(0);
+    });
+
+    // DoD Case 3: Forgot -> reset: the old refresh cookie fails, the old access token is rejected by verify within ADR-019 window, login works with new password, and PASSWORD_CHANGED mail arrives
+    it('DoD 3: Forgot -> reset: old cookie fails, old access token rejected by verify within ADR-019 window, login works, PASSWORD_CHANGED mail arrives', async () => {
+      if (!app || !pool || !mailWorker) return;
+
+      await clearMailpitMessages();
+
+      // 1. Register user
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'dod3_user@winkey.vn',
+          password: 'OldPassword123!',
+          handle: 'dod3_user',
+          display_name: 'DoD 3 User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const oldAccessToken = regRes.json().access_token;
+      const oldCookies = regRes.cookies;
+      const oldRefreshCookie = oldCookies.find((c) => c.name === REFRESH_COOKIE_NAME)?.value;
+      expect(oldRefreshCookie).toBeDefined();
+
+      // Drain the verify registration email
+      await mailWorker.processBatchOnce();
+      await clearMailpitMessages();
+
+      // 2. Access token is initially valid at verify
+      const initialVerify = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${oldAccessToken}` },
+      });
+      expect(initialVerify.statusCode).toBe(204);
+
+      // 3. Request password reset
+      const forgotRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/forgot',
+        payload: {
+          email: 'dod3_user@winkey.vn',
+          locale: 'en',
+        },
+      });
+      expect(forgotRes.statusCode).toBe(202);
+
+      // 4. Mail delivery
+      await mailWorker.processBatchOnce();
+      const messages = await getMailpitMessages();
+      const resetMail = messages.find((m) =>
+        m.To.some((to) => to.Address.toLowerCase() === 'dod3_user@winkey.vn'),
+      );
+      expect(resetMail).toBeDefined();
+
+      const detail = await getMailpitMessageDetail(resetMail!.ID);
+      const resetToken = extractTokenFromMail(detail!.Text || detail!.HTML || '');
+      expect(resetToken).toHaveLength(43);
+
+      // Clear mailbox before reset
+      await clearMailpitMessages();
+
+      // 5. Reset password
+      const resetRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/reset',
+        headers: { 'accept-language': 'en' },
+        payload: {
+          token: resetToken,
+          new_password: 'NewBrandPassword123!',
+        },
+      });
+      expect(resetRes.statusCode).toBe(204);
+
+      // 6. Old refresh cookie is rejected (401)
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        headers: {
+          cookie: `${REFRESH_COOKIE_NAME}=${oldRefreshCookie}`,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(401);
+      if (validateProblem) {
+        expect(validateProblem(refreshRes.json())).toBe(true);
+      }
+
+      // 7. Old access token is rejected by /v1/auth/verify within ADR-019 window (401)
+      const afterVerify = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${oldAccessToken}` },
+      });
+      expect(afterVerify.statusCode).toBe(401);
+      if (validateProblem) {
+        expect(validateProblem(afterVerify.json())).toBe(true);
+      }
+
+      // 8. Login works with new password
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: {
+          email: 'dod3_user@winkey.vn',
+          password: 'NewBrandPassword123!',
+        },
+      });
+      expect(loginRes.statusCode).toBe(200);
+      if (validateTokenResponse) {
+        expect(validateTokenResponse(loginRes.json())).toBe(true);
+      }
+
+      // 9. PASSWORD_CHANGED mail arrives
+      await mailWorker.processBatchOnce();
+      const postMessages = await getMailpitMessages();
+      const changedMail = postMessages.find((m) =>
+        m.To.some((to) => to.Address.toLowerCase() === 'dod3_user@winkey.vn'),
+      );
+      expect(changedMail).toBeDefined();
+
+      // DoD Case 4: Re-using the token gives 400
+      const reuseRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/reset',
+        payload: {
+          token: resetToken,
+          new_password: 'YetAnotherPassword123!',
+        },
+      });
+      expect(reuseRes.statusCode).toBe(400);
+      const reuseProblem = reuseRes.json();
+      if (validateProblem) {
+        expect(validateProblem(reuseProblem)).toBe(true);
+      }
+      expect(reuseProblem.code).toBe('INVALID_TOKEN');
+    });
+
+    // DoD Case 5: deleteMe drops pending mail
+    it('DoD 5: deleteMe drops pending mail and live tokens', async () => {
+      if (!app || !pool || !mailWorker) return;
+
+      // 1. Register user
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'dod5_del@winkey.vn',
+          password: 'Password123!',
+          handle: 'dod5_del',
+          display_name: 'DoD 5 Delete User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const accessToken = regRes.json().access_token;
+      const userId = regRes.json().user.id;
+
+      // 2. Queue a password reset email (without running worker, so mail remains pending)
+      const forgotRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/password/forgot',
+        payload: {
+          email: 'dod5_del@winkey.vn',
+          locale: 'vi',
+        },
+      });
+      expect(forgotRes.statusCode).toBe(202);
+
+      // Verify pending mail exists in DB
+      const client = await pool.connect();
+      try {
+        const pendingCountRes = await client.query(
+          `SELECT count(*)::int as cnt FROM auth.mail_queue WHERE user_id = $1 AND sent_at IS NULL AND dead_at IS NULL`,
+          [userId],
+        );
+        expect(pendingCountRes.rows[0].cnt).toBeGreaterThanOrEqual(1);
+
+        const liveTokensRes = await client.query(
+          `SELECT count(*)::int as cnt FROM auth.email_tokens WHERE user_id = $1 AND used_at IS NULL`,
+          [userId],
+        );
+        expect(liveTokensRes.rows[0].cnt).toBeGreaterThanOrEqual(1);
+      } finally {
+        client.release();
+      }
+
+      // 3. Call deleteMe
+      const delRes = await app.inject({
+        method: 'DELETE',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: {
+          confirm_handle: 'dod5_del',
+          password: 'Password123!',
+        },
+      });
+      expect(delRes.statusCode).toBe(204);
+
+      // 4. Verify pending mail and live tokens are dropped
+      const verifyClient = await pool.connect();
+      try {
+        const pendingCountAfter = await verifyClient.query(
+          `SELECT count(*)::int as cnt FROM auth.mail_queue WHERE user_id = $1 AND sent_at IS NULL AND dead_at IS NULL`,
+          [userId],
+        );
+        expect(pendingCountAfter.rows[0].cnt).toBe(0);
+
+        const liveTokensAfter = await verifyClient.query(
+          `SELECT count(*)::int as cnt FROM auth.email_tokens WHERE user_id = $1 AND used_at IS NULL`,
+          [userId],
+        );
+        expect(liveTokensAfter.rows[0].cnt).toBe(0);
+      } finally {
+        verifyClient.release();
+      }
+    });
+
+    it('Task A6: two concurrent resetPassword requests with same token return exactly one 204 and one 400', async () => {
+      if (!app || !pool || !testEnv) return;
+
+      // 1. Register user
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'conc_pg@winkey.vn',
+          password: 'Password123!',
+          handle: 'conc_pg',
+          display_name: 'Conc PG User',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const userId = regRes.json().user.id;
+
+      // 2. Insert reset token into PostgreSQL
+      const { rawToken, tokenHash, expiresAt } = generateEmailToken('RESET_PASSWORD');
+      const client = await pool.connect();
+      try {
+        await client.query(
+          `INSERT INTO auth.email_tokens (id, user_id, purpose, token_hash, email, expires_at)
+           VALUES ($1, $2, 'RESET_PASSWORD', $3, 'conc_pg@winkey.vn', $4)`,
+          [uuidv7(), userId, tokenHash, expiresAt],
+        );
+      } finally {
+        client.release();
+      }
+
+      // 3. Two concurrent resetPassword requests
+      const [res1, res2] = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: rawToken,
+            new_password: 'NewConcPassword123!_A',
+          },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/password/reset',
+          payload: {
+            token: rawToken,
+            new_password: 'NewConcPassword123!_B',
+          },
+        }),
+      ]);
+
+      const statusCodes = [res1.statusCode, res2.statusCode].sort();
+      expect(statusCodes).toEqual([204, 400]);
+
+      const badRes = res1.statusCode === 400 ? res1 : res2;
+      expect(badRes.json().code).toBe('INVALID_TOKEN');
     });
   });
 });

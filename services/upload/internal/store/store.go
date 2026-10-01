@@ -28,16 +28,71 @@ func scan(row pgx.Row) (domain.Video, error) {
 	return v, err
 }
 
-func (p *Postgres) Insert(ctx context.Context, v domain.NewVideo) error {
-	_, err := p.Pool.Exec(ctx, `
+// usageSQL reads the owner's usage in ONE round trip (task UQ1-b, ADR-027 addendum). The daily
+// window (count, bytes, oldest) comes from the append-only media.upload_ledger, which keeps one row
+// per started upload even after the video row was hard-deleted (index upload_ledger_owner_created).
+// The concurrent count stays on media.videos: an upload that was deleted no longer occupies a slot.
+const usageSQL = `
+	SELECT l.cnt, l.bytes, l.oldest,
+		(SELECT count(*) FROM media.videos WHERE owner_id = $1 AND status = 'UPLOADING'),
+		now()
+	FROM (
+		SELECT count(*) AS cnt, coalesce(sum(size_bytes), 0)::bigint AS bytes, min(created_at) AS oldest
+		FROM media.upload_ledger
+		WHERE owner_id = $1 AND created_at > now() - interval '24 hours'
+	) l`
+
+func (p *Postgres) Create(ctx context.Context, v domain.NewVideo, check func(domain.Usage) error,
+	startUpload func(context.Context) (string, error)) error {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	if check != nil {
+		// One owner at a time: a second request waits here until the first one has committed
+		// (the lock is released at commit), then reads usage that includes the first row.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('upload-quota:' || $1::text, 0))`, v.OwnerID.String()); err != nil {
+			return fmt.Errorf("quota lock: %w", err)
+		}
+		var u domain.Usage
+		var oldest *time.Time
+		if err := tx.QueryRow(ctx, usageSQL, v.OwnerID).Scan(&u.Count, &u.Bytes, &oldest, &u.Uploading, &u.Now); err != nil {
+			return fmt.Errorf("quota usage: %w", err)
+		}
+		if oldest != nil {
+			u.Oldest = *oldest
+		}
+		if err := check(u); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO media.videos
 			(id, owner_id, title, description, visibility, status, raw_bucket, raw_key,
-			 s3_upload_id, content_type, size_bytes)
-		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9, $10)`,
+			 content_type, size_bytes)
+		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9)`,
 		v.ID, v.OwnerID, v.Title, v.Description, v.Visibility, v.RawBucket, v.RawKey,
-		v.S3UploadID, v.ContentType, v.SizeBytes)
-	if err != nil {
+		v.ContentType, v.SizeBytes); err != nil {
 		return fmt.Errorf("insert video: %w", err)
+	}
+	// The ledger row is written for every upload that passed the check, admins included, in the
+	// same transaction: a refusal or an S3 failure (rollback) leaves no ledger row either.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO media.upload_ledger (video_id, owner_id, size_bytes) VALUES ($1, $2, $3)`,
+		v.ID, v.OwnerID, v.SizeBytes); err != nil {
+		return fmt.Errorf("insert ledger: %w", err)
+	}
+	uploadID, err := startUpload(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE media.videos SET s3_upload_id = $2 WHERE id = $1`, v.ID, uploadID); err != nil {
+		return fmt.Errorf("store upload id: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
 }
@@ -131,4 +186,19 @@ func (p *Postgres) StaleUploads(ctx context.Context, olderThan time.Duration, li
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// PurgeLedger deletes at most limit ledger rows created more than olderThan ago and returns how many.
+// The database trigger refuses rows younger than 25 h, so olderThan must be at least that.
+func (p *Postgres) PurgeLedger(ctx context.Context, olderThan time.Duration, limit int) (int, error) {
+	tag, err := p.Pool.Exec(ctx, `
+		DELETE FROM media.upload_ledger
+		WHERE ctid IN (
+			SELECT ctid FROM media.upload_ledger
+			WHERE created_at < now() - make_interval(secs => $1)
+			LIMIT $2)`, olderThan.Seconds(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("purge ledger: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }

@@ -198,13 +198,30 @@ func (c *Consumer) consume(ctx context.Context, cons jetstream.Consumer) {
 			sleep(ctx, time.Second)
 			return
 		}
+		n := 0
 		for msg := range batch.Messages() { // strictly one at a time, in order
 			c.handle(ctx, msg)
+			n++
 		}
-		if err := batch.Error(); err != nil && (errors.Is(err, jetstream.ErrConsumerNotFound) || errors.Is(err, jetstream.ErrConsumerDeleted)) {
+		if err := batch.Error(); err != nil && gone(err) {
 			return
 		}
+		// A pull on a deleted stream does not always fail: it can just come back empty (or with an error that is
+		// neither of the above), and then this loop would pull from a dead consumer forever. After an empty
+		// batch, ask the server whether the durable still exists.
+		if n == 0 && ctx.Err() == nil {
+			if _, err := cons.Info(ctx); err != nil && gone(err) {
+				c.Log.Warn("like consumer is gone; re-creating it", "error", err)
+				return
+			}
+		}
 	}
+}
+
+// gone reports whether err means the durable (or its stream) no longer exists.
+func gone(err error) bool {
+	return errors.Is(err, jetstream.ErrConsumerNotFound) || errors.Is(err, jetstream.ErrConsumerDeleted) ||
+		errors.Is(err, jetstream.ErrStreamNotFound)
 }
 
 func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {

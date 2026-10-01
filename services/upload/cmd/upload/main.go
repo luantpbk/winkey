@@ -24,6 +24,7 @@ import (
 	"github.com/luantpbk/winkey/services/upload/internal/api"
 	"github.com/luantpbk/winkey/services/upload/internal/config"
 	"github.com/luantpbk/winkey/services/upload/internal/janitor"
+	"github.com/luantpbk/winkey/services/upload/internal/quota"
 	"github.com/luantpbk/winkey/services/upload/internal/storage"
 	"github.com/luantpbk/winkey/services/upload/internal/store"
 )
@@ -101,7 +102,10 @@ func run(cfg config.Config, log *slog.Logger) error {
 
 	router := httpx.NewRouter(service, log)
 	health.Mount(router)
-	(&api.Handler{Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log}).Routes(router)
+	(&api.Handler{
+		Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log,
+		Quota: quota.Limits{MaxConcurrent: cfg.MaxConcurrent, DailyCount: cfg.DailyCount, DailyBytes: cfg.DailyBytes},
+	}).Routes(router)
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr, Handler: router,

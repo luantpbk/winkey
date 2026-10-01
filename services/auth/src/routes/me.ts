@@ -352,6 +352,20 @@ export const meRoute: FastifyPluginAsync<{
       // Delete all OAuth identities
       await trx.deleteFrom('auth.oauth_identities').where('user_id', '=', user.id).execute();
 
+      // Delete pending mail_queue rows and live tokens (task A6, ADR-026)
+      await trx
+        .deleteFrom('auth.mail_queue')
+        .where('user_id', '=', user.id)
+        .where('sent_at', 'is', null)
+        .where('dead_at', 'is', null)
+        .execute();
+
+      await trx
+        .deleteFrom('auth.email_tokens')
+        .where('user_id', '=', user.id)
+        .where('used_at', 'is', null)
+        .execute();
+
       // Revoke all refresh tokens
       await trx
         .updateTable('auth.refresh_tokens')

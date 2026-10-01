@@ -68,6 +68,9 @@ func (s *stack) do(a *actor, method, path, body string) (int, http.Header, []byt
 	w := httptest.NewRecorder()
 	s.h.ServeHTTP(w, req)
 	p, _, _ := strings.Cut(path, "?")
+	if strings.HasPrefix(p, "/v1/videos/") && strings.HasSuffix(p, "/related") {
+		p = "/v1/videos/{video_id}/related"
+	}
 	if strings.HasPrefix(p, "/v1/studio/videos/") && strings.HasSuffix(p, "/stats") {
 		p = "/v1/studio/videos/{video_id}/stats"
 	}

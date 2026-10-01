@@ -3,7 +3,7 @@ info:
   title: Winkey auth-svc API
   version: 1.0.0
   description: |
-    Identity, sessions and public user profiles. Owner: Antigravity 3 (tasks A1, A2).
+    Identity, sessions and public user profiles. Owner: Antigravity 3 (tasks A1, A2, A3, A6).
 
     Session model:
     - Access token: RS256 JWT, 15 min, returned in the response body; the web client keeps it in memory.
@@ -44,6 +44,9 @@ paths:
       tags: [auth]
       operationId: register
       summary: Create an account with email and password.
+      description: |
+        Also queues a `VERIFY_EMAIL` mail in the same transaction (task A6, see `resendEmailVerification`).
+        An unverified email blocks nothing yet; the user sees a reminder in the web app.
       security: []
       requestBody:
         required: true
@@ -260,6 +263,113 @@ paths:
           $ref: './common.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/password/forgot:
+    post:
+      tags: [auth]
+      operationId: requestPasswordReset
+      summary: Email a password-reset link (task A6, ADR-026).
+      description: |
+        Always answers `202` with an empty body, whether or not the email belongs to an account, so the
+        endpoint cannot be used to find accounts. When the email belongs to an `ACTIVE` user, auth-svc stores
+        a one-time token (SHA-256 only, valid 1 hour) and queues a `RESET_PASSWORD` mail with the link
+        `{PUBLIC_ORIGIN}/{locale}/reset-password?token={token}`. Earlier unused reset tokens of that user
+        stay valid until they expire or one of them is used. At most 3 reset mails per user per hour: extra
+        requests still answer `202` and send nothing. Rate limited per IP like `login` → `429`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '202':
+          description: Accepted. A mail is sent only if the account exists and is active.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/password/reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Set a new password with a reset token (task A6, ADR-026).
+      description: |
+        The token must exist, be a `RESET_PASSWORD` token, be unused, not expired, belong to an `ACTIVE` user
+        and have been sent to the user's current email; otherwise `400` with code `INVALID_TOKEN` (one code for
+        every case). On success, in one transaction:
+        - set the new password (also works for an OAuth-only account, which then gets a password);
+        - mark this token and every other unused reset token of the user as used;
+        - set `email_verified_at` if it was NULL (the user proved they read the mailbox);
+        - revoke every refresh-token family of the user and record the revocation mark (ADR-019), so every
+          device is signed out, including access tokens within seconds;
+        - queue a `PASSWORD_CHANGED` mail (no link).
+        Does not sign the caller in and sets no cookie. Rate limited per IP like `login` → `429`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password changed; sign in again.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/email/verification:
+    post:
+      tags: [auth]
+      operationId: resendEmailVerification
+      summary: Send the email-verification link again (task A6, ADR-026).
+      description: |
+        Queues a `VERIFY_EMAIL` mail for the caller's current email with a new token (valid 48 hours) and the
+        link `{PUBLIC_ORIGIN}/{locale}/verify-email?token={token}`. `409` with code `EMAIL_ALREADY_VERIFIED`
+        when `email_verified` is already true. At most 3 per user per hour, else `429`. `register` sends the
+        first one automatically. Mail language for this call and for `register`: `Accept-Language` starting
+        with `en` → English, anything else → Vietnamese.
+      security:
+        - bearerAuth: []
+      responses:
+        '202':
+          description: Mail queued.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/email/verify:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Confirm an email address with a verification token (task A6, ADR-026).
+      description: |
+        No authentication: the link may be opened on another device. The token must be a `VERIFY_EMAIL` token,
+        unused, not expired, of an `ACTIVE` user, and its email must still equal the user's current email;
+        otherwise `400` with code `INVALID_TOKEN`. On success the token is marked used and `email_verified_at`
+        is set (kept if already set). Using a token twice gives `400 INVALID_TOKEN`; the web page should then
+        tell the user to sign in and check the settings page. Rate limited per IP like `login` → `429`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '204':
+          description: Email verified.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
@@ -688,6 +798,51 @@ components:
           type: string
           minLength: 8
           maxLength: 128
+          writeOnly: true
+
+    PasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        locale:
+          type: string
+          enum: [vi, en]
+          default: vi
+          description: Language of the mail and of the link.
+
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: The value of `token` in the link (256-bit random value, base64url without padding).
+          writeOnly: true
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+
+    VerifyEmailRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
           writeOnly: true
 
     DeleteMeRequest:

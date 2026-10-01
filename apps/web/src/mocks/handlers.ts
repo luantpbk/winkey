@@ -40,7 +40,19 @@ import type {
   Notification,
   NotificationPage,
   MarkNotificationsReadRequest,
+  Playlist,
+  PlaylistItem,
+  CreatePlaylistRequest,
+  UpdatePlaylistRequest,
+  MovePlaylistItemRequest,
+  ChannelStats,
+  ChannelStatsDay,
+  ChannelStatsTopVideo,
+  VideoStats,
+  VideoStatsDay,
+  StatsTotals,
 } from '@winkey/api-client';
+import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
   mockUsers,
   mockPublicProfiles,
@@ -57,6 +69,122 @@ let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
 let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
 let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
 let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+let mockPlaylistFull = false;
+let mockPlaylistLimit = false;
+
+export function setMockPlaylistFull(val: boolean) {
+  mockPlaylistFull = val;
+}
+export function setMockPlaylistLimit(val: boolean) {
+  mockPlaylistLimit = val;
+}
+
+const initialMockPlaylists: Playlist[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    owner: mockPublicProfiles.winkey_creator,
+    kind: 'WATCH_LATER',
+    title: 'Xem sau',
+    description: '',
+    visibility: 'PRIVATE',
+    item_count: 2,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    owner: mockPublicProfiles.winkey_creator,
+    kind: 'REGULAR',
+    title: 'Khóa học Lập trình Go từ cơ bản đến nâng cao',
+    description: 'Học Go qua các dự án thực tế xây dựng backend phân tán.',
+    visibility: 'PUBLIC',
+    item_count: 2,
+    created_at: '2026-02-01T00:00:00Z',
+    updated_at: '2026-02-01T00:00:00Z',
+  },
+];
+
+const initialMockPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = [
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+      position: 1048576,
+      added_at: '2026-01-01T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11',
+      position: 2097152,
+      added_at: '2026-01-02T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+      position: 1048576,
+      added_at: '2026-02-01T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: '0192f5e4-7c1a-7b3e-9d2a-a00000000002',
+    item: {
+      video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11',
+      position: 2097152,
+      added_at: '2026-02-02T00:00:00Z',
+    },
+  },
+];
+
+let dynamicPlaylists: Playlist[] = JSON.parse(JSON.stringify(initialMockPlaylists));
+let dynamicPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = JSON.parse(
+  JSON.stringify(initialMockPlaylistItems),
+);
+
+export function resetPlaylistMocks() {
+  mockPlaylistFull = false;
+  mockPlaylistLimit = false;
+  dynamicPlaylists = JSON.parse(JSON.stringify(initialMockPlaylists));
+  dynamicPlaylistItems = JSON.parse(JSON.stringify(initialMockPlaylistItems));
+}
+
+let mockStatsRateLimit = false;
+let mockStatsEmpty = false;
+
+export function setMockStatsRateLimit(enabled: boolean) {
+  mockStatsRateLimit = enabled;
+}
+
+export function setMockStatsEmpty(enabled: boolean) {
+  mockStatsEmpty = enabled;
+}
+
+export function resetStatsMocks() {
+  mockStatsRateLimit = false;
+  mockStatsEmpty = false;
+}
+
+function generateDaysRange(fromStr: string, toStr: string): string[] {
+  const result: string[] = [];
+  const [fromY, fromM, fromD] = fromStr.split('-').map(Number);
+  const [toY, toM, toD] = toStr.split('-').map(Number);
+  let curUtc = Date.UTC(fromY, fromM - 1, fromD);
+  const endUtc = Date.UTC(toY, toM - 1, toD);
+
+  while (curUtc <= endUtc) {
+    const d = new Date(curUtc);
+    const yStr = d.getUTCFullYear();
+    const mStr = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dStr = String(d.getUTCDate()).padStart(2, '0');
+    result.push(`${yStr}-${mStr}-${dStr}`);
+    curUtc += 86_400_000;
+  }
+  return result;
+}
 
 export function setMockCurrentUser(user: User | null) {
   currentUser = user;
@@ -1080,6 +1208,63 @@ export const handlers = [
         'Cache-Control': 'private, no-store',
       },
     });
+  }),
+
+  http.get('*/v1/videos/batch', async ({ request }) => {
+    const url = new URL(request.url);
+    const allIds = url.searchParams.getAll('ids');
+    if (allIds.length !== 1) {
+      return HttpResponse.json(
+        {
+          type: 'https://winkey.vn/problems/invalid-parameter',
+          title: 'Invalid parameter',
+          status: 400,
+          detail:
+            'ids parameter must be single comma-separated query parameter (style: form, explode: false)',
+        },
+        { status: 400 },
+      );
+    }
+    const ids = allIds[0]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const caller = callerFromRequest(request);
+    const allVideos = getDynamicVideos();
+    const videoMap = new Map<string, VideoSummary>();
+
+    for (const v of allVideos) {
+      const isOwner = caller && caller.id === v.owner.id;
+      const isAdminOrMod =
+        caller && (caller.roles.includes('admin') || caller.roles.includes('moderator'));
+
+      if (v.status !== 'READY' && !isOwner && !isAdminOrMod) continue;
+      if (v.visibility === 'PRIVATE' && !isOwner && !isAdminOrMod) continue;
+
+      const summary: VideoSummary = {
+        id: v.id,
+        title: v.title,
+        owner: v.owner,
+        duration_ms: v.duration_ms ?? 0,
+        thumbnail_url:
+          v.playback?.thumbnail_url ||
+          'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+        view_count: v.view_count,
+        published_at: v.published_at ?? v.created_at ?? new Date().toISOString(),
+      };
+      videoMap.set(v.id, summary);
+    }
+
+    const items: VideoSummary[] = [];
+    for (const id of ids) {
+      const found = videoMap.get(id);
+      if (found) {
+        items.push(found);
+      }
+    }
+
+    return HttpResponse.json({ items });
   }),
 
   http.get('*/v1/videos/:id', async ({ params }) => {
@@ -2915,5 +3100,743 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     };
     dynamicNotifications.unshift(newNotif);
     return HttpResponse.json(newNotif, { status: 201 });
+  }),
+
+  // --- Playlist Endpoints (Task PL1) ---
+
+  http.get('*/v1/me/watch-later', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    let pl = dynamicPlaylists.find((p) => p.kind === 'WATCH_LATER' && p.owner.id === caller.id);
+    if (!pl) {
+      pl = {
+        id: `0192f5e4-7c1a-7b3e-9d2a-w${caller.id.slice(-11)}`,
+        owner: {
+          id: caller.id,
+          handle: caller.handle,
+          display_name: caller.display_name,
+          avatar_url: caller.avatar_url,
+        },
+        kind: 'WATCH_LATER',
+        title: 'Xem sau',
+        description: '',
+        visibility: 'PRIVATE',
+        item_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      dynamicPlaylists.unshift(pl);
+    }
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.get('*/v1/videos/:video_id/playlist-membership', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const videoId = params.video_id as string;
+    const myPlaylists = dynamicPlaylists.filter((p) => p.owner.id === caller.id);
+    const matchingIds: string[] = [];
+
+    for (const pl of myPlaylists) {
+      const hasItem = dynamicPlaylistItems.some(
+        (it) => it.playlist_id === pl.id && it.item.video_id === videoId,
+      );
+      if (hasItem) {
+        matchingIds.push(pl.id);
+      }
+    }
+
+    return HttpResponse.json({ playlist_ids: matchingIds });
+  }),
+
+  http.get('*/v1/channels/:channel_id/playlists', async ({ params, request }) => {
+    const channelId = params.channel_id as string;
+    const caller = callerFromRequest(request);
+    const isOwner = Boolean(caller && caller.id === channelId);
+
+    let items = dynamicPlaylists.filter((p) => p.owner.id === channelId);
+    if (!isOwner) {
+      items = items.filter((p) => p.visibility === 'PUBLIC' && p.kind !== 'WATCH_LATER');
+    } else {
+      items = [...items].sort((a, b) => {
+        if (a.kind === 'WATCH_LATER') return -1;
+        if (b.kind === 'WATCH_LATER') return 1;
+        return 0;
+      });
+    }
+
+    return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  http.post('*/v1/playlists', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (mockPlaylistLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Playlist limit reached',
+          status: 409,
+          code: 'PLAYLIST_LIMIT',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as CreatePlaylistRequest;
+    const newPl: Playlist = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-p${Date.now().toString(16).padStart(11, '0').slice(-11)}`,
+      owner: {
+        id: caller.id,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+      },
+      kind: 'REGULAR',
+      title: body.title,
+      description: body.description || '',
+      visibility: body.visibility || 'PRIVATE',
+      item_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    dynamicPlaylists.push(newPl);
+    return HttpResponse.json(newPl, { status: 201 });
+  }),
+
+  http.post('*/v1/playlists/:playlist_id/items/:video_id/move', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const videoId = params.video_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const items = dynamicPlaylistItems
+      .filter((x) => x.playlist_id === playlistId)
+      .sort((a, b) => a.item.position - b.item.position);
+
+    const targetItemIndex = items.findIndex((x) => x.item.video_id === videoId);
+    if (targetItemIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Item not found',
+          status: 404,
+          code: 'ITEM_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const body = (await request.json()) as MovePlaylistItemRequest;
+    const itemEntry = items[targetItemIndex];
+
+    if (body.before_video_id === null) {
+      const maxPos = items.length > 0 ? items[items.length - 1].item.position : 0;
+      itemEntry.item.position = maxPos + 1048576;
+    } else if (body.before_video_id === videoId) {
+      // no-op
+    } else {
+      const destIndex = items.findIndex((x) => x.item.video_id === body.before_video_id);
+      if (destIndex === -1) {
+        return HttpResponse.json(
+          { type: '/problems/not-found', title: 'Destination item not found', status: 404 },
+          { status: 404 },
+        );
+      }
+      const prevPos = destIndex > 0 ? items[destIndex - 1].item.position : 0;
+      const nextPos = items[destIndex].item.position;
+      itemEntry.item.position = Math.floor((prevPos + nextPos) / 2);
+    }
+
+    pl.updated_at = new Date().toISOString();
+    return HttpResponse.json(itemEntry.item);
+  }),
+
+  http.delete('*/v1/playlists/:playlist_id/items/:video_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const videoId = params.video_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const initialLength = dynamicPlaylistItems.length;
+    dynamicPlaylistItems = dynamicPlaylistItems.filter(
+      (x) => !(x.playlist_id === playlistId && x.item.video_id === videoId),
+    );
+
+    if (dynamicPlaylistItems.length < initialLength) {
+      pl.item_count = Math.max(0, pl.item_count - 1);
+      pl.updated_at = new Date().toISOString();
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/playlists/:playlist_id/items', async ({ params, request }) => {
+    const playlistId = params.playlist_id as string;
+    const caller = callerFromRequest(request);
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const isOwner = Boolean(caller && caller.id === pl.owner.id);
+    if ((pl.visibility === 'PRIVATE' || pl.kind === 'WATCH_LATER') && !isOwner) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const items = dynamicPlaylistItems
+      .filter((x) => x.playlist_id === playlistId)
+      .sort((a, b) => a.item.position - b.item.position)
+      .map((x) => x.item);
+
+    return HttpResponse.json({ items, next_cursor: null });
+  }),
+
+  http.post('*/v1/playlists/:playlist_id/items', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (mockPlaylistFull) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Playlist full',
+          status: 409,
+          code: 'PLAYLIST_FULL',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as { video_id: string };
+    const existing = dynamicPlaylistItems.find(
+      (x) => x.playlist_id === playlistId && x.item.video_id === body.video_id,
+    );
+
+    if (existing) {
+      return HttpResponse.json(existing.item, { status: 200 });
+    }
+
+    const existingItems = dynamicPlaylistItems.filter((x) => x.playlist_id === playlistId);
+    const maxPos =
+      existingItems.length > 0 ? Math.max(...existingItems.map((x) => x.item.position)) : 0;
+
+    const newItem: PlaylistItem = {
+      video_id: body.video_id,
+      position: maxPos + 1048576,
+      added_at: new Date().toISOString(),
+    };
+
+    dynamicPlaylistItems.push({ playlist_id: playlistId, item: newItem });
+    pl.item_count = (pl.item_count || 0) + 1;
+    pl.updated_at = new Date().toISOString();
+
+    return HttpResponse.json(newItem, { status: 201 });
+  }),
+
+  http.get('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const playlistId = params.playlist_id as string;
+    const caller = callerFromRequest(request);
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const isOwner = Boolean(caller && caller.id === pl.owner.id);
+    if ((pl.visibility === 'PRIVATE' || pl.kind === 'WATCH_LATER') && !isOwner) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.patch('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (pl.kind === 'WATCH_LATER') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Watch later playlist cannot be modified',
+          status: 409,
+          code: 'WATCH_LATER_IMMUTABLE',
+        },
+        { status: 409 },
+      );
+    }
+
+    const body = (await request.json()) as UpdatePlaylistRequest;
+    if (body.title !== undefined) pl.title = body.title;
+    if (body.description !== undefined) pl.description = body.description;
+    if (body.visibility !== undefined) pl.visibility = body.visibility;
+    pl.updated_at = new Date().toISOString();
+
+    return HttpResponse.json(pl);
+  }),
+
+  http.delete('*/v1/playlists/:playlist_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const playlistId = params.playlist_id as string;
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || pl.owner.id !== caller.id) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Playlist not found',
+          status: 404,
+          code: 'PLAYLIST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (pl.kind === 'WATCH_LATER') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Cannot delete watch later playlist',
+          status: 409,
+        },
+        { status: 409 },
+      );
+    }
+
+    dynamicPlaylists = dynamicPlaylists.filter((p) => p.id !== playlistId);
+    dynamicPlaylistItems = dynamicPlaylistItems.filter((x) => x.playlist_id !== playlistId);
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // --- STUDIO STATS ENDPOINTS ---
+  http.get('*/v1/studio/stats', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    if (mockStatsRateLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'RATE_LIMITED',
+          detail: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.',
+        },
+        { status: 429 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from') || getStatsDateRange(28).from;
+    const to = url.searchParams.get('to') || getStatsDateRange(28).to;
+
+    const daysList = generateDaysRange(from, to);
+
+    if (mockStatsEmpty) {
+      const channelStats: ChannelStats = {
+        from,
+        to,
+        timezone: 'Asia/Ho_Chi_Minh',
+        totals: {
+          starts: 0,
+          watch_time_ms: 0,
+          avg_watch_ms: null,
+          rebuffer_ratio: null,
+          errors: 0,
+        },
+        days: daysList.map((day) => ({
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          rebuffer_ratio: null,
+        })),
+        top_videos: [],
+        refreshed_at: null,
+      };
+      return HttpResponse.json(channelStats);
+    }
+
+    // Realistic stats
+    let totalStarts = 0;
+    let totalWatchTimeMs = 0;
+    let totalRebufferTimeMs = 0;
+
+    const days: ChannelStatsDay[] = daysList.map((day, idx) => {
+      // Create realistic data variation, with one day having 0 starts/null ratio to test null handling in charts
+      if (idx === 3 && daysList.length > 5) {
+        return {
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          rebuffer_ratio: null,
+        };
+      }
+      const starts = 120 + (idx % 7) * 35;
+      const watchTimeMs = starts * 185_000;
+      const rebufferTimeMs = Math.round(watchTimeMs * 0.008);
+      totalStarts += starts;
+      totalWatchTimeMs += watchTimeMs;
+      totalRebufferTimeMs += rebufferTimeMs;
+      return {
+        day,
+        starts,
+        watch_time_ms: watchTimeMs,
+        rebuffer_ratio: 0.008,
+      };
+    });
+
+    const userVideos = getDynamicVideos().filter((v) => v.owner?.id === caller.id);
+    const topVideos: ChannelStatsTopVideo[] = (userVideos.length > 0 ? userVideos : mockVideos)
+      .slice(0, 10)
+      .map((v, i) => {
+        const factor = Math.max(1, 10 - i);
+        return {
+          video_id: v.id,
+          title: v.title,
+          starts: Math.round(totalStarts * (factor / 25)),
+          watch_time_ms: Math.round(totalWatchTimeMs * (factor / 25)),
+        };
+      });
+
+    const totals: StatsTotals = {
+      starts: totalStarts,
+      watch_time_ms: totalWatchTimeMs,
+      avg_watch_ms: totalStarts > 0 ? Math.floor(totalWatchTimeMs / totalStarts) : null,
+      rebuffer_ratio:
+        totalWatchTimeMs + totalRebufferTimeMs > 0
+          ? totalRebufferTimeMs / (totalWatchTimeMs + totalRebufferTimeMs)
+          : null,
+      errors: 4,
+    };
+
+    const channelStats: ChannelStats = {
+      from,
+      to,
+      timezone: 'Asia/Ho_Chi_Minh',
+      totals,
+      days,
+      top_videos: topVideos,
+      refreshed_at: '2026-09-30T12:00:00Z',
+    };
+
+    return HttpResponse.json(channelStats);
+  }),
+
+  http.get('*/v1/studio/videos/:video_id/stats', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    if (mockStatsRateLimit) {
+      return HttpResponse.json(
+        {
+          type: '/problems/too-many-requests',
+          title: 'Too Many Requests',
+          status: 429,
+          code: 'RATE_LIMITED',
+          detail: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.',
+        },
+        { status: 429 },
+      );
+    }
+
+    const videoId = params.video_id as string;
+    const video = getDynamicVideos().find((v) => v.id === videoId);
+
+    // Contract: Any other caller (also for a missing or deleted video) gets 404, never 403. Owner or admin only.
+    const isOwner = video && video.owner?.id === caller.id;
+    const isAdmin = caller.roles?.includes('admin');
+
+    if (!video || (!isOwner && !isAdmin)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Video not found',
+          status: 404,
+          code: 'VIDEO_NOT_FOUND',
+          detail: 'Không tìm thấy video',
+        },
+        { status: 404 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from') || getStatsDateRange(28).from;
+    const to = url.searchParams.get('to') || getStatsDateRange(28).to;
+
+    const daysList = generateDaysRange(from, to);
+
+    if (mockStatsEmpty) {
+      const videoStats: VideoStats = {
+        video_id: videoId,
+        from,
+        to,
+        timezone: 'Asia/Ho_Chi_Minh',
+        view_count: 0,
+        totals: {
+          starts: 0,
+          watch_time_ms: 0,
+          avg_watch_ms: null,
+          rebuffer_ratio: null,
+          errors: 0,
+        },
+        days: daysList.map((day) => ({
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          viewers: 0,
+          rebuffer_ratio: null,
+          startup_p50_ms: null,
+          startup_p95_ms: null,
+        })),
+        refreshed_at: null,
+      };
+      return HttpResponse.json(videoStats);
+    }
+
+    // Realistic stats
+    let totalStarts = 0;
+    let totalWatchTimeMs = 0;
+    let totalRebufferTimeMs = 0;
+
+    const days: VideoStatsDay[] = daysList.map((day, idx) => {
+      // Day with 0 starts to test null ratio / percentiles
+      if (idx === 2 && daysList.length > 5) {
+        return {
+          day,
+          starts: 0,
+          watch_time_ms: 0,
+          viewers: 0,
+          rebuffer_ratio: null,
+          startup_p50_ms: null,
+          startup_p95_ms: null,
+        };
+      }
+      const starts = 45 + (idx % 6) * 15;
+      const watchTimeMs = starts * 160_000;
+      const viewers = Math.round(starts * 0.85);
+      const rebufferTimeMs = Math.round(watchTimeMs * 0.005);
+      totalStarts += starts;
+      totalWatchTimeMs += watchTimeMs;
+      totalRebufferTimeMs += rebufferTimeMs;
+      return {
+        day,
+        starts,
+        watch_time_ms: watchTimeMs,
+        viewers,
+        rebuffer_ratio: 0.005,
+        startup_p50_ms: 320 + (idx % 4) * 20,
+        startup_p95_ms: 850 + (idx % 4) * 50,
+      };
+    });
+
+    const totals: StatsTotals = {
+      starts: totalStarts,
+      watch_time_ms: totalWatchTimeMs,
+      avg_watch_ms: totalStarts > 0 ? Math.floor(totalWatchTimeMs / totalStarts) : null,
+      rebuffer_ratio:
+        totalWatchTimeMs + totalRebufferTimeMs > 0
+          ? totalRebufferTimeMs / (totalWatchTimeMs + totalRebufferTimeMs)
+          : null,
+      errors: 1,
+    };
+
+    const videoStats: VideoStats = {
+      video_id: videoId,
+      from,
+      to,
+      timezone: 'Asia/Ho_Chi_Minh',
+      view_count: video.view_count || 1420,
+      totals,
+      days,
+      refreshed_at: '2026-09-30T12:00:00Z',
+    };
+
+    return HttpResponse.json(videoStats);
   }),
 ];

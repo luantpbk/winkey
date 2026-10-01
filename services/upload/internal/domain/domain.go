@@ -45,6 +45,15 @@ type NewVideo struct {
 	Visibility  string
 }
 
+// Usage is the recent upload usage of one owner, read inside the transaction of Store.Create.
+type Usage struct {
+	Uploading int       // media.videos rows in status UPLOADING, whatever their age
+	Count     int       // media.upload_ledger rows of the last 24 hours (deleted videos included)
+	Bytes     int64     // sum of their size_bytes
+	Oldest    time.Time // min(created_at) of those ledger rows; zero when there are none
+	Now       time.Time // the database clock the window was computed with
+}
+
 // UploadedEvent is the `data` of the video.uploaded event.
 type UploadedEvent struct {
 	VideoID     string `json:"video_id"`
@@ -57,7 +66,18 @@ type UploadedEvent struct {
 
 // Store is the persistence port (media.videos, media.transcode_jobs, outbox).
 type Store interface {
-	Insert(ctx context.Context, v NewVideo) error
+	// Create inserts the video in ONE transaction (task UQ1):
+	//  1. if check is not nil: take the owner's advisory lock, read the owner's Usage and call check;
+	//     a non-nil error from check is returned as is and nothing is written;
+	//  2. insert the UPLOADING row (without s3_upload_id) and the media.upload_ledger row (always,
+	//     admins included; a refusal or a failed startUpload writes neither);
+	//  3. call startUpload (S3 CreateMultipartUpload) and store its id in the row;
+	//  4. commit.
+	// startUpload runs only after the quota check passed, inside the lock, so concurrent requests of
+	// one owner cannot overshoot a limit and a refused request never touches S3. When startUpload
+	// fails nothing is written. When Create fails after startUpload succeeded (the commit), the
+	// caller must abort the multipart upload; v.S3UploadID is ignored.
+	Create(ctx context.Context, v NewVideo, check func(Usage) error, startUpload func(ctx context.Context) (uploadID string, err error)) error
 	// Get returns the video regardless of owner; callers enforce ownership.
 	Get(ctx context.Context, id uuid.UUID) (Video, error)
 	// Progress returns the progress (0..100) of the latest transcode job, 0 if none.
@@ -70,6 +90,9 @@ type Store interface {
 	MarkFailed(ctx context.Context, id uuid.UUID, message string) (changed bool, err error)
 	// DeleteUploading deletes the row only if it is still UPLOADING.
 	DeleteUploading(ctx context.Context, id uuid.UUID) (deleted bool, err error)
+	// PurgeLedger deletes at most limit rows of media.upload_ledger created more than olderThan ago
+	// and returns how many (retention sweep; the database refuses rows younger than 25 h).
+	PurgeLedger(ctx context.Context, olderThan time.Duration, limit int) (int, error)
 	// StaleUploads lists UPLOADING videos created more than olderThan ago.
 	StaleUploads(ctx context.Context, olderThan time.Duration, limit int) ([]Video, error)
 }

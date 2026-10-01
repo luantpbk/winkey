@@ -33,6 +33,9 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 | `GOOGLE_REDIRECT_URI` | Google OAuth Redirect Callback URI | `https://winkey.vn/v1/auth/oauth/google/callback` |
 | `COOKIE_SECRET` | Secret key used to sign temporary OAuth session state cookies | (minimum 32 characters) |
 | `TRUST_PROXY_CIDRS` | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution | `10.42.0.0/16,127.0.0.1` |
+| `MAIL_TRANSPORT` | Outbound email transport mechanism (`smtp` or `log`, ADR-026) | `log` |
+| `SMTP_URL` | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`) | `smtp://user:pass@localhost:1025` |
+| `MAIL_FROM` | RFC 5322 From address used for outbound authentication emails | `Winkey <no-reply@winkey.vn>` |
 
 ---
 
@@ -143,7 +146,43 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
 | `auth_revocation_write_total` | Counter | `result="ok"`, `result="error"` | Tracks revocation key write attempts to Valkey. |
 | `auth_verify_revocation_check_total` | Counter | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`. |
+| `auth_mail_sent_total` | Counter | `template` | Total successfully sent outbound emails by template (`VERIFY_EMAIL`, `RESET_PASSWORD`, `PASSWORD_CHANGED`). |
+| `auth_mail_failed_total` | Counter | `template` | Total failed outbound email delivery attempts by template. |
+| `auth_mail_dead_total` | Counter | None | Total emails abandoned after 8 failed delivery attempts. |
+| `auth_mail_queue_pending` | Gauge | None | Number of pending outbound emails currently in `auth.mail_queue`. |
 | Standard Node.js runtime metrics | Various | `service="auth-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
+
+---
+
+## Password Reset & Email Verification (Task A6, ADR-026)
+
+### Endpoints
+
+| Endpoint | Method | Security | Description |
+|---|---|---|---|
+| `/v1/auth/password/forgot` | `POST` | None | Initiates password reset. Always returns `202 Accepted` with empty body. If email belongs to an `ACTIVE` user, stores a 1-hour reset token in `auth.email_tokens` and queues a `RESET_PASSWORD` mail. Max 3 requests/hour per user (extra requests return 202 without queuing). Rate limited per IP like login (`429`). |
+| `/v1/auth/password/reset` | `POST` | None | Sets new password with a valid `RESET_PASSWORD` token. In one transaction: updates argon2id password, marks all unused reset tokens of the user used, marks `email_verified_at = now()` if NULL, revokes all refresh token families, and queues `PASSWORD_CHANGED` mail. Dispatches Valkey revocation (`revocationService.revokeUser`) after commit. Re-using or expired token returns `400` `INVALID_TOKEN`. Returns `204`. |
+| `/v1/auth/email/verification` | `POST` | Bearer | Resends email verification link (48-hour token) for authenticated user. If already verified, returns `409` `EMAIL_ALREADY_VERIFIED`. Maximum 3 requests/hour per user; exceeding returns `429` with `Retry-After`. Mail locale honors `Accept-Language` (`en*` → English, else Vietnamese). Returns `202`. |
+| `/v1/auth/email/verify` | `POST` | None | Confirms email address with `VERIFY_EMAIL` token. In one transaction: marks token used and sets `email_verified_at = now()`. Invalid/expired/used token returns `400` `INVALID_TOKEN`. Returns `204`. |
+
+### Security & Token Storage
+
+- One-time tokens consist of 32 cryptographically secure random bytes (`crypto.randomBytes(32)`), formatted as unpadded base64url (exactly 43 characters).
+- Only the SHA-256 digest (`bytea`, 32 bytes) is stored in `auth.email_tokens`.
+- Tokens are associated with the user's current email at creation; if the email changes, the token is invalidated.
+- All invalid token conditions (unknown, expired, used, wrong purpose, email mismatch, inactive user) return `400` with uniform error code `INVALID_TOKEN` to prevent oracle attacks.
+- Tokens and email addresses are strictly redacted in server logs.
+
+### Transactional Mail Queue (`auth.mail_queue`)
+
+- Outbound emails are enqueued directly into `auth.mail_queue` inside the requesting transaction (guaranteeing transactional consistency without external message brokers).
+- A background worker in `auth-svc` polls up to 20 pending rows using `FOR UPDATE SKIP LOCKED`.
+- **Modes:**
+  - `MAIL_TRANSPORT=log` (default for dev/CI): Suppresses network delivery and logs safe telemetry (`mail suppressed`, no tokens or email addresses).
+  - `MAIL_TRANSPORT=smtp`: Delivers emails via `nodemailer` using `SMTP_URL`.
+- **Retry & Backoff:** On delivery failure, retries with exponential backoff (`2^attempts` minutes, capped at 60 minutes) and records sanitized errors (email addresses redacted). Rows failing 8 times are marked `dead_at = now()` and `params` is cleared to ensure security.
+- Rows older than 7 days are automatically purged.
+- When an account is deleted via `DELETE /v1/auth/me`, all pending mail rows and live tokens of the user are dropped in the deletion transaction.
 
 ---
 

@@ -28,14 +28,32 @@ type fakeStore struct {
 	videos   map[uuid.UUID]*domain.Video
 	events   []domain.UploadedEvent
 	progress float64
+
+	usage     domain.Usage // what Create hands to the quota check
+	checked   []bool       // per Create call: was a quota check passed?
+	createErr error        // Create fails after the S3 upload was started (commit failure)
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{videos: map[uuid.UUID]*domain.Video{}} }
 
-func (s *fakeStore) Insert(_ context.Context, v domain.NewVideo) error {
+func (s *fakeStore) Create(ctx context.Context, v domain.NewVideo, check func(domain.Usage) error, start func(context.Context) (string, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.checked = append(s.checked, check != nil)
+	if check != nil {
+		if err := check(s.usage); err != nil {
+			return err
+		}
+	}
+	uploadID, err := start(ctx)
+	if err != nil {
+		return err
+	}
+	if s.createErr != nil {
+		return s.createErr
+	}
 	c := v.Video
+	c.S3UploadID = uploadID
 	s.videos[c.ID] = &c
 	return nil
 }
@@ -79,6 +97,7 @@ func (s *fakeStore) DeleteUploading(_ context.Context, id uuid.UUID) (bool, erro
 	}
 	return false, nil
 }
+func (s *fakeStore) PurgeLedger(context.Context, time.Duration, int) (int, error) { return 0, nil }
 func (s *fakeStore) StaleUploads(context.Context, time.Duration, int) ([]domain.Video, error) {
 	return nil, nil
 }
@@ -89,6 +108,7 @@ type fakeStorage struct {
 	aborted     []string
 	deleted     []string
 	completeErr error
+	createErr   error // CreateMultipart fails
 	objectSize  int64
 	completed   [][]domain.Part
 }
@@ -96,6 +116,9 @@ type fakeStorage struct {
 func (f *fakeStorage) CreateMultipart(_ context.Context, bucket, key, ct string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.createErr != nil {
+		return "", f.createErr
+	}
 	f.created = append(f.created, bucket+"/"+key+" "+ct)
 	return "upload-1", nil
 }

@@ -15,7 +15,8 @@
     "searchPlaceholder": "Search Winkey...",
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
-    "creatorRoleRequired": "Creator role required"
+    "creatorRoleRequired": "Creator role required",
+    "watchLater": "Watch Later"
   },
   "home": {
     "recommended": "Recommended Videos",
@@ -80,6 +81,34 @@
   "studio": {
     "title": "Studio - Video Manager",
     "uploadNew": "Upload New Video",
+    "nav": {
+      "videos": "Content",
+      "analytics": "Analytics"
+    },
+    "analytics": {
+      "title": "Channel Analytics",
+      "videoTitle": "Video Analytics",
+      "description": "Playback sessions, watch time and technical quality metrics",
+      "range7": "7 days",
+      "range28": "28 days",
+      "range90": "90 days",
+      "starts": "Plays",
+      "watchTime": "Watch time",
+      "avgWatch": "Avg watch time",
+      "rebufferRatio": "Rebuffer ratio",
+      "viewCount": "Counted views",
+      "viewCountTooltip": "Anti-fraud filtered lifetime views, different from started sessions",
+      "startupP50": "Startup P50",
+      "startupP95": "Startup P95",
+      "viewers": "Viewers",
+      "chartTitle": "Daily Breakdown",
+      "topVideosTitle": "Top 10 Most Watched Videos",
+      "refreshedAt": "Updated at {time}",
+      "notRefreshed": "No data yet",
+      "offlineLagNote": "Numbers can lag while the analytics server is offline.",
+      "notFound": "Video not found.",
+      "rateLimited": "Too many requests. Please try again shortly."
+    },
     "tableTitle": "Video",
     "tableVisibility": "Visibility",
     "tableStatus": "Status",
@@ -428,5 +457,36 @@
       "COMMENT_REPLY": "{actor} replied to your comment",
       "NEW_SUBSCRIBER": "{actor} subscribed to your channel"
     }
+  },
+  "playlist": {
+    "save": "Save",
+    "watchLater": "Watch Later",
+    "savedToWatchLater": "Saved to Watch Later",
+    "removedFromWatchLater": "Removed from Watch Later",
+    "saveToPlaylist": "Save to playlist",
+    "createNewPlaylist": "Create new playlist",
+    "playlistTitle": "Playlist title",
+    "playlistTitlePlaceholder": "Enter playlist name...",
+    "visibility": "Privacy",
+    "create": "Create",
+    "creating": "Creating...",
+    "cancel": "Cancel",
+    "videoUnavailable": "Video unavailable",
+    "remove": "Remove",
+    "delete": "Delete playlist",
+    "deleteConfirm": "Are you sure you want to delete this playlist?",
+    "rename": "Rename",
+    "edit": "Edit",
+    "saveChanges": "Save changes",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "dragToReorder": "Drag to reorder",
+    "itemCount": "{count, plural, =0 {0 videos} =1 {1 video} other {# videos}}",
+    "empty": "This playlist is empty.",
+    "notFound": "Playlist not found or has been deleted.",
+    "playlistFull": "Playlist is full (maximum 5,000 videos).",
+    "playlistLimit": "You have reached the limit of 200 playlists.",
+    "tabPlaylists": "Playlists",
+    "noPlaylists": "No playlists found."
   }
 }

@@ -6,7 +6,7 @@ PostgreSQL ≥ 16 (production target: 17, chạy bằng CloudNativePG). Migratio
 
 | Schema | Service ghi | Service được đọc | Ghi chú |
 |---|---|---|---|
-| `auth` | auth-svc | mọi service: **chỉ** view `auth.public_profiles` | Không bao giờ để service khác đọc `auth.users` |
+| `auth` | auth-svc | mọi service: **chỉ** view `auth.public_profiles` | Không bao giờ để service khác đọc `auth.users`. Token email dùng một lần `auth.email_tokens` (chỉ lưu SHA-256) và hàng đợi mail giao dịch `auth.mail_queue` (migration 000016, ADR-026) |
 | `media` | upload-svc, transcoder, video-svc | video-svc | Chung một domain media |
 | `social` | social-svc | — | Comment 2 cấp, like video, subscription; projection `social.videos` từ `video.ready`/`video.deleted` (migration 000005); thông báo trong app `social.notifications` (migration 000013, ADR-023); playlist và xem sau `social.playlists`/`social.playlist_items` (migration 000014, ADR-024) |
 | `analytics` | analytics-worker (role `analytics_svc`, từ gpu-01) | video-svc: `SELECT` trên `analytics.video_daily` | Thống kê theo ngày cho creator, tổng hợp từ ClickHouse (migration 000015, ADR-022 bổ sung R1-b). Ngày theo `Asia/Ho_Chi_Minh` |

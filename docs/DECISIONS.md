@@ -351,3 +351,68 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Mỗi trang playlist cần 2 request (items, rồi batch videos). Chấp nhận được; nếu cần có thể gộp phía BFF sau này.
 - Video bị ẩn vẫn chiếm chỗ trong giới hạn 5 000 item của playlist; chấp nhận.
 - Mở rộng sau: playlist cộng tác, lưu playlist của người khác, phát liên tục (autoplay next) trên trang xem, tìm kiếm playlist.
+
+### ADR-025 — Video liên quan v1 (R2-c), chưa cá nhân hoá
+**Bối cảnh.** Trang xem chưa có danh sách "xem tiếp", nên người xem rời trang sau mỗi video. Recommendation đầy đủ (R2: co-view, theo lịch sử) cần dữ liệu xem đủ lớn mà beta chưa có. Hạ tầng có sẵn: chỉ mục tìm kiếm SR1 (`search_vector`), bảng `media.trending` (R2-a) và chủ kênh của video.
+**Quyết định.**
+- Thêm endpoint `listRelatedVideos` (`GET /v1/videos/{id}/related`, video-svc). Không cần migration, mọi dữ liệu đã có trong schema `media`.
+- Ứng viên chỉ gồm video công khai xem được (`PUBLIC`, `READY`, `moderation_state = VISIBLE`), bỏ chính video nguồn, mỗi video xuất hiện tối đa 1 lần. Ba nguồn:
+  1. **Tương tự:** tối đa 8 video, xếp theo `ts_rank(search_vector, q)`, với `q` = `plainto_tsquery('simple', winkey_fold(title nguồn))` nối bằng OR (dùng `websearch_to_tsquery` hoặc ghép `|`), để có kết quả cả khi không khớp toàn bộ từ. Dùng chỉ mục `videos_search_fts`.
+  2. **Cùng kênh:** tối đa 4 video mới nhất của chủ video nguồn.
+  3. **Thịnh hành:** lấy theo `media.trending.rank` để lấp cho đủ `limit`.
+- **Thứ tự trộn cố định:** 1, 1, 2, 1, 3, rồi lặp lại; nguồn nào hết thì lấy nguồn kế tiếp; bỏ trùng. Kết quả giống nhau với mọi người xem, nên cache 5 phút (Valkey, khoá theo `video_id` + `limit`) kèm `Cache-Control: public, max-age=300`.
+- Nếu video nguồn không xem được với người gọi (riêng tư, ẩn, chưa READY), trả `404` như `getVideo`. Video riêng tư của chính owner cũng trả 404 vì kết quả là chung cho mọi người.
+**Hệ quả.**
+- Có "xem tiếp" ngay, không tốn hạ tầng mới. Chi phí là 3 truy vấn ngắn khi cache trượt.
+- Chất lượng chỉ ở mức khá: dựa vào chữ trong tiêu đề, chưa hiểu nội dung. R2 (co-view từ `analytics.video_daily` và ClickHouse, theo subscription, A/B) thay thế sau mà không đổi contract, vì contract không hứa cách xếp hạng.
+
+### ADR-026 — Quên mật khẩu và xác minh email (A6)
+**Bối cảnh.** auth-svc chưa có cách lấy lại tài khoản khi quên mật khẩu, và `email_verified` luôn là false với tài khoản đăng ký bằng email. Trước khi mở beta công khai, cả hai đều bắt buộc. Ngoài ra, việc xác thực tài khoản là một phần của LEGAL. Chưa có hạ tầng gửi mail.
+**Quyết định.**
+- **Token dùng một lần.** Lưu trong bảng `auth.email_tokens` (migration 000016):
+  - giá trị 256 bit ngẫu nhiên, mã hoá base64url (43 ký tự); DB chỉ lưu SHA-256 của nó;
+  - kèm `purpose` (`VERIFY_EMAIL` hoặc `RESET_PASSWORD`) và địa chỉ `email` đã nhận token;
+  - hạn dùng: reset 1 giờ, verify 48 giờ.
+  - Token chỉ hợp lệ khi `email` vẫn bằng email hiện tại của user và user đang `ACTIVE`.
+  - Mọi trường hợp sai (không tồn tại, hết hạn, đã dùng, user bị khoá) đều trả chung `400 INVALID_TOKEN`.
+- **Bốn endpoint mới:**
+  - `requestPasswordReset`: luôn trả `202`, kể cả khi email không có tài khoản, để không lộ email nào đã đăng ký. Tối đa 3 mail mỗi user mỗi giờ.
+  - `resetPassword`: đổi mật khẩu, đánh dấu đã dùng mọi token reset của user, xác minh luôn email, thu hồi mọi phiên (refresh family và mốc thu hồi ADR-019), rồi gửi mail báo `PASSWORD_CHANGED`.
+  - `resendEmailVerification`: cần đăng nhập. Trả `409 EMAIL_ALREADY_VERIFIED` nếu đã xác minh. Tối đa 3 lần mỗi giờ.
+  - `verifyEmail`: không cần đăng nhập, vì link có thể được mở trên thiết bị khác.
+  - `register` tự gửi mail xác minh đầu tiên. Chưa xác minh thì chưa bị chặn chức năng nào; quyết định chặn (nếu cần) để lại cho LEGAL.
+- **Gửi mail qua hàng đợi giao dịch `auth.mail_queue`.** Cách làm giống outbox (ADR-008):
+  - Request ghi một dòng vào hàng đợi trong cùng transaction.
+  - Một vòng lặp nền trong auth-svc lấy dòng bằng `FOR UPDATE SKIP LOCKED` và gửi.
+  - Lỗi thì backoff, tối đa 8 lần, sau đó đánh dấu `dead_at`.
+  - Khi đã gửi hoặc bỏ cuộc thì xoá `params` (link chứa token). Ràng buộc trong DB bắt buộc điều này.
+  - Không đi qua NATS, vì nội dung chứa token.
+  - Dòng cũ hơn 7 ngày bị xoá.
+- **Transport:** `MAIL_TRANSPORT=smtp|log`.
+  - `smtp` dùng `SMTP_URL`, `MAIL_FROM`.
+  - `log` chỉ ghi log "mail suppressed" kèm template và id, không có địa chỉ hay token. Đây là mặc định ở dev và CI.
+  - Môi trường dev dùng Mailpit để thử thật.
+  - Nhà cung cấp SMTP cho production do **bạn** chọn. Antigravity 2 đưa thông tin đó vào secret.
+**Hệ quả.**
+- Người dùng tự lấy lại tài khoản. Email được xác minh là nền cho bước xác thực tài khoản sau này (LEGAL).
+- Khi production chưa có SMTP, mail nằm chờ trong hàng đợi, rồi `dead` sau 8 lần thử. Phải có SMTP trước khi mở beta.
+- Token chỉ tồn tại dạng rõ trong DB trong khoảng thời gian chờ gửi.
+
+### ADR-027 — Hạn mức upload (UQ1)
+**Bối cảnh.** `createUpload` chỉ giới hạn kích thước một file (20 GiB). Một tài khoản có thể mở hàng trăm upload, làm đầy bucket và giữ GPU bận. Mở beta công khai thì phải chặn điều này. Contract đã khai báo `429`, nhưng upload-svc chưa áp dụng.
+**Quyết định.**
+- upload-svc kiểm tra hạn mức trong transaction tạo video, có `pg_advisory_xact_lock` theo `owner_id` để hai request song song không cùng lọt.
+- Ba giới hạn, cấu hình bằng env:
+  - tối đa 3 video đang `UPLOADING`;
+  - tối đa 20 upload bắt đầu trong 24 giờ trượt;
+  - tối đa 50 GiB `size_bytes` trong 24 giờ.
+- Tính trên mọi dòng `media.videos` của owner tạo trong cửa sổ, bất kể trạng thái sau đó, nên xoá rồi upload lại không lách được. Không cần migration: dùng chỉ mục `videos_owner_created` có sẵn.
+- Role `admin` được miễn.
+- Khi vượt: `429 UPLOAD_QUOTA_EXCEEDED` kèm `Retry-After`, và metric `upload_quota_rejections_total{limit}`.
+**Hệ quả.** Một tài khoản chỉ gây thiệt hại tối đa 50 GiB mỗi ngày. Creator lớn cần hạn mức cao hơn thì nâng env, hoặc sau này làm hạn mức theo user.
+**Bổ sung 2026-10-01 (UQ1-b, sửa thiết kế).** Gạch đầu dòng "xoá rồi upload lại không lách được" ở trên **sai**: video bị xoá cứng (`DELETE FROM media.videos` ở video-svc, và ở upload-svc khi abort), nên dòng đã xoá biến khỏi cửa sổ 24 giờ.
+- Migration `000017_upload_ledger` thêm `media.upload_ledger (video_id, owner_id, size_bytes, created_at)`: một dòng cho mỗi `createUpload` qua được kiểm tra, ghi **trong cùng transaction** với dòng video. Không FK tới `media.videos` hay `auth.users`, nên xoá video không ảnh hưởng tới sổ.
+- Sổ chỉ append: trigger chặn `UPDATE`, và chặn `DELETE` dòng trẻ hơn 25 giờ. Janitor của upload-svc xoá dòng cũ hơn 48 giờ.
+- `daily_count` và `daily_bytes` tính từ sổ. `concurrent` vẫn tính từ `media.videos` (`status = 'UPLOADING'`), vì upload đã xoá thì không còn chiếm chỗ.
+- Upload bị abort vẫn được tính trong hạn mức ngày, và đó là chủ ý: 20 lần mỗi ngày là đủ cho người dùng thật.
+- Migration chép các video tạo trong 25 giờ gần nhất vào sổ, nên lúc chuyển sang sổ không mất số liệu.

@@ -6,18 +6,23 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/luantpbk/winkey/libs/go/httpx"
 	"github.com/luantpbk/winkey/libs/go/ids"
 	"github.com/luantpbk/winkey/services/upload/internal/domain"
 	"github.com/luantpbk/winkey/services/upload/internal/partsize"
+	"github.com/luantpbk/winkey/services/upload/internal/quota"
 )
 
 // PartURLTTL is the lifetime of presigned part URLs.
@@ -30,6 +35,8 @@ type Handler struct {
 	RawBucket string
 	Log       *slog.Logger
 	Now       func() time.Time // defaults to time.Now
+	// Quota are the upload limits of ADR-027; a field of 0 switches that limit off.
+	Quota quota.Limits
 }
 
 // Routes mounts the API on r under /v1/uploads.
@@ -118,23 +125,49 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	size, count := partsize.Compute(req.SizeBytes)
 	rawKey := id.UserID.String() + "/" + videoID.String() + "/source"
 
-	uploadID, err := h.Storage.CreateMultipart(r.Context(), h.RawBucket, rawKey, req.ContentType)
-	if err != nil {
-		h.fail(w, r, "create multipart upload", err)
-		return
-	}
-	err = h.Store.Insert(r.Context(), domain.NewVideo{
+	nv := domain.NewVideo{
 		Video: domain.Video{
 			ID: videoID, OwnerID: id.UserID, Status: domain.StatusUploading,
-			RawBucket: h.RawBucket, RawKey: rawKey, S3UploadID: uploadID,
+			RawBucket: h.RawBucket, RawKey: rawKey,
 			ContentType: req.ContentType, SizeBytes: req.SizeBytes,
 		},
 		Title: req.Title, Description: desc, Visibility: vis,
+	}
+	// Quota (UQ1, ADR-027): checked inside the transaction that inserts the row, under the owner's
+	// advisory lock, BEFORE the S3 multipart upload exists. Admins skip it.
+	var check func(domain.Usage) error
+	if !slices.Contains(id.Roles, httpx.RoleAdmin) {
+		check = func(u domain.Usage) error {
+			if ex := quota.Decide(h.Quota, u, req.SizeBytes); ex != nil {
+				return ex
+			}
+			return nil
+		}
+	}
+	var uploadID string
+	var s3Err error
+	err := h.Store.Create(r.Context(), nv, check, func(ctx context.Context) (string, error) {
+		var err error
+		uploadID, err = h.Storage.CreateMultipart(ctx, h.RawBucket, rawKey, req.ContentType)
+		s3Err = err
+		return uploadID, err
 	})
 	if err != nil {
-		// Do not leave an orphaned multipart upload behind.
-		if aerr := h.Storage.AbortMultipart(context.WithoutCancel(r.Context()), h.RawBucket, rawKey, uploadID); aerr != nil {
-			h.Log.WarnContext(r.Context(), "abort after failed insert", "video_id", videoID, "error", aerr)
+		var ex *quota.Exceeded
+		switch {
+		case errors.As(err, &ex):
+			h.refuse(w, r, id.UserID, ex)
+			return
+		case s3Err != nil:
+			h.fail(w, r, "create multipart upload", err)
+			return
+		}
+		// The row was not committed. If S3 already has the multipart upload (commit failed),
+		// do not leave it orphaned.
+		if uploadID != "" {
+			if aerr := h.Storage.AbortMultipart(context.WithoutCancel(r.Context()), h.RawBucket, rawKey, uploadID); aerr != nil {
+				h.Log.WarnContext(r.Context(), "abort after failed insert", "video_id", videoID, "error", aerr)
+			}
 		}
 		h.fail(w, r, "insert video", err)
 		return
@@ -412,6 +445,21 @@ func (h *Handler) owned(w http.ResponseWriter, r *http.Request) (domain.Video, b
 		return domain.Video{}, false
 	}
 	return v, true
+}
+
+// quotaRejections counts refused uploads by the limit that was hit.
+var quotaRejections = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "upload_quota_rejections_total",
+	Help: "createUpload requests refused with 429 UPLOAD_QUOTA_EXCEEDED, by limit (concurrent, daily_count, daily_bytes).",
+}, []string{"limit"})
+
+// refuse answers 429 UPLOAD_QUOTA_EXCEEDED with Retry-After and counts it. The log line has the
+// owner and the limit only: no title, no filename.
+func (h *Handler) refuse(w http.ResponseWriter, r *http.Request, owner uuid.UUID, ex *quota.Exceeded) {
+	quotaRejections.WithLabelValues(ex.Limit).Inc()
+	h.Log.InfoContext(r.Context(), "upload quota exceeded", "owner_id", owner, "limit", ex.Limit, "retry_after", ex.RetryAfter)
+	w.Header().Set("Retry-After", strconv.Itoa(ex.RetryAfter))
+	httpx.WriteProblem(w, r, httpx.NewProblem(http.StatusTooManyRequests, "UPLOAD_QUOTA_EXCEEDED", ex.Error()))
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, what string, err error) {

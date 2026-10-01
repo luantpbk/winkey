@@ -332,6 +332,14 @@ type Store interface {
 	// ChannelStats reads the owner's daily sums and top videos with two queries; videos that are deleted or
 	// not the owner's are never counted (INNER JOIN media.videos). Task R1-b.
 	ChannelStats(ctx context.Context, owner uuid.UUID, from, to time.Time) (ChannelStatsData, error)
+	// RelatedSimilar returns up to limit public videos whose search_vector matches tsquery (a ready-made
+	// to_tsquery('simple') text of OR-ed words, folded in SQL), best ts_rank first, never excluding more than the
+	// source itself. Uses videos_search_fts. Task R2-c.
+	RelatedSimilar(ctx context.Context, exclude uuid.UUID, tsquery string, limit int) ([]Summary, error)
+	// RelatedSameChannel returns the owner's newest public videos except exclude. Task R2-c.
+	RelatedSameChannel(ctx context.Context, owner, exclude uuid.UUID, limit int) ([]Summary, error)
+	// RelatedTrending returns media.trending by rank, re-applying the public predicate, except exclude. Task R2-c.
+	RelatedTrending(ctx context.Context, exclude uuid.UUID, limit int) ([]Summary, error)
 	// MediaPublic reports whether the public may fetch the video's media
 	// (PubliclyWatchable), with ONE primary-key query. Unknown ids are false.
 	MediaPublic(ctx context.Context, id uuid.UUID) (bool, error)

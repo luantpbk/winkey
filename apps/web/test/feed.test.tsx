@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ToastProvider } from '../src/components/ui/toast';
 import { VideoFeed } from '../src/components/video/video-feed';
 import TrendingPage from '../src/app/[locale]/trending/page';
 import SubscriptionsFeedPage from '../src/app/[locale]/feed/subscriptions/page';
@@ -140,7 +141,11 @@ function createTestQueryClient() {
 
 function renderWithClient(ui: React.ReactElement, client = createTestQueryClient()) {
   return {
-    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
+    ...render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>{ui}</ToastProvider>
+      </QueryClientProvider>,
+    ),
     client,
   };
 }

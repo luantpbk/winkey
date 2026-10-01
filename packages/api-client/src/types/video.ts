@@ -72,6 +72,35 @@ export interface paths {
         patch: operations["updateVideo"];
         trace?: never;
     };
+    "/v1/videos/{video_id}/related": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Videos to watch next, shown beside the player (task R2-c). No auth needed.
+         * @description Recommendation v1 without personalisation (ADR-025). Candidates are only videos the public can watch
+         *     (`PUBLIC`, `READY`, not hidden), never the video itself, each at most once. Built from three sources:
+         *     1. up to 8 videos whose title/description match the source title (the search index of SR1);
+         *     2. up to 4 newest videos of the same channel;
+         *     3. the current trending ranking (R2-a) to fill up to `limit`.
+         *     Order of `items`: the sources interleaved in the order 1, 1, 2, 1, 3, ... with duplicates skipped (see
+         *     ADR-025). Same answer for every caller, so `Cache-Control: public, max-age=300`. The source video
+         *     itself must be readable by the caller like `getVideo`, otherwise `404`.
+         */
+        get: operations["listRelatedVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/videos/{video_id}/views": {
         parameters: {
             query?: never;
@@ -511,6 +540,9 @@ export interface components {
             /** Format: date-time */
             refreshed_at: string | null;
         };
+        RelatedVideos: {
+            items: components["schemas"]["VideoSummary"][];
+        };
         VideoBatch: {
             items: components["schemas"]["VideoSummary"][];
         };
@@ -876,6 +908,33 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRelatedVideos: {
+        parameters: {
+            query?: {
+                /** @description 1 to 24, default 12. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The related videos, best first. May be shorter than `limit` (even empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelatedVideos"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
         };
     };
