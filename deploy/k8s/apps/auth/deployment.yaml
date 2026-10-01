@@ -85,7 +85,7 @@ spec:
                   key: GOOGLE_CLIENT_SECRET
                   optional: true
             - name: MAIL_TRANSPORT
-              value: 'log'
+              value: 'smtp'
             - name: MAIL_FROM
               value: 'Winkey <no-reply@winkey.vn>'
             - name: SMTP_URL
