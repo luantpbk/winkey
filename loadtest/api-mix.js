@@ -1,3 +1,4 @@
+/* global __ENV, __VU, __ITER, open */
 import http from 'k6/http';
 import { sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';

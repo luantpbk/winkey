@@ -1,3 +1,4 @@
+/* global __ENV, open */
 import http from 'k6/http';
 import { sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
@@ -40,7 +41,7 @@ function resolveUrl(relativeUrl, baseUrl) {
     return relativeUrl;
   }
   if (relativeUrl.startsWith('/')) {
-    const match = baseUrl.match(/^(https?:\/\/[^\/]+)/);
+    const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
     const origin = match ? match[1] : '';
     return origin + relativeUrl;
   }
