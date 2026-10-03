@@ -7,7 +7,8 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 | Agent | Role | Owns |
 |---|---|---|
 | Claude Opus (architect) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
-| Claude Sonnet 5.5 | Go data plane: API side | `services/video`, `services/analytics`, `libs/go` |
+| Claude Sonnet 5.5 | Go data plane: API side (**paused**; ChatGPT is acting owner) | `services/video`, `services/analytics`, `libs/go` |
+| ChatGPT (Codex) | Go data plane: API side, acting owner while Sonnet is paused | `services/video`, `services/analytics`, `libs/go` |
 | Claude Sonnet 5.5 ("Sonnet 2") | Go data plane: media pipeline | `services/upload`, `services/transcoder` |
 | Antigravity 1 | Frontend + E2E | `apps/web`, `e2e/`, `packages/api-client` |
 | Antigravity 2 | Platform / DevOps | `deploy/`, `.github/workflows/*` (except `contracts.yml`), root tooling (`package.json`, `pnpm-workspace.yaml`, `turbo.json`, `go.work`) |
