@@ -4,6 +4,7 @@ import React from 'react';
 import type { VideoSummary, Video } from '@winkey/api-client';
 import { Link } from '../../i18n/routing';
 import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
+import { getThumbnailUrl } from '../../lib/constants';
 import { Clock } from 'lucide-react';
 import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useToast } from '../ui/toast';
@@ -28,12 +29,10 @@ export function VideoCard({ video, rank }: VideoCardProps) {
     await addToWatchLater(video.id, { showToast });
   };
 
-  const thumbnailUrl =
-    'thumbnail_url' in video && video.thumbnail_url
-      ? video.thumbnail_url
-      : 'playback' in video && video.playback?.thumbnail_url
-        ? video.playback.thumbnail_url
-        : 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80';
+  const thumbnailUrl = getThumbnailUrl(
+    'thumbnail_url' in video ? video.thumbnail_url : null,
+    'playback' in video ? video.playback?.thumbnail_url : null,
+  );
 
   const publishedAt =
     'published_at' in video && video.published_at

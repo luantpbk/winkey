@@ -351,4 +351,31 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       expect(screen.getByRole('heading', { level: 2, name: 'Up next' })).toBeDefined();
     });
   });
+
+  it('when thumbnail_url is null, rendered <img> src points to local placeholder and no external host', async () => {
+    const itemsWithNullThumb = mock12RelatedVideos.map((v) => ({
+      ...v,
+      thumbnail_url: null,
+    }));
+    vi.spyOn(api.video, 'GET').mockResolvedValueOnce({
+      data: { items: itemsWithNullThumb },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    const { container } = renderWithClient(
+      <RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11" />,
+    );
+
+    const cards = await screen.findAllByTestId('related-video-card');
+    expect(cards).toHaveLength(12);
+
+    const imgs = container.querySelectorAll('img');
+    expect(imgs.length).toBe(12);
+    for (const img of imgs) {
+      const src = img.getAttribute('src');
+      expect(src).toBe('/placeholder-thumbnail.svg');
+      expect(src).not.toMatch(/^https?:\/\//);
+      expect(src).not.toContain('unsplash.com');
+    }
+  });
 });
