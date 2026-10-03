@@ -19,7 +19,7 @@
     "@winkey/outbox": "workspace:*",
     "fastify": "^5.2.1",
     "ioredis": "^5.6.0",
-    "kysely": "^0.27.6",
+    "kysely": "^0.29.6",
     "nats": "^2.29.3",
     "pg": "^8.13.3",
     "pino": "^9.6.0",
