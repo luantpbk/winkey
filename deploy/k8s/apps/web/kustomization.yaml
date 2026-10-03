@@ -7,4 +7,4 @@ resources:
 
 images:
   - name: ghcr.io/luantpbk/winkey-web
-    digest: sha256:026670262cae25a9879ef23a8f484d838bdaae4552430bc6f8d76a98f6b83f62
+    digest: sha256:e917c06c5410ba909674795b8555caa7d0e31368eef7c51c4ea28c669036f005
