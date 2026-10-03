@@ -8,15 +8,9 @@ updates:
     commit-message:
       prefix: 'ci'
     groups:
-      github-actions:
+      actions:
         patterns:
           - '*'
-        update-types:
-          - 'minor'
-          - 'patch'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
 
   # Maintain root & workspace Node dependencies
   - package-ecosystem: 'npm'
@@ -36,13 +30,18 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  # Maintain Go dependencies in libs/go
+  # Maintain Go dependencies across all Go modules
   - package-ecosystem: 'gomod'
-    directory: '/libs/go'
+    directories:
+      - '/libs/go'
+      - '/services/video'
+      - '/services/upload'
+      - '/services/transcoder'
+      - '/services/analytics'
     schedule:
       interval: 'weekly'
     commit-message:
-      prefix: 'deps(libs/go)'
+      prefix: 'deps(go)'
     groups:
       gomod:
         patterns:
@@ -54,87 +53,15 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  # Maintain Go dependencies in services/upload
-  - package-ecosystem: 'gomod'
-    directory: '/services/upload'
-    schedule:
-      interval: 'weekly'
-    commit-message:
-      prefix: 'deps(upload)'
-    groups:
-      gomod:
-        patterns:
-          - '*'
-        update-types:
-          - 'minor'
-          - 'patch'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
-
-  # Maintain Go dependencies in services/transcoder
-  - package-ecosystem: 'gomod'
-    directory: '/services/transcoder'
-    schedule:
-      interval: 'weekly'
-    commit-message:
-      prefix: 'deps(transcoder)'
-    groups:
-      gomod:
-        patterns:
-          - '*'
-        update-types:
-          - 'minor'
-          - 'patch'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
-
-  # Maintain Go dependencies in services/video
-  - package-ecosystem: 'gomod'
-    directory: '/services/video'
-    schedule:
-      interval: 'weekly'
-    commit-message:
-      prefix: 'deps(video)'
-    groups:
-      gomod:
-        patterns:
-          - '*'
-        update-types:
-          - 'minor'
-          - 'patch'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
-
-  # Maintain Go dependencies in services/analytics
-  - package-ecosystem: 'gomod'
-    directory: '/services/analytics'
-    schedule:
-      interval: 'weekly'
-    commit-message:
-      prefix: 'deps(analytics)'
-    groups:
-      gomod:
-        patterns:
-          - '*'
-        update-types:
-          - 'minor'
-          - 'patch'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
-
-  # Maintain Docker dependencies in deploy/compose
-  - package-ecosystem: 'docker'
+  # Maintain Docker Compose dependencies in deploy/compose
+  - package-ecosystem: 'docker-compose'
     directory: '/deploy/compose'
     schedule:
       interval: 'weekly'
     commit-message:
       prefix: 'deploy'
     groups:
-      docker:
+      compose:
         patterns:
           - '*'
         update-types:
