@@ -62,19 +62,13 @@ export const customFetch: typeof fetch = async (input, init) => {
 
   const url = req.url;
   const isRelatedVideos = /\/v1\/videos\/[^/]+\/related(\?.*)?$/.test(url);
-  const isSkipAuth =
-    req.headers.get('Authorization') === '' ||
-    req.headers.get('x-skip-auth') === 'true' ||
-    req.headers.get('X-Skip-Auth') === 'true';
 
-  if (isRelatedVideos || isSkipAuth) {
+  if (isRelatedVideos) {
     req.headers.delete('Authorization');
-    req.headers.delete('x-skip-auth');
-    req.headers.delete('X-Skip-Auth');
   }
 
   const token = tokenStore.get();
-  if (!isRelatedVideos && !isSkipAuth && token && !req.headers.has('Authorization')) {
+  if (!isRelatedVideos && token && !req.headers.has('Authorization')) {
     req.headers.set('Authorization', `Bearer ${token}`);
   }
 
@@ -88,7 +82,7 @@ export const customFetch: typeof fetch = async (input, init) => {
     url.includes('/v1/auth/register') ||
     url.includes('/v1/auth/logout');
 
-  if (response.status === 401 && !isAuthRoute && !isRelatedVideos && !isSkipAuth) {
+  if (response.status === 401 && !isAuthRoute && !isRelatedVideos) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       reqForRetry.headers.set('Authorization', `Bearer ${newToken}`);

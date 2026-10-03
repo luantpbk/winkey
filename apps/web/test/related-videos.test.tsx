@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RelatedVideosColumn } from '../src/components/video/related-videos-column';
-import { api, customFetch } from '../src/lib/api-client';
+import { api } from '../src/lib/api-client';
 import { tokenStore } from '../src/lib/auth/token-store';
 import type { VideoSummary } from '@winkey/api-client';
 import { formatDuration } from '../src/lib/format';
@@ -21,6 +21,10 @@ vi.mock('next-intl', () => ({
   useTranslations: (namespace?: string) => {
     return (key: string, values?: Record<string, unknown>) => {
       const isVi = activeLocale === 'vi';
+      if (key === 'views' && values && typeof values.count !== 'undefined') {
+        const count = Number(values.count);
+        return isVi ? `${count} lượt xem` : count === 1 ? '1 view' : `${count} views`;
+      }
       const fullPath = namespace ? `${namespace}.${key}` : key;
       const parts = fullPath.split('.');
       let cur: unknown = isVi ? viMessages : enMessages;
@@ -88,10 +92,10 @@ function renderWithClient(ui: React.ReactElement, client = createTestQueryClient
 }
 
 const mock12RelatedVideos: VideoSummary[] = Array.from({ length: 12 }, (_, i) => ({
-  id: `rel-vid-${i + 1}`,
+  id: `0192f5e4-7c1a-7b3e-9d2a-0000000000${(i + 1).toString().padStart(2, '0')}`,
   title: `Related Video Title ${i + 1}`,
   owner: {
-    id: `channel-${i + 1}`,
+    id: `0192f5e4-7c1a-7b3e-9d2a-c000000000${(i + 1).toString().padStart(2, '0')}`,
     display_name: `Channel Name ${i + 1}`,
     handle: `channel${i + 1}`,
     avatar_url: `https://example.com/avatar-${i + 1}.jpg`,
@@ -129,7 +133,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       });
     });
 
-    renderWithClient(<RelatedVideosColumn videoId="source-video-123" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('related-videos-column')).toBeDefined();
@@ -143,7 +147,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
   it('renders 12 items in server order with title, channel, views, and duration', async () => {
     vi.spyOn(api.video, 'GET').mockImplementation(async (path, opts: any) => {
       if (path === '/v1/videos/{video_id}/related') {
-        expect(opts.params.path.video_id).toBe('source-vid');
+        expect(opts.params.path.video_id).toBe('0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11');
         expect(opts.params.query.limit).toBe(12);
         return {
           data: { items: [...mock12RelatedVideos] },
@@ -153,7 +157,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       return { response: new Response(null, { status: 404 }) } as any;
     });
 
-    renderWithClient(<RelatedVideosColumn videoId="source-vid" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11" />);
 
     // 12 items rendered
     const cards = await screen.findAllByTestId('related-video-card');
@@ -179,6 +183,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       // Duration badge (formatted e.g. 1:05, 2:10)
       const expectedDuration = formatDuration(expected.duration_ms);
       expect(card.textContent).toContain(expectedDuration);
+      expect(card.textContent).toContain(`${expected.view_count} lượt xem`);
     }
   });
 
@@ -186,7 +191,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
     // Keep query pending
     vi.spyOn(api.video, 'GET').mockImplementation(() => new Promise(() => {}));
 
-    renderWithClient(<RelatedVideosColumn videoId="source-vid" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11" />);
 
     const skeletons = screen.getAllByTestId('related-video-skeleton');
     expect(skeletons).toHaveLength(6);
@@ -199,7 +204,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       response: new Response(null, { status: 200 }),
     } as any);
 
-    renderWithClient(<RelatedVideosColumn videoId="source-vid" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11" />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('related-videos-column')).toBeNull();
@@ -214,7 +219,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       response: new Response(null, { status: 404 }),
     } as any);
 
-    renderWithClient(<RelatedVideosColumn videoId="private-or-hidden-vid" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12" />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('related-videos-column')).toBeNull();
@@ -230,7 +235,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       response: new Response(null, { status: 500 }),
     } as any);
 
-    renderWithClient(<RelatedVideosColumn videoId="server-error-vid" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c13" />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('related-videos-column')).toBeNull();
@@ -246,7 +251,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       mock12RelatedVideos[0],
       {
         ...mock12RelatedVideos[1],
-        id: 'current-playing-video-id',
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c14',
         title: 'Current Playing Video Should Be Filtered Out',
       },
       mock12RelatedVideos[2],
@@ -257,7 +262,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       response: new Response(null, { status: 200 }),
     } as any);
 
-    renderWithClient(<RelatedVideosColumn videoId="current-playing-video-id" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c14" />);
 
     const cards = await screen.findAllByTestId('related-video-card');
     expect(cards).toHaveLength(2);
@@ -272,7 +277,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
           items: [
             {
               ...mock12RelatedVideos[0],
-              id: `rel-for-${vid}`,
+              id: '0192f5e4-7c1a-7b3e-9d2a-999999999999',
               title: `Related for ${vid}`,
             },
           ],
@@ -282,17 +287,20 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
     });
 
     const client = createTestQueryClient();
-    const { rerender } = renderWithClient(<RelatedVideosColumn videoId="video-alpha" />, client);
+    const { rerender } = renderWithClient(
+      <RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c15" />,
+      client,
+    );
 
     await waitFor(() => {
-      expect(screen.getByText('Related for video-alpha')).toBeDefined();
+      expect(screen.getByText('Related for 0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c15')).toBeDefined();
     });
     expect(getSpy).toHaveBeenCalledTimes(1);
     expect(getSpy).toHaveBeenCalledWith(
       '/v1/videos/{video_id}/related',
       expect.objectContaining({
         params: expect.objectContaining({
-          path: { video_id: 'video-alpha' },
+          path: { video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c15' },
           query: { limit: 12 },
         }),
       }),
@@ -301,19 +309,19 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
     // Navigate to video-beta
     rerender(
       <QueryClientProvider client={client}>
-        <RelatedVideosColumn videoId="video-beta" />
+        <RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c16" />
       </QueryClientProvider>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Related for video-beta')).toBeDefined();
+      expect(screen.getByText('Related for 0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c16')).toBeDefined();
     });
     expect(getSpy).toHaveBeenCalledTimes(2);
     expect(getSpy).toHaveBeenLastCalledWith(
       '/v1/videos/{video_id}/related',
       expect.objectContaining({
         params: expect.objectContaining({
-          path: { video_id: 'video-beta' },
+          path: { video_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c16' },
           query: { limit: 12 },
         }),
       }),
@@ -328,7 +336,9 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
 
     // Vietnamese
     setTestLocale('vi');
-    const { unmount } = renderWithClient(<RelatedVideosColumn videoId="test-vid-vi" />);
+    const { unmount } = renderWithClient(
+      <RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c17" />,
+    );
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: 'Xem tiếp' })).toBeDefined();
     });
@@ -336,7 +346,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
 
     // English
     setTestLocale('en');
-    renderWithClient(<RelatedVideosColumn videoId="test-vid-en" />);
+    renderWithClient(<RelatedVideosColumn videoId="0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c18" />);
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: 'Up next' })).toBeDefined();
     });

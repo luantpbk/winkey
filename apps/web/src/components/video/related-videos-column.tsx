@@ -6,7 +6,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import type { VideoSummary } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { Link } from '../../i18n/routing';
-import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
+import { formatDuration, formatRelativeTime } from '../../lib/format';
 
 export interface RelatedVideosColumnProps {
   videoId: string;
@@ -20,12 +20,12 @@ export function RelatedVideoSkeleton() {
       className="flex gap-3 animate-pulse"
       aria-hidden="true"
     >
-      <div className="aspect-video w-40 shrink-0 rounded-xl bg-[#272727] dark:bg-[#272727] bg-gray-200" />
+      <div className="aspect-video w-40 shrink-0 rounded-xl bg-gray-200 dark:bg-[#272727]" />
       <div className="flex flex-col flex-1 gap-2 py-1">
-        <div className="h-3.5 w-full rounded bg-[#272727] dark:bg-[#272727] bg-gray-200" />
-        <div className="h-3.5 w-3/4 rounded bg-[#272727] dark:bg-[#272727] bg-gray-200" />
-        <div className="h-3 w-1/2 rounded bg-[#272727] dark:bg-[#272727] bg-gray-200 mt-1" />
-        <div className="h-2.5 w-1/3 rounded bg-[#272727] dark:bg-[#272727] bg-gray-200" />
+        <div className="h-3.5 w-full rounded bg-gray-200 dark:bg-[#272727]" />
+        <div className="h-3.5 w-3/4 rounded bg-gray-200 dark:bg-[#272727]" />
+        <div className="h-3 w-1/2 rounded bg-gray-200 dark:bg-[#272727] mt-1" />
+        <div className="h-2.5 w-1/3 rounded bg-gray-200 dark:bg-[#272727]" />
       </div>
     </div>
   );
@@ -81,9 +81,7 @@ export function RelatedVideoCard({ video, locale }: { video: VideoSummary; local
         </Link>
 
         <div className="flex items-center gap-1 text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          <span>
-            {formatViews(video.view_count)} {t('viewsSuffix')}
-          </span>
+          <span>{t('views', { count: video.view_count })}</span>
           <span>•</span>
           <span>{formatRelativeTime(publishedAt, locale)}</span>
         </div>

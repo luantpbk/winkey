@@ -129,17 +129,6 @@ export function createAuthInterceptor(
         // ignore url parsing error
       }
 
-      if (
-        request.headers.get('Authorization') === '' ||
-        request.headers.get('x-skip-auth') === 'true' ||
-        request.headers.get('X-Skip-Auth') === 'true'
-      ) {
-        request.headers.delete('Authorization');
-        request.headers.delete('x-skip-auth');
-        request.headers.delete('X-Skip-Auth');
-        return request;
-      }
-
       const token = await getAccessToken();
       if (token && !request.headers.has('Authorization')) {
         request.headers.set('Authorization', `Bearer ${token}`);

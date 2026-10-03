@@ -276,7 +276,7 @@ export function setMockRelatedVideosOverride(videos: VideoSummary[] | null) {
 }
 
 export const mockRelatedVideosFixture: VideoSummary[] = Array.from({ length: 16 }, (_, i) => ({
-  id: `0192f5e4-7c1a-7b3e-9d2a-rel0000000${(i + 1).toString().padStart(2, '0')}`,
+  id: `0192f5e4-7c1a-7b3e-9d2a-b000000000${(i + 1).toString().padStart(2, '0')}`,
   title: `Video đề xuất ${i + 1}: Kỹ thuật Streaming và Hệ thống phân tán`,
   owner: {
     id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 3) + 1}`,
