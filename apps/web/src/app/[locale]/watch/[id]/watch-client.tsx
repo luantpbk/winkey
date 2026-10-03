@@ -7,7 +7,6 @@ import { formatViews, formatRelativeTime } from '../../../../lib/format';
 import { Share2, Flag, Subtitles, Clock, BookmarkPlus } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
 import { SubscribeButton } from '../../../../components/social/subscribe-button';
-import { CommentSection } from '../../../../components/social/comment-section';
 import { ReportDialog } from '../../../../components/moderation/report-dialog';
 import { VideoSubtitlesDialog } from '../../../../components/studio/video-subtitles-dialog';
 import { SavePlaylistDialog } from '../../../../components/playlist/save-playlist-dialog';
@@ -158,11 +157,6 @@ export function WatchClientSection({ video }: { video: Video }) {
           {isExpanded ? 'Thu gọn' : 'Xem thêm'}
         </button>
       </div>
-
-      {/* Comments Section */}
-      <React.Suspense fallback={null}>
-        <CommentSection videoId={video.id} />
-      </React.Suspense>
 
       {/* Report Video Dialog */}
       <ReportDialog

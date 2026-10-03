@@ -1257,4 +1257,56 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       timeout: 5000,
     });
   });
+
+  test('R2-c-web: Related videos column on watch page (open watch -> column shows -> click 2nd item -> URL changes and column reloads for new video)', async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+
+    // 1. Open a watch page
+    const initialVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+    await page.goto(`/vi/watch/${initialVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. The related videos column shows
+    const relatedColumn = page.locator('[data-testid="related-videos-column"]');
+    await expect(relatedColumn).toBeVisible({ timeout: 15000 });
+
+    const relatedCards = page.locator('[data-testid="related-video-card"]');
+    await expect(relatedCards.first()).toBeVisible({ timeout: 10000 });
+    const count = await relatedCards.count();
+    expect(count).toBeGreaterThanOrEqual(2);
+
+    // Initial video ID must not be in the list
+    const currentVideoCards = page.locator(
+      `[data-testid="related-video-card"][data-video-id="${initialVideoId}"]`,
+    );
+    expect(await currentVideoCards.count()).toBe(0);
+
+    // 3. Click the 2nd item in the column
+    const secondCard = relatedCards.nth(1);
+    const targetVideoId = await secondCard.getAttribute('data-video-id');
+    expect(targetVideoId).toBeTruthy();
+
+    const secondCardLink = secondCard.locator('a[href*="/watch/"]').first();
+    await secondCardLink.click();
+
+    // 4. URL changes to the new video's watch page
+    await page.waitForURL((url) => url.pathname.includes(`/watch/${targetVideoId}`), {
+      timeout: 15000,
+    });
+    expect(page.url()).toContain(targetVideoId!);
+
+    // 5. The column reloads for the new video and shows the new list
+    await expect(page.locator('[data-testid="related-videos-column"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(relatedCards.first()).toBeVisible({ timeout: 10000 });
+
+    // The new target video ID must not be in its own related list
+    const newCurrentVideoCards = page.locator(
+      `[data-testid="related-video-card"][data-video-id="${targetVideoId}"]`,
+    );
+    expect(await newCurrentVideoCards.count()).toBe(0);
+  });
 });
