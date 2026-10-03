@@ -7,6 +7,7 @@ import type { VideoSummary } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { Link } from '../../i18n/routing';
 import { formatDuration, formatRelativeTime } from '../../lib/format';
+import { getThumbnailUrl } from '../../lib/constants';
 
 export interface RelatedVideosColumnProps {
   videoId: string;
@@ -33,9 +34,7 @@ export function RelatedVideoSkeleton() {
 
 export function RelatedVideoCard({ video, locale }: { video: VideoSummary; locale: string }) {
   const t = useTranslations('watch');
-  const thumbnailUrl =
-    video.thumbnail_url ||
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80';
+  const thumbnailUrl = getThumbnailUrl(video.thumbnail_url);
   const publishedAt = video.published_at || '';
 
   return (

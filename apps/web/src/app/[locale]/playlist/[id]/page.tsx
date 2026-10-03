@@ -13,6 +13,7 @@ import {
   computeDropBeforeVideoId,
 } from '../../../../lib/playlist/playlist-utils';
 import { formatDuration, formatViews, formatRelativeTime } from '../../../../lib/format';
+import { getThumbnailUrl } from '../../../../lib/constants';
 import {
   Play,
   Trash2,
@@ -349,9 +350,7 @@ export default function PlaylistPage() {
   }
 
   const firstValidVideo = mergedItems.find((m) => m.video !== null)?.video;
-  const coverUrl =
-    firstValidVideo?.thumbnail_url ||
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80';
+  const coverUrl = getThumbnailUrl(firstValidVideo?.thumbnail_url);
 
   return (
     <div className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4">
@@ -565,7 +564,7 @@ export default function PlaylistPage() {
                         className="relative aspect-video w-32 sm:w-40 shrink-0 rounded-xl overflow-hidden bg-zinc-800"
                       >
                         <img
-                          src={video.thumbnail_url}
+                          src={getThumbnailUrl(video.thumbnail_url)}
                           alt={video.title}
                           className="h-full w-full object-cover group-hover:scale-105 transition"
                           loading="lazy"
