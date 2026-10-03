@@ -11,8 +11,8 @@
 // very same batch (same rows, same token) until it succeeds; the messages are kept alive with InProgress meanwhile.
 // Re-fetching instead (Nak and receive them again) could return a longer batch with the same first sequence, which
 // would get another token and count the overlap twice. Only a crash between a committed INSERT and the acks can make
-// JetStream redeliver an already inserted batch; the rows then collapse in ReplacingMergeTree and, for the window of
-// the last batches, in the materialized view as well when the redelivered batch has the same bounds.
+// JetStream redeliver an already inserted batch. A redelivered batch checks which event IDs are already persisted
+// before inserting its missing rows, so a different batch boundary cannot count a committed overlap twice.
 package worker
 
 import (
@@ -55,7 +55,9 @@ func MessagesMalformed() prometheus.Counter { return messagesTotal.WithLabelValu
 type Msg interface {
 	Data() []byte
 	Seq() uint64 // stream sequence
+	Redelivered() bool
 	Ack() error
+	Nak() error
 	Term() error
 	InProgress() error
 }
@@ -69,6 +71,9 @@ type Source interface {
 // Inserter writes rows with ONE INSERT carrying the deduplication token.
 type Inserter interface {
 	InsertBatch(ctx context.Context, rows []event.Row, token string) error
+	// Unwritten returns rows whose event IDs are not yet persisted. Used once per redelivered batch;
+	// after a successful lookup, INSERT retries keep exactly the same rows and token.
+	Unwritten(ctx context.Context, rows []event.Row) ([]event.Row, error)
 }
 
 // Worker is the batching loop.
@@ -113,7 +118,7 @@ func (w *Worker) defaults() {
 }
 
 // Run processes batches until ctx is cancelled. A batch that is being written when ctx is cancelled is abandoned
-// without acknowledgement: JetStream redelivers it.
+// without acknowledgement and NAKed for immediate redelivery.
 func (w *Worker) Run(ctx context.Context) error {
 	w.defaults()
 	for ctx.Err() == nil {
@@ -186,6 +191,23 @@ func (w *Worker) ProcessBatch(ctx context.Context, msgs []Msg) error {
 		first, last = min(first, e.msg.Seq()), max(last, e.msg.Seq())
 	}
 	all = append(all, dups...)
+	acknowledged := false
+	defer func() {
+		if !acknowledged && ctx.Err() != nil {
+			for _, m := range all {
+				if err := m.Nak(); err != nil {
+					w.Log.Warn("could not release analytics message on shutdown", "seq", m.Seq(), "error", err)
+				}
+			}
+		}
+	}()
+	recovered := true
+	for _, m := range all {
+		if m.Redelivered() {
+			recovered = false
+			break
+		}
+	}
 	token := fmt.Sprintf("%d-%d", first, last)
 
 	for attempt := 1; ; attempt++ {
@@ -195,17 +217,42 @@ func (w *Worker) ProcessBatch(ctx context.Context, msgs []Msg) error {
 			timeout = 30 * time.Second
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
-		err := w.Inserter.InsertBatch(attemptCtx, rows, token)
+		var err error
+		if !recovered {
+			var unwritten []event.Row
+			unwritten, err = w.Inserter.Unwritten(attemptCtx, rows)
+			if err == nil {
+				rows = unwritten
+				if len(rows) > 0 {
+					ids := make(map[uuid.UUID]bool, len(rows))
+					for _, row := range rows {
+						ids[row.EventID] = true
+					}
+					first, last = ^uint64(0), 0
+					for _, e := range keep {
+						if ids[e.row.EventID] {
+							first, last = min(first, e.msg.Seq()), max(last, e.msg.Seq())
+						}
+					}
+					token = fmt.Sprintf("%d-%d", first, last)
+				}
+				recovered = true
+			}
+		}
+		if err == nil && len(rows) > 0 {
+			err = w.Inserter.InsertBatch(attemptCtx, rows, token)
+		}
 		cancel()
 		if err == nil {
 			batchSeconds.Observe(time.Since(start).Seconds())
 			batchesTotal.WithLabelValues("inserted").Inc()
 			rowsInserted.Add(float64(len(rows)))
-			messagesTotal.WithLabelValues("inserted").Add(float64(len(rows)))
+			messagesTotal.WithLabelValues("inserted").Add(float64(len(keep)))
 			messagesTotal.WithLabelValues("duplicate").Add(float64(len(dups)))
 			for _, m := range all {
 				_ = m.Ack() // only now: a message is never acknowledged before its rows are in ClickHouse
 			}
+			acknowledged = true
 			return nil
 		}
 		if ctx.Err() != nil {

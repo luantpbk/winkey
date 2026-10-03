@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/luantpbk/winkey/libs/go/testkit"
 	"github.com/luantpbk/winkey/services/analytics/internal/chdb"
+	"github.com/luantpbk/winkey/services/analytics/internal/event"
 	"github.com/luantpbk/winkey/services/analytics/internal/migrate"
 	"github.com/luantpbk/winkey/services/analytics/internal/worker"
 )
@@ -233,20 +235,34 @@ func generate(n int, seed int64, first int) []sample {
 
 func (s *stack) publish(samples []sample) {
 	s.t.Helper()
-	ctx := context.Background()
-	for _, sm := range samples {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	// Bound the outstanding publishes below JetStream's default async limit (256). Otherwise a busy
+	// Docker host can exhaust its 200 ms stall wait before the fixture has even reached the worker.
+	const window = 128
+	var pending []jetstream.PubAckFuture
+	for i, sm := range samples {
 		msg := &nats.Msg{Subject: "analytics.playback", Data: sm.payload(), Header: nats.Header{}}
 		msg.Header.Set(nats.MsgIdHdr, sm.id.String())
-		if _, err := s.nats.JS.PublishMsgAsync(msg); err != nil {
+		ack, err := s.nats.JS.PublishMsgAsync(msg)
+		if err != nil {
 			s.t.Fatal(err)
 		}
+		pending = append(pending, ack)
+		if len(pending) < window && i != len(samples)-1 {
+			continue
+		}
+		for _, ack := range pending {
+			select {
+			case <-ack.Ok():
+			case err := <-ack.Err():
+				s.t.Fatalf("publish failed: %v", err)
+			case <-ctx.Done():
+				s.t.Fatal("publish did not complete")
+			}
+		}
+		pending = pending[:0]
 	}
-	select {
-	case <-s.nats.JS.PublishAsyncComplete():
-	case <-time.After(60 * time.Second):
-		s.t.Fatal("publish did not complete")
-	}
-	_ = ctx
 }
 
 type hourKey struct {
@@ -430,6 +446,65 @@ func TestClickHouseDownMidRunLosesNothingAndSumsStayExact(t *testing.T) {
 		t.Fatalf("%d rows, want exactly 10000 (no loss, no duplicate)", n)
 	}
 	assertSums(t, s.hourly(), expected(all))
+}
+
+type lostInsertResponse struct {
+	*chdb.Inserter
+	cancel context.CancelFunc
+}
+
+func (i lostInsertResponse) InsertBatch(ctx context.Context, rows []event.Row, token string) error {
+	if err := i.Inserter.InsertBatch(ctx, rows, token); err != nil {
+		return err
+	}
+	i.cancel()
+	return context.Canceled // the database committed, but the worker never received confirmation
+}
+
+func TestRedeliveryAfterAnUnconfirmedCommitKeepsExactSums(t *testing.T) {
+	s := startStack(t)
+	s.migrate()
+	first, second := generate(100, 7, 0), generate(100, 8, 100)
+	s.publish(first)
+	src := &worker.JetStreamSource{JS: s.nats.JS, Log: quiet()}
+	batch, err := src.Fetch(context.Background(), 5000, time.Second)
+	if err != nil || len(batch) != len(first) {
+		t.Fatalf("initial fetch: %d messages, %v", len(batch), err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inserter := &chdb.Inserter{Conn: s.conn}
+	w := &worker.Worker{Inserter: lostInsertResponse{inserter, cancel}, Log: quiet()}
+	if err := w.ProcessBatch(ctx, batch); !errors.Is(err, context.Canceled) {
+		t.Fatalf("unconfirmed INSERT: %v", err)
+	}
+	if info := s.info(); s.count() != 100 || info.NumAckPending != 100 {
+		t.Fatalf("committed rows %d, ACK pending %d: unconfirmed messages must not be acknowledged", s.count(), info.NumAckPending)
+	}
+	s.publish(second)
+	restarted := &worker.JetStreamSource{JS: s.nats.JS, Log: quiet()}
+	batch, err = restarted.Fetch(context.Background(), 5000, time.Second)
+	if err != nil || len(batch) != 200 {
+		t.Fatalf("mixed redelivery: %d messages, %v", len(batch), err)
+	}
+	redelivered := 0
+	for _, m := range batch {
+		if m.Redelivered() {
+			redelivered++
+		}
+	}
+	if redelivered != 100 {
+		t.Fatalf("redelivered %d, want the 100 committed messages", redelivered)
+	}
+	w = &worker.Worker{Inserter: inserter, Log: quiet()}
+	if err := w.ProcessBatch(context.Background(), batch); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 30*time.Second, "mixed batch acknowledged", func() bool { i := s.info(); return i.NumPending == 0 && i.NumAckPending == 0 })
+	if n := s.count(); n != 200 {
+		t.Fatalf("%d rows, want exactly 200 (no loss, no duplicate)", n)
+	}
+	assertSums(t, s.hourly(), expected(append(first, second...)))
 }
 
 func TestMalformedMessagesAreTerminatedAndTheRestIsInserted(t *testing.T) {

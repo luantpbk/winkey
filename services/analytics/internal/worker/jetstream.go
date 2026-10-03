@@ -21,13 +21,16 @@ const (
 )
 
 type jsMsg struct {
-	m   jetstream.Msg
-	seq uint64
+	m           jetstream.Msg
+	seq         uint64
+	redelivered bool
 }
 
 func (j jsMsg) Data() []byte      { return j.m.Data() }
 func (j jsMsg) Seq() uint64       { return j.seq }
+func (j jsMsg) Redelivered() bool { return j.redelivered }
 func (j jsMsg) Ack() error        { return j.m.Ack() }
+func (j jsMsg) Nak() error        { return j.m.Nak() }
 func (j jsMsg) Term() error       { return j.m.Term() }
 func (j jsMsg) InProgress() error { return j.m.InProgress() }
 
@@ -116,7 +119,7 @@ func (s *JetStreamSource) Fetch(ctx context.Context, max int, wait time.Duration
 				_ = m.Term() // a message without metadata is not one of ours
 				continue
 			}
-			out = append(out, jsMsg{m: m, seq: md.Sequence.Stream})
+			out = append(out, jsMsg{m: m, seq: md.Sequence.Stream, redelivered: md.NumDelivered > 1})
 		}
 		if err := batch.Error(); err != nil && (errors.Is(err, jetstream.ErrConsumerNotFound) || errors.Is(err, jetstream.ErrConsumerDeleted)) {
 			s.set(nil)

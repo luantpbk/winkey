@@ -14,6 +14,11 @@ Moves `analytics.playback` v1 events from the JetStream stream `ANALYTICS` into 
   with the same token** (with back-off, telling JetStream it is still working via `InProgress`), so a block that was
   written but not confirmed is recognised and not counted twice. (A token identifies a block only when the same messages
   form the same block, which is why the batch is retried in-process and not Nak'ed and re-fetched.)
+* Graceful shutdown NAKs an unacknowledged batch for immediate redelivery. Before inserting a batch containing
+  redelivered messages, the worker looks up persisted event IDs using the existing `(video_id, playback_id, seq)`
+  sorting key and inserts only missing rows. This also handles an INSERT that committed but lost its response:
+  a restarted worker can receive different batch bounds without counting the overlap again. Lookup failures are
+  retried without acknowledging messages; once recovery succeeds, INSERT retries preserve the recovered rows/token.
 * Duplicates of one `event_id` inside a batch are dropped before the INSERT (the hourly view would sum them).
 * A malformed or schema-invalid message is `Term`'d (counted in `analytics_messages_total{result="malformed"}`), never retried.
 * Migrations: `db/clickhouse/*.sql` from `CLICKHOUSE_MIGRATIONS_DIR` (mounted at `/migrations`) are applied in name order
@@ -72,4 +77,6 @@ read only that table.
 * Runs never overlap (one goroutine). A failed run is logged, counted (`analytics_rollup_errors_total`) and retried at the next tick;
   it never fails `/readyz` and never stops ingestion. Other metrics: `analytics_rollup_last_success_timestamp_seconds`,
   `analytics_rollup_duration_seconds`, `analytics_rollup_rows_upserted_total`.
-* Like the ClickHouse side, this inherits the known double-count risk of ADR-022 (a crash between INSERT and ack).
+* Redelivery reconciles already persisted event IDs before another INSERT; daily rollup recomputes the affected days.
+  This assumes a single ingesting worker, as deployed: the lookup is not an atomic uniqueness constraint between
+  concurrent writers, and ClickHouse's finite deduplication window still applies to in-process INSERT retries.

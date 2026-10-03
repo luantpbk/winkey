@@ -20,17 +20,21 @@ import (
 // ---- fakes -------------------------------------------------------------------------------------------------------
 
 type fakeMsg struct {
-	data       []byte
-	seq        uint64
-	acked      atomic.Int32
-	termed     atomic.Int32
-	inProgress atomic.Int32
-	insertedAt func() bool // set by tests: true when the message's batch was already written
-	ackedEarly *atomic.Bool
+	data        []byte
+	seq         uint64
+	acked       atomic.Int32
+	termed      atomic.Int32
+	inProgress  atomic.Int32
+	naked       atomic.Int32
+	redelivered bool
+	insertedAt  func() bool // set by tests: true when the message's batch was already written
+	ackedEarly  *atomic.Bool
 }
 
-func (m *fakeMsg) Data() []byte { return m.data }
-func (m *fakeMsg) Seq() uint64  { return m.seq }
+func (m *fakeMsg) Data() []byte      { return m.data }
+func (m *fakeMsg) Seq() uint64       { return m.seq }
+func (m *fakeMsg) Redelivered() bool { return m.redelivered }
+func (m *fakeMsg) Nak() error        { m.naked.Add(1); return nil }
 func (m *fakeMsg) Ack() error {
 	if m.insertedAt != nil && !m.insertedAt() && m.ackedEarly != nil {
 		m.ackedEarly.Store(true)
@@ -46,15 +50,38 @@ func (m *fakeMsg) InProgress() error { m.inProgress.Add(1); return nil }
 // and the hourly view sums whatever reaches it. It can fail the first `failFirst` inserts, optionally AFTER the
 // block was committed (a timeout on the answer).
 type fakeCH struct {
-	mu          sync.Mutex
-	tokens      map[string]bool
-	rows        []event.Row
-	calls       []string // the token of every call, in order
-	sizes       []int
-	failFirst   int
-	commitFirst bool // the failing calls commit first
-	hourlySum   uint64
-	hourlyCount uint64
+	mu             sync.Mutex
+	tokens         map[string]bool
+	rows           []event.Row
+	calls          []string // the token of every call, in order
+	sizes          []int
+	failFirst      int
+	commitFirst    bool // the failing calls commit first
+	hourlySum      uint64
+	hourlyCount    uint64
+	lookupCalls    int
+	lookupFailures int
+}
+
+func (c *fakeCH) Unwritten(_ context.Context, rows []event.Row) ([]event.Row, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lookupCalls++
+	if c.lookupFailures > 0 {
+		c.lookupFailures--
+		return nil, errors.New("clickhouse: lookup unavailable")
+	}
+	stored := map[uuid.UUID]bool{}
+	for _, row := range c.rows {
+		stored[row.EventID] = true
+	}
+	var out []event.Row
+	for _, row := range rows {
+		if !stored[row.EventID] {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (c *fakeCH) InsertBatch(_ context.Context, rows []event.Row, token string) error {
@@ -339,6 +366,128 @@ func TestShuttingDownAbandonsTheBatchWithoutAcking(t *testing.T) {
 	}
 	if count(ms, func(m *fakeMsg) int32 { return m.acked.Load() + m.termed.Load() }) != 0 {
 		t.Fatal("an abandoned batch must be neither acknowledged nor terminated (JetStream redelivers it)")
+	}
+	if count(ms, func(m *fakeMsg) int32 { return m.naked.Load() }) != len(ms) {
+		t.Fatal("every abandoned message must be NAKed for immediate redelivery")
+	}
+}
+
+type cancelAfterInsert struct {
+	*fakeCH
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterInsert) InsertBatch(ctx context.Context, rows []event.Row, token string) error {
+	err := c.fakeCH.InsertBatch(ctx, rows, token)
+	c.cancel()
+	return err
+}
+
+// The old INSERT commits but its response is lost during shutdown. A new worker receives that block
+// together with fresh messages: changing the bounds must not insert or sum the committed overlap again.
+func TestShutdownAfterAnUnconfirmedCommitRecoversAMixedRedeliveredBatch(t *testing.T) {
+	ch := &fakeCH{failFirst: 1, commitFirst: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	old := msgs(1, 4)
+	if err := worker(nil, cancelAfterInsert{ch, cancel}).ProcessBatch(ctx, asMsgs(old)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("shutdown: %v", err)
+	}
+	for _, m := range old {
+		if m.acked.Load() != 0 || m.termed.Load() != 0 || m.naked.Load() != 1 {
+			t.Fatal("unconfirmed commit must be NAKed, not acknowledged or terminated")
+		}
+	}
+	redelivered := msgs(1, 10)
+	for _, m := range redelivered[:4] {
+		m.redelivered = true
+	}
+	var early atomic.Bool
+	for _, m := range redelivered {
+		m.insertedAt = func() bool { return ch.rowCount() == 10 }
+		m.ackedEarly = &early
+	}
+	// The first recovery lookup fails and the new INSERT commits without confirmation once more.
+	ch.lookupFailures, ch.failFirst = 1, 1
+	if err := worker(nil, ch).ProcessBatch(context.Background(), asMsgs(redelivered)); err != nil {
+		t.Fatal(err)
+	}
+	if early.Load() || ch.rowCount() != 10 || ch.hourlyCount != 10 || ch.hourlySum != 10000 {
+		t.Fatalf("early ack %v rows %d hourly count %d sum %d", early.Load(), ch.rowCount(), ch.hourlyCount, ch.hourlySum)
+	}
+	if strings.Join(ch.calls, ",") != "1-4,5-10,5-10" || ch.lookupCalls != 2 {
+		t.Fatalf("calls %v recovery lookups %d", ch.calls, ch.lookupCalls)
+	}
+	for _, m := range redelivered {
+		if m.acked.Load() != 1 || m.termed.Load() != 0 || m.naked.Load() != 0 {
+			t.Fatal("recovered messages must be acknowledged once after all rows are persisted")
+		}
+	}
+}
+
+func TestAnEntirelyCommittedRedeliveryIsAcknowledgedWithoutAnotherInsert(t *testing.T) {
+	ch := &fakeCH{}
+	first := msgs(1, 4)
+	if err := worker(nil, ch).ProcessBatch(context.Background(), asMsgs(first)); err != nil {
+		t.Fatal(err)
+	}
+	replay := msgs(1, 4)
+	for _, m := range replay {
+		m.redelivered = true
+	}
+	if err := worker(nil, ch).ProcessBatch(context.Background(), asMsgs(replay)); err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.calls) != 1 || ch.lookupCalls != 1 || ch.rowCount() != 4 || ch.hourlySum != 4000 {
+		t.Fatalf("calls %v lookups %d rows %d sum %d", ch.calls, ch.lookupCalls, ch.rowCount(), ch.hourlySum)
+	}
+	for _, m := range replay {
+		if m.acked.Load() != 1 {
+			t.Fatal("persisted redelivery was not acknowledged")
+		}
+	}
+}
+
+func TestShutdownDuringAHangingInsertReleasesValidMessagesAndDuplicates(t *testing.T) {
+	ch := &blockingCH{hang: 1}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	valid := msgs(1, 2)
+	duplicate := &fakeMsg{data: payload(1, ""), seq: 3}
+	malformed := &fakeMsg{data: []byte("garbage"), seq: 4}
+	w := worker(nil, ch)
+	done := make(chan error, 1)
+	go func() { done <- w.ProcessBatch(ctx, []Msg{valid[0], valid[1], duplicate, malformed}) }()
+	deadline := time.After(3 * time.Second)
+	for {
+		ch.mu.Lock()
+		started := len(ch.deadline) > 0
+		ch.mu.Unlock()
+		if started {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("INSERT did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("%v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("INSERT did not stop")
+	}
+	for _, m := range append(valid, duplicate) {
+		if m.naked.Load() != 1 || m.acked.Load() != 0 || m.termed.Load() != 0 {
+			t.Fatal("unwritten valid messages and duplicates must be released without ACK/Term")
+		}
+	}
+	if malformed.termed.Load() != 1 || malformed.naked.Load() != 0 {
+		t.Fatal("a terminated malformed message must not be NAKed")
 	}
 }
 
