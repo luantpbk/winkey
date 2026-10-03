@@ -25,6 +25,7 @@
     "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}"
   },
   "watch": {
+    "upNext": "Xem tiếp",
     "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
     "publishedOn": "Đã xuất bản vào {date}",
     "description": "Mô tả",

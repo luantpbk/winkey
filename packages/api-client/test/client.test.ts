@@ -90,4 +90,31 @@ describe('@winkey/api-client', () => {
 
     expect(capturedHeaders?.has('Authorization')).toBe(false);
   });
+
+  it('omits Authorization header for listRelatedVideos even when getAccessToken returns a token', async () => {
+    let capturedHeaders: Headers | undefined;
+    const mockFetch: typeof fetch = async (input, init) => {
+      const req = input instanceof Request ? input : new Request(input, init);
+      capturedHeaders = req.headers;
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const client = createVideoClient({
+      fetch: mockFetch,
+      baseUrl: 'http://localhost:8080',
+      getAccessToken: () => 'signed-in-user-token-xyz',
+    });
+
+    await client.GET('/v1/videos/{video_id}/related', {
+      params: {
+        path: { video_id: 'vid-123' },
+        query: { limit: 12 },
+      },
+    });
+
+    expect(capturedHeaders?.has('Authorization')).toBe(false);
+  });
 });

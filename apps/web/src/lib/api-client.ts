@@ -60,8 +60,15 @@ export async function refreshAccessToken(): Promise<string | null> {
 export const customFetch: typeof fetch = async (input, init) => {
   const req = input instanceof Request ? input : new Request(input, init);
 
+  const url = req.url;
+  const isRelatedVideos = /\/v1\/videos\/[^/]+\/related(\?.*)?$/.test(url);
+
+  if (isRelatedVideos) {
+    req.headers.delete('Authorization');
+  }
+
   const token = tokenStore.get();
-  if (token && !req.headers.has('Authorization')) {
+  if (!isRelatedVideos && token && !req.headers.has('Authorization')) {
     req.headers.set('Authorization', `Bearer ${token}`);
   }
 
@@ -69,14 +76,13 @@ export const customFetch: typeof fetch = async (input, init) => {
   const reqForRetry = req.clone();
   const response = await fetch(req);
 
-  const url = req.url;
   const isAuthRoute =
     url.includes('/v1/auth/refresh') ||
     url.includes('/v1/auth/login') ||
     url.includes('/v1/auth/register') ||
     url.includes('/v1/auth/logout');
 
-  if (response.status === 401 && !isAuthRoute) {
+  if (response.status === 401 && !isAuthRoute && !isRelatedVideos) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       reqForRetry.headers.set('Authorization', `Bearer ${newToken}`);

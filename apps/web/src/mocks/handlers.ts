@@ -262,6 +262,36 @@ export function getMockHeartbeat429(): boolean {
   return mockHeartbeat429;
 }
 
+let mockRelatedMode: 'default' | 'empty' | '404' | '500' = 'default';
+export function setMockRelatedMode(mode: 'default' | 'empty' | '404' | '500') {
+  mockRelatedMode = mode;
+}
+export function getMockRelatedMode(): 'default' | 'empty' | '404' | '500' {
+  return mockRelatedMode;
+}
+
+let mockRelatedVideosOverride: VideoSummary[] | null = null;
+export function setMockRelatedVideosOverride(videos: VideoSummary[] | null) {
+  mockRelatedVideosOverride = videos;
+}
+
+export const mockRelatedVideosFixture: VideoSummary[] = Array.from({ length: 16 }, (_, i) => ({
+  id: `0192f5e4-7c1a-7b3e-9d2a-b000000000${(i + 1).toString().padStart(2, '0')}`,
+  title: `Video đề xuất ${i + 1}: Kỹ thuật Streaming và Hệ thống phân tán`,
+  owner: {
+    id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 3) + 1}`,
+    display_name: `Kênh Kỹ Thuật ${(i % 3) + 1}`,
+    handle: `kenhkythuat${(i % 3) + 1}`,
+    avatar_url:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+  },
+  duration_ms: (i + 1) * 125000,
+  view_count: (i + 1) * 12000,
+  published_at: new Date(Date.now() - (i + 1) * 3600000 * 24).toISOString(),
+  thumbnail_url:
+    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+}));
+
 let mockRecordedHeartbeats: PlaybackSample[] = [];
 export function getMockRecordedHeartbeats(): PlaybackSample[] {
   return mockRecordedHeartbeats;
@@ -1480,9 +1510,74 @@ export const handlers = [
     return HttpResponse.json({ items });
   }),
 
+  http.get('*/v1/videos/:id/related', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const url = new URL(request.url);
+    const modeParam = url.searchParams.get('mock_mode') as 'empty' | '404' | '500' | null;
+    const mode = modeParam || getMockRelatedMode();
+
+    if (mode === '500') {
+      return HttpResponse.json(
+        {
+          type: '/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
+          code: 'INTERNAL_SERVER_ERROR',
+        },
+        { status: 500 },
+      );
+    }
+
+    if (mode === '404') {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Video not found',
+          status: 404,
+          code: 'VIDEO_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    if (mode === 'empty') {
+      return HttpResponse.json({ items: [] });
+    }
+
+    const limit = Math.min(24, Math.max(1, parseInt(url.searchParams.get('limit') || '12', 10)));
+
+    if (mockRelatedVideosOverride) {
+      const items = mockRelatedVideosOverride.filter((v) => v.id !== videoId).slice(0, limit);
+      return HttpResponse.json({ items });
+    }
+
+    // Default: return up to limit (12) items excluding current video
+    const items = mockRelatedVideosFixture.filter((v) => v.id !== videoId).slice(0, limit);
+    return HttpResponse.json({ items });
+  }),
+
   http.get('*/v1/videos/:id', async ({ params }) => {
     const videoId = params.id as string;
-    const video = getDynamicVideos().find((v) => v.id === videoId);
+    let video = getDynamicVideos().find((v) => v.id === videoId);
+    if (!video) {
+      const rel = mockRelatedVideosFixture.find((v) => v.id === videoId);
+      if (rel) {
+        video = {
+          ...rel,
+          description: `Mô tả cho video: ${rel.title}`,
+          visibility: 'PUBLIC',
+          status: 'READY',
+          like_count: 320,
+          width: 1920,
+          height: 1080,
+          created_at: rel.published_at || new Date().toISOString(),
+          playback: {
+            ...mockVideos[0].playback!,
+            thumbnail_url: rel.thumbnail_url,
+          },
+        } as Video;
+      }
+    }
     if (!video) {
       return HttpResponse.json(
         {

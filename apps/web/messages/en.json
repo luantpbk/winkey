@@ -25,6 +25,7 @@
     "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}"
   },
   "watch": {
+    "upNext": "Up next",
     "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}",
     "publishedOn": "Published on {date}",
     "description": "Description",
