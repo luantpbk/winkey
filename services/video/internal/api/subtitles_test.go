@@ -366,7 +366,8 @@ func TestSubtitleChangesInvalidateTheCache(t *testing.T) {
 	get := func() []subtitleJSON {
 		return decode[videoJSON](t, e.req(anon, "GET", "/v1/videos/"+v.ID.String(), "")).Playback.Subtitles
 	}
-	if len(get()) != 0 || len(get()) != 0 || e.cache.hits == 0 {
+	first, cached := get(), get()
+	if len(first) != 0 || len(cached) != 0 || e.cache.hits == 0 {
 		t.Fatalf("the page should be cached: hits %d", e.cache.hits)
 	}
 	e.req(alice, "PUT", subPath(v, "vi"), putBody("Tiếng Việt", goodVTT))

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestGetVideo(t *testing.T) {
 	if err != nil || !o.Owner.Missing || o.OwnerID != ghost.ID {
 		t.Fatalf("suspended owner: %+v %v", o.Owner, err)
 	}
-	if _, err := st.GetVideo(ctx, uuid.New()); err != domain.ErrNotFound {
+	if _, err := st.GetVideo(ctx, uuid.New()); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
 }
@@ -212,7 +213,7 @@ func TestQueriesUseTheirIndexes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil { // the tables are tiny: force the choice
 			t.Fatal(err)
 		}
@@ -253,10 +254,10 @@ func TestUpdateVideo(t *testing.T) {
 	bob := testutil.SeedUser(t, pg.Pool, "bobby", nil, "")
 	v := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID})
 
-	if _, err := st.UpdateVideo(ctx, v.ID, bob.ID, domain.Update{Title: strp("hijacked")}); err != domain.ErrNotFound {
+	if _, err := st.UpdateVideo(ctx, v.ID, bob.ID, domain.Update{Title: strp("hijacked")}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("other owner: %v", err)
 	}
-	if _, err := st.UpdateVideo(ctx, uuid.New(), alice.ID, domain.Update{Title: strp("x")}); err != domain.ErrNotFound {
+	if _, err := st.UpdateVideo(ctx, uuid.New(), alice.ID, domain.Update{Title: strp("x")}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("unknown: %v", err)
 	}
 	got, _ := st.GetVideo(ctx, v.ID)

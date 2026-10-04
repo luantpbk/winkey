@@ -188,10 +188,8 @@ func (h *Handler) listRelatedVideos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeRelated(w http.ResponseWriter, body []byte) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", cacheRelated)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(append(body, '\n'))
+	httpx.WriteJSON(w, http.StatusOK, json.RawMessage(body))
 }
 
 // relatedItems runs the three short queries and merges them.

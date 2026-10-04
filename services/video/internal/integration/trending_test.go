@@ -134,11 +134,6 @@ func TestAddViewsWritesTheHourlyBucketInTheSameTransaction(t *testing.T) {
 	if _, err := s.st.AddViews(ctx, []uuid.UUID{a}, []int64{2}); err != nil { // same hour: the bucket accumulates
 		t.Fatal(err)
 	}
-	type row struct {
-		hour     time.Time
-		views    int64
-		expected time.Time
-	}
 	get := func(id uuid.UUID) (views int64, buckets int, hour time.Time, want time.Time, viewCount int64) {
 		if err := s.pg.Pool.QueryRow(ctx, `
 			SELECT coalesce(sum(h.views), 0), count(h.*), coalesce(min(h.hour), 'epoch'),

@@ -33,7 +33,7 @@ func TestRoundTripSetGetInvalidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	ctx := context.Background()
 	v := sample()
 
@@ -58,7 +58,7 @@ func TestRoundTripSetGetInvalidate(t *testing.T) {
 func TestEntriesExpire(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c, _ := New("redis://"+mr.Addr(), 30*time.Second, quiet())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	v := sample()
 	c.Set(context.Background(), v)
 	mr.FastForward(31 * time.Second)
@@ -72,7 +72,7 @@ func TestEntriesExpire(t *testing.T) {
 func TestFailsOpenAndFastWhenValkeyIsDown(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c, _ := New("redis://"+mr.Addr(), 30*time.Second, quiet())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	mr.Close()
 	ctx := context.Background()
 	v := sample()
@@ -98,7 +98,7 @@ func TestFailsOpenAndFastWhenValkeyIsDown(t *testing.T) {
 func TestFirstFailureIsBounded(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c, _ := New("redis://"+mr.Addr(), 30*time.Second, quiet())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	mr.Close()
 	start := time.Now()
 	c.Get(context.Background(), uuid.New())
@@ -111,7 +111,7 @@ func TestFirstFailureIsBounded(t *testing.T) {
 func TestRecoversAfterTheBreakerCloses(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c, _ := New("redis://"+mr.Addr(), 30*time.Second, quiet())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	ctx := context.Background()
 	v := sample()
 	c.downUntil.Store(time.Now().Add(-time.Second).UnixNano()) // breaker already expired
@@ -124,7 +124,7 @@ func TestRecoversAfterTheBreakerCloses(t *testing.T) {
 func TestCorruptEntryIsAMiss(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c, _ := New("redis://"+mr.Addr(), 30*time.Second, quiet())
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	id := uuid.New()
 	if err := mr.Set("video:v1:"+id.String(), "{not json"); err != nil {
 		t.Fatal(err)
