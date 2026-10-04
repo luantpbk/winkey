@@ -36,10 +36,16 @@ Moves `analytics.playback` v1 events from the JetStream stream `ANALYTICS` into 
 | `BATCH_MAX_WAIT` | `2s` | at least 100 ms |
 | `CLICKHOUSE_INSERT_TIMEOUT` | `30s` | deadline of ONE INSERT attempt, 1s..30s (below half of ack_wait) |
 | `ROLLUP_ENABLED` | `true` | run the daily rollup into PostgreSQL (below) |
-| `POSTGRES_URL` | required when the rollup is enabled | PostgreSQL (role `analytics_svc`: CRUD on schema `analytics`), pool of at most 4 |
+| `POSTGRES_URL` | required when rollup or recommendation is enabled | PostgreSQL (role `analytics_svc`: CRUD on schema `analytics`), pool of at most 4 |
 | `ROLLUP_INTERVAL` | `10m` | between runs, 1m..1h |
 | `ROLLUP_WINDOW_DAYS` | `3` | days recomputed per run (today included), 1..8 |
 | `ROLLUP_BACKFILL_DAYS` | `8` | window of the first successful run after start-up, 1..30 |
+| `RECO_ENABLED` | `true` | refresh recommendation projections independently of ingestion |
+| `RECO_INTERVAL` | `30m` | interval between refreshes, 5m..6h |
+| `RECO_WINDOW_DAYS` | `30` | rolling UTC window, 1..90 days |
+| `RECO_MIN_WATCH_MS` | `20000` | qualified watch threshold, 1000..600000 ms |
+| `RECO_NEIGHBORS` | `30` | neighbors retained per video, 1..100 |
+| `RECO_HISTORY` | `50` | recent qualified videos per authenticated viewer, 1..200 |
 | `HTTP_ADDR` | `:8081` | `/healthz`, `/readyz`, `/metrics` |
 | `LOG_LEVEL` | `info` | |
 
@@ -50,8 +56,8 @@ The module is built standalone (the Dockerfile does the same):
 ```bash
 cd services/analytics
 GOWORK=off go build ./...
-GOWORK=off go test -race ./...                           # unit tests, no Docker
-WINKEY_REQUIRE_DOCKER=1 GOWORK=off go test ./internal/integration/   # real NATS + ClickHouse (containers)
+WINKEY_REQUIRE_DOCKER=1 GOWORK=off go test -race ./...     # unit + real container tests
+WINKEY_REQUIRE_DOCKER=1 GOWORK=off go test ./internal/integration/   # real NATS + ClickHouse + PostgreSQL
 ```
 
 The integration tests cover: migrations applied once; 10,000 events give exactly 10,000 rows and exact hourly sums;
@@ -80,3 +86,37 @@ read only that table.
 * Redelivery reconciles already persisted event IDs before another INSERT; daily rollup recomputes the affected days.
   This assumes a single ingesting worker, as deployed: the lookup is not an atomic uniqueness constraint between
   concurrent writers, and ClickHouse's finite deduplication window still applies to in-process INSERT retries.
+
+## Recommendation refresh (R2-w, ADR-028)
+
+An independent goroutine refreshes immediately at startup, then every `RECO_INTERVAL`. Its failures leave readiness
+and ingestion unchanged. Both jobs share a lazy PostgreSQL pool; PostgreSQL is not a readiness dependency.
+
+Two read-only ClickHouse queries use raw `playback_events FINAL`, so the `(video_id, playback_id, seq)` sorting key
+is deduplicated before watch time is summed, even when parts have not merged. The UTC rolling window ends at run
+start (exclusive). Co-view qualifies all viewers, including anonymous viewers, then self-joins the qualified set
+in SQL. Pairs with fewer than three shared viewers are omitted; scores are cosine similarity on binary qualified
+watches. Each video's neighbors sort by score descending, shared viewers descending, neighbor ID ascending.
+The directed self-join produces both directions before each video's independent top-N selection.
+
+History qualifies only authenticated samples and sorts by latest `received_at` descending, video ID ascending.
+The job transfers only the bounded SQL results into Go, then replaces **both** PostgreSQL tables with DELETE +
+`pgx.CopyFrom` in one transaction. Empty results clear stale content. `refreshed_at` is the shared run-start timestamp.
+Any read, COPY or commit error keeps the previous published projection and retries at the next tick.
+
+Metrics: `analytics_reco_runs_total{result="success|error"}`, `analytics_reco_errors_total`,
+`analytics_reco_last_success_timestamp_seconds`, `analytics_reco_duration_seconds`, `analytics_reco_rows{table}`.
+Rows and success timestamp change only after commit. JSON logs contain counts and the failing step; driver error
+contents are deliberately omitted because PostgreSQL COPY errors can contain a viewer key.
+
+```bash
+go vet ./...
+golangci-lint run
+WINKEY_REQUIRE_DOCKER=1 go test ./...
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestReco -v
+WINKEY_REQUIRE_DOCKER=1 WINKEY_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8 go test ./internal/integration -run TestReco -v
+```
+
+On native Windows, set `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=//var/run/docker.sock` for the Linux Ryuk container.
+The integration fixture verifies exact co-view scores/history, anonymous qualification, thresholds, duplicate parts,
+window bounds, complete replacement and rollback after the second COPY fails.

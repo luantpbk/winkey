@@ -19,6 +19,51 @@ func TestLoadDefaultsAndRequired(t *testing.T) {
 	if c.BatchMaxMessages != 5000 || c.BatchMaxWait != 2*time.Second || c.MigrationsDir != "/migrations" || c.ClickHouseUser != "default" || c.InsertTimeout != 30*time.Second {
 		t.Fatalf("%+v", c)
 	}
+	if !c.RecoEnabled || c.RecoEvery != 30*time.Minute || c.RecoWindow != 30 || c.RecoMinWatch != 20000 || c.RecoNeighbors != 30 || c.RecoHistory != 50 {
+		t.Fatal("recommendation defaults differ from ADR-028")
+	}
+}
+
+func TestRecoValidation(t *testing.T) {
+	ok := Config{BatchMaxMessages: 10, BatchMaxWait: time.Second, InsertTimeout: time.Second,
+		RecoEnabled: true, PostgresURL: "postgres://x", RecoEvery: 30 * time.Minute, RecoWindow: 30,
+		RecoMinWatch: 20000, RecoNeighbors: 30, RecoHistory: 50}
+	if err := ok.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mod := range map[string]func(*Config){
+		"postgres":      func(c *Config) { c.PostgresURL = "" },
+		"interval low":  func(c *Config) { c.RecoEvery = 5*time.Minute - time.Second },
+		"interval high": func(c *Config) { c.RecoEvery = 6*time.Hour + time.Second },
+		"window low":    func(c *Config) { c.RecoWindow = 0 }, "window high": func(c *Config) { c.RecoWindow = 91 },
+		"watch low": func(c *Config) { c.RecoMinWatch = 999 }, "watch high": func(c *Config) { c.RecoMinWatch = 600001 },
+		"neighbors low": func(c *Config) { c.RecoNeighbors = 0 }, "neighbors high": func(c *Config) { c.RecoNeighbors = 101 },
+		"history low": func(c *Config) { c.RecoHistory = 0 }, "history high": func(c *Config) { c.RecoHistory = 201 },
+	} {
+		c := ok
+		mod(&c)
+		if c.Validate() == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	for _, upper := range []bool{false, true} {
+		c := ok
+		c.RecoEvery = 5 * time.Minute
+		c.RecoWindow = 1
+		c.RecoMinWatch = 1000
+		c.RecoNeighbors = 1
+		c.RecoHistory = 1
+		if upper {
+			c.RecoEvery = 6 * time.Hour
+			c.RecoWindow = 90
+			c.RecoMinWatch = 600000
+			c.RecoNeighbors = 100
+			c.RecoHistory = 200
+		}
+		if err := c.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func TestValidate(t *testing.T) {

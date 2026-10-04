@@ -74,7 +74,7 @@ func (i *Inserter) persisted(ctx context.Context, rows []event.Row) (map[uuid.UU
 	if err != nil {
 		return nil, fmt.Errorf("lookup redelivered rows: %w", err)
 	}
-	defer stored.Close()
+	defer func() { _ = stored.Close() }()
 	ids := make(map[uuid.UUID]bool, len(rows))
 	for stored.Next() {
 		var id uuid.UUID
@@ -129,7 +129,7 @@ func (m Migrations) Applied(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]bool{}
 	for rows.Next() {
 		var n string
