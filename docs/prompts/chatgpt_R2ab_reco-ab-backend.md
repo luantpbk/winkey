@@ -47,12 +47,14 @@ DoD: vet, golangci-lint, go test ./... green; README; PR with real outputs. Do n
 must be deployed only after R2-ab-w is live.
 ````
 
-## Appendix — `db/clickhouse/0002_reco_ab.sql` (copy verbatim)
+## Appendix — `db/clickhouse/0002_reco_ab.sql` (already committed by the architect on `agent/gpt/r2ab-w-worker-fields`, `125f987`; corrected for #227)
 
 ```sql
 -- Task R2-ab (ADR-030): where a playback started (surface) and the A/B arm of the recommended feed (reco_variant).
 -- Applied by analytics-worker at start-up like 0001 (every statement is idempotent). Columns are Nullable: rows
 -- written before this file, and samples from older clients, stay NULL ("unknown").
+-- Ships in the SAME PR as the worker change that names its INSERT columns (ADR-030): the worker before R2-ab-w
+-- inserts without a column list and would break on the new columns.
 
 ALTER TABLE winkey.playback_events
     ADD COLUMN IF NOT EXISTS surface      LowCardinality(Nullable(String)),
@@ -80,16 +82,19 @@ ORDER BY (day, reco_variant, surface)
 TTL day + INTERVAL 1 YEAR DELETE
 SETTINGS non_replicated_deduplication_window = 1000;
 
+-- Every source column is qualified with `e.`: the output aliases reuse the source names (reco_variant, surface), and
+-- ClickHouse substitutes aliases inside WHERE, so an unqualified `reco_variant IS NOT NULL` would test
+-- assumeNotNull(...) and admit NULL-variant rows as an empty arm (#227, reproduced on 24.8, 25.8 and 26.9).
 CREATE MATERIALIZED VIEW IF NOT EXISTS winkey.reco_ab_daily_mv TO winkey.reco_ab_daily AS
 SELECT
-    toDate(received_at, 'Asia/Ho_Chi_Minh') AS day,
-    assumeNotNull(reco_variant)             AS reco_variant,
-    ifNull(surface, 'unknown')              AS surface,
-    count()                                 AS samples,
-    countIf(kind = 'start')                 AS starts,
-    sum(toUInt64(watched_ms))               AS watched_ms,
-    uniqState(viewer_key)                   AS viewers
-FROM winkey.playback_events
-WHERE authenticated AND reco_variant IS NOT NULL
+    toDate(e.received_at, 'Asia/Ho_Chi_Minh') AS day,
+    assumeNotNull(e.reco_variant)             AS reco_variant,
+    ifNull(e.surface, 'unknown')              AS surface,
+    count()                                   AS samples,
+    countIf(e.kind = 'start')                 AS starts,
+    sum(toUInt64(e.watched_ms))               AS watched_ms,
+    uniqState(e.viewer_key)                   AS viewers
+FROM winkey.playback_events AS e
+WHERE e.authenticated AND e.reco_variant IS NOT NULL
 GROUP BY day, reco_variant, surface;
 ```
