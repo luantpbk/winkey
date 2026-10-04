@@ -5,16 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HomePage from '../src/app/[locale]/page';
 import { api } from '../src/lib/api-client';
 import { tokenStore } from '../src/lib/auth/token-store';
-import type { VideoPage, VideoSummary, User } from '@winkey/api-client';
+import type { VideoSummary, User } from '@winkey/api-client';
 import viMessages from '../messages/vi.json';
 import enMessages from '../messages/en.json';
-import {
-  setMockRecommendedMode,
-  setMockRecommendedVideosOverride,
-  mockPersonalRecommendedVideosFixture,
-  mockAnonymousRecommendedVideosFixture,
-  resetModerationMocks,
-} from '../src/mocks/handlers';
+import { mockPersonalRecommendedVideosFixture, resetModerationMocks } from '../src/mocks/handlers';
 
 // --- Locale Mock ---
 let activeLocale: 'vi' | 'en' = 'vi';
