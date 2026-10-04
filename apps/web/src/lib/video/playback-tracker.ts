@@ -5,6 +5,7 @@ import { tokenStore } from '../auth/token-store';
 export interface PlaybackTrackerOptions {
   videoId: string;
   playbackId: string;
+  surface?: PlaybackSample['surface'];
   enabled?: boolean;
   endpoint?: string;
   heartbeatIntervalMs?: number;
@@ -16,6 +17,7 @@ export interface PlaybackTrackerOptions {
 export class PlaybackTracker {
   public readonly videoId: string;
   public readonly playbackId: string;
+  public readonly surface: PlaybackSample['surface'];
   public readonly enabled: boolean;
   private readonly endpoint: string;
   private readonly heartbeatIntervalMs: number;
@@ -57,6 +59,7 @@ export class PlaybackTracker {
   constructor(options: PlaybackTrackerOptions) {
     this.videoId = options.videoId;
     this.playbackId = options.playbackId;
+    this.surface = options.surface ?? 'other';
 
     // Use literal process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false' so Next.js inlines it
     const envEnabled = process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false';
@@ -346,6 +349,7 @@ export class PlaybackTracker {
       rendition: this.rendition,
       bitrate_kbps: this.bitrateKbps,
       client: 'web',
+      surface: this.surface,
     };
 
     if (kind === 'start' && extra?.startupMs !== undefined) {

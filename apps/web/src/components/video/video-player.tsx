@@ -19,6 +19,7 @@ import { CcMenu } from './cc-menu';
 import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
 import { PlaybackTracker } from '../../lib/video/playback-tracker';
+import { type WatchSurface, stripWatchSurfaceFromAddressBar } from '../../lib/video/watch-url';
 
 export interface VideoPlayerProps {
   videoId?: string;
@@ -30,6 +31,7 @@ export interface VideoPlayerProps {
   subtitles?: SubtitleTrack[];
   storyboardUrl?: string | null;
   expiresAt?: string | null;
+  surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
 }
 
@@ -43,6 +45,7 @@ export function VideoPlayer({
   subtitles,
   storyboardUrl,
   expiresAt,
+  surface,
   onRecordView,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,9 +131,17 @@ export function VideoPlayer({
       trackerRef.current.destroy();
     }
 
+    // Resolve surface for THIS playback:
+    // 1. Read src from address bar once on load (or use explicit prop)
+    // 2. If it is one of the contract values use it, else 'other'
+    // 3. Remove src from address bar with history.replaceState (keep other params)
+    const strippedSurface = stripWatchSurfaceFromAddressBar();
+    const playbackSurface = surface ?? strippedSurface;
+
     const tracker = new PlaybackTracker({
       videoId,
       playbackId: playbackIdRef.current,
+      surface: playbackSurface,
     });
     trackerRef.current = tracker;
 
@@ -138,7 +149,7 @@ export function VideoPlayer({
       tracker.destroy();
       trackerRef.current = null;
     };
-  }, [videoId, playbackIdRef]);
+  }, [videoId, playbackIdRef, surface]);
 
   // LocalStorage progress helper
   const getStorageKey = useCallback(() => {

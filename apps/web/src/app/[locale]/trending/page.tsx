@@ -72,7 +72,10 @@ export default function TrendingPage() {
         queryKey={['videos', 'trending']}
         fetchPage={fetchTrendingPage}
         staleTime={60_000}
-        renderItem={(video, index) => <VideoCard key={video.id} video={video} rank={index + 1} />}
+        surface="trending"
+        renderItem={(video, index) => (
+          <VideoCard key={video.id} video={video} rank={index + 1} surface="trending" />
+        )}
         emptySlot={
           <div className="space-y-6">
             <div
@@ -81,7 +84,11 @@ export default function TrendingPage() {
             >
               {t('emptyNotice')}
             </div>
-            <VideoFeed queryKey={['videos', 'feed']} fetchPage={fetchNewestPage} />
+            <VideoFeed
+              queryKey={['videos', 'feed']}
+              fetchPage={fetchNewestPage}
+              surface="trending"
+            />
           </div>
         }
       />

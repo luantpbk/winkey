@@ -1378,4 +1378,89 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     );
     expect(page.url()).toContain('tab=for-you');
   });
+
+  test('R2-ab-web: click "Dành cho bạn" card -> heartbeat has surface=for_you and URL has no src (ADR-030)', async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+
+    // 1. Sign in as creator so "Dành cho bạn" tab is available
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await page.click('button[type="submit"]');
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Navigate to home page
+    await page.goto('/vi');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Tab "Dành cho bạn" should be selected
+    const tabForYou = page.locator('[data-testid="tab-for-you"]');
+    await expect(tabForYou).toBeVisible({ timeout: 15000 });
+    if ((await tabForYou.getAttribute('aria-selected')) !== 'true') {
+      await tabForYou.click();
+    }
+    await expect(tabForYou).toHaveAttribute('aria-selected', 'true');
+
+    // Intercept heartbeat network requests
+    const capturedBatches: PlaybackHeartbeatBatch[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/v1/playback/heartbeats') && req.method() === 'POST') {
+        try {
+          const data = req.postDataJSON() as PlaybackHeartbeatBatch;
+          if (data && Array.isArray(data.samples)) {
+            capturedBatches.push(data);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    // 3. Find first video card in "Dành cho bạn" feed
+    const firstCard = page
+      .locator('[data-testid="video-feed-grid"] [data-testid="video-card"]')
+      .first();
+    await expect(firstCard).toBeVisible({ timeout: 15000 });
+
+    // Verify card link has ?src=for_you
+    const cardWatchLink = firstCard.locator('a[href*="/watch/"]').first();
+    const href = await cardWatchLink.getAttribute('href');
+    expect(href).toContain('src=for_you');
+
+    // 4. Click the card to navigate to watch page
+    await cardWatchLink.click();
+    await page.waitForURL(/\/watch\/.+/, { timeout: 15000 });
+
+    // 5. Verify the URL in address bar has no src (stripped by history.replaceState)
+    await expect.poll(() => page.url(), { timeout: 10000 }).not.toContain('src=');
+
+    // 6. Play video to trigger start sample
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('play'));
+        v.dispatchEvent(new Event('playing'));
+      }
+    });
+
+    // 7. Verify heartbeat sample has surface="for_you"
+    await expect
+      .poll(
+        () => {
+          const allSamples = capturedBatches.flatMap((b) => b?.samples || []);
+          return allSamples.some((s) => s.surface === 'for_you');
+        },
+        { timeout: 15000, intervals: [500] },
+      )
+      .toBe(true);
+  });
 });
