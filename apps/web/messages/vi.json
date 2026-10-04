@@ -22,7 +22,19 @@
     "recommended": "Video đề xuất",
     "noVideos": "Chưa có video nào. Hãy là người đầu tiên tải lên!",
     "loadingMore": "Đang tải thêm video...",
-    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}"
+    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
+    "feedTabs": "Chế độ xem video",
+    "tabs": {
+      "forYou": "Dành cho bạn",
+      "latest": "Mới nhất",
+      "trending": "Thịnh hành"
+    },
+    "forYouEmptyTitle": "Chưa có đề xuất nào dành riêng cho bạn",
+    "forYouEmptyDesc": "Hãy khám phá các video thịnh hành hoặc tải lên video mới để Winkey hiểu sở thích của bạn hơn.",
+    "exploreTrending": "Khám phá Thịnh hành",
+    "uploadVideo": "Tải video lên",
+    "retry": "Thử lại",
+    "fetchError": "Không thể tải danh sách video. Vui lòng thử lại."
   },
   "watch": {
     "upNext": "Xem tiếp",
