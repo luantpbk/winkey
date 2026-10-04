@@ -292,6 +292,59 @@ export const mockRelatedVideosFixture: VideoSummary[] = Array.from({ length: 16 
     'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
 }));
 
+let mockRecommendedMode: 'default' | 'empty' | '400' | '500' = 'default';
+export function setMockRecommendedMode(mode: 'default' | 'empty' | '400' | '500') {
+  mockRecommendedMode = mode;
+}
+export function getMockRecommendedMode(): 'default' | 'empty' | '400' | '500' {
+  return mockRecommendedMode;
+}
+
+let mockRecommendedVideosOverride: VideoSummary[] | null = null;
+export function setMockRecommendedVideosOverride(videos: VideoSummary[] | null) {
+  mockRecommendedVideosOverride = videos;
+}
+
+export const mockPersonalRecommendedVideosFixture: VideoSummary[] = Array.from(
+  { length: 72 },
+  (_, i) => ({
+    id: `0192f5e4-7c1a-7b3e-9d2a-a000000000${(i + 1).toString().padStart(2, '0')}`,
+    title: `Đề xuất cá nhân ${i + 1}: Hệ thống phân tán và kiến trúc microservices`,
+    owner: {
+      id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 5) + 1}`,
+      display_name: `Kênh Đề Xuất ${(i % 5) + 1}`,
+      handle: `kenhdexuat${(i % 5) + 1}`,
+      avatar_url:
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+    },
+    duration_ms: (i + 1) * 60000,
+    view_count: (i + 1) * 150,
+    published_at: new Date(Date.now() - (i + 1) * 3600000).toISOString(),
+    thumbnail_url:
+      'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+  }),
+);
+
+export const mockAnonymousRecommendedVideosFixture: VideoSummary[] = Array.from(
+  { length: 24 },
+  (_, i) => ({
+    id: `0192f5e4-7c1a-7b3e-9d2a-b000000000${(i + 1).toString().padStart(2, '0')}`,
+    title: `Thịnh hành đề xuất ${i + 1}: Xu hướng công nghệ 2026`,
+    owner: {
+      id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 3) + 1}`,
+      display_name: `Kênh Công Nghệ ${(i % 3) + 1}`,
+      handle: `kenhcongnghe${(i % 3) + 1}`,
+      avatar_url:
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+    },
+    duration_ms: (i + 1) * 45000,
+    view_count: (i + 1) * 300,
+    published_at: new Date(Date.now() - (i + 1) * 7200000).toISOString(),
+    thumbnail_url:
+      'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+  }),
+);
+
 let mockRecordedHeartbeats: PlaybackSample[] = [];
 export function getMockRecordedHeartbeats(): PlaybackSample[] {
   return mockRecordedHeartbeats;
@@ -310,6 +363,8 @@ export function resetModerationMocks() {
   mockTrendingEmpty = false;
   mockSubscriptionEmpty = false;
   mockSubscriptionVideosOverride = null;
+  mockRecommendedMode = 'default';
+  mockRecommendedVideosOverride = null;
   mockHeartbeat429 = false;
   mockRecordedHeartbeats = [];
   resetNotificationMocks();
@@ -1251,6 +1306,103 @@ export const handlers = [
   }),
 
   // --- VIDEO ENDPOINTS ---
+  // Task R2-web: Recommended feed ("Dành cho bạn")
+  http.get('*/v1/feed/recommended', async ({ request }) => {
+    if (mockRecommendedMode === '400') {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+          detail: 'Invalid request parameters for recommended feed',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (mockRecommendedMode === '500') {
+      return HttpResponse.json(
+        {
+          type: '/problems/internal-error',
+          title: 'Internal Server Error',
+          status: 500,
+          code: 'INTERNAL_ERROR',
+          detail: 'Recommendation worker offline',
+        },
+        { status: 500 },
+      );
+    }
+
+    if (mockRecommendedMode === 'empty') {
+      return HttpResponse.json({ items: [], next_cursor: null } satisfies VideoPage, {
+        headers: {
+          'Cache-Control': 'private, no-store',
+        },
+      });
+    }
+
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const limit = parseInt(url.searchParams.get('limit') || '24', 10);
+
+    const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+    const isAuthenticated = !!(authHeader && authHeader.startsWith('Bearer '));
+
+    if (isAuthenticated) {
+      // Signed-in caller: Personal recommendations (3 pages of 24 items = 72 items total)
+      const sourceVideos = mockRecommendedVideosOverride || mockPersonalRecommendedVideosFixture;
+
+      let startIndex = 0;
+      let nextCursor: string | null = 'reco-page-2';
+
+      if (cursor === 'reco-page-2' || cursor === '24') {
+        startIndex = 24;
+        nextCursor = 'reco-page-3';
+      } else if (cursor === 'reco-page-3' || cursor === '48') {
+        startIndex = 48;
+        nextCursor = null;
+      } else if (cursor) {
+        startIndex = parseInt(cursor, 10) || 0;
+        const nextIndex = startIndex + limit;
+        nextCursor = nextIndex < sourceVideos.length ? nextIndex.toString() : null;
+      }
+
+      const items = sourceVideos.slice(startIndex, startIndex + limit);
+
+      return HttpResponse.json(
+        {
+          items,
+          next_cursor: nextCursor,
+        } satisfies VideoPage,
+        {
+          headers: {
+            'Cache-Control': 'private, no-store',
+          },
+        },
+      );
+    }
+
+    // Anonymous caller: Fallback to trending list (24 items)
+    const sourceVideos = mockRecommendedVideosOverride || mockAnonymousRecommendedVideosFixture;
+    const startIndex = cursor ? parseInt(cursor, 10) || 0 : 0;
+    const items = sourceVideos.slice(startIndex, startIndex + limit);
+    const nextIndex = startIndex + limit;
+    const nextCursor = nextIndex < sourceVideos.length ? nextIndex.toString() : null;
+
+    return HttpResponse.json(
+      {
+        items,
+        next_cursor: nextCursor,
+      } satisfies VideoPage,
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=60',
+        },
+      },
+    );
+  }),
+
   http.get('*/v1/videos', async ({ request }) => {
     const url = new URL(request.url);
     const ownerId = url.searchParams.get('owner_id');
