@@ -176,7 +176,7 @@ func (p *JetStreamPublisher) Publish(_ context.Context, m Message) error {
 	msg.Header.Set(nats.MsgIdHdr, m.ID)
 	if _, err := p.js.PublishMsgAsync(msg); err != nil {
 		if errors.Is(err, jetstream.ErrTooManyStalledMsgs) {
-			return fmt.Errorf("%w: %v", ErrDropped, err)
+			return fmt.Errorf("%w: %w", ErrDropped, err)
 		}
 		return err
 	}

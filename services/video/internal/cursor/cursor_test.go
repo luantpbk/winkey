@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestRejectsTamperingAndReplay(t *testing.T) {
 		"payload swapped": Encode(secret, "feed", "owner=a", domain.Position{T: pos().T.Add(time.Hour), ID: pos().ID})[:len(body)] + "." + mac,
 	}
 	for name, c := range cases {
-		if _, err := Decode(secret, "feed", "owner=a", c); err != ErrInvalid {
+		if _, err := Decode(secret, "feed", "owner=a", c); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: got %v, want ErrInvalid", name, err)
 		}
 	}
@@ -114,7 +115,7 @@ func TestSearchCursorIsBoundToQueryKindAndSecret(t *testing.T) {
 		},
 		"bit flipped": func() error { _, err := DecodeSearch(secret, "search", "q=ha noi", "A"+tok[1:]); return err },
 	} {
-		if err := decode(); err != ErrInvalid {
+		if err := decode(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -133,7 +134,7 @@ func TestSearchCursorRejectsBadPayloads(t *testing.T) {
 		"not json":      `[`,
 		"negative page": `{"m":"fts","p":-3,"r":1,"t":1,` + id + `}`,
 	} {
-		if _, err := DecodeSearch(secret, "search", "s", sign(body)); err != ErrInvalid {
+		if _, err := DecodeSearch(secret, "search", "s", sign(body)); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -161,13 +162,13 @@ func TestRankCursor(t *testing.T) {
 			return err
 		},
 	} {
-		if err := decode(); err != ErrInvalid {
+		if err := decode(); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 	// A rank below 1 is not a position.
 	for _, r := range []int{0, -3} {
-		if _, err := DecodeRank(secret, "trending", "", EncodeRank(secret, "trending", "", r)); err != ErrInvalid {
+		if _, err := DecodeRank(secret, "trending", "", EncodeRank(secret, "trending", "", r)); !errors.Is(err, ErrInvalid) {
 			t.Errorf("rank %d accepted", r)
 		}
 	}

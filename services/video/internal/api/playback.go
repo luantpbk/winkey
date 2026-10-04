@@ -243,8 +243,8 @@ func validateSample(in heartbeatSample) (analytics.Sample, []httpx.FieldError) {
 		s.Kind = *in.Kind
 	}
 	s.Seq = num("seq", in.Seq, 0, 100000)
-	switch {
-	case in.SentAt == nil:
+	switch in.SentAt {
+	case nil:
 		bad("sent_at", "is required")
 	default:
 		t, err := time.Parse(time.RFC3339, *in.SentAt)

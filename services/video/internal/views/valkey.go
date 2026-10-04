@@ -59,7 +59,7 @@ func (v *Valkey) open() bool { return time.Now().UnixNano() < v.downUntil.Load()
 
 func (v *Valkey) trip(err error) error {
 	v.downUntil.Store(time.Now().Add(v.BreakerFor).UnixNano())
-	return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	return fmt.Errorf("%w: %w", ErrUnavailable, err)
 }
 
 // Ping reports whether Valkey answers.
@@ -92,7 +92,7 @@ func (v *Valkey) allow(ctx context.Context, key string, limit int, window time.D
 	}
 	res, err := rateScript.Run(ctx, v.client, []string{key}, window.Milliseconds()).Int64Slice()
 	if err != nil || len(res) != 2 {
-		return false, 0, v.trip(fmt.Errorf("rate limit: %v", err))
+		return false, 0, v.trip(fmt.Errorf("rate limit: %w", err))
 	}
 	return res[0] <= int64(limit), time.Duration(res[1]) * time.Millisecond, nil
 }
@@ -122,7 +122,7 @@ func (v *Valkey) Count(ctx context.Context, videoID, playbackID uuid.UUID, viewe
 		[]string{pbPrefix + playbackID.String(), seenPrefix + videoID.String() + ":" + viewer, keyPending},
 		v.DedupTTL.Milliseconds(), videoID.String()).Int()
 	if err != nil {
-		return false, v.trip(fmt.Errorf("count: %v", err))
+		return false, v.trip(fmt.Errorf("count: %w", err))
 	}
 	return n == 1, nil
 }

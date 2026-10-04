@@ -90,7 +90,7 @@ func (b *garageBucket) Get(key string) (string, string, []byte, bool) {
 	if err != nil {
 		return "", "", nil, false
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	body, _ := io.ReadAll(out.Body)
 	return aws.ToString(out.ContentType), aws.ToString(out.CacheControl), body, true
 }

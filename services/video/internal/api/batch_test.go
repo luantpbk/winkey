@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -150,8 +151,8 @@ func TestBatchOneQueryForAllCacheMisses(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		vs = append(vs, e.video(alice))
 	}
-	e.cache.Set(nil, vs[0]) // two of them are cached already
-	e.cache.Set(nil, vs[7])
+	e.cache.Set(context.Background(), vs[0]) // two of them are cached already
+	e.cache.Set(context.Background(), vs[7])
 	if got := decode[batchJSON](t, e.req(anon, "GET", batchPath(vs...), "")).Items; len(got) != 12 {
 		t.Fatalf("%d items", len(got))
 	}
@@ -162,7 +163,7 @@ func TestBatchOneQueryForAllCacheMisses(t *testing.T) {
 		t.Fatalf("the batch wrote to the cache: %d sets", e.cache.sets)
 	}
 	for _, v := range vs { // everything cached: no query at all
-		e.cache.Set(nil, v)
+		e.cache.Set(context.Background(), v)
 	}
 	e.req(anon, "GET", batchPath(vs...), "")
 	if len(e.store.batchLookups) != 1 {
@@ -174,7 +175,7 @@ func TestBatchOneQueryForAllCacheMisses(t *testing.T) {
 func TestBatchAppliesVisibilityToCachedVideos(t *testing.T) {
 	e := newEnv(t, true)
 	priv := e.video(alice, visibility(domain.VisPrivate))
-	e.cache.Set(nil, priv)
+	e.cache.Set(context.Background(), priv)
 	if got := itemIDs(t, e, bob, batchPath(priv)); len(got) != 0 {
 		t.Fatalf("a cached PRIVATE video leaked: %v", got)
 	}

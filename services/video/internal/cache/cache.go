@@ -10,6 +10,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -80,7 +81,7 @@ func (c *Valkey) Get(ctx context.Context, id uuid.UUID) (domain.Video, bool) {
 	}
 	raw, err := c.client.Get(ctx, key(id)).Bytes()
 	if err != nil {
-		if err != redis.Nil {
+		if !errors.Is(err, redis.Nil) {
 			c.tripped(ctx, "get", err)
 		}
 		return domain.Video{}, false
@@ -146,7 +147,7 @@ func (c *Related) GetRelated(ctx context.Context, key string) ([]byte, bool) {
 	}
 	raw, err := c.client.Get(ctx, key).Bytes()
 	if err != nil {
-		if err != redis.Nil {
+		if !errors.Is(err, redis.Nil) {
 			c.tripped(ctx, "get", err)
 		}
 		return nil, false

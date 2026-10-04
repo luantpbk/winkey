@@ -78,6 +78,11 @@ func Load(t testing.TB) *Spec {
 	if root == "" {
 		t.Fatal("contract: contracts/openapi not found")
 	}
+	files, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
 	s := &Spec{compiler: jsonschema.NewCompiler(), allowed: map[string]string{}, cache: map[string]*jsonschema.Schema{}}
 	s.compiler.DefaultDraft(jsonschema.Draft2020)
 	s.compiler.AssertFormat()
@@ -85,7 +90,7 @@ func Load(t testing.TB) *Spec {
 		name, url string
 		dst       *map[string]any
 	}{{"video.v1.yaml", videoURL, &s.video}, {"common.yaml", commonURL, &s.common}} {
-		raw, err := os.ReadFile(filepath.Join(root, d.name))
+		raw, err := files.ReadFile(d.name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,7 +207,7 @@ func (s *Spec) Check(t testing.TB, method, pathTemplate string, status int, cont
 	}
 	if !documented {
 		if _, ok := s.allowed[fmt.Sprintf("%s %s %d", method, pathTemplate, status)]; ok && mt == "application/problem+json" {
-			loc, documented = commonURL+"#/components/schemas/Problem", true
+			loc = commonURL + "#/components/schemas/Problem"
 		} else {
 			t.Errorf("contract: %s %s returned %d, which the contract does not document", method, pathTemplate, status)
 			return

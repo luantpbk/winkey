@@ -28,8 +28,6 @@ const testLinkSecret = "test-media-link-secret-0123456789abcdef"
 
 var testNow = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-var spec *contract.Spec
-
 type who struct {
 	id    uuid.UUID
 	roles string
