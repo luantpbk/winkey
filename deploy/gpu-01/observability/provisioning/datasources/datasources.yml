@@ -17,7 +17,7 @@ datasources:
     type: loki
     uid: loki
     access: proxy
-    url: http://127.0.0.1:3100
+    url: http://100.88.247.70:3100
     isDefault: false
     jsonData:
       maxLines: 1000

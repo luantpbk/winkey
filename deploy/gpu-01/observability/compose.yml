@@ -42,9 +42,10 @@ services:
     network_mode: host
     env_file:
       - path: /srv/winkey-obs/secrets/grafana.env
-        required: false
+        required: true
     environment:
-      GF_INSTALL_PLUGINS: 'grafana-clickhouse-datasource'
+      GF_INSTALL_PLUGINS: 'grafana-clickhouse-datasource 4.22.0'
+      GF_SERVER_HTTP_ADDR: '100.88.247.70'
       GF_SERVER_HTTP_PORT: '3000'
       GF_USERS_ALLOW_SIGN_UP: 'false'
       GF_ANALYTICS_REPORTING_ENABLED: 'false'
@@ -61,24 +62,3 @@ services:
       options:
         max-size: 50m
         max-file: '5'
-
-  node-exporter:
-    image: prom/node-exporter:v1.9.0@sha256:c99d7ee4d12a38661788f60d9eca493f08584e2e544bbd3b3fca64749f86b848
-    container_name: winkey-observability-node-exporter
-    restart: unless-stopped
-    network_mode: host
-    command:
-      - --web.listen-address=127.0.0.1:9100
-      - --path.procfs=/host/proc
-      - --path.sysfs=/host/sys
-      - --path.rootfs=/host/root
-      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containerd/.+)($$|/)
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/host/root:ro,rslave
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: '3'

@@ -26,6 +26,45 @@ groups:
     folder: Winkey
     interval: 1m
     rules:
+      - uid: alert-target-down
+        title: 'Scrape Target Down (up == 0)'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Scrape target {{ $labels.instance }} ({{ $labels.job }}) is down for > 10m'
+          runbook: 'Inspect target health on edge-1 (kubectl get pods -A) or gpu-01 (docker compose ps).'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'up'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
       - uid: alert-5xx-rate
         title: 'Service 5xx Error Rate > 2%'
         condition: B
@@ -122,7 +161,7 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: '(node_filesystem_avail_bytes{node="edge-1", mountpoint="/"} / node_filesystem_size_bytes{node="edge-1", mountpoint="/"})'
+              expr: 'node_filesystem_avail_bytes{node="edge-1", mountpoint="/"} / node_filesystem_size_bytes{node="edge-1", mountpoint="/"}'
               instant: true
               refId: A
           - refId: B
@@ -239,7 +278,7 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: 'nats_consumer_num_pending{stream="VIDEO", consumer="transcoder"} or nats_jetstream_consumer_num_pending{stream="VIDEO", consumer="transcoder"} or (transcoder_jobs_in_flight * 0) or vector(0)'
+              expr: 'jetstream_consumer_num_pending{stream_name="VIDEO", consumer_name="transcoder"}'
               instant: true
               refId: A
           - refId: B
@@ -278,7 +317,7 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: '(jetstream_stream_total_bytes{stream_name="ANALYTICS"} or nats_stream_bytes{stream="ANALYTICS"} or vector(0)) / (1024 * 1024 * 1024)'
+              expr: 'jetstream_stream_total_bytes{stream_name="ANALYTICS"} / (1024 * 1024 * 1024)'
               instant: true
               refId: A
           - refId: B
@@ -317,7 +356,46 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: '(time() - analytics_rollup_last_success_timestamp_seconds) or vector(0)'
+              expr: 'time() - analytics_rollup_last_success_timestamp_seconds'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [7200]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-reco-lag
+        title: 'Analytics Reco Lag > 2h'
+        condition: B
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Analytics recommendation co-view model has not succeeded for more than 2 hours'
+          runbook: 'Check analytics-worker logs: docker logs --tail 200 winkey-analytics-worker | grep -i reco. Verify ClickHouse and Postgres connectivity.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'time() - analytics_reco_last_success_timestamp_seconds'
               instant: true
               refId: A
           - refId: B
@@ -356,7 +434,7 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: '(vmagent_remotewrite_pending_data_bytes or vector(0)) / (1024 * 1024 * 1024)'
+              expr: 'vmagent_remotewrite_pending_data_bytes / (1024 * 1024 * 1024)'
               instant: true
               refId: A
           - refId: B
@@ -425,17 +503,20 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'Player QoE rebuffer ratio exceeds 1% target threshold'
+          summary: 'Player QoE rebuffer ratio exceeds 1% target threshold over the last hour'
           runbook: 'Open QoE dashboard in Grafana, inspect rebuffer ratio by rendition/video in ClickHouse video_qoe_hourly.'
         data:
           - refId: A
             relativeTimeRange:
               from: 3600
               to: 0
-            datasourceUid: victoriametrics
+            datasourceUid: clickhouse
             model:
-              expr: 'sum(rate(playback_rebuffer_seconds_total[1h])) / clamp_min(sum(rate(playback_watch_seconds_total[1h])), 0.001) or vector(0)'
-              instant: true
+              datasource:
+                type: grafana-clickhouse-datasource
+                uid: clickhouse
+              format: 1
+              rawSql: 'SELECT now() AS time, coalesce(sum(rebuffer_ms) / nullIf(sum(watched_ms) + sum(rebuffer_ms), 0), 0) AS rebuffer_ratio FROM winkey.video_qoe_hourly WHERE hour >= now() - INTERVAL 1 HOUR'
               refId: A
           - refId: B
             datasourceUid: __expr__
