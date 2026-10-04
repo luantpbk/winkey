@@ -21,6 +21,7 @@ type RecommendationList struct {
 
 // RecommendationStore reads only PostgreSQL, including the analytics projections.
 type RecommendationStore interface {
-	RecommendationCandidates(context.Context, string, uuid.UUID, time.Time) ([]RecommendationCandidate, error)
+	// personalize disables only co-view/subscription scoring; viewer exclusions still apply.
+	RecommendationCandidates(context.Context, string, uuid.UUID, time.Time, bool) ([]RecommendationCandidate, error)
 	RecommendationPage(context.Context, []uuid.UUID, string, uuid.UUID) ([]Summary, error)
 }

@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	libconfig "github.com/luantpbk/winkey/libs/go/config"
@@ -44,6 +45,10 @@ type Config struct {
 	AnalyticsViewerSalt string `env:"ANALYTICS_VIEWER_SALT,required"`
 	AnalyticsEnabled    bool   `env:"ANALYTICS_ENABLED" default:"true"`
 
+	RecoABEnabled          bool   `env:"RECO_AB_ENABLED" default:"true"`
+	RecoABSeed             string `env:"RECO_AB_SEED" default:"r2ab-1"`
+	RecoABTreatmentPercent int    `env:"RECO_AB_TREATMENT_PERCENT" default:"50"`
+
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
 
@@ -74,6 +79,12 @@ func Load() (Config, error) {
 
 // Validate checks values that the loader cannot.
 func (c Config) Validate() error {
+	if strings.TrimSpace(c.RecoABSeed) == "" {
+		return errors.New("RECO_AB_SEED must not be blank")
+	}
+	if c.RecoABTreatmentPercent < 0 || c.RecoABTreatmentPercent > 100 {
+		return errors.New("RECO_AB_TREATMENT_PERCENT must be between 0 and 100")
+	}
 	if len(c.CursorSecret) < 16 {
 		return errors.New("CURSOR_SECRET must be at least 16 characters")
 	}

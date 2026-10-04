@@ -13,6 +13,7 @@ import (
 	"github.com/luantpbk/winkey/services/video/internal/analytics"
 	"github.com/luantpbk/winkey/services/video/internal/cursor"
 	"github.com/luantpbk/winkey/services/video/internal/domain"
+	"github.com/luantpbk/winkey/services/video/internal/recoab"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -20,7 +21,7 @@ import (
 const recommendedTTL = 10 * time.Minute
 
 var (
-	recommendedRequests = promauto.NewCounterVec(prometheus.CounterOpts{Name: "video_reco_requests_total", Help: "Recommended feed responses by signal mode."}, []string{"mode"})
+	recommendedRequests = promauto.NewCounterVec(prometheus.CounterOpts{Name: "video_reco_requests_total", Help: "Recommended feed responses by signal mode and experiment arm."}, []string{"mode", "variant"})
 	recommendedCompute  = promauto.NewHistogram(prometheus.HistogramOpts{Name: "video_reco_compute_seconds", Help: "Time computing a recommendation list.", Buckets: prometheus.ExponentialBuckets(.001, 2, 16)})
 )
 
@@ -72,6 +73,11 @@ func (h *Handler) getRecommendedFeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	who := viewer(r)
+	variant := h.recoVariant(who)
+	arm := "none"
+	if variant != nil {
+		arm = *variant
+	}
 	scope, key := "anonymous", ""
 	if who.Authed {
 		scope = who.ID.String()
@@ -94,7 +100,7 @@ func (h *Handler) getRecommendedFeed(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, "recommendations", errors.New("recommendation store is not configured"))
 		return
 	}
-	cacheKey := "reco:" + scope + ":" + listID.String()
+	cacheKey := "reco:" + scope + ":" + arm + ":" + listID.String()
 	var list domain.RecommendationList
 	hit := false
 	if who.Authed && h.RecommendationCache != nil {
@@ -102,7 +108,7 @@ func (h *Handler) getRecommendedFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	if !hit {
 		start := time.Now()
-		candidates, err := h.Recommendations.RecommendationCandidates(r.Context(), key, who.ID, h.now())
+		candidates, err := h.Recommendations.RecommendationCandidates(r.Context(), key, who.ID, h.now(), who.Authed && arm != "control")
 		if err != nil {
 			recommendedCompute.Observe(time.Since(start).Seconds())
 			h.fail(w, r, "compute recommendation", err)
@@ -145,6 +151,15 @@ func (h *Handler) getRecommendedFeed(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=60")
 	}
-	recommendedRequests.WithLabelValues(list.Mode).Inc()
+	recommendedRequests.WithLabelValues(list.Mode, arm).Inc()
 	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+// Disabled experiments retain personalized ranking but emit no assignment, like anonymous callers.
+func (h *Handler) recoVariant(who domain.Viewer) *string {
+	if !h.RecoABEnabled || !who.Authed {
+		return nil
+	}
+	arm := recoab.Variant(h.RecoABSeed, h.RecoABTreatmentPercent, who.ID)
+	return &arm
 }

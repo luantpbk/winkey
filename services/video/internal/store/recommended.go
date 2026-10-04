@@ -15,7 +15,7 @@ var _ domain.RecommendationStore = (*Postgres)(nil)
 // Read all lightweight eligible IDs: prematurely limiting L can hide the first diversity-compatible item.
 const recommendationSQL = `WITH history AS (
  SELECT video_id, last_watched_at FROM analytics.viewer_history
- WHERE viewer_key = $1 ORDER BY last_watched_at DESC, video_id DESC LIMIT 50
+ WHERE viewer_key = $1 AND $4::boolean ORDER BY last_watched_at DESC, video_id DESC LIMIT 50
 ), eligible AS (
  SELECT v.id, v.owner_id, v.published_at FROM media.videos v
  JOIN auth.public_profiles p ON p.id = v.owner_id
@@ -28,7 +28,7 @@ const recommendationSQL = `WITH history AS (
  JOIN eligible e ON e.id=c.neighbor_id GROUP BY c.neighbor_id
 ), signals AS (
  SELECT e.*, coalesce(c.raw / nullif((SELECT max(raw) FROM coview),0),0) AS sc,
- CASE WHEN e.published_at >= $3::timestamptz - interval '14 days'
+ CASE WHEN $4::boolean AND e.published_at >= $3::timestamptz - interval '14 days'
  AND EXISTS (SELECT 1 FROM media.subscriptions s WHERE s.subscriber_id=$2 AND s.channel_id=e.owner_id)
  THEN power(0.5::double precision, extract(epoch FROM ($3::timestamptz-e.published_at))::double precision/259200)
  ELSE 0 END AS ss,
@@ -39,8 +39,8 @@ const recommendationSQL = `WITH history AS (
 SELECT id, owner_id, (sc>0 OR ss>0) AS personal
 FROM signals ORDER BY (sc+0.7*ss+0.3*st) DESC, published_at DESC, id DESC`
 
-func (p *Postgres) RecommendationCandidates(ctx context.Context, key string, user uuid.UUID, now time.Time) ([]domain.RecommendationCandidate, error) {
-	rows, err := p.Pool.Query(ctx, recommendationSQL, key, user, now)
+func (p *Postgres) RecommendationCandidates(ctx context.Context, key string, user uuid.UUID, now time.Time, personalize bool) ([]domain.RecommendationCandidate, error) {
+	rows, err := p.Pool.Query(ctx, recommendationSQL, key, user, now, personalize)
 	if err != nil {
 		return nil, fmt.Errorf("recommendation candidates: %w", err)
 	}
