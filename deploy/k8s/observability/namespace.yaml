@@ -3,4 +3,5 @@ kind: Namespace
 metadata:
   name: observability
   labels:
+    kubernetes.io/metadata.name: observability
     app.kubernetes.io/part-of: winkey
