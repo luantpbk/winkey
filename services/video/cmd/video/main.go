@@ -111,6 +111,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	var viewFlusher *views.Flusher
 	var limiter api.Limiter // search rate limits; needs Valkey
 	var relatedCache api.RelatedCache
+	var recommendationCache api.RecommendationCache
 	if cfg.ValkeyURL != "" {
 		rc, err := cache.NewClient(cfg.ValkeyURL)
 		if err != nil {
@@ -120,6 +121,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		vv := views.NewValkey(rc, cfg.ViewDedupTTL)
 		viewCounter, limiter = vv, vv
 		relatedCache = cache.NewRelated(rc, log)
+		recommendationCache = cache.NewRecommended(rc, log)
 		viewFlusher = &views.Flusher{V: vv, DB: st, Interval: cfg.ViewFlushInterval, LockTTL: cfg.ViewFlushLockTTL, Log: log}
 		log.Info("view counter enabled", "flush_interval", cfg.ViewFlushInterval.String(), "dedup_ttl", cfg.ViewDedupTTL.String())
 	} else {
@@ -154,6 +156,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	health.Mount(router)
 	(&api.Handler{
 		Store: st, Cache: videoCache, RelatedCache: relatedCache, MediaBaseURL: cfg.MediaBaseURL,
+		Recommendations: st, RecommendationCache: recommendationCache,
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
 		MediaLinkSecret: []byte(cfg.MediaLinkSecret), Objects: objects.New(s3c),
 		Analytics: analyticsPub, AnalyticsSalt: []byte(cfg.AnalyticsViewerSalt),

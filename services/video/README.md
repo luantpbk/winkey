@@ -18,6 +18,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PUT /v1/videos/{id}/subtitles/{lang}` | required | Owner only: create or replace the WebVTT track of one language (task V5b). `201` created / `200` replaced, `SubtitleTrack`; `400` `INVALID_WEBVTT` / `SUBTITLE_TOO_LARGE` / `VALIDATION_ERROR`, `403`, `404`, `409` `TOO_MANY_SUBTITLES` / `VIDEO_FAILED`. See *Subtitles*. |
 | `DELETE /v1/videos/{id}/subtitles/{lang}` | required | Owner only: remove a track. `204`, `403`, `404` (also when there is no track for that language). |
 | `GET /v1/feed/subscriptions` | required | The newest public videos of the channels the caller follows (task R2-b): see *Subscription feed*. `VideoPage`, `limit`, `cursor`; `401` without identity; `Cache-Control: private, no-store`. |
+| `GET /v1/feed/recommended` | optional | Recommended videos (R2-v, ADR-028): see *Recommended feed*. `limit` 1..50 (default 20), opaque `cursor`. |
 | `POST /v1/playback/heartbeats` | optional | Player QoE and watch-time samples (task R1, ADR-022): see *Playback analytics*. `202 {accepted}`, `400`, `413`, `429`. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
@@ -290,6 +291,40 @@ for 300 s per `(video_id, limit)` (fails open; a Valkey outage just recomputes) 
   3. trending: `media.trending` by rank, `limit + 13` rows so that duplicates never leave the list short.
 * Merge (`MergeRelated`, pure): the sources are taken in the fixed pattern 1, 1, 2, 1, 3 repeated; an empty source is replaced by
   the next source of the pattern; duplicates are skipped; the list stops at `limit` and can be shorter, even empty.
+
+### Recommended feed (R2-v, ADR-028)
+
+`GET /v1/feed/recommended` combines co-view history, followed channels and trending with weights `1.0`, `0.7` and
+`0.3`. The viewer key uses the same `analytics.ViewerKey(ANALYTICS_VIEWER_SALT, "u:" + user_id)` as playback heartbeats.
+The most recent 50 history entries contribute co-view scores with a seven-day half-life, normalized by the largest
+eligible score. Subscription videos from the last 14 days have a 72-hour half-life; trending contributes
+`1 - (rank - 1) / 200`. Ties use `published_at DESC, id DESC`; zero-score candidates supply the newest fill.
+One PostgreSQL statement reads these signals in one snapshot. Watched videos (all persisted history), the caller's
+videos and videos outside the public-feed predicate are excluded.
+
+The diversity pass runs once before pagination: at each position, take the first remaining candidate whose channel
+has fewer than two videos in the preceding nine positions; if none qualifies, take the first remaining candidate.
+Candidates are deferred rather than dropped, including when every video belongs to one channel. Stop at 200 or
+when the list is exhausted. The initial candidate query reads the full ordered list of lightweight IDs and channel
+IDs: an early limit could remove the first compatible candidate. This is a beta-scale query; a large catalog will
+need a streaming or indexed implementation that preserves this exact selection rule.
+
+Signed-in lists use Valkey `reco:{user_id}:{list_id}` for ten minutes. The HMAC cursor carries `{list_id, offset}` and
+is bound to the user and endpoint. A missing/expired list or unavailable Valkey recomputes it and continues at the
+same offset; changing signals can then cause duplicates or omissions, as allowed by ADR-028. Cached page reads
+recheck public visibility, owner activity, ownership and history, so a newly hidden or watched video is omitted.
+The response uses `private, no-store`. Anonymous requests use trending then newest, never access Valkey, and return
+`public, max-age=60`. Empty pages use `items: []`; the final page has `next_cursor: null`.
+
+No new environment variables: `ANALYTICS_VIEWER_SALT`, `CURSOR_SECRET`, `DATABASE_URL` and optional `VALKEY_URL` apply.
+Metrics: `video_reco_requests_total{mode="personal|fallback|anonymous"}` counts successful responses, and
+`video_reco_compute_seconds` measures list computation on cache misses. PostgreSQL/Valkey integration fixtures
+validate exact ranking, the heartbeat key, exclusions, diversity across page boundaries, expiry, cold start and the
+200-item cap against the OpenAPI contract:
+
+```bash
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecommendedFeed -v
+```
 
 ### Moderation
 
