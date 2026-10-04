@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats-exporter
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: nats-exporter
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats-exporter
+        app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '7777'
+        prometheus.io/path: '/metrics'
+    spec:
+      containers:
+        - name: nats-exporter
+          image: natsio/prometheus-nats-exporter:0.15.0@sha256:1f6787754b8b083f271adea4bb699b9c9e21279c89d903f1710f7647c604f145
+          args:
+            - -varz
+            - -connz
+            - -subz
+            - -jsz=all
+            - http://nats.default.svc:8222
+          ports:
+            - name: metrics
+              containerPort: 7777
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 30m
+              memory: 64Mi

@@ -40,6 +40,14 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    # 5. Observability metrics scraper (vmagent in observability namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 9187
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -73,6 +81,14 @@ spec:
       ports:
         - protocol: TCP
           port: 4222
+    # 3. Observability metrics exporter (nats-exporter in observability namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 8222
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

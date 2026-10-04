@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmagent
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmagent
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmagent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmagent
+        app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8429'
+        prometheus.io/path: '/metrics'
+    spec:
+      serviceAccountName: vmagent
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.112.0@sha256:146243ef8eb68d5a37acf757609c65081017ef90257656ed633ea044778af804
+          args:
+            - -promscrape.config=/etc/vmagent/scrape.yml
+            - -remoteWrite.url=http://100.88.247.70:8428/api/v1/write
+            - -remoteWrite.tmpDataPath=/vmagent-remotewrite-data
+            - -remoteWrite.maxDiskUsagePerURL=1800MB
+            - -httpListenAddr=:8429
+          ports:
+            - name: http
+              containerPort: 8429
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 30m
+              memory: 96Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vmagent
+              readOnly: true
+            - name: data
+              mountPath: /vmagent-remotewrite-data
+      volumes:
+        - name: config
+          configMap:
+            name: vmagent-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: vmagent-data
