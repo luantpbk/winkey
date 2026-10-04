@@ -15,7 +15,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -47,7 +47,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
           "format": 1,
           "rawSql": "SELECT hour AS time, sum(rebuffer_ms) / nullIf(sum(watched_ms) + sum(rebuffer_ms), 0) AS rebuffer_ratio FROM winkey.video_qoe_hourly WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY hour ORDER BY hour",
           "refId": "A"
@@ -57,7 +57,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -81,7 +81,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
           "format": 1,
           "rawSql": "SELECT hour AS time, quantilesMerge(0.5, 0.95)(startup_ms_q)[2] AS startup_p95_ms FROM winkey.video_qoe_hourly WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY hour ORDER BY hour",
           "refId": "A"
@@ -98,7 +98,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -118,7 +118,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
           "format": 1,
           "rawSql": "SELECT hour AS time, sum(errors) AS player_errors FROM winkey.video_qoe_hourly WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY hour ORDER BY hour",
           "refId": "A"
@@ -128,7 +128,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

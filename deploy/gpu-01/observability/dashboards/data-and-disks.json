@@ -15,7 +15,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -44,7 +44,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "node_filesystem_avail_bytes{node=\"edge-1\", mountpoint=\"/\"} / node_filesystem_size_bytes{node=\"edge-1\", mountpoint=\"/\"}",
           "instant": true,
@@ -55,7 +55,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -84,7 +84,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "node_filesystem_avail_bytes{node=\"gpu-01\", mountpoint=\"/srv/winkey-obs\"} or node_filesystem_avail_bytes{node=\"gpu-01\", mountpoint=\"/mnt/nvme_models\"}",
           "instant": true,
@@ -95,7 +95,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -124,7 +124,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "node_filesystem_avail_bytes{node=\"gpu-01\", mountpoint=\"/\"}",
           "instant": true,
@@ -142,7 +142,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -162,7 +162,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "nats_stream_bytes or nats_jetstream_stream_bytes",
           "legendFormat": "Stream: {{stream}}",
@@ -174,7 +174,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -194,7 +194,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "nats_consumer_num_pending{stream=\"ANALYTICS\"} or nats_jetstream_consumer_num_pending{stream=\"ANALYTICS\"}",
           "legendFormat": "ANALYTICS: {{consumer}}",
@@ -202,7 +202,7 @@
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "vmagent_remotewrite_pending_data_bytes",
           "legendFormat": "vmagent disk queue (bytes)",
@@ -221,7 +221,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -245,7 +245,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "sum by (datname, state) (cnpg_backends_total)",
           "legendFormat": "{{datname}}: {{state}}",

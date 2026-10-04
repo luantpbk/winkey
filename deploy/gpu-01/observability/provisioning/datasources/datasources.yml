@@ -3,6 +3,7 @@ apiVersion: 1
 datasources:
   - name: VictoriaMetrics
     type: prometheus
+    uid: victoriametrics
     access: proxy
     url: http://127.0.0.1:8428
     isDefault: true
@@ -14,6 +15,7 @@ datasources:
 
   - name: Loki
     type: loki
+    uid: loki
     access: proxy
     url: http://127.0.0.1:3100
     isDefault: false
@@ -23,6 +25,7 @@ datasources:
 
   - name: ClickHouse
     type: grafana-clickhouse-datasource
+    uid: clickhouse
     access: proxy
     jsonData:
       host: 127.0.0.1

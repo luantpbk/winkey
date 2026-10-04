@@ -15,7 +15,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -44,7 +44,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "nats_consumer_num_pending{stream=\"VIDEO\", consumer=\"transcoder\"} or nats_jetstream_consumer_num_pending{stream=\"VIDEO\", consumer=\"transcoder\"} or vector(0)",
           "instant": true,
@@ -55,7 +55,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -80,7 +80,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "transcoder_jobs_in_flight or vector(0)",
           "instant": true,
@@ -91,7 +91,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -119,7 +119,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "sum(increase(transcoder_jobs_total{outcome=\"error\"}[1h])) or vector(0)",
           "instant": true,
@@ -130,7 +130,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -155,7 +155,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "sum(increase(transcoder_jobs_total{outcome=\"success\"}[1h])) or vector(0)",
           "instant": true,
@@ -173,7 +173,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -197,7 +197,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "sum by (outcome) (rate(transcoder_jobs_total[5m]))",
           "legendFormat": "Outcome: {{outcome}}",
@@ -209,7 +209,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -233,7 +233,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, sum by (encoder, le) (rate(transcoder_encode_realtime_ratio_bucket[10m])))",
           "legendFormat": "{{encoder}} (p50 ratio)",
@@ -241,7 +241,7 @@
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (encoder, le) (rate(transcoder_encode_realtime_ratio_bucket[10m])))",
           "legendFormat": "{{encoder}} (p95 ratio)",
