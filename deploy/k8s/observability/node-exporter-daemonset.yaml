@@ -25,11 +25,16 @@ spec:
       containers:
         - name: node-exporter
           image: prom/node-exporter:v1.9.0@sha256:c99d7ee4d12a38661788f60d9eca493f08584e2e544bbd3b3fca64749f86b848
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
           args:
             - --path.procfs=/host/proc
             - --path.sysfs=/host/sys
             - --path.rootfs=/host/root
-            - --web.listen-address=0.0.0.0:9100
+            - --web.listen-address=$(HOST_IP):9100
             - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containerd/.+|var/lib/rancher/k3s/agent/containerd/.+)($$|/)
           ports:
             - name: metrics
