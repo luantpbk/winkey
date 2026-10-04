@@ -1,0 +1,288 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Primary Experiment Metrics (Daily by Arm) — ADR-030",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Primary metric (ADR-030): sum(watched_ms) / uniqMerge(viewers) per day and arm over all surfaces.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sum(watched_ms) / nullIf(uniqMerge(viewers), 0) AS \"reco (Treatment)\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'reco' GROUP BY day ORDER BY day",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sum(watched_ms) / nullIf(uniqMerge(viewers), 0) AS \"control\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'control' GROUP BY day ORDER BY day",
+          "refId": "B"
+        }
+      ],
+      "title": "Watch Time per Active Viewer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Daily unique signed-in viewers per A/B arm: uniqMerge(viewers). ADR-030 decision rule requires >= 200 active viewers per arm for >= 14 days.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "green", "value": 200 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, uniqMerge(viewers) AS \"reco (Treatment)\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'reco' GROUP BY day ORDER BY day",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, uniqMerge(viewers) AS \"control\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'control' GROUP BY day ORDER BY day",
+          "refId": "B"
+        }
+      ],
+      "title": "Active Viewers per Arm (Target >= 200)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 101,
+      "title": "Surface Attribution & Engagement",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Secondary metric (ADR-030): Playback starts initiated from surface=for_you per active viewer: sumIf(starts, surface = 'for_you') / uniqMerge(viewers).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "decimals": 2,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sumIf(starts, surface = 'for_you') / nullIf(uniqMerge(viewers), 0) AS \"reco (Treatment)\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'reco' GROUP BY day ORDER BY day",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sumIf(starts, surface = 'for_you') / nullIf(uniqMerge(viewers), 0) AS \"control\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) AND reco_variant = 'control' GROUP BY day ORDER BY day",
+          "refId": "B"
+        }
+      ],
+      "title": "Starts from surface=for_you per Active Viewer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Secondary metric (ADR-030): Proportion of watch time coming from surface=for_you by arm: sumIf(watched_ms, surface = 'for_you') / sum(watched_ms).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sumIf(watched_ms, surface = 'for_you' AND reco_variant = 'reco') / nullIf(sumIf(watched_ms, reco_variant = 'reco'), 0) AS \"reco (Treatment)\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) GROUP BY day ORDER BY day",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sumIf(watched_ms, surface = 'for_you' AND reco_variant = 'control') / nullIf(sumIf(watched_ms, reco_variant = 'control'), 0) AS \"control\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) GROUP BY day ORDER BY day",
+          "refId": "B"
+        }
+      ],
+      "title": "for_you Watch Time Share by Arm",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Daily watch time breakdown across all playback origin surfaces (ADR-030).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "group": "A",
+              "mode": "percent"
+            }
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 1,
+          "rawSql": "SELECT toDateTime(day) AS time, sumIf(watched_ms, surface = 'for_you') AS \"for_you\", sumIf(watched_ms, surface = 'latest') AS \"latest\", sumIf(watched_ms, surface = 'trending') AS \"trending\", sumIf(watched_ms, surface = 'up_next') AS \"up_next\", sumIf(watched_ms, surface = 'search') AS \"search\", sumIf(watched_ms, surface = 'subscriptions') AS \"subscriptions\", sumIf(watched_ms, surface = 'channel') AS \"channel\", sumIf(watched_ms, surface = 'playlist') AS \"playlist\", sumIf(watched_ms, surface NOT IN ('for_you', 'latest', 'trending', 'up_next', 'search', 'subscriptions', 'channel', 'playlist')) AS \"other\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) GROUP BY day ORDER BY day",
+          "refId": "A"
+        }
+      ],
+      "title": "Share of Watch Time by Surface (Stacked %)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "description": "Summary of active viewers, total watch time, watch time per viewer, and for_you metrics across the selected time range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "id": 6,
+      "options": {
+        "footer": { "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+          "format": 0,
+          "rawSql": "SELECT reco_variant AS \"Arm\", uniqMerge(viewers) AS \"Active Viewers\", round(sum(watched_ms) / 60000, 1) AS \"Total Watch Time (min)\", round((sum(watched_ms) / nullIf(uniqMerge(viewers), 0)) / 60000, 2) AS \"Watch Time / Viewer (min)\", round(sumIf(starts, surface = 'for_you') / nullIf(uniqMerge(viewers), 0), 2) AS \"for_you Starts / Viewer\", round(sumIf(watched_ms, surface = 'for_you') / nullIf(sum(watched_ms), 0) * 100, 2) AS \"for_you Watch Time Share (%)\" FROM winkey.reco_ab_daily WHERE day >= toDate($__fromTime) AND day <= toDate($__toTime) GROUP BY reco_variant ORDER BY reco_variant",
+          "refId": "A"
+        }
+      ],
+      "title": "A/B Experiment Aggregate Summary",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["winkey", "recommendation", "r2-ab", "clickhouse"],
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": { "refresh_intervals": ["30s", "1m", "5m", "15m"] },
+  "timezone": "browser",
+  "title": "R2-ab",
+  "uid": "winkey-r2-ab",
+  "version": 1
+}

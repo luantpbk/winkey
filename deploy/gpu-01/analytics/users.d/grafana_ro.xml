@@ -16,6 +16,7 @@
             <quota>default</quota>
             <grants>
                 <query>GRANT SELECT ON winkey.video_qoe_hourly</query>
+                <query>GRANT SELECT ON winkey.reco_ab_daily</query>
             </grants>
         </grafana_ro>
     </users>
