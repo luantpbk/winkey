@@ -365,8 +365,11 @@ export interface paths {
          * Home feed "Dành cho bạn", personalised for signed-in callers (task R2, ADR-028). Optional auth.
          * @description Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), never the caller's own videos and never a
          *     video the caller has already watched (per the recommendation history). The ranking blends co-view neighbours
-         *     of the caller's recent watches, fresh videos of the channels they follow and trending, with at most 2 videos
-         *     of one channel in any 10 consecutive items; the exact formula is ADR-028 and is NOT part of this contract.
+         *     of the caller's recent watches, fresh videos of the channels they follow and trending; the exact formula is
+         *     ADR-028 and is NOT part of this contract. Channel diversity is best effort: the list avoids more than 2
+         *     videos of one channel in any 10 consecutive items whenever another eligible video can take the slot, but it
+         *     never drops an eligible video to enforce that (a catalogue dominated by one channel still returns all of
+         *     it). The rule is applied once over the whole ranked list, so it holds across page boundaries.
          *     When personal signals are missing (anonymous caller, new account, gpu-01 has not computed anything yet) the
          *     feed degrades to trending, then newest, so it is empty only when no public video exists.
          *     Pagination: the first page fixes a ranked list of at most 200 videos for about 10 minutes; `cursor` walks
