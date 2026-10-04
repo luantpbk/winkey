@@ -307,7 +307,7 @@ func (s *stack) hourly() map[hourKey]sums {
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[hourKey]sums{}
 	for rows.Next() {
 		var h uint32

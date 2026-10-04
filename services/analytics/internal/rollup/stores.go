@@ -32,7 +32,7 @@ func (c *ClickHouse) Days(ctx context.Context, since time.Time) ([]Day, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Day
 	for rows.Next() {
 		var (
