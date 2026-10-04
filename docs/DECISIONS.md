@@ -445,8 +445,8 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
     - `s_t(v) = 1 − (rank − 1) / 200` theo `media.trending`.
   - `final = 1.0·s_c + 0.7·s_s + 0.3·s_t`. Hoà điểm thì xếp theo `published_at` DESC, rồi `id` DESC.
   - Loại bỏ: video đã có trong lịch sử, video của chính người gọi, và video không qua điều kiện feed công khai (cùng điều kiện đọc của `media.trending`).
-  - Đa dạng: duyệt theo `final` giảm dần; một video bị hoãn nếu 9 video vừa chọn đã có 2 video cùng kênh. Video bị hoãn được nối vào cuối theo thứ tự điểm, không bao giờ bị bỏ.
-  - Lấp đầy: thiếu thì nối video công khai mới nhất (chưa bị loại). Danh sách tối đa 200.
+  - Lấp đầy: thiếu thì nối video công khai mới nhất (chưa bị loại) vào sau các ứng viên có điểm, theo `published_at` DESC, `id` DESC.
+  - Đa dạng (best effort, chốt ở #208): gọi `L` là danh sách trên (ứng viên theo điểm, rồi phần lấp đầy). Chọn lần lượt từng vị trí: lấy phần tử **đầu tiên còn lại** trong `L` mà nếu đặt vào thì trong 10 vị trí liên tiếp kết thúc tại đó không có quá 2 video cùng kênh. Nếu không phần tử nào thoả, lấy phần tử đầu tiên còn lại. Dừng khi đủ 200 hoặc hết `L`. Không bao giờ bỏ video hợp lệ; luật áp một lần trên cả danh sách nên đúng qua ranh giới trang.
   - Ẩn danh: `s_c = s_s = 0`, tức thịnh hành rồi mới nhất. Không cần Valkey; `Cache-Control: public, max-age=60`.
   - Phân trang: trang đầu tính danh sách và lưu id vào Valkey `reco:{user_id}:{list_id}` với TTL 10 phút. `cursor` là opaque {`list_id`, `offset`}. List hết hạn thì tính lại và tiếp tục ở cùng `offset` (chấp nhận hiếm khi trùng hoặc hụt). Đăng nhập: `private, no-store`.
   - Metric: `video_reco_requests_total{mode="personal|fallback|anonymous"}`, `video_reco_compute_seconds`.

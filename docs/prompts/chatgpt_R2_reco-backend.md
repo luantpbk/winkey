@@ -44,7 +44,9 @@ Worktree: git worktree add ../winkey-gpt-r2v -b agent/gpt/r2v-recommended-feed o
 1. Route GET /v1/feed/recommended, optional auth (X-User-Id from the gateway only). Implement ADR-028 "Phục vụ"
    EXACTLY: viewer_key with the SAME analytics.ViewerKey(salt, "u:"+userID) used by recordPlaybackHeartbeats;
    s_c / s_s / s_t; final = 1.0*s_c + 0.7*s_s + 0.3*s_t; exclusions (history, own videos, public-feed rule);
-   diversity rule (deferred, never dropped); fill with newest; cap 200; tie order published_at DESC, id DESC.
+   fill with newest; then the best-effort diversity pass over the whole list exactly as ADR-028 (decided in #208:
+   never drop, take the first remaining item that keeps ≤ 2 per channel in the 10-item window, else the first
+   remaining); cap 200; tie order published_at DESC, id DESC.
 2. Pagination: limit 1..50 (default 20); signed-in lists cached in Valkey `reco:{user_id}:{list_id}` TTL 10 min;
    opaque cursor {list_id, offset} (reuse internal/cursor if it fits); expired list → recompute, continue at offset;
    next_cursor null after 200. Anonymous: no Valkey, `Cache-Control: public, max-age=60`; signed-in:
@@ -54,7 +56,8 @@ Worktree: git worktree add ../winkey-gpt-r2v -b agent/gpt/r2v-recommended-feed o
    - ranking: a hand-computed fixture where co-view, subscription freshness and trending each change the order;
      exact expected id order;
    - exclusions: watched, own, PRIVATE/HIDDEN/not READY, suspended owner never appear;
-   - diversity: 5 top-scored videos of one channel → never more than 2 in any 10 consecutive items, and none lost;
+   - diversity: 5 top-scored videos of one channel among enough other candidates → never more than 2 in any 10
+     consecutive items, and none lost; a pool where ALL eligible videos are one channel → all returned (best effort);
    - cold start: no history and no subscriptions → trending then newest; nothing at all → empty page;
    - pagination: pages concatenate to the same list with no duplicate; an expired list_id still returns 200;
      limit 51 → 400; response validates against the contract (the contract checker the service already uses);
