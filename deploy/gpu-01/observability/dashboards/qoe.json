@@ -148,7 +148,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "ClickHouse" },
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
           "format": 1,
           "rawSql": "SELECT hour AS time, uniqMerge(viewers) AS unique_viewers, sum(starts) AS playback_starts FROM winkey.video_qoe_hourly WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY hour ORDER BY hour",
           "refId": "A"
