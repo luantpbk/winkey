@@ -17,7 +17,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: bootstrap
-          image: natsio/nats-box:0.14.5
+          image: natsio/nats-box:0.14.6
           env:
             - name: NATS_PASSWORD
               valueFrom:

@@ -19,7 +19,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: bootstrap
-          image: alpine/k8s:1.32.0
+          image: alpine/k8s:1.32.13
           command:
             - /bin/bash
             - /scripts/bootstrap.sh

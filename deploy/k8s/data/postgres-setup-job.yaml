@@ -42,7 +42,7 @@ spec:
               memory: 64Mi
 
         - name: migrate
-          image: migrate/migrate:v4.18.2
+          image: migrate/migrate:v4.18.3
           command:
             - /bin/sh
             - -c
