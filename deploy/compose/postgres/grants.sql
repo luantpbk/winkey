@@ -45,3 +45,5 @@ $$;
 -- 5. analytics schema: USAGE and SELECT on video_daily for media_svc (studio stats)
 GRANT USAGE ON SCHEMA analytics TO media_svc;
 GRANT SELECT ON analytics.video_daily TO media_svc;
+-- ... and SELECT strictly on the recommendation tables (task R2, ADR-028)
+GRANT SELECT ON analytics.video_coview, analytics.viewer_history TO media_svc;
