@@ -98,11 +98,12 @@ if (typeof globalThis !== 'undefined') {
 
 // --- Auth Context Mock ---
 let mockCurrentUser: User | null = null;
+let mockAuthLoading = false;
 vi.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => ({
     user: mockCurrentUser,
     isAuthenticated: !!mockCurrentUser,
-    isLoading: false,
+    isLoading: mockAuthLoading,
     isCreator: !!mockCurrentUser,
     isModerator: false,
     isAdmin: false,
@@ -175,6 +176,7 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
     mockPathname = '/vi';
     mockSearchParams = new URLSearchParams();
     mockCurrentUser = null;
+    mockAuthLoading = false;
     resetModerationMocks();
     vi.restoreAllMocks();
   });
@@ -182,6 +184,7 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
   afterEach(() => {
     cleanup();
     tokenStore.clear();
+    mockAuthLoading = false;
     resetModerationMocks();
     vi.restoreAllMocks();
   });
@@ -214,6 +217,105 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
       expect(trendingTab.getAttribute('aria-selected')).toBe('false');
     });
 
+    it('waits for auth loading before picking default tab: signed-in reload sends no request to /v1/videos (latest), only /v1/feed/recommended', async () => {
+      // Simulate signed-in reload: starts with auth loading and user not yet loaded
+      mockCurrentUser = null;
+      mockAuthLoading = true;
+      tokenStore.set('jwt-test-auth-token-12345');
+
+      const requestedPaths: string[] = [];
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        requestedPaths.push(path);
+        if (path === '/v1/feed/recommended') {
+          return {
+            data: {
+              items: mockPersonalRecommendedVideosFixture.slice(0, 24),
+              next_cursor: null,
+            },
+            response: new Response(null, { status: 200 }),
+          } as any;
+        }
+        return {
+          data: { items: [], next_cursor: null },
+          response: new Response(null, { status: 200 }),
+        } as any;
+      });
+
+      const client = createTestQueryClient();
+      const { rerender } = renderHomePage(client);
+
+      // Phase 1: While auth is loading:
+      // - Neither tab is selected yet
+      // - Feed skeleton is shown
+      // - Zero requests to /v1/videos or /v1/feed/recommended
+      const forYouTab = screen.getByTestId('tab-for-you');
+      const latestTab = screen.getByTestId('tab-latest');
+      expect(forYouTab.getAttribute('aria-selected')).toBe('false');
+      expect(latestTab.getAttribute('aria-selected')).toBe('false');
+      expect(screen.getByTestId('feed-skeleton')).toBeDefined();
+      expect(requestedPaths).toEqual([]);
+
+      // Phase 2: Auth resolves as signed-in
+      mockCurrentUser = mockCreatorUser;
+      mockAuthLoading = false;
+      rerender(
+        <QueryClientProvider client={client}>
+          <HomePage />
+        </QueryClientProvider>,
+      );
+
+      // Phase 3: Tab automatically becomes "Dành cho bạn"
+      await waitFor(() => {
+        expect(screen.getByTestId('tab-for-you').getAttribute('aria-selected')).toBe('true');
+      });
+
+      // Phase 4: Only /v1/feed/recommended is requested, never /v1/videos
+      await waitFor(() => {
+        expect(requestedPaths).toContain('/v1/feed/recommended');
+      });
+      expect(requestedPaths).not.toContain('/v1/videos');
+      expect(requestedPaths.filter((p) => p === '/v1/videos')).toHaveLength(0);
+    });
+
+    it('waits for auth loading before picking default tab: anonymous reload sends no request until auth resolves, then fetches /v1/videos', async () => {
+      mockCurrentUser = null;
+      mockAuthLoading = true;
+
+      const requestedPaths: string[] = [];
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        requestedPaths.push(path);
+        return {
+          data: { items: [], next_cursor: null },
+          response: new Response(null, { status: 200 }),
+        } as any;
+      });
+
+      const client = createTestQueryClient();
+      const { rerender } = renderHomePage(client);
+
+      // While auth is loading, no feed requests are made
+      expect(screen.getByTestId('feed-skeleton')).toBeDefined();
+      expect(requestedPaths).toEqual([]);
+
+      // Auth resolves as anonymous
+      mockAuthLoading = false;
+      rerender(
+        <QueryClientProvider client={client}>
+          <HomePage />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tab-latest').getAttribute('aria-selected')).toBe('true');
+      });
+
+      await waitFor(() => {
+        expect(requestedPaths).toContain('/v1/videos');
+      });
+
+      expect(requestedPaths).not.toContain('/v1/feed/recommended');
+    });
+
     it('restores "Thịnh hành" tab when ?tab=trending is in URL', async () => {
       mockCurrentUser = mockCreatorUser;
       mockSearchParams = new URLSearchParams('tab=trending');
@@ -224,6 +326,31 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
 
       expect(trendingTab.getAttribute('aria-selected')).toBe('true');
       expect(forYouTab.getAttribute('aria-selected')).toBe('false');
+    });
+
+    it('keeps explicit ?tab= as is even while auth is loading', async () => {
+      mockCurrentUser = null;
+      mockAuthLoading = true;
+      mockSearchParams = new URLSearchParams('tab=trending');
+
+      const client = createTestQueryClient();
+      const { rerender } = renderHomePage(client);
+
+      // Even while loading, explicit ?tab=trending is preserved
+      expect(screen.getByTestId('tab-trending').getAttribute('aria-selected')).toBe('true');
+
+      // Auth finishes loading for a signed-in user
+      mockCurrentUser = mockCreatorUser;
+      mockAuthLoading = false;
+      rerender(
+        <QueryClientProvider client={client}>
+          <HomePage />
+        </QueryClientProvider>,
+      );
+
+      // Tab remains trending because ?tab=trending was specified
+      expect(screen.getByTestId('tab-trending').getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByTestId('tab-for-you').getAttribute('aria-selected')).toBe('false');
     });
 
     it('restores "Dành cho bạn" tab when ?tab=for-you is in URL even if anonymous', async () => {

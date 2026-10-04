@@ -34,23 +34,28 @@ function HomeContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
   const tabParam = searchParams.get('tab');
-  const defaultTab: TabType = user ? 'for-you' : 'latest';
 
-  const [activeTab, setActiveTab] = useState<TabType>(() => {
-    return isValidTab(tabParam) ? tabParam : defaultTab;
+  const [activeTab, setActiveTab] = useState<TabType | null>(() => {
+    if (isValidTab(tabParam)) {
+      return tabParam;
+    }
+    if (isLoading) {
+      return null;
+    }
+    return user ? 'for-you' : 'latest';
   });
 
   // Sync state when URL tab param or auth status changes
   useEffect(() => {
     if (isValidTab(tabParam)) {
       setActiveTab(tabParam);
-    } else {
+    } else if (!isLoading) {
       setActiveTab(user ? 'for-you' : 'latest');
     }
-  }, [tabParam, user]);
+  }, [tabParam, user, isLoading]);
 
   const handleTabChange = (newTab: TabType) => {
     setActiveTab(newTab);
@@ -196,49 +201,59 @@ function HomeContent() {
       </div>
 
       {/* Tab: Dành cho bạn */}
-      {activeTab === 'for-you' && (
-        <VideoFeed
-          key={`feed-for-you-${user?.id ?? 'anon'}`}
-          queryKey={['feed', 'recommended', user?.id ?? 'anon']}
-          fetchPage={fetchRecommendedPage}
-          staleTime={5 * 60 * 1000}
-          emptySlot={
-            <div
-              data-testid="for-you-empty-state"
-              className="flex flex-col items-center justify-center py-20 text-center"
-            >
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-[#272727] text-amber-500 mb-4">
-                <Sparkles className="h-8 w-8" />
+      {activeTab === 'for-you' &&
+        (isLoading ? (
+          <div
+            data-testid="feed-skeleton"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 mt-2"
+          >
+            {Array.from({ length: 8 }).map((_, i) => (
+              <VideoSkeleton key={i} />
+            ))}
+          </div>
+        ) : (
+          <VideoFeed
+            key={`feed-for-you-${user?.id ?? 'anon'}`}
+            queryKey={['feed', 'recommended', user?.id ?? 'anon']}
+            fetchPage={fetchRecommendedPage}
+            staleTime={5 * 60 * 1000}
+            emptySlot={
+              <div
+                data-testid="for-you-empty-state"
+                className="flex flex-col items-center justify-center py-20 text-center"
+              >
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-[#272727] text-amber-500 mb-4">
+                  <Sparkles className="h-8 w-8" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                  {t('forYouEmptyTitle')}
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mb-6">
+                  {t('forYouEmptyDesc')}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange('trending')}
+                    data-testid="empty-trending-btn"
+                    className="inline-flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 text-sm font-semibold transition"
+                  >
+                    <Flame className="h-4 w-4" />
+                    {t('exploreTrending')}
+                  </button>
+                  <Link
+                    href="/upload"
+                    data-testid="empty-upload-link"
+                    className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {t('uploadVideo')}
+                  </Link>
+                </div>
               </div>
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-                {t('forYouEmptyTitle')}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mb-6">
-                {t('forYouEmptyDesc')}
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('trending')}
-                  data-testid="empty-trending-btn"
-                  className="inline-flex items-center gap-2 rounded-full bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 text-sm font-semibold transition"
-                >
-                  <Flame className="h-4 w-4" />
-                  {t('exploreTrending')}
-                </button>
-                <Link
-                  href="/upload"
-                  data-testid="empty-upload-link"
-                  className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
-                >
-                  <Upload className="h-4 w-4" />
-                  {t('uploadVideo')}
-                </Link>
-              </div>
-            </div>
-          }
-        />
-      )}
+            }
+          />
+        ))}
 
       {/* Tab: Mới nhất */}
       {activeTab === 'latest' && (
@@ -268,6 +283,18 @@ function HomeContent() {
             </div>
           }
         />
+      )}
+
+      {/* Loading skeleton while determining default tab */}
+      {activeTab === null && (
+        <div
+          data-testid="feed-skeleton"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 mt-2"
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <VideoSkeleton key={i} />
+          ))}
+        </div>
       )}
     </div>
   );
