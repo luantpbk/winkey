@@ -46,9 +46,11 @@ type Handler struct {
 	Store domain.Store
 	Cache domain.Cache // may be nil
 	// RelatedCache keeps the answers of GET /v1/videos/{id}/related for 5 minutes (task R2-c); may be nil.
-	RelatedCache RelatedCache
-	MediaBaseURL string // e.g. https://media.winkey.vn
-	MediaBucket  string // bucket named in video.deleted
+	RelatedCache        RelatedCache
+	Recommendations     domain.RecommendationStore
+	RecommendationCache RecommendationCache
+	MediaBaseURL        string // e.g. https://media.winkey.vn
+	MediaBucket         string // bucket named in video.deleted
 	// Objects is the media bucket for subtitle files (task V5b).
 	Objects domain.Objects
 	// MediaLinkSecret signs media URLs of videos the public cannot watch (SEC1, ADR-017); never logged.
@@ -87,6 +89,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Post("/v1/playback/heartbeats", h.recordPlaybackHeartbeats)
 		r.Get("/v1/search", h.searchVideos)
 		r.Get("/v1/search/suggest", h.suggestSearch)
+		r.Get("/v1/feed/recommended", h.getRecommendedFeed)
 	})
 	r.Group(func(r chi.Router) { // identity required
 		r.Use(httpx.Authenticate)
