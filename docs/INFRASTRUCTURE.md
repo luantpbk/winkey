@@ -129,8 +129,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
     // gpu-01 (transcoder worker, ADR-015) → edge: NodePort của NATS 30422, PostgreSQL Winkey 30432, Garage S3 30900.
     // KHÔNG mở 5432: đó là PostgreSQL của host (dữ liệu các site cũ).
     {"action": "accept", "src": ["tag:gpu"], "dst": ["tag:edge:30422,30432,30900"]},
-    // edge → gpu-01: node-exporter / metrics của transcoder.
-    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:9100,9464"]},
+    // edge → gpu-01: node-exporter / metrics của transcoder; VictoriaMetrics remote_write 8428 và Loki push 3100 (I3, ADR-029).
+    {"action": "accept", "src": ["tag:edge"], "dst": ["tag:gpu:9100,9464,8428,3100"]},
   ],
   "ssh": [
     {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:edge", "tag:gpu"],
@@ -138,7 +138,7 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
   ],
   "tests": [
     {"src": "tag:gpu",  "accept": ["tag:edge:30422", "tag:edge:30432", "tag:edge:30900"], "deny": ["tag:edge:22", "tag:edge:5432", "tag:edge:6443", "tag:edge:30080", "tag:edge:9090"]},
-    {"src": "tag:edge", "accept": ["tag:gpu:9100"], "deny": ["tag:gpu:22"]},
+    {"src": "tag:edge", "accept": ["tag:gpu:9100", "tag:gpu:8428", "tag:gpu:3100"], "deny": ["tag:gpu:22"]},
   ],
 }
 ```
