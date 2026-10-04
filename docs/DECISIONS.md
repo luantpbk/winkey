@@ -301,6 +301,17 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - Dòng của video đã xoá vẫn ở lại đến hạn 730 ngày nhưng không bao giờ hiển thị, vì mọi truy vấn đều join `media.videos` để kiểm tra chủ sở hữu.
   - Khi gpu-01 tắt, số liệu chỉ đứng yên, trang không lỗi.
 
+- **Bổ sung #193 (2026-10-04, PR #203): phát lại sau khi đã ghi.**
+  - Nguyên nhân thật của test "chập chờn" `TestClickHouseDownMidRun…`: một `INSERT` có thể đã commit nhưng worker mất phản hồi. Worker cũ bỏ lô đó và giữ ack tới hết `AckWait` (60 s). Khi phát lại, ranh giới lô khác đi, token khác, nên phần chồng lấn bị ghi lần hai: chờ lâu hơn thì thấy 14 000 dòng thay vì 10 000. Đây là lỗi đếm đôi thật, không phải lỗi hạ tầng test.
+  - Sửa (analytics-worker):
+    - khi dừng (ctx bị huỷ), lô chưa ack được `Nak` để phát lại ngay;
+    - lô có message phát lại (`NumDelivered > 1`) tra trước `event_id` đã có trong `winkey.playback_events` theo khoá sắp xếp `(video_id, playback_id, seq)`, theo cửa sổ 1 000 dòng, rồi chỉ `INSERT` phần còn thiếu với token tính lại;
+    - lỗi tra cứu được thử lại và không ack; sau khi tra xong, các lần thử lại `INSERT` giữ nguyên dòng và token.
+  - Thay cho dòng "rủi ro đếm đôi … vẫn còn" ở trên: rủi ro do crash giữa `INSERT` và ack đã được đóng, với hai giới hạn còn lại:
+    - chỉ đúng khi có **một** worker ghi (như đang triển khai trên gpu-01); hai worker song song có thể cùng tra rồi cùng ghi. Muốn chạy nhiều worker phải có ADR mới;
+    - cửa sổ dedup hữu hạn của ClickHouse vẫn áp dụng cho các lần thử lại trong tiến trình.
+  - Bảng ngày (R1-b) tính lại từ ClickHouse nên hưởng cùng bản sửa.
+
 ### ADR-023 — Thông báo trong app (N1)
 **Bối cảnh.** Người dùng đã comment, reply và subscribe được (C1), nhưng không biết khi kênh mình theo dõi ra video mới hay khi có người trả lời mình. Catalog event ghi consumer "notify (P3)" nhưng chưa có thiết kế. Chưa có hạ tầng gửi push/e-mail, và chưa cần: bản beta chỉ cần chuông thông báo trên web.
 **Quyết định.**

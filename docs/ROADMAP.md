@@ -93,7 +93,7 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | R2 | Recommendation v1 đầy đủ: co-view, theo subscription, ranking; khung A/B (sau R2-a) | Opus (thiết kế) + Sonnet |
 | V4 | Full-GPU pipeline + transcode song song theo chunk + DASH manifest | Opus + Sonnet |
 | V5a | Storyboard xem trước khi tua: sprite 160×90 + WebVTT `#xywh`, migration 000008, `Playback.storyboard_url`. [Brief](prompts/sonnet_V5a_storyboard.md) · ✅ (#86) | Sonnet |
-| V5a-b | Tạo bù storyboard cho video READY chưa có (video cũ hoặc bước storyboard từng lỗi): CLI `storyboard-backfill` trong transcoder, dùng lại code V5a, an toàn khi chạy lại. [Brief](prompts/sonnet-2_V5ab_storyboard-backfill.md) · ⬜ | Sonnet 2 | V5a ✅ |
+| V5a-b | Tạo bù storyboard cho video READY chưa có (video cũ hoặc bước storyboard từng lỗi): CLI `storyboard-backfill` trong transcoder, dùng lại code V5a, an toàn khi chạy lại. [Brief](prompts/sonnet-2_V5ab_storyboard-backfill.md) · ✅ #155 | Sonnet 2 | V5a ✅ |
 | V5b | Phụ đề WebVTT do chủ video tải lên (ADR-018): migration 000010, `putSubtitle`/`deleteSubtitle`, `Playback.subtitles`. [Brief](prompts/sonnet_V5b_subtitles.md) · ✅ (#91) | Sonnet |
 | V5c | Auto-caption (Whisper trên gpu-01) ghi track `source = AUTO`; chờ quyết định ngân sách GPU (ADR-018) | Opus (thiết kế) + Sonnet |
 | LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |
