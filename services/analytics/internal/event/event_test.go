@@ -181,7 +181,14 @@ func TestDecodeAgreesWithTheContractSchema(t *testing.T) {
 	}
 	cases := map[string][]byte{
 		"valid": msg(nil), "start": msg(map[string]string{"kind": `"start"`, "startup_ms": `820`}),
-		"extra data key": msg(map[string]string{"x": `1`}), "viewer_key short": msg(map[string]string{"viewer_key": `"abc"`}),
+		"reco for_you":               msg(map[string]string{"surface": `"for_you"`, "reco_variant": `"reco"`}),
+		"control search":             msg(map[string]string{"surface": `"search"`, "reco_variant": `"control"`}),
+		"null recommendation fields": msg(map[string]string{"surface": `null`, "reco_variant": `null`}),
+		"invalid surface":            msg(map[string]string{"surface": `"home"`}),
+		"surface wrong type":         msg(map[string]string{"surface": `12`}),
+		"invalid variant":            msg(map[string]string{"reco_variant": `"treatment"`}),
+		"variant wrong type":         msg(map[string]string{"reco_variant": `true`}),
+		"extra data key":             msg(map[string]string{"x": `1`}), "viewer_key short": msg(map[string]string{"viewer_key": `"abc"`}),
 		"kind unknown": msg(map[string]string{"kind": `"pause"`}), "seq 100001": msg(map[string]string{"seq": `100001`}),
 		"watched 600001": msg(map[string]string{"watched_ms": `600001`}), "no owner_id": msg(map[string]string{"owner_id": ""}),
 		"country lower": msg(map[string]string{"country": `"vn"`}), "country ok": msg(map[string]string{"country": `"VN"`}),

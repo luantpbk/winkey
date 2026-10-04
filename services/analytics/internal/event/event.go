@@ -28,7 +28,7 @@ const (
 	UnknownVersion               // a version this code does not know: Term + metric (analytics are lossy by design)
 )
 
-// Row is one row of winkey.playback_events, in the column order of db/clickhouse/0001_playback.sql.
+// Row is one row of winkey.playback_events (0001_playback.sql and 0002_reco_ab.sql).
 type Row struct {
 	EventID       uuid.UUID
 	ReceivedAt    time.Time
@@ -50,6 +50,8 @@ type Row struct {
 	ErrorCode     *string
 	Client        string
 	Country       *string // always null in v1
+	Surface       *string // nullable for older clients
+	RecoVariant   *string // reco | control; nullable outside the experiment
 }
 
 type envelope struct {
@@ -82,6 +84,8 @@ type data struct {
 	ErrorCode     *string `json:"error_code"`
 	Client        *string `json:"client"`
 	Country       *string `json:"country"`
+	Surface       *string `json:"surface"`
+	RecoVariant   *string `json:"reco_variant"`
 }
 
 var (
@@ -224,5 +228,16 @@ func Decode(payload []byte) (Row, Result) {
 		}
 		r.Country = d.Country
 	}
+	if d.Surface != nil {
+		switch *d.Surface {
+		case "for_you", "latest", "trending", "up_next", "search", "subscriptions", "channel", "playlist", "other":
+		default:
+			return Row{}, Malformed
+		}
+	}
+	if d.RecoVariant != nil && *d.RecoVariant != "reco" && *d.RecoVariant != "control" {
+		return Row{}, Malformed
+	}
+	r.Surface, r.RecoVariant = d.Surface, d.RecoVariant
 	return r, OK
 }
