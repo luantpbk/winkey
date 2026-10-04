@@ -67,11 +67,12 @@ updates:
         patterns:
           - '*'
         update-types:
-          - 'minor'
           - 'patch'
     ignore:
       - dependency-name: '*'
-        update-types: ['version-update:semver-major']
+        update-types:
+          - 'version-update:semver-major'
+          - 'version-update:semver-minor'
 
   # Maintain container images in Kubernetes manifests
   - package-ecosystem: 'docker'
@@ -88,8 +89,9 @@ updates:
         patterns:
           - '*'
         update-types:
-          - 'minor'
           - 'patch'
     ignore:
       - dependency-name: '*'
-        update-types: ['version-update:semver-major']
+        update-types:
+          - 'version-update:semver-major'
+          - 'version-update:semver-minor'
