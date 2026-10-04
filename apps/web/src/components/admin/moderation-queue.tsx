@@ -26,6 +26,7 @@ import type {
 } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { Link } from '../../i18n/routing';
+import { buildWatchUrl } from '../../lib/video/watch-url';
 import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
 
 interface ModerationModalState {
@@ -418,7 +419,7 @@ export function ModerationQueue() {
 
                     {c.target_type === 'VIDEO' && (
                       <Link
-                        href={`/watch/${c.target_id}`}
+                        href={buildWatchUrl(c.target_id, 'other')}
                         target="_blank"
                         className="text-gray-400 hover:text-blue-400 transition"
                         title="View video"

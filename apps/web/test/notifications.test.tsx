@@ -676,15 +676,15 @@ describe('N1-web: Notifications System', () => {
 
       // 1. VIDEO_COMMENT
       const urlComment = getNotificationUrl(mockNotificationItems[0]);
-      expect(urlComment).toBe('/watch/video-123?comment=comment-1');
+      expect(urlComment).toBe('/watch/video-123?comment=comment-1&src=other');
 
       // 2. COMMENT_REPLY
       const urlReply = getNotificationUrl(mockNotificationItems[1]);
-      expect(urlReply).toBe('/watch/video-123?comment=reply-1');
+      expect(urlReply).toBe('/watch/video-123?comment=reply-1&src=other');
 
       // 3. VIDEO_PUBLISHED
       const urlPublished = getNotificationUrl(mockNotificationItems[2]);
-      expect(urlPublished).toBe('/watch/video-456');
+      expect(urlPublished).toBe('/watch/video-456?src=other');
 
       // 4. NEW_SUBSCRIBER
       const urlSubscriber = getNotificationUrl(mockNotificationItems[3]);

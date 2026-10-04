@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '../../../i18n/routing';
 import { api } from '../../../lib/api-client';
 import { formatDuration, formatRelativeTime } from '../../../lib/format';
+import { buildWatchUrl } from '../../../lib/video/watch-url';
 import type { StudioVideo, StudioVideoPage } from '@winkey/api-client';
 import {
   UploadCloud,
@@ -395,7 +396,7 @@ export default function StudioPage() {
                     <div className="flex items-center justify-end gap-2">
                       {video.status === 'READY' && video.moderation?.state !== 'HIDDEN' && (
                         <Link
-                          href={`/watch/${video.id}`}
+                          href={buildWatchUrl(video.id, 'other')}
                           className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
                           title="Xem video"
                         >

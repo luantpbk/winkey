@@ -8,6 +8,7 @@ import { api } from '../../lib/api-client';
 import { Link } from '../../i18n/routing';
 import { formatDuration, formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
+import { buildWatchUrl } from '../../lib/video/watch-url';
 
 export interface RelatedVideosColumnProps {
   videoId: string;
@@ -45,7 +46,7 @@ export function RelatedVideoCard({ video, locale }: { video: VideoSummary; local
     >
       {/* Thumbnail + Duration badge */}
       <Link
-        href={`/watch/${video.id}`}
+        href={buildWatchUrl(video.id, 'up_next')}
         tabIndex={-1}
         aria-hidden="true"
         className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-[#222222]"
@@ -64,7 +65,7 @@ export function RelatedVideoCard({ video, locale }: { video: VideoSummary; local
       {/* Info: Title, Channel, Views & Relative Date */}
       <div className="flex flex-col min-w-0 flex-1 justify-center">
         <Link
-          href={`/watch/${video.id}`}
+          href={buildWatchUrl(video.id, 'up_next')}
           className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white line-clamp-2 leading-snug group-hover:text-red-500 transition-colors focus:outline-none"
           title={video.title}
         >

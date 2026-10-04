@@ -15,6 +15,7 @@ import { useToast } from '../../components/ui/toast';
 import { api } from '../api-client';
 import { RealtimeClient, type RoomEventHandler, type ReconnectHandler } from './realtime-client';
 import type { ServerEventMessage } from './realtime-types';
+import { buildWatchUrl } from '../video/watch-url';
 
 interface RealtimeContextType {
   client: RealtimeClient;
@@ -88,7 +89,7 @@ export function RealtimeProvider({ children, client: customClient }: RealtimePro
           title: t('videoReadyToastTitle') || 'Video của bạn đã sẵn sàng',
           description:
             t('videoReadyToastDesc') || 'Quá trình mã hóa hoàn tất. Bạn có thể xem ngay.',
-          link: `/watch/${videoId}`,
+          link: buildWatchUrl(videoId, 'other'),
           linkLabel: t('viewVideo') || 'Xem video',
           type: 'success',
         });
@@ -97,7 +98,7 @@ export function RealtimeProvider({ children, client: customClient }: RealtimePro
         showToast({
           title: t('commentReplyToastTitle') || 'Có phản hồi mới',
           description: t('commentReplyToastDesc') || 'Có người vừa trả lời bình luận của bạn.',
-          link: `/watch/${videoId}`,
+          link: buildWatchUrl(videoId, 'other'),
           linkLabel: t('viewVideo') || 'Xem ngay',
           type: 'info',
         });

@@ -177,7 +177,7 @@ describe('R2-c-web: Related Videos Column ("Xem tiếp")', () => {
       expect(channelLink).not.toBeNull();
 
       // Watch link
-      const watchLink = card.querySelector(`a[href="/watch/${expected.id}"]`);
+      const watchLink = card.querySelector(`a[href="/watch/${expected.id}?src=up_next"]`);
       expect(watchLink).not.toBeNull();
 
       // Duration badge (formatted e.g. 1:05, 2:10)

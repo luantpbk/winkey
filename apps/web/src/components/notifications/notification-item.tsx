@@ -7,6 +7,7 @@ import type { Notification } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { formatRelativeTime } from '../../lib/format';
 import { Link } from '../../i18n/routing';
+import { buildWatchUrl } from '../../lib/video/watch-url';
 
 export interface NotificationItemProps {
   notification: Notification;
@@ -21,14 +22,14 @@ export function getNotificationUrl(notification: Notification): string {
     case 'VIDEO_COMMENT':
     case 'COMMENT_REPLY':
       if (notification.video_id && notification.comment_id) {
-        return `/watch/${notification.video_id}?comment=${notification.comment_id}`;
+        return buildWatchUrl(notification.video_id, 'other', { comment: notification.comment_id });
       }
       if (notification.video_id) {
-        return `/watch/${notification.video_id}`;
+        return buildWatchUrl(notification.video_id, 'other');
       }
       return '/';
     case 'VIDEO_PUBLISHED':
-      return notification.video_id ? `/watch/${notification.video_id}` : '/';
+      return notification.video_id ? buildWatchUrl(notification.video_id, 'other') : '/';
     default:
       return '/';
   }

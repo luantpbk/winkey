@@ -14,6 +14,7 @@ import {
 } from '../../../../lib/playlist/playlist-utils';
 import { formatDuration, formatViews, formatRelativeTime } from '../../../../lib/format';
 import { getThumbnailUrl } from '../../../../lib/constants';
+import { buildWatchUrl } from '../../../../lib/video/watch-url';
 import {
   Play,
   Trash2,
@@ -363,7 +364,7 @@ export default function PlaylistPage() {
             <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
               {firstValidVideo && (
                 <Link
-                  href={`/watch/${firstValidVideo.id}`}
+                  href={buildWatchUrl(firstValidVideo.id, 'playlist')}
                   className="p-4 rounded-full bg-red-600 text-white shadow-xl hover:scale-110 transition"
                   aria-label="Phát tất cả"
                 >
@@ -446,7 +447,7 @@ export default function PlaylistPage() {
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
             {firstValidVideo && (
               <Link
-                href={`/watch/${firstValidVideo.id}`}
+                href={buildWatchUrl(firstValidVideo.id, 'playlist')}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition"
               >
                 <Play className="h-4 w-4 fill-current" />
@@ -560,7 +561,7 @@ export default function PlaylistPage() {
                     <>
                       {/* Thumbnail */}
                       <Link
-                        href={`/watch/${video.id}`}
+                        href={buildWatchUrl(video.id, 'playlist')}
                         className="relative aspect-video w-32 sm:w-40 shrink-0 rounded-xl overflow-hidden bg-zinc-800"
                       >
                         <img
@@ -577,7 +578,7 @@ export default function PlaylistPage() {
                       {/* Info */}
                       <div className="flex flex-col min-w-0 flex-1">
                         <Link
-                          href={`/watch/${video.id}`}
+                          href={buildWatchUrl(video.id, 'playlist')}
                           className="text-xs sm:text-sm font-semibold text-white line-clamp-2 hover:text-red-500 transition leading-snug"
                         >
                           {video.title}

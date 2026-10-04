@@ -73,6 +73,7 @@ export default function SubscriptionsFeedPage() {
         queryKey={['feed', 'subscriptions']}
         fetchPage={fetchPage}
         staleTime={0}
+        surface="subscriptions"
         emptySlot={
           <div
             data-testid="subscriptions-empty-state"

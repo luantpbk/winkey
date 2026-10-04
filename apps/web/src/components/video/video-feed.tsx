@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { VideoCard } from './video-card';
 import { VideoSkeleton } from './video-skeleton';
 import type { VideoPage, VideoSummary } from '@winkey/api-client';
+import type { WatchSurface } from '../../lib/video/watch-url';
 
 export interface VideoFeedProps {
   queryKey: QueryKey;
@@ -17,6 +18,7 @@ export interface VideoFeedProps {
   gridClassName?: string;
   loadMoreText?: string;
   errorMessage?: string;
+  surface?: WatchSurface;
 }
 
 export function VideoFeed({
@@ -29,6 +31,7 @@ export function VideoFeed({
   gridClassName,
   loadMoreText,
   errorMessage,
+  surface,
 }: VideoFeedProps) {
   const t = useTranslations('home');
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -127,7 +130,11 @@ export function VideoFeed({
           }
         >
           {allVideos.map((video, index) =>
-            renderItem ? renderItem(video, index) : <VideoCard key={video.id} video={video} />,
+            renderItem ? (
+              renderItem(video, index)
+            ) : (
+              <VideoCard key={video.id} video={video} surface={surface} />
+            ),
           )}
 
           {/* Skeletons while loading more */}

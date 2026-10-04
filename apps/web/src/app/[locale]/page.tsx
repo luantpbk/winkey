@@ -217,6 +217,7 @@ function HomeContent() {
             queryKey={['feed', 'recommended', user?.id ?? 'anon']}
             fetchPage={fetchRecommendedPage}
             staleTime={5 * 60 * 1000}
+            surface="for_you"
             emptySlot={
               <div
                 data-testid="for-you-empty-state"
@@ -262,6 +263,7 @@ function HomeContent() {
           queryKey={['feed', 'latest']}
           fetchPage={fetchLatestPage}
           staleTime={5 * 60 * 1000}
+          surface="latest"
           emptySlot={
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <p className="text-gray-500 dark:text-gray-400 text-base">{t('noVideos')}</p>
@@ -277,6 +279,7 @@ function HomeContent() {
           queryKey={['feed', 'trending']}
           fetchPage={fetchTrendingPage}
           staleTime={5 * 60 * 1000}
+          surface="trending"
           emptySlot={
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <p className="text-gray-500 dark:text-gray-400 text-base">{t('noVideos')}</p>

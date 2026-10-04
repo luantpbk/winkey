@@ -9,13 +9,15 @@ import { Clock } from 'lucide-react';
 import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../lib/auth/auth-context';
+import { type WatchSurface, buildWatchUrl } from '../../lib/video/watch-url';
 
 export interface VideoCardProps {
   video: VideoSummary | Video;
   rank?: number;
+  surface?: WatchSurface;
 }
 
-export function VideoCard({ video, rank }: VideoCardProps) {
+export function VideoCard({ video, rank, surface }: VideoCardProps) {
   const { isAuthenticated } = useAuth();
   const { showToast } = useToast();
 
@@ -41,12 +43,14 @@ export function VideoCard({ video, rank }: VideoCardProps) {
         ? video.created_at
         : '';
 
+  const watchHref = buildWatchUrl(video.id, surface);
+
   return (
     <div className="group flex flex-col gap-3">
       {/* Thumbnail + Duration + Rank + Watch Later */}
       <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-[#222222]">
         <Link
-          href={`/watch/${video.id}`}
+          href={watchHref}
           className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-red-600"
         >
           <img
@@ -104,7 +108,7 @@ export function VideoCard({ video, rank }: VideoCardProps) {
 
         <div className="flex flex-col min-w-0 flex-1">
           <Link
-            href={`/watch/${video.id}`}
+            href={watchHref}
             className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2 leading-snug group-hover:text-red-500 transition-colors"
             title={video.title}
           >
