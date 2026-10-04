@@ -23,6 +23,7 @@ import (
 	"github.com/luantpbk/winkey/services/analytics/internal/chdb"
 	"github.com/luantpbk/winkey/services/analytics/internal/config"
 	"github.com/luantpbk/winkey/services/analytics/internal/migrate"
+	"github.com/luantpbk/winkey/services/analytics/internal/reco"
 	"github.com/luantpbk/winkey/services/analytics/internal/rollup"
 	"github.com/luantpbk/winkey/services/analytics/internal/worker"
 )
@@ -110,7 +111,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	go func() { defer wg.Done(); src.WatchPending(ctx, 30*time.Second) }()
 
 	// The daily rollup for the studio statistics. Its failures never make /readyz fail and never stop ingestion.
-	if cfg.RollupEnabled {
+	if cfg.RollupEnabled || cfg.RecoEnabled {
 		pcfg, err := pgxpool.ParseConfig(cfg.PostgresURL)
 		if err != nil {
 			return fmt.Errorf("POSTGRES_URL: %w", err)
@@ -121,10 +122,18 @@ func run(cfg config.Config, log *slog.Logger) error {
 			return fmt.Errorf("postgres: %w", err)
 		}
 		defer pool.Close()
-		rr := &rollup.Runner{Source: &rollup.ClickHouse{Conn: conn}, Sink: &rollup.Postgres{Pool: pool}, Log: log,
-			Interval: cfg.RollupEvery, WindowDays: cfg.RollupWindow, BackfillDays: cfg.RollupBackfill}
-		wg.Add(1)
-		go func() { defer wg.Done(); rr.Run(ctx) }()
+		if cfg.RollupEnabled {
+			rr := &rollup.Runner{Source: &rollup.ClickHouse{Conn: conn}, Sink: &rollup.Postgres{Pool: pool}, Log: log,
+				Interval: cfg.RollupEvery, WindowDays: cfg.RollupWindow, BackfillDays: cfg.RollupBackfill}
+			wg.Add(1)
+			go func() { defer wg.Done(); rr.Run(ctx) }()
+		}
+		if cfg.RecoEnabled {
+			rr := &reco.Runner{Source: &reco.ClickHouse{Conn: conn}, Sink: &reco.Postgres{Pool: pool}, Log: log,
+				Interval: cfg.RecoEvery, Options: reco.Options{WindowDays: cfg.RecoWindow, MinWatchMs: cfg.RecoMinWatch, Neighbors: cfg.RecoNeighbors, History: cfg.RecoHistory}}
+			wg.Add(1)
+			go func() { defer wg.Done(); rr.Run(ctx) }()
+		}
 	}
 
 	select {

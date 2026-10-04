@@ -32,6 +32,12 @@ type Config struct {
 	RollupEvery    time.Duration `env:"ROLLUP_INTERVAL" default:"10m"`
 	RollupWindow   int           `env:"ROLLUP_WINDOW_DAYS" default:"3"`
 	RollupBackfill int           `env:"ROLLUP_BACKFILL_DAYS" default:"8"`
+	RecoEnabled    bool          `env:"RECO_ENABLED" default:"true"`
+	RecoEvery      time.Duration `env:"RECO_INTERVAL" default:"30m"`
+	RecoWindow     int           `env:"RECO_WINDOW_DAYS" default:"30"`
+	RecoMinWatch   int           `env:"RECO_MIN_WATCH_MS" default:"20000"`
+	RecoNeighbors  int           `env:"RECO_NEIGHBORS" default:"30"`
+	RecoHistory    int           `env:"RECO_HISTORY" default:"50"`
 }
 
 // Load reads and validates the environment.
@@ -53,6 +59,26 @@ func (c Config) Validate() error {
 	}
 	if c.InsertTimeout < time.Second || c.InsertTimeout > 30*time.Second {
 		return errors.New("CLICKHOUSE_INSERT_TIMEOUT must be between 1s and 30s (half of the 60s ack_wait)")
+	}
+	if (c.RollupEnabled || c.RecoEnabled) && c.PostgresURL == "" {
+		return errors.New("POSTGRES_URL is required when ROLLUP_ENABLED=true or RECO_ENABLED=true")
+	}
+	if c.RecoEnabled {
+		if c.RecoEvery < 5*time.Minute || c.RecoEvery > 6*time.Hour {
+			return errors.New("RECO_INTERVAL must be between 5m and 6h")
+		}
+		if c.RecoWindow < 1 || c.RecoWindow > 90 {
+			return errors.New("RECO_WINDOW_DAYS must be between 1 and 90")
+		}
+		if c.RecoMinWatch < 1000 || c.RecoMinWatch > 600000 {
+			return errors.New("RECO_MIN_WATCH_MS must be between 1000 and 600000")
+		}
+		if c.RecoNeighbors < 1 || c.RecoNeighbors > 100 {
+			return errors.New("RECO_NEIGHBORS must be between 1 and 100")
+		}
+		if c.RecoHistory < 1 || c.RecoHistory > 200 {
+			return errors.New("RECO_HISTORY must be between 1 and 200")
+		}
 	}
 	if c.RollupEnabled {
 		if c.PostgresURL == "" {

@@ -118,22 +118,23 @@ func ts(p *string) (time.Time, bool) {
 	return t.UTC(), err == nil
 }
 
-func rng(p *int64, min, max int64) (int64, bool) {
-	if p == nil || *p < min || *p > max {
-		return 0, false
-	}
-	return *p, true
-}
-
 func optRng(p *int64, max int64) (*uint32, bool) {
 	if p == nil {
 		return nil, true
 	}
-	if *p < 0 || *p > max {
+	if *p < 0 || *p > max || *p > math.MaxUint32 {
 		return nil, false
 	}
 	v := uint32(*p)
 	return &v, true
+}
+
+func requiredUint32(p *int64, max int64) (uint32, bool) {
+	v, ok := optRng(p, max)
+	if !ok || v == nil {
+		return 0, false
+	}
+	return *v, true
 }
 
 func optStr(p *string, max int) (*string, bool) {
@@ -192,19 +193,22 @@ func Decode(payload []byte) (Row, Result) {
 	}
 	r.Client = *d.Client
 
-	var good [6]bool
-	var seq, pos, watched, rebuf, rcount int64
-	seq, good[0] = rng(d.Seq, 0, 100000)
-	pos, good[1] = rng(d.PositionMs, 0, math.MaxUint32)
-	watched, good[2] = rng(d.WatchedMs, 0, 600000)
-	rebuf, good[3] = rng(d.RebufferMs, 0, 600000)
-	rcount, good[4] = rng(d.RebufferCount, 0, 1000)
-	for _, g := range good[:5] {
+	var good [5]bool
+	var rcount uint32
+	r.Seq, good[0] = requiredUint32(d.Seq, 100000)
+	r.PositionMs, good[1] = requiredUint32(d.PositionMs, math.MaxUint32)
+	r.WatchedMs, good[2] = requiredUint32(d.WatchedMs, 600000)
+	r.RebufferMs, good[3] = requiredUint32(d.RebufferMs, 600000)
+	rcount, good[4] = requiredUint32(d.RebufferCount, 1000)
+	for _, g := range good {
 		if !g {
 			return Row{}, Malformed
 		}
 	}
-	r.Seq, r.PositionMs, r.WatchedMs, r.RebufferMs, r.RebufferCount = uint32(seq), uint32(pos), uint32(watched), uint32(rebuf), uint16(rcount)
+	if rcount > math.MaxUint16 {
+		return Row{}, Malformed
+	}
+	r.RebufferCount = uint16(rcount)
 
 	var okS, okB, okR, okE bool
 	r.StartupMs, okS = optRng(d.StartupMs, 600000)

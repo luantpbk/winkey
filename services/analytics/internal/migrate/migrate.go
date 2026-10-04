@@ -46,6 +46,11 @@ func Apply(ctx context.Context, db DB, dir string, log *slog.Logger) ([]string, 
 		return nil, fmt.Errorf("no *.sql files in %s", dir)
 	}
 	sort.Strings(files)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	for _, q := range bootstrap {
 		if err := db.Exec(ctx, q); err != nil {
 			return nil, fmt.Errorf("bootstrap: %w", err)
@@ -61,7 +66,7 @@ func Apply(ctx context.Context, db DB, dir string, log *slog.Logger) ([]string, 
 		if done[name] {
 			continue
 		}
-		raw, err := os.ReadFile(f)
+		raw, err := root.ReadFile(name)
 		if err != nil {
 			return applied, err
 		}
@@ -104,7 +109,7 @@ func SplitStatements(sql string) []string {
 			cur.WriteByte('\n')
 		case c == '/' && i+1 < len(sql) && sql[i+1] == '*': // block comment
 			i += 2
-			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+			for i+1 < len(sql) && (sql[i] != '*' || sql[i+1] != '/') {
 				i++
 			}
 			i++ // the '/'
