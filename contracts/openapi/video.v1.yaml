@@ -613,6 +613,50 @@ paths:
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 
+  /v1/feed/recommended:
+    get:
+      tags: [videos]
+      operationId: getRecommendedFeed
+      summary: Home feed "Dành cho bạn", personalised for signed-in callers (task R2, ADR-028). Optional auth.
+      description: |
+        Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), never the caller's own videos and never a
+        video the caller has already watched (per the recommendation history). The ranking blends co-view neighbours
+        of the caller's recent watches, fresh videos of the channels they follow and trending, with at most 2 videos
+        of one channel in any 10 consecutive items; the exact formula is ADR-028 and is NOT part of this contract.
+        When personal signals are missing (anonymous caller, new account, gpu-01 has not computed anything yet) the
+        feed degrades to trending, then newest, so it is empty only when no public video exists.
+        Pagination: the first page fixes a ranked list of at most 200 videos for about 10 minutes; `cursor` walks
+        that list. A cursor whose list has expired is still accepted and continues at the same position of a
+        freshly computed list (a rare duplicate or gap is possible). After the 200th video `next_cursor` is null.
+        Signed in: `Cache-Control: private, no-store`. Anonymous: `Cache-Control: public, max-age=60`.
+        Gateway: `/v1/feed` goes to video-svc.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: One page of recommended videos.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
   /v1/search:
     get:
       tags: [search]

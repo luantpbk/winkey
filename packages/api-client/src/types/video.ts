@@ -354,6 +354,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/feed/recommended": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Home feed "Dành cho bạn", personalised for signed-in callers (task R2, ADR-028). Optional auth.
+         * @description Public-feed videos only (PUBLIC, READY, VISIBLE, owner active), never the caller's own videos and never a
+         *     video the caller has already watched (per the recommendation history). The ranking blends co-view neighbours
+         *     of the caller's recent watches, fresh videos of the channels they follow and trending, with at most 2 videos
+         *     of one channel in any 10 consecutive items; the exact formula is ADR-028 and is NOT part of this contract.
+         *     When personal signals are missing (anonymous caller, new account, gpu-01 has not computed anything yet) the
+         *     feed degrades to trending, then newest, so it is empty only when no public video exists.
+         *     Pagination: the first page fixes a ranked list of at most 200 videos for about 10 minutes; `cursor` walks
+         *     that list. A cursor whose list has expired is still accepted and continues at the same position of a
+         *     freshly computed list (a rare duplicate or gap is possible). After the 200th video `next_cursor` is null.
+         *     Signed in: `Cache-Control: private, no-store`. Anonymous: `Cache-Control: public, max-age=60`.
+         *     Gateway: `/v1/feed` goes to video-svc.
+         */
+        get: operations["getRecommendedFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/search": {
         parameters: {
             query?: never;
@@ -1253,6 +1283,32 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getRecommendedFeed: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of recommended videos. */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     searchVideos: {

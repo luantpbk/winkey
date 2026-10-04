@@ -427,3 +427,73 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - `daily_count` và `daily_bytes` tính từ sổ. `concurrent` vẫn tính từ `media.videos` (`status = 'UPLOADING'`), vì upload đã xoá thì không còn chiếm chỗ.
 - Upload bị abort vẫn được tính trong hạn mức ngày, và đó là chủ ý: 20 lần mỗi ngày là đủ cho người dùng thật.
 - Migration chép các video tạo trong 25 giờ gần nhất vào sổ, nên lúc chuyển sang sổ không mất số liệu.
+
+### ADR-028 — Recommendation v1 "Dành cho bạn" (R2)
+**Bối cảnh.** Đã có ba nguồn chưa cá nhân hoá: thịnh hành (R2-a, ADR-020), "Đang theo dõi" (R2-b, ADR-021) và video liên quan theo tiêu đề (R2-c, ADR-025). ClickHouse trên gpu-01 (ADR-022) đã ghi mỗi lượt phát kèm `viewer_key`. Hai ràng buộc từ R1-b vẫn giữ: ClickHouse chỉ nghe loopback trên gpu-01, và gpu-01 có uptime yếu, nên video-svc **không bao giờ** đọc thẳng ClickHouse.
+**Quyết định.**
+- **Tính ngoại tuyến (analytics-worker, gpu-01), job `reco`** mỗi `RECO_INTERVAL` (mặc định 30 phút; một worker, như ADR-022 bổ sung #193):
+  - *Lượt xem đủ:* với mỗi cặp (`viewer_key`, `video_id`) trong `RECO_WINDOW_DAYS` (mặc định 30) ngày, tổng `watched_ms` (khử trùng theo `(video_id, playback_id, seq)`) ≥ `RECO_MIN_WATCH_MS` (mặc định 20 000).
+  - *Co-view* → `analytics.video_coview` (migration 000018): dùng lượt xem đủ của **mọi** người xem (đăng nhập và ẩn danh). `co_viewers` = số người xem khác nhau đã xem đủ cả hai video; `score` = `co_viewers / sqrt(viewers(a) · viewers(b))`. Bỏ cặp có `co_viewers < 3` (vừa là nhiễu, vừa để không cặp nào lộ lịch sử của một người). Mỗi video giữ `RECO_NEIGHBORS` (mặc định 30) hàng xóm có `score` cao nhất.
+  - *Lịch sử* → `analytics.viewer_history`: chỉ người xem **đã đăng nhập** (`authenticated = true`), tối đa `RECO_HISTORY` (mặc định 50) video xem đủ gần nhất mỗi người, kèm `last_watched_at` và `watched_ms`.
+  - Mỗi lần chạy thay **toàn bộ** nội dung hai bảng trong **một** transaction PostgreSQL (DELETE rồi COPY/INSERT), nên người đọc không bao giờ thấy bảng dở dang. Lỗi chỉ tăng `analytics_reco_errors_total`; `analytics_reco_last_success_timestamp_seconds` đứng yên. Ingest không bị ảnh hưởng, `/readyz` không đổi.
+  - gpu-01 tắt: hai bảng chỉ cũ đi, feed vẫn chạy.
+- **Phục vụ (video-svc):** `getRecommendedFeed` (`GET /v1/feed/recommended`, auth tuỳ chọn).
+  - Người gọi đã đăng nhập: `viewer_key = analytics.ViewerKey(ANALYTICS_VIEWER_SALT, "u:" + user_id)`, đúng hàm R1 đang dùng. Đọc tối đa 50 dòng lịch sử.
+  - Ba điểm thành phần cho mỗi ứng viên `v`:
+    - `s_c(v) = Σ_h score(h, v) · 0.5^(tuổi_ngày(h) / 7)`, với `h` chạy qua lịch sử. Sau đó chia cho max để về [0, 1].
+    - `s_s(v) = 0.5^(tuổi_giờ(v) / 72)` cho video đăng trong 14 ngày gần nhất của các kênh người gọi theo dõi (`media.subscriptions`).
+    - `s_t(v) = 1 − (rank − 1) / 200` theo `media.trending`.
+  - `final = 1.0·s_c + 0.7·s_s + 0.3·s_t`. Hoà điểm thì xếp theo `published_at` DESC, rồi `id` DESC.
+  - Loại bỏ: video đã có trong lịch sử, video của chính người gọi, và video không qua điều kiện feed công khai (cùng điều kiện đọc của `media.trending`).
+  - Đa dạng: duyệt theo `final` giảm dần; một video bị hoãn nếu 9 video vừa chọn đã có 2 video cùng kênh. Video bị hoãn được nối vào cuối theo thứ tự điểm, không bao giờ bị bỏ.
+  - Lấp đầy: thiếu thì nối video công khai mới nhất (chưa bị loại). Danh sách tối đa 200.
+  - Ẩn danh: `s_c = s_s = 0`, tức thịnh hành rồi mới nhất. Không cần Valkey; `Cache-Control: public, max-age=60`.
+  - Phân trang: trang đầu tính danh sách và lưu id vào Valkey `reco:{user_id}:{list_id}` với TTL 10 phút. `cursor` là opaque {`list_id`, `offset`}. List hết hạn thì tính lại và tiếp tục ở cùng `offset` (chấp nhận hiếm khi trùng hoặc hụt). Đăng nhập: `private, no-store`.
+  - Metric: `video_reco_requests_total{mode="personal|fallback|anonymous"}`, `video_reco_compute_seconds`.
+- **Riêng tư.** PostgreSQL chỉ có `viewer_key` (HMAC), không có user id rõ. Lịch sử tự rơi khỏi bảng sau `RECO_WINDOW_DAYS` không xem. Muốn xoá ngay khi xoá tài khoản thì cần thêm việc riêng (chưa làm ở v1).
+**Hệ quả.**
+- Có feed cá nhân mà không thêm service hay hạ tầng mới. Chi phí phục vụ là vài truy vấn PostgreSQL có index mỗi 10 phút cho mỗi người dùng.
+- Chất lượng tăng dần theo dữ liệu xem; lúc đầu feed gần như thịnh hành + "Đang theo dõi".
+- Chưa đo được hiệu quả. **R2-ab** (sau) sẽ thêm `surface` vào `PlaybackSample` và cột ClickHouse, cùng phân nhóm A/B theo hash user, để so watch time giữa "Dành cho bạn" và thịnh hành.
+- Thay toàn bảng mỗi lần chạy chỉ hợp ở quy mô beta. Khi bảng lớn thì đổi sang bảng tạm + `ALTER TABLE … RENAME` trong cùng transaction, không đổi contract.
+- Contract không hứa công thức. Đổi trọng số hay nguồn ứng viên chỉ cần sửa ADR này.
+
+### ADR-029 — Observability (I3): đo ở edge-1, lưu và cảnh báo trên gpu-01
+**Bối cảnh.** Chưa có dashboard hay cảnh báo nào. Mọi service đã có `/metrics` (Prometheus) và log JSON ra stdout. Kế hoạch gốc (ADR-011, INFRASTRUCTURE §3) đặt VictoriaMetrics, Loki và Grafana trên gpu-01. Nhưng gpu-01 có uptime yếu (ADR-015), còn edge-1 chỉ cho Winkey tối đa 2 vCPU / 10 GB requests.
+**Quyết định.**
+- **Lưu trữ và giao diện trên gpu-01**, chạy bằng docker compose `deploy/gpu-01/observability/` theo đúng quy tắc của ADR-022 bổ sung:
+  - image pin digest, `network_mode: host`, không `privileged`;
+  - chỉ mount `/srv/winkey-obs/{victoria,loki,grafana}` và config read-only trong repo. Thư mục do chủ dự án tạo; agent không dùng sudo.
+  - Thành phần:
+    - VictoriaMetrics single-node, retention 30 ngày;
+    - Loki single-binary trên filesystem, retention 14 ngày;
+    - Grafana.
+  - Tổng dung lượng mục tiêu ≤ 20 GB, dùng chung NVMe với ClickHouse.
+  - Lắng nghe: chỉ loopback và IP tailnet của gpu-01. Không có gì public.
+- **Thu thập trên edge-1 (k3s, namespace `observability`), theo mô hình đẩy có bộ đệm:**
+  - `vmagent` (1 bản) scrape:
+    - mọi pod có annotation `prometheus.io/scrape`;
+    - Traefik, CNPG, NATS (exporter), node-exporter (DaemonSet), kube-state-metrics.
+  - `vmagent` `remote_write` sang VictoriaMetrics trên gpu-01 qua Tailscale, với bộ đệm đĩa tối đa 2 GiB (`-remoteWrite.tmpDataPath`): gpu-01 tắt vài giờ thì số liệu được gửi bù, không mất.
+  - Grafana Alloy (DaemonSet) đọc log pod (`/var/log/pods`) và đẩy sang Loki. Khi gpu-01 tắt lâu, log có thể mất. Chấp nhận được, vì log gốc vẫn còn trên node theo rotation của k3s.
+  - Tổng requests của namespace ≤ 200m CPU / 512 MiB, nằm trong ngân sách §0.1.
+- **gpu-01 tự đo:** node-exporter, ClickHouse, analytics-worker và transcoder do VictoriaMetrics trên gpu-01 scrape trực tiếp (`-promscrape.config`).
+- **Dashboard** (JSON provision trong repo, không sửa tay trên UI):
+  1. Tổng quan dịch vụ: RPS, tỉ lệ 5xx, p95 theo service và route.
+  2. Pipeline: upload → READY, hàng đợi transcode (consumer pending), job lỗi.
+  3. QoE từ ClickHouse: rebuffer ratio, startup p95, lỗi player theo giờ. Đọc qua user ClickHouse read-only `grafana_ro`, chỉ `SELECT` trên `video_qoe_hourly`.
+  4. Dữ liệu: PostgreSQL, stream NATS, dung lượng đĩa của edge-1 và gpu-01, backlog `ANALYTICS`.
+- **Cảnh báo** (Grafana alerting, email qua SMTP Resend bằng secret riêng; người nhận lấy từ biến môi trường, không ghi vào git):
+  - 5xx > 2 % trong 5 phút, hoặc p95 > 1 s trong 10 phút, theo service;
+  - edge-1 còn < 15 % đĩa; gpu-01 `/srv` còn < 20 GB (ADR-022 bổ sung);
+  - transcode pending > 10 trong 30 phút; stream `ANALYTICS` > 3 GiB;
+  - rollup hoặc reco không thành công quá 2 giờ trong lúc gpu-01 đang chạy;
+  - bộ đệm `vmagent` trên edge-1 > 1 GiB;
+  - `auth_mail_dead_total` tăng;
+  - rebuffer ratio theo giờ > 1 % (tiêu chí P2), mức warning.
+- **Giám sát từ ngoài:** cảnh báo nằm trên gpu-01, nên không báo được khi chính gpu-01 tắt. Kiểm tra "winkey.vn còn sống" (trang chủ, `/v1/videos?limit=1`, một file trên `media.winkey.vn`) dùng thêm một dịch vụ uptime miễn phí bên ngoài, do chủ dự án đăng ký. Không cần code.
+- **Tailscale:** thêm luật `tag:edge → tag:gpu:8428,3100`, cho remote write và đẩy log.
+**Hệ quả.**
+- Có số đo cho tiêu chí P2 và cho LT2. edge-1 chỉ tốn vài trăm MiB RAM.
+- gpu-01 tắt thì dashboard và cảnh báo nội bộ tắt theo; số liệu được gửi bù, log có thể hụt. Kiểm tra từ ngoài vẫn báo site sập.
+- Lên edge-2/3 thì chuyển VictoriaMetrics, Loki và Grafana về edge mà không đổi phía thu thập (chỉ đổi đích `remote_write`).

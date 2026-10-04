@@ -50,6 +50,8 @@ configMapGenerator:
       - migrations/000016_email_tokens.down.sql
       - migrations/000017_upload_ledger.up.sql
       - migrations/000017_upload_ledger.down.sql
+      - migrations/000018_reco.up.sql
+      - migrations/000018_reco.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

@@ -22,6 +22,8 @@ REVOKE ALL PRIVILEGES ON auth.users FROM media_svc;
 -- media_svc additionally needs: USAGE on analytics, SELECT strictly on analytics.video_daily (task R1-b)
 GRANT USAGE ON SCHEMA analytics TO media_svc;
 GRANT SELECT ON analytics.video_daily TO media_svc;
+-- ... and SELECT strictly on the recommendation tables (task R2, ADR-028)
+GRANT SELECT ON analytics.video_coview, analytics.viewer_history TO media_svc;
 
 -- 3. social_svc: USAGE on social, CRUD on all social.* tables & sequences
 -- USAGE on auth + SELECT strictly on auth.public_profiles (never auth.users)
