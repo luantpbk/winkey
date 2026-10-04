@@ -5,10 +5,12 @@ package chdb
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/google/uuid"
 
 	"github.com/luantpbk/winkey/services/analytics/internal/event"
 )
@@ -34,6 +36,58 @@ func Open(o Options) (driver.Conn, error) {
 
 // Inserter writes batches to winkey.playback_events.
 type Inserter struct{ Conn driver.Conn }
+
+// Unwritten reconciles a redelivered batch with persisted rows before a new INSERT. The old INSERT may have
+// committed before its response was lost; its deduplication token cannot protect a differently bounded batch.
+// Look up the existing ORDER BY key so recovery does not require a full scan of the event_id column.
+func (i *Inserter) Unwritten(ctx context.Context, rows []event.Row) ([]event.Row, error) {
+	// Bound the rendered UUID tuples below ClickHouse's default 256 KiB max_query_size, even when
+	// the worker accepts its maximum configured batch. No rows are inserted until every lookup succeeds.
+	const lookupWindow = 1000
+	unwritten := make([]event.Row, 0, len(rows))
+	for first := 0; first < len(rows); first += lookupWindow {
+		part := rows[first:min(first+lookupWindow, len(rows))]
+		ids, err := i.persisted(ctx, part)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range part {
+			if !ids[row.EventID] {
+				unwritten = append(unwritten, row)
+			}
+		}
+	}
+	return unwritten, nil
+}
+
+func (i *Inserter) persisted(ctx context.Context, rows []event.Row) (map[uuid.UUID]bool, error) {
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, len(rows))
+	args := make([]any, 0, 3*len(rows))
+	for n, row := range rows {
+		keys[n] = "(?, ?, ?)"
+		args = append(args, row.VideoID, row.PlaybackID, row.Seq)
+	}
+	stored, err := i.Conn.Query(ctx, "SELECT event_id FROM winkey.playback_events WHERE (video_id, playback_id, seq) IN ("+strings.Join(keys, ",")+")", args...)
+	if err != nil {
+		return nil, fmt.Errorf("lookup redelivered rows: %w", err)
+	}
+	defer stored.Close()
+	ids := make(map[uuid.UUID]bool, len(rows))
+	for stored.Next() {
+		var id uuid.UUID
+		if err := stored.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan redelivered row: %w", err)
+		}
+		ids[id] = true
+	}
+	if err := stored.Err(); err != nil {
+		return nil, fmt.Errorf("read redelivered rows: %w", err)
+	}
+	return ids, nil
+}
 
 // InsertBatch writes the rows with ONE INSERT and the two settings that make a retry exact
 // (see db/clickhouse/0001_playback.sql): the deduplication token of the batch, and the same deduplication for the
