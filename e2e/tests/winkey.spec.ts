@@ -1309,4 +1309,73 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     );
     expect(await newCurrentVideoCards.count()).toBe(0);
   });
+
+  test('R2-web: For You feed (signed-in user lands on "Dành cho bạn", scrolls to load page 2, switches to "Thịnh hành" and back; reload keeps the tab)', async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+
+    // 1. Sign in as creator
+    await page.goto('/vi/login');
+    await page.waitForLoadState('domcontentloaded');
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    if (await loginForm.isVisible()) {
+      await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+      await loginForm.locator('input[type="password"]').fill('Password123!');
+      await page.click('button[type="submit"]');
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+    }
+
+    // 2. Navigate to home page
+    await page.goto('/vi');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Tab "Dành cho bạn" is selected by default for signed-in user
+    const tabForYou = page.locator('[data-testid="tab-for-you"]');
+    await expect(tabForYou).toBeVisible({ timeout: 15000 });
+    await expect(tabForYou).toHaveAttribute('aria-selected', 'true');
+
+    // First page items render
+    const videoFeedGrid = page.locator('[data-testid="video-feed-grid"]');
+    await expect(videoFeedGrid).toBeVisible({ timeout: 15000 });
+    const videoCards = videoFeedGrid.locator('[data-testid="video-card"]');
+    await expect(videoCards.first()).toBeVisible({ timeout: 15000 });
+    const initialCount = await videoCards.count();
+    expect(initialCount).toBeGreaterThanOrEqual(12);
+
+    // 3. Scroll to load page 2
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const loadMoreBtn = page.locator('button', { hasText: /tải thêm/i });
+    if (await loadMoreBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await loadMoreBtn.click();
+    }
+    await page.waitForFunction(
+      (prev) => document.querySelectorAll('[data-testid="video-card"]').length > prev,
+      initialCount,
+      { timeout: 15000 },
+    );
+    const countAfterScroll = await videoCards.count();
+    expect(countAfterScroll).toBeGreaterThan(initialCount);
+
+    // 4. Switch to "Thịnh hành" tab
+    const tabTrending = page.locator('[data-testid="tab-trending"]');
+    await tabTrending.click();
+    await expect(tabTrending).toHaveAttribute('aria-selected', 'true');
+    expect(page.url()).toContain('tab=trending');
+
+    // 5. Switch back to "Dành cho bạn" tab
+    await tabForYou.click();
+    await expect(tabForYou).toHaveAttribute('aria-selected', 'true');
+    expect(page.url()).toContain('tab=for-you');
+
+    // 6. Reload keeps the tab
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('[data-testid="tab-for-you"]')).toHaveAttribute(
+      'aria-selected',
+      'true',
+      { timeout: 15000 },
+    );
+    expect(page.url()).toContain('tab=for-you');
+  });
 });

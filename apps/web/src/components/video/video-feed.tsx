@@ -33,19 +33,28 @@ export function VideoFeed({
   const t = useTranslations('home');
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useInfiniteQuery({
-      queryKey,
-      initialPageParam: null as string | null,
-      queryFn: async ({ pageParam }) => {
-        return fetchPage(pageParam);
-      },
-      getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-      staleTime,
-    });
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      return fetchPage(pageParam);
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    staleTime,
+  });
 
   // Infinite scroll trigger via IntersectionObserver
   useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
@@ -62,7 +71,14 @@ export function VideoFeed({
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const allVideos = data?.pages.flatMap((page) => page.items) || [];
+  // Defensive deduplication across pages
+  const seenIds = new Set<string>();
+  const allVideos = (data?.pages.flatMap((page) => page.items) || []).filter((video) => {
+    if (!video?.id) return false;
+    if (seenIds.has(video.id)) return false;
+    seenIds.add(video.id);
+    return true;
+  });
 
   return (
     <div className="w-full">
@@ -86,9 +102,18 @@ export function VideoFeed({
       {/* Error state */}
       {isError && (
         <div role="alert" className="flex flex-col items-center justify-center p-12 text-center">
-          <p className="text-red-500 font-medium">
-            {errorMessage || `Lỗi khi tải danh sách video: ${error?.message}`}
+          <p className="text-red-500 font-medium mb-4">
+            {errorMessage ||
+              (t ? t('fetchError') : `Lỗi khi tải danh sách video: ${error?.message}`)}
           </p>
+          <button
+            type="button"
+            data-testid="feed-retry-btn"
+            onClick={() => refetch()}
+            className="rounded-full bg-red-600 hover:bg-red-700 text-white px-5 py-2 text-sm font-semibold transition"
+          >
+            {t ? t('retry') : 'Thử lại'}
+          </button>
         </div>
       )}
 

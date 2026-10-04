@@ -22,7 +22,19 @@
     "recommended": "Recommended Videos",
     "noVideos": "No videos found. Be the first to upload one!",
     "loadingMore": "Loading more videos...",
-    "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}"
+    "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}",
+    "feedTabs": "Video feed tabs",
+    "tabs": {
+      "forYou": "For you",
+      "latest": "Latest",
+      "trending": "Trending"
+    },
+    "forYouEmptyTitle": "No recommendations for you yet",
+    "forYouEmptyDesc": "Explore trending videos or upload a new video to help Winkey personalize your feed.",
+    "exploreTrending": "Explore Trending",
+    "uploadVideo": "Upload Video",
+    "retry": "Retry",
+    "fetchError": "Failed to load video feed. Please try again."
   },
   "watch": {
     "upNext": "Up next",
