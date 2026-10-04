@@ -496,7 +496,7 @@ groups:
 
       - uid: alert-rebuffer-ratio
         title: 'Hourly Rebuffer Ratio > 1%'
-        condition: B
+        condition: C
         noDataState: OK
         execErrState: Error
         for: 15m
@@ -521,6 +521,13 @@ groups:
           - refId: B
             datasourceUid: __expr__
             model:
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
               conditions:
                 - evaluator:
                     params: [0.01]
@@ -528,10 +535,10 @@ groups:
                   operator:
                     type: and
                   query:
-                    params: [A]
+                    params: [B]
                   reducer:
                     type: last
                   type: query
-              expression: A
-              refId: B
+              expression: B
+              refId: C
               type: threshold
