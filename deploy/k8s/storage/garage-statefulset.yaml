@@ -58,7 +58,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: garage
-          image: dxflrs/garage:v1.0.1
+          image: dxflrs/garage:v1.3.1
           command:
             - /garage
             - -c

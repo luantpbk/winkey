@@ -17,7 +17,7 @@ spec:
       restartPolicy: OnFailure
       initContainers:
         - name: wait-pg
-          image: ghcr.io/cloudnative-pg/postgresql:17.4
+          image: ghcr.io/cloudnative-pg/postgresql:17.5
           command:
             - /bin/sh
             - -c
@@ -42,7 +42,7 @@ spec:
               memory: 64Mi
 
         - name: migrate
-          image: migrate/migrate:v4.18.2
+          image: migrate/migrate:v4.20.1
           command:
             - /bin/sh
             - -c
@@ -75,7 +75,7 @@ spec:
 
       containers:
         - name: grants
-          image: ghcr.io/cloudnative-pg/postgresql:17.4
+          image: ghcr.io/cloudnative-pg/postgresql:17.5
           command:
             - /bin/sh
             - -c
