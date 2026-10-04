@@ -651,6 +651,14 @@ export interface components {
              * @enum {string}
              */
             client: "web" | "ios" | "android" | "other";
+            /**
+             * @description Where the viewer started this playback (task R2-ab, ADR-030): the home tabs (`for_you`, `latest`,
+             *     `trending`), the watch page column (`up_next`), search, the subscription feed, a channel page, a playlist,
+             *     or `other` (direct link, notification, unknown). Same value on every sample of one playback; omitted
+             *     by older clients (stored as unknown).
+             * @enum {string}
+             */
+            surface?: "for_you" | "latest" | "trending" | "up_next" | "search" | "subscriptions" | "channel" | "playlist" | "other";
         };
         PlaybackHeartbeatResult: {
             /** @description Number of samples accepted from the batch. */
