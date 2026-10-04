@@ -23,8 +23,6 @@
     "bitrate_kbps": 2800,
     "error_code": null,
     "client": "web",
-    "country": null,
-    "surface": "for_you",
-    "reco_variant": "reco"
+    "country": null
   }
 }

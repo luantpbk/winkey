@@ -515,7 +515,8 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - **Ghi lại.**
   - video-svc tính `reco_variant` cho người gọi đã đăng nhập ở mỗi `recordPlaybackHeartbeats`, bằng **cùng hàm** dùng cho feed, rồi đưa nó cùng `surface` vào event `analytics.playback` v1. Hai field mới là tuỳ chọn và có thể null, nên vẫn là v1 (thay đổi cộng thêm).
   - **Thứ tự deploy bắt buộc:** analytics-worker (chấp nhận hai field mới, áp `db/clickhouse/0002_reco_ab.sql`) phải lên **trước** video-svc, vì worker đang `DisallowUnknownFields` và sẽ `Term` event lạ.
-- **Lưu trữ.** `0002_reco_ab.sql` thêm hai cột Nullable vào `playback_events` và bảng `winkey.reco_ab_daily` (AggregatingMergeTree qua materialized view, theo ngày Asia/Ho_Chi_Minh, arm và surface; chỉ người đã đăng nhập có arm; giữ 1 năm). Grafana đọc bảng này bằng `grafana_ro`; cần thêm quyền `SELECT` cho đúng bảng này.
+  - `0002_reco_ab.sql` phải vào **cùng PR** với thay đổi của worker, không được vào trước. Worker hiện tại `INSERT` không liệt kê cột, nên thêm cột trước sẽ làm hỏng mọi lần ghi; CI của #225 đã chứng minh. Trên gpu-01 thư mục `db/clickhouse` được mount từ bản checkout, nên checkout và image worker phải được cập nhật cùng lúc.
+- **Lưu trữ.** `0002_reco_ab.sql` (nội dung nằm ở phụ lục brief R2-ab, vào repo cùng PR R2-ab-w) thêm hai cột Nullable vào `playback_events` và bảng `winkey.reco_ab_daily` (AggregatingMergeTree qua materialized view, theo ngày Asia/Ho_Chi_Minh, arm và surface; chỉ người đã đăng nhập có arm; giữ 1 năm). Grafana đọc bảng này bằng `grafana_ro`; cần thêm quyền `SELECT` cho đúng bảng này.
 - **Cách đọc kết quả.**
   - Chỉ số chính: thời gian xem mỗi người xem hoạt động mỗi ngày, theo arm, gộp mọi surface (công thức ở đầu `0002`).
   - Chỉ số phụ: số lượt phát bắt đầu từ `for_you` trên mỗi người xem, và tỉ trọng thời gian xem đến từ `for_you`.
