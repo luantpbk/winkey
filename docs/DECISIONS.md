@@ -497,3 +497,31 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Có số đo cho tiêu chí P2 và cho LT2. edge-1 chỉ tốn vài trăm MiB RAM.
 - gpu-01 tắt thì dashboard và cảnh báo nội bộ tắt theo; số liệu được gửi bù, log có thể hụt. Kiểm tra từ ngoài vẫn báo site sập.
 - Lên edge-2/3 thì chuyển VictoriaMetrics, Loki và Grafana về edge mà không đổi phía thu thập (chỉ đổi đích `remote_write`).
+
+### ADR-030 — Đo hiệu quả "Dành cho bạn": surface + A/B (R2-ab)
+**Bối cảnh.** R2 (ADR-028) đã chạy trên production, nhưng chưa biết feed cá nhân hoá có làm người dùng xem lâu hơn feed thịnh hành hay không. ClickHouse chưa biết lượt phát bắt đầu từ đâu, cũng chưa có nhóm đối chứng.
+**Quyết định.**
+- **Surface.** `PlaybackSample.surface` (tuỳ chọn) là nơi lượt phát bắt đầu: `for_you`, `latest`, `trending`, `up_next`, `search`, `subscriptions`, `channel`, `playlist` hoặc `other`.
+  - Web gắn `?src=<surface>` vào mọi link sang trang xem.
+  - Trang xem đọc tham số đó một lần, xoá nó khỏi URL bằng `history.replaceState` (để link chia sẻ không mang nhãn sai), rồi gửi cùng giá trị trên mọi sample của lượt phát đó.
+  - Thiếu hoặc không hợp lệ thì gửi `other`. Client cũ không gửi thì lưu NULL ("unknown").
+- **Phân nhóm A/B (chỉ người đã đăng nhập).**
+  - `bucket` = 8 byte đầu của SHA-256(`RECO_AB_SEED` + ":" + user_id), đọc dạng uint64 big-endian, mod 100.
+  - `bucket < RECO_AB_TREATMENT_PERCENT` → `reco`, còn lại → `control`.
+  - Cấu hình ở video-svc: `RECO_AB_SEED` (mặc định `r2ab-1`), `RECO_AB_TREATMENT_PERCENT` (0–100, mặc định 50). Đổi seed là chia lại nhóm.
+  - `RECO_AB_ENABLED=false` thì mọi người là `reco` và `reco_variant` là null. Đây là cách tắt thí nghiệm.
+  - Ẩn danh: không có nhóm, `reco_variant` null.
+- **Nhóm `control`** vẫn gọi `getRecommendedFeed` như thường, nhưng `s_c = s_s = 0`: danh sách là thịnh hành, rồi mới nhất. Các luật loại bỏ (đã xem, video của chính mình, điều kiện feed công khai), luật đa dạng và phân trang giữ nguyên, để chỉ khác đúng phần cá nhân hoá. Tab vẫn tên "Dành cho bạn" (người dùng không biết mình thuộc nhóm nào). Metric `video_reco_requests_total` thêm nhãn `variant`.
+- **Ghi lại.**
+  - video-svc tính `reco_variant` cho người gọi đã đăng nhập ở mỗi `recordPlaybackHeartbeats`, bằng **cùng hàm** dùng cho feed, rồi đưa nó cùng `surface` vào event `analytics.playback` v1. Hai field mới là tuỳ chọn và có thể null, nên vẫn là v1 (thay đổi cộng thêm).
+  - **Thứ tự deploy bắt buộc:** analytics-worker (chấp nhận hai field mới, áp `db/clickhouse/0002_reco_ab.sql`) phải lên **trước** video-svc, vì worker đang `DisallowUnknownFields` và sẽ `Term` event lạ.
+- **Lưu trữ.** `0002_reco_ab.sql` thêm hai cột Nullable vào `playback_events` và bảng `winkey.reco_ab_daily` (AggregatingMergeTree qua materialized view, theo ngày Asia/Ho_Chi_Minh, arm và surface; chỉ người đã đăng nhập có arm; giữ 1 năm). Grafana đọc bảng này bằng `grafana_ro`; cần thêm quyền `SELECT` cho đúng bảng này.
+- **Cách đọc kết quả.**
+  - Chỉ số chính: thời gian xem mỗi người xem hoạt động mỗi ngày, theo arm, gộp mọi surface (công thức ở đầu `0002`).
+  - Chỉ số phụ: số lượt phát bắt đầu từ `for_you` trên mỗi người xem, và tỉ trọng thời gian xem đến từ `for_you`.
+  - Chỉ kết luận khi đã chạy **≥ 14 ngày** và **mỗi arm có ≥ 200 người xem hoạt động**. Trước đó chỉ là số tham khảo, vì quy mô beta nhỏ nên không đủ ý nghĩa thống kê.
+  - Khi thắng, đặt `RECO_AB_TREATMENT_PERCENT=100` hoặc `RECO_AB_ENABLED=false`. Không cần sửa code.
+**Hệ quả.**
+- Hai cột mới trong `playback_events` và một bảng tổng hợp nhỏ. Không thêm dữ liệu cá nhân: arm suy ra từ user id, không lưu user id rõ.
+- 50 % người dùng đăng nhập tạm thời nhận feed kém cá nhân hoá hơn trong thời gian thí nghiệm. Chấp nhận được, vì đó chính là điều cần đo.
+- `surface` cũng phục vụ phân tích khác (tỉ trọng xem từ tìm kiếm, "Xem tiếp"…) sau thí nghiệm.

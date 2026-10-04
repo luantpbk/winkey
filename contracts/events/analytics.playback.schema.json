@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://winkey.vn/contracts/events/analytics.playback.schema.json",
   "title": "analytics.playback v1",
-  "description": "One player sample (task R1, ADR-022). Telemetry, not a domain event: published directly by video-svc (no outbox), may be lost. `event_id` is UUIDv5(namespace, playback_id + ':' + seq) so a retried sample de-duplicates in JetStream (Nats-Msg-Id) and in ClickHouse. Producer: video-svc. Consumer: analytics-worker on gpu-01.",
+  "description": "One player sample (task R1, ADR-022). Telemetry, not a domain event: published directly by video-svc (no outbox), may be lost. `event_id` is UUIDv5(namespace, playback_id + ':' + seq) so a retried sample de-duplicates in JetStream (Nats-Msg-Id) and in ClickHouse. Producer: video-svc. Consumer: analytics-worker on gpu-01. Optional since R2-ab: surface, reco_variant (additive; the consumer must accept them before the producer sends them).",
   "type": "object",
   "allOf": [{ "$ref": "envelope.schema.json" }],
   "properties": {
@@ -58,6 +58,16 @@
           "type": ["string", "null"],
           "pattern": "^[A-Z]{2}$",
           "description": "Reserved (GeoIP later); null in v1."
+        },
+        "surface": {
+          "type": ["string", "null"],
+          "enum": ["for_you", "latest", "trending", "up_next", "search", "subscriptions", "channel", "playlist", "other", null],
+          "description": "Copied from PlaybackSample.surface (task R2-ab, ADR-030); null when the client did not send it."
+        },
+        "reco_variant": {
+          "type": ["string", "null"],
+          "enum": ["reco", "control", null],
+          "description": "A/B arm of the recommended feed for a signed-in viewer, computed by video-svc from the user id (ADR-030); null for anonymous viewers or when the experiment is off."
         }
       }
     }
