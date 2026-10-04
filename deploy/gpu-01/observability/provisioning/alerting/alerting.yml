@@ -1,0 +1,434 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: email-alerts
+    receivers:
+      - uid: winkey-alert-email
+        type: email
+        settings:
+          addresses: '$WINKEY_ALERT_EMAIL'
+          singleEmail: false
+
+policies:
+  - orgId: 1
+    receiver: email-alerts
+    group_by:
+      - grafana_folder
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+groups:
+  - orgId: 1
+    name: winkey-alerts
+    folder: Winkey
+    interval: 1m
+    rules:
+      - uid: alert-5xx-rate
+        title: 'Service 5xx Error Rate > 2%'
+        condition: B
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Service 5xx error rate exceeds 2% over 5 minutes'
+          runbook: 'Check Loki logs for status >= 500: {app=~".+"} |= "500". Inspect pod status with kubectl get pods -A.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'sum by (app) (rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum by (app) (rate(http_requests_total[5m])), 0.001)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.02]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-p95-latency
+        title: 'Service p95 Latency > 1s'
+        condition: B
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Service p95 latency exceeds 1s over 10 minutes'
+          runbook: 'Check PostgreSQL connections and queries (winkey-pg-1) and node CPU/memory load.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'histogram_quantile(0.95, sum by (app, le) (rate(http_request_duration_seconds_bucket[10m])))'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-edge1-disk
+        title: 'Edge-1 Disk Space < 15%'
+        condition: B
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Edge-1 root filesystem has less than 15% free space'
+          runbook: 'SSH to edge-1: df -h, check /var/lib/rancher/k3s/storage and docker/containerd image cache (crictl rmi --prune).'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: '(node_filesystem_avail_bytes{node="edge-1", mountpoint="/"} / node_filesystem_size_bytes{node="edge-1", mountpoint="/"})'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.15]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-gpu01-srv-disk
+        title: 'GPU-01 /srv Disk < 20 GB'
+        condition: B
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'GPU-01 /srv/winkey-obs (NVMe) has less than 20 GB available'
+          runbook: 'SSH to gpu-01: df -h /srv/winkey-obs. Prune ClickHouse parts, reduce retention or drop old raw videos.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'node_filesystem_avail_bytes{node="gpu-01", mountpoint="/srv/winkey-obs"} / (1024 * 1024 * 1024)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [20]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-gpu01-root-disk
+        title: 'GPU-01 Root Disk < 15 GB'
+        condition: B
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'GPU-01 root partition / has less than 15 GB available (operating at high capacity)'
+          runbook: 'SSH to gpu-01: df -h /, clean docker system prune and journalctl --vacuum-time=3d.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'node_filesystem_avail_bytes{node="gpu-01", mountpoint="/"} / (1024 * 1024 * 1024)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [15]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-transcode-pending
+        title: 'Transcode Queue Pending > 10 for 30m'
+        condition: B
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'More than 10 video transcoding jobs pending in NATS for over 30 minutes'
+          runbook: 'Check transcoder container status on gpu-01: docker compose ps -a, inspect logs with docker logs --tail 100 winkey-transcoder.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'nats_consumer_num_pending{stream="VIDEO", consumer="transcoder"} or nats_jetstream_consumer_num_pending{stream="VIDEO", consumer="transcoder"} or (transcoder_jobs_in_flight * 0)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-analytics-stream-size
+        title: 'ANALYTICS Stream Size > 3 GiB'
+        condition: B
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'NATS ANALYTICS stream storage exceeds 3 GiB'
+          runbook: 'Check analytics-worker on gpu-01: docker logs winkey-analytics-worker. Confirm ClickHouse ingestion is healthy.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: '(nats_stream_bytes{stream="ANALYTICS"} or nats_jetstream_stream_bytes{stream="ANALYTICS"}) / (1024 * 1024 * 1024)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [3]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-rollup-reco-lag
+        title: 'Analytics Rollup Lag > 2h'
+        condition: B
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Analytics daily rollup has not succeeded for more than 2 hours'
+          runbook: 'Check analytics-worker logs: docker logs --tail 200 winkey-analytics-worker | grep -i rollup. Verify Postgres connectivity.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: '(time() - analytics_rollup_last_success_timestamp_seconds)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [7200]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-vmagent-buffer
+        title: 'Vmagent Edge-1 Buffer > 1 GiB'
+        condition: B
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Vmagent disk queue buffer on edge-1 exceeds 1 GiB'
+          runbook: 'Check connectivity from edge-1 to gpu-01:8428 over Tailscale. Verify VictoriaMetrics is running on gpu-01.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'vmagent_remotewrite_pending_data_bytes / (1024 * 1024 * 1024)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-auth-mail-dead
+        title: 'Auth Mail Dead Letters Increasing'
+        condition: B
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Emails abandoned in auth dead-letter state after delivery failures'
+          runbook: 'Check auth service logs on edge-1: kubectl logs deploy/auth-svc | grep -i mail. Verify Resend SMTP credentials and recipient addresses.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'increase(auth_mail_dead_total[10m])'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-rebuffer-ratio
+        title: 'Hourly Rebuffer Ratio > 1%'
+        condition: B
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Player QoE rebuffer ratio exceeds 1% target threshold'
+          runbook: 'Open QoE dashboard in Grafana, inspect rebuffer ratio by rendition/video in ClickHouse video_qoe_hourly.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: 'sum(rate(playback_rebuffer_seconds_total[1h])) / clamp_min(sum(rate(playback_watch_seconds_total[1h])), 0.001) or vector(0)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.01]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold

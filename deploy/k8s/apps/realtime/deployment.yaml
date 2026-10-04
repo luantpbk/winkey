@@ -16,6 +16,10 @@ spec:
       labels:
         app.kubernetes.io/name: realtime-svc
         app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '3005'
+        prometheus.io/path: '/metrics'
     spec:
       terminationGracePeriodSeconds: 30
       volumes:

@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - vmagent-pvc.yaml
+  - vmagent-configmap.yaml
+  - vmagent-deployment.yaml
+  - alloy-configmap.yaml
+  - alloy-daemonset.yaml
+  - node-exporter-daemonset.yaml
+  - kube-state-metrics-deployment.yaml
+  - nats-exporter-deployment.yaml

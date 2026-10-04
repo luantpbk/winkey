@@ -16,6 +16,10 @@ spec:
       labels:
         app.kubernetes.io/name: video-svc
         app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '3003'
+        prometheus.io/path: '/metrics'
     spec:
       securityContext:
         runAsNonRoot: true

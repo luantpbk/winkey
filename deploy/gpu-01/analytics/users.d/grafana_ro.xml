@@ -1,0 +1,17 @@
+<clickhouse>
+    <users>
+        <!-- Read-only user for Grafana dashboards (I3, ADR-029) -->
+        <grafana_ro>
+            <password from_env="CLICKHOUSE_GRAFANA_RO_PASSWORD"/>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+            <profile>readonly</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT ON winkey.video_qoe_hourly</query>
+            </grants>
+        </grafana_ro>
+    </users>
+</clickhouse>
