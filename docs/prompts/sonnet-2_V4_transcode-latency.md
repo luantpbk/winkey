@@ -1,3 +1,6 @@
+> **2026-10-05:** V4-a merged (#236). Sonnet 2 is paused; **V4-b is reassigned to ChatGPT** — see
+> [chatgpt_V4b_transcoder-takeover.md](chatgpt_V4b_transcoder-takeover.md). Part B below stays the spec.
+
 # Kickoff — Sonnet 2 · Task V4 (shorter upload → READY: measure every stage, then overlap upload with encode)
 
 Design: ADR-031 in docs/DECISIONS.md (read it first — it explains why full-GPU / chunked parallel / DASH are NOT in
