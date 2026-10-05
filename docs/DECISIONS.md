@@ -558,81 +558,113 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Có số đo thật cho từng bước, để các quyết định tối ưu sau này dựa trên dữ liệu.
 - Upload trong lúc encode tăng tải mạng nhà trong thời gian encode. Cùng giới hạn `UPLOAD_PARALLELISM` như hiện nay nên không vượt mức cũ.
 
-### ADR-032 — Mở rộng hạ tầng: node gia đình cấu hình thấp + Cloudflare R2, phân bổ theo ngân sách free tier
-**Trạng thái: Đề xuất** (chờ user: danh sách node, kiểm tra hoá đơn Oracle, bật R2).
+
+### ADR-032 — Hạ tầng mở rộng: R2 làm object storage chính, node gia đình `tag:worker`, edge-1 về 2 OCPU / 12 GB
+**Trạng thái: Đã chấp nhận** (2026-10-05; user chọn phương án A cho Oracle và ưu tiên máy local + R2).
 
 **Bối cảnh.**
-- **Oracle đã giảm Ampere A1 Always Free** từ 4 OCPU / 24 GB xuống **2 OCPU / 12 GB** mỗi tenancy (đổi ngày 2026-06-15, áp dụng từ 2026-08-18). Theo các báo cáo, mức mới áp dụng cả cho tài khoản Pay-As-You-Go. edge-1 đang chạy 4 OCPU / 24 GB nên phần vượt có thể **đang bị tính tiền**.
-- edge-1 đã dùng hết **200 GB block volume** miễn phí, nên không còn chỗ cho boot volume của 2 VM AMD micro miễn phí.
-- Vẫn còn trong free tier: **10 TB egress/tháng** và **20 GB Object Storage**.
-- Backup PostgreSQL (CNPG barman) đang ghi vào bucket Garage `winkey-pg-backup` **trên cùng đĩa** với PostgreSQL. Garage chạy RF 1, nên `winkey-media` chỉ có **một bản**.
-- **Cloudflare R2 free tier:**
-  - 10 GB-tháng lưu trữ, 1 triệu thao tác Class A (ghi/list), 10 triệu Class B (đọc), egress miễn phí.
-  - Bắt buộc có phương thức thanh toán. **Không có trần chi tiêu cứng**: vượt free tier là bị tính tiền.
-  - Video phục vụ từ R2 được phép đi qua CDN của Cloudflare (điều khoản dịch vụ cập nhật năm 2023).
-- **Repo public**, nên runner GitHub Actions chuẩn miễn phí không giới hạn phút. Self-hosted runner trên repo public thì chạy code từ PR của fork, nên **rủi ro**.
-- Thêm máy gia đình cấu hình vừa/thấp ở các mạng khác nhau, nối qua Tailscale. Đặc điểm: không có IP public, uptime không bảo đảm, uplink nhỏ.
+- **Oracle giảm Ampere A1 Always Free** xuống **2 OCPU / 12 GB** mỗi tenancy (đổi ngày 2026-06-15, áp dụng từ 2026-08-18).
+  - edge-1 đang chạy 4 OCPU / 24 GB. Cost Analysis chưa có phí, nhưng user chọn **đưa edge-1 về đúng hạn mức miễn phí**.
+  - edge-1 đã dùng hết 200 GB block volume miễn phí. Egress 10 TB/tháng và Object Storage 20 GB vẫn còn.
+- Trên edge-1 hiện nay:
+  - Garage (RF 1) giữ `winkey-raw`, `winkey-media` và `winkey-pg-backup` **trên cùng đĩa** với PostgreSQL;
+  - mọi lượt upload của người dùng và mọi lượt upload HLS từ gpu-01 đều đi qua edge-1.
+- **Cloudflare R2:**
+  - Miễn phí 10 GB-tháng, 1 triệu Class A (ghi/list) và 10 triệu Class B (đọc) mỗi tháng. Vượt mức thì trả **0.015 USD/GB-tháng**, 4.50 USD/triệu Class A, 0.36 USD/triệu Class B. **Egress miễn phí**.
+  - Không có trần chi tiêu cứng.
+  - Code chỉ dùng S3 cơ bản (ADR-004), tách `S3_ENDPOINT` / `S3_PUBLIC_ENDPOINT`. Part multipart bằng nhau trừ part cuối (`partsize`), đúng yêu cầu của R2.
+- ADR-017 kiểm soát quyền xem media tại nginx của edge (`auth_request` cho URL thường, `secure_link` cho video riêng tư/unlisted). Nếu phục vụ thẳng từ bucket R2 công khai hoặc từ CDN thì kiểm soát này bị bỏ qua.
+- Repo public: runner GitHub-hosted miễn phí, còn self-hosted runner sẽ chạy code từ PR của fork.
+- User bổ sung máy gia đình cấu hình vừa/thấp, chạy 24/7, ở nhiều mạng khác nhau, nối qua Tailscale. Máy đầu tiên: `100.82.170.119`, user `thanhluan`.
 
 **Quyết định.**
 
-1. **Lớp node mới `tag:worker`** (tên `node-NN`), chạy ngoài k3s như gpu-01 (ADR-015). Năm luật:
-   - Không bao giờ phục vụ traffic public.
-   - Không chạy primary của dịch vụ stateful.
-   - Không tham gia k3s/etcd/NATS/Garage serving.
-   - Chỉ **kéo** việc từ queue hoặc kéo dữ liệu về.
-   - Mất node chỉ làm chậm hoặc làm thiếu một bản sao, không làm hỏng site.
+1. **R2 là object storage chính, bỏ Garage.**
+   - Bucket R2 thay cho bucket Garage, **giữ nguyên tên và key**: `winkey-raw`, `winkey-media`, `winkey-pg-backup`. Thêm `winkey-backup` cho etcd và ClickHouse.
+   - Mỗi service có token R2 riêng, chỉ trên bucket của nó, quyền tối thiểu.
+   - **Upload:** `S3_PUBLIC_ENDPOINT` trỏ vào endpoint S3 của R2. Trình duyệt upload thẳng lên R2, edge-1 không còn chịu băng thông upload. Cần CORS trên `winkey-raw`: `PUT` từ `https://winkey.vn` và expose header `ETag`.
+   - **Transcoder (gpu-01):** đọc raw và ghi HLS thẳng lên R2 qua internet. Không còn đi qua tailnet tới edge-1.
+   - **Phục vụ video:** giữ nguyên ADR-005/017, nginx trên edge vẫn là cổng (auth_request, secure_link, `proxy_cache`). Origin đổi từ Garage web sang **`media-origin`**:
+     - một Deployment `rclone serve http` chỉ đọc, dùng token R2 read-only của `winkey-media`, đặt sau Traefik với Host `winkey-media.winkey.vn` như hiện nay;
+     - bucket R2 **không bật public**, không bật `r2.dev`.
 
-   Vai trò, theo thứ tự ưu tiên:
-   - **vault** (bất kỳ máy nào có đĩa ≥ 500 GB, HDD cũng được; phải ở **nhà khác gpu-01**). Hằng đêm kéo về:
-     - bản sao `winkey-media` từ Garage (`rclone sync`, key Garage chỉ đọc);
-     - backup PostgreSQL và ClickHouse từ R2 (key R2 chỉ đọc).
+     Không đưa video qua CDN Cloudflare ở giai đoạn này: một Worker kiểm tra quyền trên mọi segment sẽ vượt hạn mức miễn phí 100 nghìn request/ngày của Workers. Xét lại khi egress Oracle > 60%.
+   - **Lifecycle rule** làm chốt chặn cuối:
+     - `winkey-raw` xoá sau 30 ngày (job hiện tại vẫn xoá sau 7 ngày kể từ READY);
+     - multipart dở dang huỷ sau 7 ngày;
+     - `winkey-backup` xoá sau 15 ngày.
+   - **Chuyển dữ liệu:** sau khi dọn video test chỉ còn 3 video.
+     1. `rclone copy` Garage → R2, giữ nguyên key.
+     2. So sánh số object và checksum.
+     3. Đổi env của upload-svc, video-svc, transcoder và barman trong một cửa sổ bảo trì ngắn: tạm khoá upload, đổi env, smoke test upload → READY → phát, rồi mở upload lại.
+     4. Giữ Garage chỉ đọc 7 ngày, sau đó gỡ.
+     5. Khôi phục thử PostgreSQL từ R2 **trước** khi xoá `winkey-pg-backup` trên Garage.
+   - **Rào chắn chi phí:**
+     - exporter `r2-usage` (Cloudflare GraphQL Analytics, token chỉ đọc) mỗi 15 phút xuất dung lượng, Class A, Class B và **chi phí dự báo cuối tháng**;
+     - cảnh báo khi dự báo vượt **5 USD** (warning) và **10 USD** (critical), hoặc khi dùng hết 85% bất kỳ hạn mức miễn phí nào;
+     - bật billing notification của Cloudflare.
 
-     Giữ 14 ngày. Mỗi tháng chạy thử khôi phục một lần. Đây là bản sao thứ ba, ở vị trí địa lý thứ ba.
-   - **cpu-transcode** (≥ 4 nhân **có AVX2**, ≥ 8 GB RAM, uplink đo được ≥ 20 Mbps):
-     - cùng binary transcoder, encoder x264, `WORKER_CONCURRENCY=1`;
-     - chỉ nhận job tràn: job đã chờ quá `OVERFLOW_AFTER`, hoặc heartbeat của gpu-01 đã mất;
-     - **chỉ làm khi số liệu** (thời gian chờ trong queue, `transcoder_job_seconds`) cho thấy gpu-01 không đủ. Thiết kế chi tiết là task V6, có ADR riêng.
-   - **probe** (tuỳ chọn, máy rất yếu cũng chạy được): blackbox exporter đo `winkey.vn` và `media.winkey.vn` từ một ISP khác, đẩy số liệu về VictoriaMetrics trên gpu-01.
-   - **Không dùng cho:** CI runner (lý do ở phần bối cảnh), k3s, DB, NATS, Garage serving. Garage có zone `home` cho object lạnh sẽ xét lại bằng một ADR riêng khi Garage vượt 70%.
+     Ước tính hiện tại: dưới 10 GB, nằm trong free tier.
 
-2. **Cloudflare R2** (tài khoản của user):
-   - **`winkey-backup`, ngân sách ≤ 6 GB, làm ngay:**
-     - CNPG barman chuyển đích từ Garage sang R2: WAL nén gzip, base backup hằng đêm, `retentionPolicy` 7 ngày;
-     - snapshot etcd hằng ngày, giữ 7 bản;
-     - backup ClickHouse từ gpu-01, nén, giữ 3 bản.
+2. **edge-1 về 2 OCPU / 12 GB (phương án A).**
+   - Thứ tự: (1) đo; (2) chuyển storage sang R2; (3) gỡ Garage; (4) hạ requests/limits; (5) resize; (6) kiểm tra.
+   - **Đo** 7 ngày trên VictoriaMetrics: đỉnh RAM và CPU của host, gồm 4 site cũ, 7 app Node, PostgreSQL host và Cockpit, cùng của từng pod Winkey.
+   - **Hạ requests/limits**, đặt ngân sách Winkey mới theo số đo. Mục tiêu: tổng requests ≤ 1 vCPU / 5 GB và host còn ≥ 1.5 GB RAM trống ở đỉnh. Chỉnh `shared_buffers` của CNPG, giới hạn JetStream và `maxmemory` của Valkey cho khớp.
+   - **Resize** trong khung giờ đã báo trước theo ADR-014 (site cũ ngừng khoảng 5–10 phút): OCI Console → Stop → Edit shape: 2 OCPU / 12 GB → Start. Smoke test 4 site cũ và Winkey.
+   - **Rollback:** resize lại 4 / 24 (có thể bị tính phí trong lúc đó).
+   - **Nếu số đo cho thấy không vừa:** thêm tenancy Oracle thứ hai làm edge-2 (2 / 12 miễn phí) chứ không dồn workload người dùng sang máy gia đình.
 
-     Lifecycle rule của bucket tự xoá object cũ hơn 15 ngày, làm chốt chặn cuối. Sau lần khôi phục thử đầu tiên thành công thì xoá bucket Garage `winkey-pg-backup`, trả lại chỗ trống cho edge-1.
-   - **`winkey-img`, ngân sách ≤ 2 GB, giai đoạn 2:** poster, thumbnail và storyboard (khoảng 1 MB mỗi video) phục vụ qua `img.winkey.vn` có proxy Cloudflare, cache `immutable`. Chỉ làm khi egress Oracle > 60% hoặc Garage > 70%.
-   - **Dự phòng ≥ 2 GB.** Không đặt HLS trên R2 free: 10 GB chỉ chứa khoảng 2.3 giờ video đủ ladder.
-   - **Rào chắn chống vượt mức:**
-     - Exporter `r2-usage` đọc Cloudflare GraphQL Analytics mỗi 15 phút, bằng token chỉ có quyền *Account Analytics: Read*;
-     - xuất dung lượng, Class A và Class B của tháng hiện tại, kèm dự báo cuối tháng;
-     - cảnh báo ở **70%** (warning) và **85%** (critical) cho từng chỉ số;
-     - bật thêm billing notification của Cloudflare.
+3. **Node gia đình `tag:worker` (tên `node-NN`), ngoài k3s.** Năm luật cứng:
+   - không phục vụ traffic public;
+   - không chạy primary của dịch vụ stateful;
+   - không tham gia k3s/etcd/NATS;
+   - chỉ **kéo** việc từ queue hoặc kéo dữ liệu về;
+   - mất node chỉ làm chậm hoặc thiếu một bản sao.
 
-3. **Oracle.**
-   - User kiểm tra *Billing → Cost Analysis* ngay. Nếu A1 đang bị tính tiền thì chọn một trong ba hướng:
-     - (A) giảm edge-1 về 2 OCPU / 12 GB. Ngân sách Winkey còn khoảng 1 vCPU / 6 GB, cần đo lại requests trước;
-     - (B) chấp nhận phí, khoảng 28 USD/tháng theo giá A1 công bố;
-     - (C) chuyển bớt site cũ ra khỏi edge-1.
-   - **Object Storage 20 GB:** để dành, làm đích dự phòng nếu bucket R2 `winkey-backup` chạm ngưỡng 85%.
-   - **VM AMD micro:** không dùng, vì block volume đã dùng hết.
-   - **Thêm edge** cần tenancy riêng, nay chỉ còn 2 OCPU / 12 GB miễn phí mỗi tenancy. Thêm tài khoản Oracle là quyết định của user.
+   Mỗi node khai báo vai trò trong inventory:
+   - **vault** (đĩa ≥ 500 GB, ở nhà khác gpu-01): hằng đêm `rclone sync` R2 → đĩa local, bằng token R2 chỉ đọc. Gồm `winkey-media`, `winkey-pg-backup`, `winkey-backup`, cùng bản sao raw archive của gpu-01. Giữ 14 ngày. Mỗi tháng khôi phục thử PostgreSQL một lần. Đây là bản sao ngoài Cloudflare.
+   - **cpu-transcode** (≥ 4 nhân **AVX2**, ≥ 8 GB RAM, uplink ≥ 20 Mbps): cùng binary transcoder, x264, `WORKER_CONCURRENCY=1`. Chỉ nhận job đã chờ quá `OVERFLOW_AFTER`, hoặc khi heartbeat của gpu-01 mất. Bật khi số liệu queue cho thấy cần; thiết kế chi tiết là task V6.
+   - **probe** (máy nào cũng chạy được): blackbox exporter đo `winkey.vn` và `media.winkey.vn` từ một nhà mạng khác.
+   - **Không dùng cho:** CI runner, DB, NATS, ingress.
 
-4. **Tailscale.** Thêm `tag:worker` vào `tagOwners`, rồi thêm các luật sau:
+4. **Mở rộng bằng inventory, không bằng thiết kế lại.**
+   - **Ba lớp node**, mỗi lớp một tag Tailscale và một nhóm Ansible:
+
+     | Lớp | Tag | Tên | Ghi chú |
+     |---|---|---|---|
+     | Oracle VM | `tag:edge` | `edge-N` | 1 tenancy = 1 VM 2 OCPU / 12 GB miễn phí |
+     | Máy GPU | `tag:gpu` | `gpu-NN` | |
+     | Máy gia đình | `tag:worker` | `node-NN` | Vai trò khai trong `host_vars`: `winkey_roles: [vault, cpu_transcode, probe]` |
+
+   - **Thêm node** = thêm một dòng inventory → `tailscale up --ssh --advertise-tags=<tag> --hostname=<tên>` → chạy playbook theo lớp. Không sửa code, không sửa ADR.
+   - **Edge:** dữ liệu media đã nằm trên R2, nên thêm hoặc bớt edge **không cần chuyển dữ liệu**.
+     - edge-2/3: join làm k3s server (HA 3), từ edge-4 trở đi làm agent;
+     - thêm A record cho `winkey.vn` và `media`, mỗi node có nginx gate riêng;
+     - nâng `instances` của CNPG và replicas của NATS khi có ≥ 3 edge.
+   - **GPU/worker:** queue NATS là pull, nên thêm máy chỉ là thêm consumer. Gắn nhãn năng lực qua env (`WORKER_CLASS=gpu|cpu`).
+   - **Mọi node** chạy node-exporter + Alloy, đẩy metrics và log về gpu-01 (ADR-029). Dashboard lọc theo `instance` và tag.
+
+5. **Tailscale.** Thêm `tag:worker` vào `tagOwners`, rồi thêm các luật sau:
 
    | Nguồn | Đích | Dùng cho |
    |---|---|---|
-   | `tag:worker` | `tag:edge:30900` | Garage S3; key riêng cho từng vai trò |
    | `tag:worker` | `tag:gpu:8428,3100` | Đẩy metrics và log |
    | `tag:worker` | `tag:edge:30422,30432` | Chỉ thêm khi bật cpu-transcode |
+   | `tag:gpu` | `tag:worker:22` | Chỉ để rsync raw archive sang vault, user `winkey-vault` không có shell |
    | `autogroup:admin` | `tag:worker` (SSH) | Quản trị |
 
-   Không mở luật nào từ edge vào worker. Gói Tailscale miễn phí đủ số thiết bị.
+   Sau khi chuyển sang R2, gỡ luật `tag:gpu → tag:edge:30900`. vault kéo dữ liệu từ R2 qua internet, không cần luật vào edge.
 
 **Hệ quả.**
-- Có backup thật: ngoài đĩa edge-1, ngoài OCI, ở ba nơi (R2, vault, gpu-01). edge-1 lấy lại chỗ của `winkey-pg-backup` trên Garage.
-- Có thêm năng lực encode khi cần mà không đụng đến đường phục vụ người dùng.
-- Mọi hạn mức miễn phí có số đo và cảnh báo trước khi vượt.
-- Thêm một tài khoản bên ngoài (Cloudflare R2) và vài secret mới. Secret lưu ở Kubernetes Secret hoặc file `chmod 600` ngoài git, tạo bằng `read -s` trên host, không bao giờ dán vào chat.
-- Task: **INF-R2a** (Antigravity 2: bucket, chuyển backup, lifecycle, khôi phục thử), **INF-R2b** (Antigravity 2: exporter + cảnh báo), **INF-W1** (Antigravity 2: đưa node đầu tiên vào làm vault). **V6** (ChatGPT, transcoder overflow) và **IMG** chỉ làm khi số liệu yêu cầu.
+- edge-1 nhẹ đi: không còn Garage, không còn băng thông upload, không còn chứa video. Vừa hạn mức miễn phí.
+- Dung lượng lưu trữ không còn bị giới hạn bởi đĩa edge-1. Chi phí tăng tuyến tính và rất nhỏ (100 GB ≈ 1.35 USD/tháng sau 10 GB miễn phí). Có cảnh báo chi phí trước khi vượt ngưỡng user đặt.
+- Backup có ba nơi: R2, vault ở nhà khác, gpu-01.
+- Phụ thuộc thêm vào Cloudflare. Bù lại bằng việc vault giữ bản sao đầy đủ, và vì code chỉ dùng S3 cơ bản nên vẫn đổi được sang nhà cung cấp khác chỉ bằng cấu hình.
+- Thay một phần ADR-004 (Garage → R2; luật "chỉ S3 cơ bản" giữ nguyên) và ADR-013 §0 (Garage). ADR-005/017 giữ nguyên, chỉ đổi origin.
+- Task:
+  - **INF-0** (Antigravity 2): kiểm kê node-01 + đo edge-1 trong 7 ngày.
+  - **INF-R2a** (Antigravity 2): bucket, token, CORS, lifecycle, `media-origin`, chuyển dữ liệu, chuyển barman, khôi phục thử.
+  - **INF-R2b** (Antigravity 2): exporter `r2-usage` + cảnh báo.
+  - **INF-W1** (Antigravity 2): node-01 làm vault + probe.
+  - **INF-E1** (Antigravity 2): hạ requests và resize edge-1.
+  - **V6** (ChatGPT): chỉ khi số liệu yêu cầu.
