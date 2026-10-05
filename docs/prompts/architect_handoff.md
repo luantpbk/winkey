@@ -40,49 +40,34 @@ issue #47 (the project log) before doing anything.
 - Image digests come from CI logs (`containerimage.digest`) or `docker buildx imagetools inspect`, never typed by hand.
 
 # TEAM (AGENTS.md)
-- Sonnet: services/video, services/analytics, libs/go.
-- Sonnet 2: services/upload, services/transcoder. Windows machine, no Docker, so its integration-test evidence comes
-  from CI logs.
+- Sonnet: PAUSED. Sonnet 2: PAUSED since 2026-10-05. Do not give either work until the user says so.
+- ChatGPT (Codex, "GPT 6.1 sol medium"): acting owner of services/video, services/analytics, libs/go, services/transcoder,
+  services/upload. Opens its own PRs with real outputs; stops and opens an issue when a contract/design is wrong
+  (#208, #227 — both were real bugs in architect material).
 - Antigravity 1: apps/web, e2e, packages/api-client.
-- Antigravity 2: deploy/, workflows, root tooling. New account; its old session folders still exist.
-- Antigravity 3: auth, social, realtime, shared TS packages.
-- Antigravity 4: systest/, loadtest/.
+- Antigravity 2: deploy/, workflows, root tooling; does every production rollout (digests from CI logs, verified by a
+  subagent before merge).
+- Antigravity 3: auth, social, realtime, shared TS packages (idle).
+- Antigravity 4: systest/, loadtest/ (idle).
+- Architect (Opus A) also covers the Designer role; Opus B stopped.
 
-# STATE AT HANDOFF (2026-10-01 08:20 UTC, main = 92618f6 + the UQ1-b design PR)
-Roles (docs/prompts/architect_pair_protocol.md): Opus A = reviewer/merger, Opus B = designer. Opus B is paused
-(quota), so Opus A covers both roles. In a cloud session there is no `gh`: use the GitHub MCP tools
-(`get_job_logs` with `tail_lines`, `merge_pull_request` with `expectedHeadSha`).
-
-Merged on 2026-10-01:
-- #153 DEMO-1, #155 V5a-b, #156 R2-c contract, #145 PL1-web, #157 A6 + UQ1 contracts (migration 000016), #159.
-- #162 two-architect protocol.
-- #161 UQ1 upload quotas (Sonnet 2).
-- #158 R2-c related videos (Sonnet, last task before its pause).
-- #163 architect unblock: likes consumer re-creates its durable after SOCIAL is recreated (root cause of the
-  flaky `TestConsumerWaitsForTheStream`).
-- UQ1-b design: ADR-027 addendum, migration 000017_upload_ledger, brief docs/prompts/sonnet-2_UQ1b_upload-ledger.md.
-
-Sonnet is PAUSED until the user says otherwise. Its areas (services/video, services/analytics, libs/go) have no
-active owner; do not move them to Sonnet 2 without asking the user.
+# STATE AT HANDOFF (2026-10-05)
+Live in production: R2 recommendation v1 (ADR-028), R2-ab experiment (ADR-030, started 2026-10-05; decide no earlier
+than 2026-10-19 and only with ≥ 200 active viewers per arm, Grafana dashboard "R2-ab"), I3 observability (ADR-029:
+vmagent/Alloy on edge-1 → VictoriaMetrics/Loki/Grafana on gpu-01, tailnet only), MAIL via Resend, R2-c "Xem tiếp".
+Postgres schema_migrations = 18; ClickHouse 0001 + 0002.
 
 In progress:
-| Agent | Task | Branch / PR | What to check |
+| Agent | Task | Brief | What to check |
 |---|---|---|---|
-| Sonnet 2 | UQ1-b upload ledger | agent/sonnet2/uq1b-upload-ledger | ledger row in the same tx as the video; daily limits from the ledger, concurrent from media.videos; janitor 48 h retention in batches; CI log shows integration ran |
-| Antigravity 1 | R1-b-web studio stats | agent/ag1/r1b-web-studio-stats | Asia/Ho_Chi_Minh dates; null rules; no NaN |
-| Antigravity 3 | A6 password reset + verify email | agent/ag3/a6-password-reset | no enumeration; tokens never logged; params cleared; ADR-019 revocation reused. After A6: social pg pool `pool.on('error')` + `await pool.end()` before stopping the container (57P01 flake on main at cc3de6c) |
-| Antigravity 4 | #147 QA2 | PR #147 | 200/500 VU re-run with ws_hint_samples ≥ 90 % of VUs, then QA3 playlists systest (agent/ag4/qa3-playlists, no PR yet) |
-| Antigravity 2 | #153 post-merge evidence | comment on #153 + agent/ag2/verify-pass-line | verify.sh 5.19/5.20 PASS on edge-1; gpu-01 transcoder pinned by digest from run 36817609398; rollup metrics + `SELECT count(*), max(refreshed_at) FROM analytics.video_daily`; storyboard-backfill dry-run + real run summaries; restore the 5.18 PASS echo line. Also: apply migration 000017 on edge-1 with the next DATA rollout |
+| ChatGPT | V4-b upload segments while encoding (ADR-031) | docs/prompts/chatgpt_V4b_transcoder-takeover.md | object set identical to before; master last; never .tmp/twice; NVENC→x264 retry leaves only x264 segments; no partial READY; before/after transcoder_job_seconds |
+| Antigravity 2 | deploy V4-a transcoder + "Transcode stages" panel; R2-perf rollout (worker ≥ 46b7732f, video ≥ 75479fd4) | #47 relay of 2026-10-05 | digests = CI logs; first job summary line |
 
-Waiting on the user:
-- choose an SMTP provider for production (blocks A6 in prod);
-- SEC0 (close Cockpit :9090/:7890, SSH hardening);
-- I0 (Cloudflare NS);
-- LEGAL;
-- a time window for LT2 (1,000-viewer load test).
+Known data points: all-time rebuffer ratio 2.6 % (P2 target < 1 %, small sample) — candidate next investigation.
+gpu-01 `/` is ~90 % full (alert at < 5 GB). Dependabot: docker/compose patch-only (DEP-4); stateful upgrades are
+planned tasks, one service per PR.
 
-Design queue (architect_pair_protocol.md): A6-web brief and R2-c-web "Xem tiếp" brief for Antigravity 1 (after
-R1-b-web); R2 recommendation v1 only when the user resumes Sonnet.
+Waiting on the user: SEC0, LEGAL, LT2 window; whether to resume Sonnet / Sonnet 2.
 
 # FIRST STEPS
 1. `gh pr list --state open`, `gh run list --branch main -L 5`, read the newest #47 comments.
