@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/luantpbk/winkey/libs/go/outbox"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
@@ -42,11 +41,14 @@ type Pipeline struct {
 	Store   Store
 	Objects Objects
 	Events  Events
-	Tools   Tools
+	Tools   MediaTools
 	Cfg     Config
 	Log     *slog.Logger
 	// Storyboard replaces Tools.Storyboard (tests). nil = use ffmpeg.
 	Storyboard StoryboardFunc
+	// Internal seams for deterministic lifecycle tests; production uses the defaults.
+	archiveCopy func(context.Context, string, string, Video) error
+	scanTicks   func() (<-chan time.Time, func())
 }
 
 // Delivery describes which delivery of the message this is.
@@ -79,7 +81,7 @@ type Result struct {
 	Err    error // failure that led to Nak/Term, for logging
 	// Stats of a successful run.
 	Stats *Stats
-	// Steps are the timed steps that ran (V4-a), in the order they finished, whether or not the job
+	// Steps are the timed steps that ran (V4-a), in pipeline order by step identity, whether or not the job
 	// succeeded; empty when the job never started (nothing to do, begin failed).
 	Steps []StepTiming
 }
@@ -92,6 +94,8 @@ type Stats struct {
 	TotalWall   time.Duration
 	Renditions  int
 	UploadBytes int64
+	// UploadTail is FFmpeg exit to the last upload; summary log only, not a stage/metric.
+	UploadTail time.Duration
 	// JobWall is the time from the start of the download to the video being READY (V4-a); 0 when the
 	// video was not made READY (it was deleted meanwhile).
 	JobWall time.Duration
@@ -160,6 +164,7 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 		log.InfoContext(ctx, "transcode succeeded", "encoder", stats.Encoder,
 			"media_sec", stats.MediaSec, "renditions", stats.Renditions, "upload_bytes", stats.UploadBytes,
 			"job_seconds", stats.JobWall.Round(time.Millisecond).Seconds(),
+			"upload_tail_seconds", stats.UploadTail.Round(time.Millisecond).Seconds(),
 			"encode_wall", stats.EncodeWall.Round(time.Millisecond).String(),
 			"x_realtime", fmt.Sprintf("%.1f", stats.XRealtime()), stageSeconds(steps))
 		return Result{Action: ActionAck, Stats: &stats, Steps: steps}
@@ -245,7 +250,7 @@ func retryDelay(d Delivery) time.Duration {
 }
 
 // run executes steps 2-8 of the job and records the duration of each timed step in tm.
-func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm *timings) (Stats, error) {
+func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm *timings) (stats Stats, runErr error) {
 	v := b.Video
 	work := filepath.Join(p.Cfg.ScratchDir, fmt.Sprintf("%s-a%d", v.ID, b.Attempt))
 	if err := os.RemoveAll(work); err != nil {
@@ -265,12 +270,36 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	if err := tm.time(StepDownload, func() error { return p.Objects.Download(ctx, v.RawBucket, v.RawKey, source) }); err != nil {
 		return Stats{}, &StorageError{Op: "download", Err: err}
 	}
+	// The source remains alive until the copy joins, including on failure/cancel.
+	archiveCtx, cancelArchive := context.WithCancel(ctx)
+	archiveDone := make(chan struct{})
 	if p.Cfg.ArchiveDir != "" {
-		// The archive is a convenience copy; do not fail the video for it.
-		if err := tm.time(StepArchive, func() error { return archive(source, p.Cfg.ArchiveDir, v) }); err != nil {
-			log.ErrorContext(ctx, "archive raw copy failed", "error", err)
+		copyRaw := p.archiveCopy
+		if copyRaw == nil {
+			copyRaw = archive
 		}
+		go func() {
+			defer close(archiveDone)
+			if err := tm.time(StepArchive, func() error { return copyRaw(archiveCtx, source, p.Cfg.ArchiveDir, v) }); err != nil {
+				log.ErrorContext(archiveCtx, "archive raw copy failed", "error", err)
+			}
+		}()
+	} else {
+		close(archiveDone)
 	}
+	defer func() { cancelArchive(); <-archiveDone }()
+
+	prefix := fmt.Sprintf("v/%s/a%d/", v.ID, b.Attempt)
+	uploads := &uploadSpan{}
+	uploadComplete := false
+	defer func() {
+		if started, elapsed := uploads.elapsed(); started {
+			tm.add(StepUpload, elapsed, !uploadComplete)
+			if runErr != nil {
+				p.cleanupPrefix(prefix, v, log)
+			}
+		}
+	}()
 
 	// 3. Probe.
 	rep.report(ctx, StageProbing, progressProbe)
@@ -284,34 +313,71 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	outDir := filepath.Join(work, "out")
 	hlsDir := filepath.Join(outDir, "hls")
 	encoder := p.Cfg.Encoder
-	encStart := time.Now()
+	var encodeWall time.Duration
+	var ffmpegExit time.Time
+	var segments map[string]bool
+	var attempted []string
 	encode := func(enc string) error {
 		if err := os.RemoveAll(hlsDir); err != nil {
 			return err
 		}
-		return p.Tools.RunHLS(ctx, media.HLSPlan{
+		rctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		ticks, stopTicks := p.segmentTicks()
+		defer stopTicks()
+		u := p.newSegmentUploader(rctx, cancel, outDir, prefix, uploads)
+		finished := make(chan struct{})
+		drained := make(chan error, 1)
+		go func() { drained <- u.run(ticks, finished) }()
+		start := time.Now()
+		err := p.Tools.RunHLS(rctx, media.HLSPlan{
 			Input: source, OutDir: hlsDir, Encoder: enc, X264Preset: p.Cfg.X264Preset,
 			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: p.Cfg.NoHWDecode,
 		}, info.DurationSec, func(pct float64) {
 			rep.report(ctx, StageTranscoding, progressTranscode+(progressUpload-progressTranscode)*pct/100)
 		})
+		ffmpegExit = time.Now()
+		encodeWall += ffmpegExit.Sub(start)
+		if err != nil {
+			cancel()
+		}
+		close(finished)
+		uploadErr := <-drained // No writer can outlive this encode, cleanup or local output reset.
+		segments, attempted = u.seen, u.attemptedKeys()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// A Garage error that interrupted FFmpeg is a storage failure, never a GPU fallback.
+		var se *StorageError
+		if errors.As(uploadErr, &se) && !errors.Is(uploadErr, context.Canceled) {
+			return uploadErr
+		}
+		if err != nil {
+			return err
+		}
+		return uploadErr
 	}
 	rep.report(ctx, StageTranscoding, progressTranscode)
 	err := encode(encoder)
 	var ee *EncoderError
 	if err != nil && encoder == media.EncoderNVENC && errors.As(err, &ee) {
 		log.WarnContext(ctx, "nvenc failed; retrying with x264 in the same attempt", "error", err)
-		encoder = media.EncoderX264
-		if serr := p.Store.SetJobEncoder(ctx, b.JobID, encoder); serr != nil {
-			return Stats{}, serr
+		// Only keys attempted by this encoder run are deleted, all below this attempt's hls/.
+		// A failed PUT may still have stored its object, so attempted keys include failed calls.
+		err = p.removeUploadedHLS(ctx, attempted)
+		if err == nil {
+			encoder = media.EncoderX264
+			err = p.Store.SetJobEncoder(ctx, b.JobID, encoder)
+			if err == nil {
+				err = encode(encoder)
+			}
 		}
-		err = encode(encoder)
 	}
-	encodeWall := time.Since(encStart)
 	tm.add(StepEncode, encodeWall, err != nil)
 	if err != nil {
 		return Stats{}, err
 	}
+
 	if err := media.VerifyOutput(hlsDir, rs); err != nil {
 		return Stats{}, &EncoderError{Op: "verify output", Err: err}
 	}
@@ -324,7 +390,6 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 
 	// 6b. Seek-preview storyboard (V5a): best effort, the video is READY without it. It reads the
 	// smallest HLS rendition on the CPU (or the source when none qualifies), which keeps it cheap.
-	prefix := fmt.Sprintf("v/%s/a%d/", v.ID, b.Attempt)
 	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, storyboardInput(rs, hlsDir, source), outDir, prefix, info.DurationSec, log)
 	// The step counts as failed when there is no storyboard: the job goes on, the metric shows it.
 	tm.add(StepStoryboard, storyboardWall, err != nil || storyboardKey == "")
@@ -334,15 +399,16 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 
 	// 7. Upload under v/{video_id}/a{attempt}/.
 	rep.report(ctx, StageUploading, progressUpload)
-	var bytes int64
-	err = tm.time(StepUpload, func() (err error) {
-		bytes, err = p.uploadAll(ctx, outDir, prefix, func(frac float64) {
-			rep.report(ctx, StageUploading, progressUpload+(progressDone-progressUpload)*frac)
-		})
-		return
+	bytes, err := p.uploadAll(ctx, outDir, prefix, segments, uploads, func(frac float64) {
+		rep.report(ctx, StageUploading, progressUpload+(progressDone-progressUpload)*frac)
 	})
 	if err != nil {
-		p.cleanupPrefix(prefix, v, log)
+		return Stats{}, err
+	}
+	uploadComplete = true
+	uploadTail := uploads.tail(ffmpegExit)
+	<-archiveDone // Convenience copy is best effort, but cannot race READY or scratch removal.
+	if err := ctx.Err(); err != nil {
 		return Stats{}, err
 	}
 
@@ -362,7 +428,6 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	err = tm.time(StepCommit, func() (err error) { ok, err = p.Store.Complete(ctx, res); return })
 	jobWall := time.Since(jobStart)
 	if err != nil {
-		p.cleanupPrefix(prefix, v, log)
 		return Stats{}, err
 	}
 	if !ok {
@@ -378,7 +443,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	}
 	return Stats{
 		Encoder: encoder, MediaSec: info.DurationSec, EncodeWall: encodeWall,
-		Renditions: len(rs), UploadBytes: bytes, JobWall: jobWall,
+		Renditions: len(rs), UploadBytes: bytes, JobWall: jobWall, UploadTail: uploadTail,
 		Storyboard: storyboardKey != "", StoryboardWall: storyboardWall,
 	}, nil
 }
@@ -417,80 +482,6 @@ func (p *Pipeline) cleanupPrefix(prefix string, v Video, log *slog.Logger) {
 	}
 }
 
-// uploadAll uploads every file below outDir (hls/..., thumb/... and storyboard/...) keeping
-// the relative layout under prefix. The master playlist goes last so a
-// half-uploaded attempt never exposes a playable master.
-func (p *Pipeline) uploadAll(ctx context.Context, outDir, prefix string, onFrac func(float64)) (int64, error) {
-	type file struct {
-		rel  string
-		path string
-		size int64
-	}
-	var files []file
-	var master *file
-	err := filepath.WalkDir(outDir, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, _ := filepath.Rel(outDir, p)
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		f := file{rel: filepath.ToSlash(rel), path: p, size: info.Size()}
-		if f.rel == "hls/"+media.MasterPlaylist {
-			master = &f
-			return nil
-		}
-		files = append(files, f)
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	if master == nil {
-		return 0, &EncoderError{Op: "collect output", Err: errors.New("master playlist missing")}
-	}
-
-	par := p.Cfg.UploadParallelism
-	if par <= 0 {
-		par = 8
-	}
-	var mu sync.Mutex
-	var done, total int64
-	for _, f := range files {
-		total += f.size
-	}
-	total += master.size
-	bump := func(n int64) {
-		mu.Lock()
-		done += n
-		frac := float64(done) / float64(max(total, 1))
-		mu.Unlock()
-		onFrac(frac)
-	}
-	up := func(ctx context.Context, f file) error {
-		if err := p.Objects.UploadFile(ctx, p.Cfg.MediaBucket, prefix+f.rel, f.path, contentType(f.rel), cacheControlValue); err != nil {
-			return &StorageError{Op: "upload " + path.Base(f.rel), Err: err}
-		}
-		bump(f.size)
-		return nil
-	}
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(par)
-	for _, f := range files {
-		g.Go(func() error { return up(gctx, f) })
-	}
-	if err := g.Wait(); err != nil {
-		return 0, err
-	}
-	if err := up(ctx, *master); err != nil {
-		return 0, err
-	}
-	return total, nil
-}
-
 // contentType maps output files to the types the media cache must serve.
 func contentType(rel string) string {
 	switch strings.ToLower(path.Ext(rel)) {
@@ -510,7 +501,7 @@ func contentType(rel string) string {
 }
 
 // archive copies the raw file to ArchiveDir/{owner}/{video}/source atomically.
-func archive(src, dir string, v Video) error {
+func archive(ctx context.Context, src, dir string, v Video) error {
 	dst := filepath.Join(dir, v.OwnerID.String(), v.ID.String(), "source")
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -525,7 +516,7 @@ func archive(src, dir string, v Video) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, &contextReader{ctx: ctx, reader: in}); err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
 		return err
@@ -535,6 +526,19 @@ func archive(src, dir string, v Video) error {
 		return err
 	}
 	return os.Rename(tmp, dst)
+}
+
+// contextReader checks cancellation between local disk reads.
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *contextReader) Read(b []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(b)
 }
 
 // --- progress reporting ------------------------------------------------

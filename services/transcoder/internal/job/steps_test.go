@@ -51,7 +51,7 @@ func TestProcessRecordsEveryStepOnceAndLogsOneSummary(t *testing.T) {
 	if got := stepNames(res.Steps); !equal(got, job.Steps) {
 		t.Fatalf("steps = %v, want %v", got, job.Steps)
 	}
-	var sum time.Duration
+	var serial, longest time.Duration
 	for _, s := range res.Steps {
 		if s.Err {
 			t.Errorf("step %s failed", s.Step)
@@ -60,10 +60,13 @@ func TestProcessRecordsEveryStepOnceAndLogsOneSummary(t *testing.T) {
 		if s.Dur < 0 || (s.Dur == 0 && s.Step != job.StepCommit) {
 			t.Errorf("step %s took %v", s.Step, s.Dur)
 		}
-		sum += s.Dur
+		longest = max(longest, s.Dur)
+		if s.Step == job.StepDownload || s.Step == job.StepProbe || s.Step == job.StepEncode || s.Step == job.StepCommit {
+			serial += s.Dur
+		}
 	}
-	if res.Stats.JobWall < sum || res.Stats.JobWall > res.Stats.TotalWall {
-		t.Errorf("JobWall %v must cover the steps (%v) and not exceed TotalWall %v", res.Stats.JobWall, sum, res.Stats.TotalWall)
+	if res.Stats.JobWall < longest || res.Stats.JobWall < serial || res.Stats.JobWall > res.Stats.TotalWall {
+		t.Errorf("JobWall %v must cover the longest step (%v) and serial download/probe/encode/commit subset and not exceed TotalWall %v", res.Stats.JobWall, longest, res.Stats.TotalWall)
 	}
 
 	// Exactly one summary line, with the documented fields and no user data.
@@ -81,10 +84,13 @@ func TestProcessRecordsEveryStepOnceAndLogsOneSummary(t *testing.T) {
 		t.Fatalf("%d summary lines, want 1", len(summaries))
 	}
 	m := summaries[0]
-	for _, k := range []string{"video_id", "attempt", "encoder", "media_sec", "renditions", "upload_bytes", "job_seconds", "stage_seconds"} {
+	for _, k := range []string{"video_id", "attempt", "encoder", "media_sec", "renditions", "upload_bytes", "job_seconds", "stage_seconds", "upload_tail_seconds"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("summary lacks %q: %v", k, m)
 		}
+	}
+	if tail, ok := m["upload_tail_seconds"].(float64); !ok || tail < 0 {
+		t.Errorf("upload_tail_seconds = %v", m["upload_tail_seconds"])
 	}
 	stages, _ := m["stage_seconds"].(map[string]any)
 	for _, s := range job.Steps {

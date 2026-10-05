@@ -140,3 +140,12 @@ type Objects interface {
 type Events interface {
 	Publish(subject string, data []byte) error
 }
+
+// MediaTools is the pipeline's local media-processing port. Tools implements it with
+// real FFmpeg; controlled implementations let tests synchronize failures and exits.
+type MediaTools interface {
+	Probe(context.Context, string) (media.Info, error)
+	RunHLS(context.Context, media.HLSPlan, float64, func(float64)) error
+	Thumbnail(context.Context, string, string, float64) error
+	Storyboard(context.Context, StoryboardInput, string, float64) (StoryboardResult, error)
+}

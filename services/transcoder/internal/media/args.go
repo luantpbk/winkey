@@ -120,7 +120,7 @@ func BuildHLSArgs(p HLSPlan) []string {
 	out := filepath.ToSlash(p.OutDir)
 	a = append(a,
 		"-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod",
-		"-hls_segment_type", "fmp4", "-hls_flags", "independent_segments",
+		"-hls_segment_type", "fmp4", "-hls_flags", "independent_segments+temp_file",
 		"-hls_fmp4_init_filename", "init.mp4",
 		"-hls_segment_filename", out+"/%v/seg_%05d.m4s",
 		"-master_pl_name", MasterPlaylist,
