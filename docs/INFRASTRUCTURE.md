@@ -40,7 +40,7 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 |---|---|---|---|---|
 | **gpu-01** (nhà; hostname `X9DRL-3F-iF`, tailnet `gpu-01` 100.88.247.70, **Ubuntu 26.04**, driver NVIDIA 595) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
 | **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
-| **node-NN** (nhà, nhiều mạng khác nhau, 24/7, ADR-032) | Cấu hình vừa/thấp. **node-01**: tailnet `100.82.170.119`, user `thanhluan`, cấu hình chờ INF-0. vault cần đĩa ≥ 500 GB; cpu-transcode cần ≥ 4 nhân AVX2, ≥ 8 GB RAM | amd64/arm64 | Sau NAT, chỉ nối qua Tailscale (`tag:worker`) | Không public, không stateful, chỉ kéo việc/kéo dữ liệu |
+| **node-NN** (nhà, nhiều mạng khác nhau, 24/7, ADR-032) | Cấu hình vừa/thấp. **node-01**: tailnet `100.82.170.119`, user `thanhluan` — **tạm hoãn**, bổ sung sau. Trong lúc chờ, gpu-01 làm vault tạm (phụ lục ADR-032). vault cần đĩa ≥ 500 GB; cpu-transcode cần ≥ 4 nhân AVX2, ≥ 8 GB RAM | amd64/arm64 | Sau NAT, chỉ nối qua Tailscale (`tag:worker`) | Không public, không stateful, chỉ kéo việc/kéo dữ liệu |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
 Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
@@ -245,7 +245,7 @@ Nguyên tắc: tận dụng free tier trước. Vượt mức chỉ khi chi phí
 | Đĩa edge (tầng nóng) | edge-1 ~40 GB sau khi gỡ Garage; edge-2/3 ~100 GB | nginx `proxy_cache` (phụ lục ADR-032) | Tỷ lệ cache hit |
 | Oracle egress | 10 TB/tháng | HLS qua nginx gate. Ở 60% thì xét CDN Cloudflare | vmagent: bytes ra của media-cache |
 | Oracle Object Storage | 20 GB | Chưa dùng. Dự phòng làm đích backup thứ hai | — |
-| Đĩa máy gia đình | Theo máy | vault (rclone); khi ≥ 3 máy thì thành cụm Garage ở các nhà (RF 2) | Tuổi của lần sync gần nhất |
+| Đĩa máy gia đình | Theo máy | Tạm thời: vault trên HDD gpu-01; sau đó vault trên node-01; khi ≥ 3 máy thì thành cụm Garage ở các nhà (RF 2) | Tuổi của lần sync gần nhất |
 | R2 lưu trữ | 10 GB-tháng, sau đó 0.015 USD/GB | raw, media, pg-backup, backup | `r2-usage` (dự báo chi phí) |
 | R2 Class A / Class B | 1 triệu / 10 triệu mỗi tháng | Upload, HLS, WAL / miss của nginx cache, vault sync | `r2-usage` |
 | GitHub Actions | Không giới hạn (repo public) | Runner GitHub-hosted; **không** dùng self-hosted | — |
