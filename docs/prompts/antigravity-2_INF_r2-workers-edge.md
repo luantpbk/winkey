@@ -16,13 +16,7 @@ rollback.
 - Never touch the miner, ComfyUI, /opt/ffmpeg-7.1 or the system FFmpeg on gpu-01. No sudo on gpu-01 for agents.
 
 # PHASE INF-0 — inventory + measurement (read-only, start now)
-1. node-01 (tailnet 100.82.170.119, user thanhluan): over Tailscale SSH run and paste:
-   uname -m; cat /etc/os-release | head -3; nproc; lscpu | grep 'Model name'; grep -o -m1 avx2 /proc/cpuinfo || echo 'no avx2';
-   free -g; lsblk -o NAME,SIZE,TYPE,ROTA,MOUNTPOINT; df -h; uptime;
-   iperf3 -c edge-1 -t 20 and -R (uplink/downlink to the edge); also a speed test to Cloudflare
-   (curl -o /dev/null -w '%{speed_download}' https://speed.cloudflare.com/__down?bytes=100000000).
-   Then (with the user's admin approval in the Tailscale console) re-tag it `tag:worker` and rename it `node-01`.
-   Do not install anything yet.
+1. node-01 is POSTPONED by the user (it joins later); skip it.
 2. edge-1: from VictoriaMetrics, 7-day peaks of host RAM and CPU and the top processes (legacy sites, Node apps, host
    PostgreSQL, Cockpit); `kubectl top pods -A` + current requests/limits of every Winkey pod; Garage bucket sizes and
    object counts. Paste a table: component → peak RAM / peak CPU / request / limit.
@@ -57,13 +51,21 @@ rollback.
 7. After Garage is uninstalled: move edge-1's nginx `proxy_cache` from `/` (10 GB) to the freed LV data, about
    40 GB, with `proxy_cache_lock on` and `inactive=30d` (ADR-032 addendum).
 
+8. Interim vault on gpu-01 (until a home node joins):
+   - a systemd timer running as user `winkey` (the user installs the unit with sudo, as for the transcoder; agents
+     never use sudo) runs nightly `rclone sync` with the read-only vault token, R2 →
+     /mnt/hdd_storage/winkey/vault/{winkey-media,winkey-pg-backup,winkey-backup};
+   - 14-day retention via rclone --backup-dir dated folders;
+   - alert when the last success is > 36 h old;
+   - first restore drill from this copy.
+
 # PHASE INF-R2b — cost guard
 - Exporter `r2-usage`: Cloudflare GraphQL Analytics, token "Account Analytics: Read", every 15 min.
 - Metrics: storage bytes, Class A and Class B month-to-date per bucket, projected month-end cost.
 - Grafana alerts: projected cost > 5 USD warning, > 10 USD critical; any free-tier quota > 85 %.
 - Enable Cloudflare billing notifications.
 
-# PHASE INF-W1 — node-01 as vault + probe
+# PHASE INF-W1 — node-01 as vault + probe (POSTPONED until the user adds node-01; then retire the gpu-01 interim vault)
 - Ansible group `worker`, host_vars `winkey_roles: [vault, probe]`, a role per capability. Adding node-02 later must be
   one inventory line.
 - node-exporter + Alloy pushing to gpu-01 8428/3100.

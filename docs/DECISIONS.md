@@ -685,3 +685,8 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - Không nằm trên đường ghi của người dùng. S3 và RPC chỉ mở trên tailnet: thêm luật `tag:worker → tag:worker:3900,3901`.
   - Trước khi đủ 3 node, vault vẫn là `rclone sync` ra đĩa local như §3.
 - **Tầng lạnh thật** (chuyển video cũ, ít xem từ R2 sang cụm Garage gia đình) chỉ xét khi `r2-usage` dự báo **> 10 USD/tháng hai tháng liền** (khoảng 700 GB). Khi đó viết một ADR riêng, có số liệu phân bố lượt xem.
+- **Cập nhật 2026-10-05: tạm triển khai chưa có node-01** (user sẽ bổ sung sau). Trong thời gian chưa có máy gia đình nào, **gpu-01 làm vault tạm**:
+  - timer systemd chạy dưới user `winkey` chạy hằng đêm (user cài unit bằng sudo như với transcoder; agent không dùng sudo) `rclone sync` R2 → `/mnt/hdd_storage/winkey/vault`, bằng token R2 chỉ đọc. Gồm `winkey-media`, `winkey-pg-backup`, `winkey-backup`;
+  - giữ 14 ngày; mỗi tháng khôi phục thử PostgreSQL một lần.
+
+  Như vậy vẫn có một bản sao ngoài Cloudflare. Khi node-01 tham gia thì INF-W1 chuyển vai trò vault sang node-01 (ở nhà khác) và gỡ vault tạm trên gpu-01.
