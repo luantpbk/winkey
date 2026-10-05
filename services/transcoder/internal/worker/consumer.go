@@ -156,6 +156,7 @@ func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {
 	res := c.Pipeline.Process(ctx, ev, d)
 	jobsInFlight.Dec()
 
+	observeResult(res)
 	if res.Stats != nil && res.Stats.MediaSec > 0 {
 		realtimeRatio.WithLabelValues(res.Stats.Encoder).Observe(res.Stats.XRealtime())
 	}

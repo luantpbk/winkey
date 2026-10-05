@@ -78,7 +78,20 @@ S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; 
 | `LOG_LEVEL` | `info` | JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | tracing is a no-op when unset |
 
-Metrics: `transcoder_jobs_total{outcome}`, `transcoder_jobs_in_flight`, `transcoder_encode_realtime_ratio{encoder}`.
+## Metrics and the per-job summary (V4-a, ADR-031)
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `transcoder_jobs_total{outcome}` | counter | messages by outcome (`ack`, `nak`, `term`, `term_dlq`, `malformed`) |
+| `transcoder_jobs_in_flight` | gauge | jobs being processed |
+| `transcoder_encode_realtime_ratio{encoder}` | histogram | media seconds encoded per wall second |
+| `transcoder_stage_seconds{stage,result}` | histogram | duration of each step; `stage` is `download`, `archive`, `probe`, `encode`, `poster`, `storyboard`, `upload` or `commit`; `result` is `ok` or `error`. Failed jobs record the steps that ran (the failing one with `result="error"`); the best-effort `storyboard` is `error` when no storyboard was made although the job succeeded; `archive` only runs when `ARCHIVE_DIR` is set; `encode` includes the NVENC-to-x264 fallback, `commit` is the READY transaction |
+| `transcoder_job_seconds` | histogram | from the start of the download to the video being READY; successful jobs only |
+| `transcoder_upload_bytes_total` | counter | bytes uploaded (HLS, poster, storyboard) by jobs that made a video READY |
+
+Buckets of the two time histograms: 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60, 120, 300, 600, 1200, 1800, 3600 seconds.
+
+Every finished job logs one JSON line (`msg` = `transcode succeeded`, or `transcode failed` with the same `stage_seconds`) with `video_id`, `attempt`, `encoder`, `media_sec`, `renditions`, `upload_bytes`, `job_seconds`, `encode_wall`, `x_realtime` and a `stage_seconds` object with each step in seconds. No titles, file names or e-mail addresses. Print the same numbers for a generated clip with `BENCH_STAGES=1 go test -run StageReport -v ./internal/job` (`BENCH_SECONDS`, `BENCH_RUNS`).
 
 ## Run
 
