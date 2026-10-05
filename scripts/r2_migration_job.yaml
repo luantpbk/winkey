@@ -1,0 +1,135 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: r2-data-migration
+  namespace: default
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      name: r2-data-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: rclone-migration
+          image: rclone/rclone:1.69.1
+          env:
+            # Destination: Cloudflare R2
+            - name: RCLONE_CONFIG_R2_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_R2_PROVIDER
+              value: Cloudflare
+            - name: RCLONE_CONFIG_R2_REGION
+              value: auto
+            - name: RCLONE_CONFIG_R2_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: r2-migration
+                  key: S3_ENDPOINT
+            - name: RCLONE_CONFIG_R2_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: r2-migration
+                  key: S3_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: r2-migration
+                  key: S3_SECRET_ACCESS_KEY
+            # Source 1: Garage raw
+            - name: RCLONE_CONFIG_GARAGE_RAW_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_GARAGE_RAW_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_GARAGE_RAW_ENDPOINT
+              value: http://garage-s3.default.svc:3900
+            - name: RCLONE_CONFIG_GARAGE_RAW_REGION
+              value: garage
+            - name: RCLONE_CONFIG_GARAGE_RAW_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-upload-svc
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_GARAGE_RAW_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-upload-svc
+                  key: AWS_SECRET_ACCESS_KEY
+            # Source 2: Garage media
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_ENDPOINT
+              value: http://garage-s3.default.svc:3900
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_REGION
+              value: garage
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-video-svc
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_GARAGE_MEDIA_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-video-svc
+                  key: AWS_SECRET_ACCESS_KEY
+            # Source 3: Garage pg-backup
+            - name: RCLONE_CONFIG_GARAGE_PG_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_GARAGE_PG_PROVIDER
+              value: Other
+            - name: RCLONE_CONFIG_GARAGE_PG_ENDPOINT
+              value: http://garage-s3.default.svc:3900
+            - name: RCLONE_CONFIG_GARAGE_PG_REGION
+              value: garage
+            - name: RCLONE_CONFIG_GARAGE_PG_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-pg-backup
+                  key: AWS_ACCESS_KEY_ID
+            - name: RCLONE_CONFIG_GARAGE_PG_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-key-pg-backup
+                  key: AWS_SECRET_ACCESS_KEY
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "=========================================================="
+              echo "      BẮT ĐẦU SAO CHÉP DỮ LIỆU: GARAGE -> CLOUDFLARE R2    "
+              echo "=========================================================="
+              echo ""
+              
+              echo ">>> 1. Sao chép winkey-raw..."
+              rclone copy garage_raw:winkey-raw r2:winkey-raw --fast-list --transfers=8 -v
+              echo ">>> Kiểm tra đối soát winkey-raw (rclone check)..."
+              rclone check garage_raw:winkey-raw r2:winkey-raw --one-way
+              echo "[OK] winkey-raw đối soát hoàn tất!"
+              echo ""
+
+              echo ">>> 2. Sao chép winkey-media..."
+              rclone copy garage_media:winkey-media r2:winkey-media --fast-list --transfers=8 -v
+              echo ">>> Kiểm tra đối soát winkey-media (rclone check)..."
+              rclone check garage_media:winkey-media r2:winkey-media --one-way
+              echo "[OK] winkey-media đối soát hoàn tất!"
+              echo ""
+
+              echo ">>> 3. Sao chép winkey-pg-backup..."
+              rclone copy garage_pg:winkey-pg-backup r2:winkey-pg-backup --fast-list --transfers=8 -v
+              echo ">>> Kiểm tra đối soát winkey-pg-backup (rclone check)..."
+              rclone check garage_pg:winkey-pg-backup r2:winkey-pg-backup --one-way
+              echo "[OK] winkey-pg-backup đối soát hoàn tất!"
+              echo ""
+
+              echo "=========================================================="
+              echo "           TỔNG HỢP SỐ LƯỢNG OBJECT TRÊN CLOUDFLARE R2    "
+              echo "=========================================================="
+              for b in winkey-raw winkey-media winkey-pg-backup; do
+                echo -n "Bucket $b trên R2: "
+                rclone size r2:$b
+              done
+              echo "=========================================================="
+              echo "MIGRATION COPY & CHECKSUM VERIFICATION SUCCESSFUL!"
