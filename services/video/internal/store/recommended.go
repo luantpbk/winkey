@@ -12,7 +12,7 @@ import (
 var _ domain.RecommendationStore = (*Postgres)(nil)
 
 // One statement gives history, co-view and subscription/trending signals one MVCC snapshot.
-// Read all lightweight eligible IDs: prematurely limiting L can hide the first diversity-compatible item.
+// ADR-028 R2-perf bounds the fully scored/ordered list before diversity; newest fill shares this bound.
 const recommendationSQL = `WITH history AS (
  SELECT video_id, last_watched_at FROM analytics.viewer_history
  WHERE viewer_key = $1 AND $4::boolean ORDER BY last_watched_at DESC, video_id DESC LIMIT 50
@@ -37,10 +37,15 @@ const recommendationSQL = `WITH history AS (
  LEFT JOIN media.trending t ON t.video_id=e.id
 )
 SELECT id, owner_id, (sc>0 OR ss>0) AS personal
-FROM signals ORDER BY (sc+0.7*ss+0.3*st) DESC, published_at DESC, id DESC`
+FROM signals ORDER BY (sc+0.7*ss+0.3*st) DESC, published_at DESC, id DESC
+LIMIT $5`
 
 func (p *Postgres) RecommendationCandidates(ctx context.Context, key string, user uuid.UUID, now time.Time, personalize bool) ([]domain.RecommendationCandidate, error) {
-	rows, err := p.Pool.Query(ctx, recommendationSQL, key, user, now, personalize)
+	limit := p.RecommendationCandidateLimit
+	if limit == 0 {
+		limit = 2000
+	}
+	rows, err := p.Pool.Query(ctx, recommendationSQL, key, user, now, personalize, limit)
 	if err != nil {
 		return nil, fmt.Errorf("recommendation candidates: %w", err)
 	}

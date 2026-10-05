@@ -30,8 +30,25 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.HTTPAddr != ":8080" || c.MediaBucket != "winkey-media" || c.ValkeyURL != "" || c.CacheTTL.String() != "30s" {
+	if c.HTTPAddr != ":8080" || c.MediaBucket != "winkey-media" || c.ValkeyURL != "" || c.CacheTTL.String() != "30s" || c.RecoCandidateLimit != 2000 {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestRecoCandidateLimit(t *testing.T) {
+	for _, v := range []string{"200", "20000"} {
+		e := valid()
+		e["RECO_CANDIDATE_LIMIT"] = v
+		if _, err := load(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, v := range []string{"0", "199", "20001", "many"} {
+		e := valid()
+		e["RECO_CANDIDATE_LIMIT"] = v
+		if _, err := load(e); err == nil || !strings.Contains(err.Error(), "RECO_CANDIDATE_LIMIT") {
+			t.Errorf("invalid candidate limit accepted: %v", err)
+		}
 	}
 }
 

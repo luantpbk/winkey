@@ -48,6 +48,7 @@ type Config struct {
 	RecoABEnabled          bool   `env:"RECO_AB_ENABLED" default:"true"`
 	RecoABSeed             string `env:"RECO_AB_SEED" default:"r2ab-1"`
 	RecoABTreatmentPercent int    `env:"RECO_AB_TREATMENT_PERCENT" default:"50"`
+	RecoCandidateLimit     int    `env:"RECO_CANDIDATE_LIMIT" default:"2000"`
 
 	// CursorSecret signs pagination cursors so tampering is detected (min 16 bytes).
 	CursorSecret string `env:"CURSOR_SECRET,required"`
@@ -79,6 +80,9 @@ func Load() (Config, error) {
 
 // Validate checks values that the loader cannot.
 func (c Config) Validate() error {
+	if c.RecoCandidateLimit < 200 || c.RecoCandidateLimit > 20000 {
+		return errors.New("RECO_CANDIDATE_LIMIT must be between 200 and 20000")
+	}
 	if strings.TrimSpace(c.RecoABSeed) == "" {
 		return errors.New("RECO_AB_SEED must not be blank")
 	}
