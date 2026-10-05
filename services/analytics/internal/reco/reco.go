@@ -24,10 +24,10 @@ type Watch struct {
 	WatchedMs     int64
 }
 
-type Options struct{ WindowDays, MinWatchMs, Neighbors, History int }
+type Options struct{ WindowDays, MinWatchMs, Neighbors, History, CoviewMax int }
 
 type Source interface {
-	Read(context.Context, time.Time, Options) ([]Pair, []Watch, error)
+	Read(context.Context, time.Time, Options) ([]Pair, []Watch, uint64, error)
 }
 type Sink interface {
 	Replace(context.Context, []Pair, []Watch, time.Time) error
@@ -39,6 +39,8 @@ var (
 	lastSuccess = promauto.NewGauge(prometheus.GaugeOpts{Name: "analytics_reco_last_success_timestamp_seconds", Help: "Last successful recommendation run."})
 	duration    = promauto.NewHistogram(prometheus.HistogramOpts{Name: "analytics_reco_duration_seconds", Help: "Recommendation run duration.", Buckets: prometheus.ExponentialBuckets(.01, 2, 18)})
 	rowCount    = promauto.NewGaugeVec(prometheus.GaugeOpts{Name: "analytics_reco_rows", Help: "Rows in the last committed recommendation projection."}, []string{"table"})
+	// ADR-028 names this _total, but requires the number in the last run, rather than a cumulative counter.
+	viewersCapped = promauto.NewGauge(prometheus.GaugeOpts{Name: "analytics_reco_viewers_capped_total", Help: "Viewers whose qualified co-view set was truncated in the last successful recommendation run."})
 )
 
 type Runner struct {
@@ -72,7 +74,7 @@ func (r *Runner) RunOnce(ctx context.Context) bool {
 	if r.Now != nil {
 		now = r.Now().UTC()
 	}
-	pairs, history, err := r.Source.Read(ctx, now, r.Options)
+	pairs, history, capped, err := r.Source.Read(ctx, now, r.Options)
 	step := "read clickhouse"
 	if err == nil {
 		step = "replace postgres"
@@ -87,6 +89,7 @@ func (r *Runner) RunOnce(ctx context.Context) bool {
 	}
 	runs.WithLabelValues("success").Inc()
 	lastSuccess.SetToCurrentTime()
+	viewersCapped.Set(float64(capped))
 	rowCount.WithLabelValues("video_coview").Set(float64(len(pairs)))
 	rowCount.WithLabelValues("viewer_history").Set(float64(len(history)))
 	r.Log.Info("recommendation refresh done", "pairs", len(pairs), "history_rows", len(history), "duration_seconds", time.Since(started).Seconds())

@@ -13,13 +13,14 @@ import (
 )
 
 type sourceStub struct {
-	err   error
-	reads int
+	err    error
+	reads  int
+	capped uint64
 }
 
-func (s *sourceStub) Read(context.Context, time.Time, Options) ([]Pair, []Watch, error) {
+func (s *sourceStub) Read(context.Context, time.Time, Options) ([]Pair, []Watch, uint64, error) {
 	s.reads++
-	return nil, nil, s.err
+	return nil, nil, s.capped, s.err
 }
 
 type sinkStub struct {
@@ -43,6 +44,7 @@ func TestRunnerFailurePreservesSuccessAndNeverLogsViewerKey(t *testing.T) {
 		t.Fatal("successful run failed")
 	}
 	stamp := testutil.ToFloat64(lastSuccess)
+	src.capped = 7
 	src.err = errors.New("private viewer_key sentinel")
 	if r.RunOnce(context.Background()) || sink.writes != 1 {
 		t.Fatal("failed read reached sink")
@@ -55,11 +57,21 @@ func TestRunnerFailurePreservesSuccessAndNeverLogsViewerKey(t *testing.T) {
 	if testutil.ToFloat64(lastSuccess) != stamp {
 		t.Fatal("failure advanced success timestamp")
 	}
+	if testutil.ToFloat64(viewersCapped) != 0 {
+		t.Fatal("failed run published a new capped-viewer count")
+	}
 	if strings.Contains(log.String(), "sentinel") {
 		t.Fatal("private driver contents leaked")
 	}
 	sink.err = nil
 	if !r.RunOnce(context.Background()) {
 		t.Fatal("did not recover")
+	}
+	if testutil.ToFloat64(viewersCapped) != 7 {
+		t.Fatal("successful run did not publish its capped-viewer count")
+	}
+	src.capped = 0
+	if !r.RunOnce(context.Background()) || testutil.ToFloat64(viewersCapped) != 0 {
+		t.Fatal("last-run gauge accumulated instead of resetting to zero")
 	}
 }
