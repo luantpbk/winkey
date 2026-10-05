@@ -70,9 +70,12 @@ type Handler struct {
 	SuggestRateLimit int // per minute; default 120
 
 	// Player analytics (task R1). Analytics nil = telemetry off: heartbeats are accepted and forgotten.
-	Analytics          analytics.Publisher
-	AnalyticsSalt      []byte // ANALYTICS_VIEWER_SALT, never logged
-	HeartbeatRateLimit int    // requests per client IP per minute; default 30
+	Analytics              analytics.Publisher
+	AnalyticsSalt          []byte // ANALYTICS_VIEWER_SALT, never logged
+	HeartbeatRateLimit     int    // requests per client IP per minute; default 30
+	RecoABEnabled          bool
+	RecoABSeed             string
+	RecoABTreatmentPercent int
 }
 
 // Routes mounts the API on r.

@@ -160,6 +160,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		MediaBucket: cfg.MediaBucket, CursorSecret: []byte(cfg.CursorSecret), Log: log,
 		MediaLinkSecret: []byte(cfg.MediaLinkSecret), Objects: objects.New(s3c),
 		Analytics: analyticsPub, AnalyticsSalt: []byte(cfg.AnalyticsViewerSalt),
+		RecoABEnabled: cfg.RecoABEnabled, RecoABSeed: cfg.RecoABSeed, RecoABTreatmentPercent: cfg.RecoABTreatmentPercent,
 		Views: viewCounter, TrustedProxies: proxies, ViewRateLimit: cfg.ViewRateLimit,
 		Limiter: limiter, SearchRateLimit: cfg.SearchRateLimit, SuggestRateLimit: cfg.SuggestRateLimit,
 	}).Routes(router)

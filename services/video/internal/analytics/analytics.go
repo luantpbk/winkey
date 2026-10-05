@@ -67,6 +67,8 @@ type Sample struct {
 	BitrateKbps   *int
 	ErrorCode     *string
 	Client        string // web | ios | android | other
+	Surface       *string
+	RecoVariant   *string // assigned by video-svc, never taken from the client
 }
 
 // data is the `data` of analytics.playback v1; every field of the schema is present (nullable ones as null).
@@ -90,6 +92,8 @@ type data struct {
 	ErrorCode     *string `json:"error_code"`
 	Client        string  `json:"client"`
 	Country       *string `json:"country"` // reserved (GeoIP later): null in v1
+	Surface       *string `json:"surface"`
+	RecoVariant   *string `json:"reco_variant"`
 }
 
 // Message is what is published: the JetStream message id and the JSON payload.
@@ -113,6 +117,7 @@ func Build(s Sample, ownerID uuid.UUID, viewerKey string, authenticated bool, no
 		ReceivedAt: now.Format(time.RFC3339Nano), SentAt: s.SentAt.UTC().Format(time.RFC3339Nano),
 		PositionMs: s.PositionMs, WatchedMs: s.WatchedMs, RebufferMs: s.RebufferMs, RebufferCount: s.RebufferCount,
 		StartupMs: s.StartupMs, Rendition: s.Rendition, BitrateKbps: s.BitrateKbps, ErrorCode: s.ErrorCode, Client: s.Client,
+		Surface: s.Surface, RecoVariant: s.RecoVariant,
 	})
 	if err != nil {
 		return Message{}, err

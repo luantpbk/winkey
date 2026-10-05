@@ -30,21 +30,22 @@ type heartbeatBatch struct {
 }
 
 type heartbeatSample struct {
-	PlaybackID    *string  `json:"playback_id"`
-	VideoID       *string  `json:"video_id"`
-	Kind          *string  `json:"kind"`
-	Seq           *int64   `json:"seq"`
-	SentAt        *string  `json:"sent_at"`
-	PositionMs    *int64   `json:"position_ms"`
-	WatchedMs     *int64   `json:"watched_ms"`
-	RebufferMs    *int64   `json:"rebuffer_ms"`
-	RebufferCount *int64   `json:"rebuffer_count"`
-	StartupMs     *int64   `json:"startup_ms"`
-	Rendition     *string  `json:"rendition"`
-	BitrateKbps   *int64   `json:"bitrate_kbps"`
-	ErrorCode     *string  `json:"error_code"`
-	Client        *string  `json:"client"`
-	_             struct{} `json:"-"`
+	PlaybackID    *string         `json:"playback_id"`
+	VideoID       *string         `json:"video_id"`
+	Kind          *string         `json:"kind"`
+	Seq           *int64          `json:"seq"`
+	SentAt        *string         `json:"sent_at"`
+	PositionMs    *int64          `json:"position_ms"`
+	WatchedMs     *int64          `json:"watched_ms"`
+	RebufferMs    *int64          `json:"rebuffer_ms"`
+	RebufferCount *int64          `json:"rebuffer_count"`
+	StartupMs     *int64          `json:"startup_ms"`
+	Rendition     *string         `json:"rendition"`
+	BitrateKbps   *int64          `json:"bitrate_kbps"`
+	ErrorCode     *string         `json:"error_code"`
+	Client        *string         `json:"client"`
+	Surface       json.RawMessage `json:"surface"` // distinguishes omitted from explicit null (not allowed by OpenAPI)
+	_             struct{}        `json:"-"`
 }
 
 type heartbeatResult struct {
@@ -104,12 +105,14 @@ func (h *Handler) recordPlaybackHeartbeats(w http.ResponseWriter, r *http.Reques
 	now := h.now()
 
 	accepted := 0
+	variant := h.recoVariant(who)
 	for _, s := range samples {
 		v, ok := videos[s.VideoID]
 		if !ok || v.Status != domain.StatusReady || !domain.CanView(v, who) {
 			analytics.SamplesTotal.WithLabelValues("dropped_invalid_video").Inc()
 			continue
 		}
+		s.RecoVariant = variant
 		msg, err := analytics.Build(s, v.OwnerID, key, who.Authed, now)
 		if err == nil {
 			err = h.Analytics.Publish(r.Context(), msg)
@@ -262,6 +265,18 @@ func validateSample(in heartbeatSample) (analytics.Sample, []httpx.FieldError) {
 	s.BitrateKbps = optNum("bitrate_kbps", in.BitrateKbps, 200_000)
 	s.ErrorCode = optStr("error_code", in.ErrorCode, 64)
 	s.Client = "web" // the default of the contract
+	if len(in.Surface) > 0 {
+		var surface string
+		err := json.Unmarshal(in.Surface, &surface)
+		switch surface {
+		case "for_you", "trending", "subscriptions", "search", "channel", "latest", "up_next", "playlist", "other":
+			if err == nil {
+				s.Surface = &surface
+			}
+		default:
+			bad("surface", "must be a playback surface from the contract")
+		}
+	}
 	if in.Client != nil {
 		switch *in.Client {
 		case "web", "ios", "android", "other":

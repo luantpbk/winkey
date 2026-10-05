@@ -309,15 +309,15 @@ when the list is exhausted. The initial candidate query reads the full ordered l
 IDs: an early limit could remove the first compatible candidate. This is a beta-scale query; a large catalog will
 need a streaming or indexed implementation that preserves this exact selection rule.
 
-Signed-in lists use Valkey `reco:{user_id}:{list_id}` for ten minutes. The HMAC cursor carries `{list_id, offset}` and
+Signed-in lists use Valkey `reco:{user_id}:{variant}:{list_id}` for ten minutes. The HMAC cursor carries `{list_id, offset}` and
 is bound to the user and endpoint. A missing/expired list or unavailable Valkey recomputes it and continues at the
 same offset; changing signals can then cause duplicates or omissions, as allowed by ADR-028. Cached page reads
 recheck public visibility, owner activity, ownership and history, so a newly hidden or watched video is omitted.
 The response uses `private, no-store`. Anonymous requests use trending then newest, never access Valkey, and return
 `public, max-age=60`. Empty pages use `items: []`; the final page has `next_cursor: null`.
 
-No new environment variables: `ANALYTICS_VIEWER_SALT`, `CURSOR_SECRET`, `DATABASE_URL` and optional `VALKEY_URL` apply.
-Metrics: `video_reco_requests_total{mode="personal|fallback|anonymous"}` counts successful responses, and
+`ANALYTICS_VIEWER_SALT`, `CURSOR_SECRET`, `DATABASE_URL` and optional `VALKEY_URL` apply.
+Metrics: `video_reco_requests_total{mode="personal|fallback|anonymous",variant="reco|control|none"}` counts successful responses, and
 `video_reco_compute_seconds` measures list computation on cache misses. PostgreSQL/Valkey integration fixtures
 validate exact ranking, the heartbeat key, exclusions, diversity across page boundaries, expiry, cold start and the
 200-item cap against the OpenAPI contract:
@@ -325,6 +325,38 @@ validate exact ranking, the heartbeat key, exclusions, diversity across page bou
 ```bash
 WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecommendedFeed -v
 ```
+
+### Recommendation A/B experiment (R2-ab-v, ADR-030)
+
+**Deploy this video-svc build only after R2-ab-w is live and ClickHouse migration 0002 has applied.**
+Older workers reject the new event fields with their strict decoder, including nullable fields while the experiment
+is disabled. Switching `RECO_AB_ENABLED` off does not remove this rollout dependency.
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `RECO_AB_ENABLED` | `true` | Assign signed-in viewers; `false` keeps personalized ranking and emits a null variant |
+| `RECO_AB_SEED` | `r2ab-1` | Nonblank assignment seed; use the same value across replicas; changing it reassigns viewers |
+| `RECO_AB_TREATMENT_PERCENT` | `50` | Integer 0..100; 0 sends all signed-in viewers to control, 100 sends all to reco |
+
+The bucket is the first eight bytes of SHA-256(`seed + ":" + user_id`) as a big-endian uint64, modulo 100.
+Buckets strictly below the treatment percentage use `reco`; other signed-in viewers use `control`. The feed and
+heartbeat publisher call the same `recoab.Variant` function. Control sets co-view and subscription scores to zero,
+preserving trending/newest ranking, every eligibility/history/ownership exclusion, diversity and pagination.
+Cache variants are `reco`, `control` and `none` (disabled experiment); anonymous requests remain uncached.
+A cursor continued after an arm change uses that arm's list, recomputing at its offset if absent.
+
+Heartbeat samples accept optional `surface`: `for_you`, `trending`, `subscriptions`, `search`, `channel`, `latest`,
+`up_next`, `playlist`, or `other`. Invalid values, types and explicit null are rejected with 400 before publishing.
+Omitted surfaces become null in analytics events. `reco_variant` is assigned by the service, never accepted from
+clients; it is null for anonymous viewers or a disabled experiment. No user IDs are logged.
+
+```bash
+go test ./internal/recoab ./internal/config -count=1 -v
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecoABFeedAndHeartbeat -count=1 -v
+```
+
+Fixtures use real PostgreSQL and Valkey, check both arms' exact order and unchanged exclusions, cache isolation
+after seed/percentage changes, all nine surfaces, anonymous/disabled assignment, and OpenAPI/event schemas.
 
 ### Moderation
 

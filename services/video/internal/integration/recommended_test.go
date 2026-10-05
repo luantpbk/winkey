@@ -44,9 +44,9 @@ func (s *recommendationCacheSpy) SetRecommendation(ctx context.Context, key stri
 	s.RecommendationCache.SetRecommendation(ctx, key, list, ttl)
 }
 
-func (s *recommendationSpy) RecommendationCandidates(ctx context.Context, key string, user uuid.UUID, now time.Time) ([]domain.RecommendationCandidate, error) {
+func (s *recommendationSpy) RecommendationCandidates(ctx context.Context, key string, user uuid.UUID, now time.Time, personalize bool) ([]domain.RecommendationCandidate, error) {
 	s.computes.Add(1)
-	return s.RecommendationStore.RecommendationCandidates(ctx, key, user, now)
+	return s.RecommendationStore.RecommendationCandidates(ctx, key, user, now, personalize)
 }
 
 type recommendationPage struct {

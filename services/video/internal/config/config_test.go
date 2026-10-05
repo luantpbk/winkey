@@ -152,3 +152,30 @@ func TestAnalyticsSettings(t *testing.T) {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
+
+func TestRecoABSettings(t *testing.T) {
+	c, err := load(valid())
+	if err != nil || !c.RecoABEnabled || c.RecoABSeed != "r2ab-1" || c.RecoABTreatmentPercent != 50 {
+		t.Fatalf("unexpected experiment defaults: %v", err)
+	}
+	for _, percent := range []string{"0", "100"} {
+		e := valid()
+		e["RECO_AB_ENABLED"], e["RECO_AB_SEED"], e["RECO_AB_TREATMENT_PERCENT"] = "false", "new-seed", percent
+		if c, err := load(e); err != nil || c.RecoABEnabled || c.RecoABSeed != "new-seed" {
+			t.Fatalf("valid experiment config rejected: %v", err)
+		}
+	}
+	for key, values := range map[string][]string{
+		"RECO_AB_TREATMENT_PERCENT": {"-1", "101", "half"},
+		"RECO_AB_ENABLED":           {"maybe"},
+		"RECO_AB_SEED":              {"  ", "\t"},
+	} {
+		for _, v := range values {
+			e := valid()
+			e[key] = v
+			if _, err := load(e); err == nil || !strings.Contains(err.Error(), key) {
+				t.Errorf("invalid %s accepted: %v", key, err)
+			}
+		}
+	}
+}
