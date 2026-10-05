@@ -40,6 +40,7 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 |---|---|---|---|---|
 | **gpu-01** (nhà; hostname `X9DRL-3F-iF`, tailnet `gpu-01` 100.88.247.70, **Ubuntu 26.04**, driver NVIDIA 595) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
 | **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
+| **node-NN** (nhà, nhiều mạng khác nhau, ADR-032) | Cấu hình vừa/thấp; vault cần đĩa ≥ 500 GB; cpu-transcode cần ≥ 4 nhân AVX2, ≥ 8 GB RAM | amd64/arm64 | Sau NAT, chỉ nối qua Tailscale (`tag:worker`) | Không public, không stateful, chỉ kéo việc/kéo dữ liệu |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
 Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
@@ -208,6 +209,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 | Uplink nhà thấp/không ổn định | Chờ READY lâu | Multipart upload có retry; đo bằng `iperf3` qua Tailscale; cân nhắc giới hạn 1080p |
 | Một GPU duy nhất | Single point of failure cho tốc độ | Fallback x264 tự động |
 | **GPU dùng chung với miner/ComfyUI** | Transcode chậm hoặc lỗi hết VRAM khi tải cao | Transcoder retry được (NVENC→x264 fallback, NAK); đo job thật trong V2b; nếu decode CUDA bị nghẽn thì chuyển decode về CPU (`HWACCEL_DECODE=false`); ưu tiên dừng miner khi có hàng đợi dài |
+| **Oracle giảm A1 Always Free xuống 2 OCPU / 12 GB (áp dụng từ 2026-08-18)** | edge-1 (4 OCPU / 24 GB) có thể đang bị tính phí phần vượt | Kiểm tra Cost Analysis; chọn A/B/C ở ADR-032 |
+| Vượt free tier R2 (không có trần chi tiêu) | Bị tính tiền | Ngân sách theo bucket, exporter `r2-usage` cảnh báo 70/85%, lifecycle rule (ADR-032) |
 | Ổ `/` trên gpu-01 gần đầy (85%) | Log hoặc tmp làm đầy ổ, service chết | Scratch và archive đặt ngoài `/`; logrotate; cảnh báo khi còn < 10 GB (I3) |
 
 ## 9. Checklist I0 (Antigravity 2 chạy, dán kết quả vào issue I0)
@@ -229,3 +232,20 @@ ffmpeg -hide_banner -encoders | grep nvenc
 ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 60 -c:v h264_nvenc -preset p5 -f null -   # tốc độ ×realtime
 # Thử 3, 4, … phiên NVENC song song để xác nhận giới hạn phiên
 ```
+
+## 10. Ngân sách tài nguyên miễn phí (ADR-032)
+
+Mục tiêu: dùng **60–80%** mỗi hạn mức. Cảnh báo ở 70%, hành động ở 85%. Không có hạn mức nào để vượt mà không có cảnh báo trước.
+
+| Nguồn miễn phí | Hạn mức | Phân bổ | Theo dõi |
+|---|---|---|---|
+| Oracle A1 (mỗi tenancy) | 2 OCPU / 12 GB (từ 2026-08-18) | edge-1 đang 4 / 24 → xem ADR-032 §3 | Cost Analysis hằng tháng |
+| Oracle block volume | 200 GB | edge-1 dùng hết (boot 70 + LV 110 + …) | — |
+| Oracle egress | 10 TB/tháng | HLS + web; ngưỡng làm IMG (R2) ở 60% | vmagent: bytes ra của media-cache |
+| Oracle Object Storage | 20 GB | Dự phòng cho backup khi R2 chạm 85% | — |
+| R2 lưu trữ | 10 GB-tháng | `winkey-backup` ≤ 6 GB; `winkey-img` ≤ 2 GB (giai đoạn 2); dự phòng ≥ 2 GB | `r2-usage` |
+| R2 Class A | 1 triệu/tháng | WAL + base backup + etcd + ClickHouse: ước tính < 30 nghìn | `r2-usage` |
+| R2 Class B | 10 triệu/tháng | Khôi phục, vault kéo về; `img` chỉ khi cache Cloudflare miss | `r2-usage` |
+| GitHub Actions | Không giới hạn (repo public) | Runner GitHub-hosted; **không** dùng self-hosted | — |
+| Tailscale (gói Personal) | Đủ cho số node hiện tại | edge, gpu, worker, admin | — |
+| Resend | Gói free | Mail sản phẩm + cảnh báo Grafana | Dashboard Resend |
