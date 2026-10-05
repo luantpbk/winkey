@@ -242,8 +242,10 @@ Nguyên tắc: tận dụng free tier trước. Vượt mức chỉ khi chi phí
 |---|---|---|---|
 | Oracle A1 (mỗi tenancy) | 2 OCPU / 12 GB | edge-1 về 2 / 12 (INF-E1). Thêm edge = thêm tenancy | Cost Analysis hằng tháng |
 | Oracle block volume | 200 GB | edge-1 dùng hết. Sau khi gỡ Garage, LV data dành cho PG, NATS, cache | node-exporter |
+| Đĩa edge (tầng nóng) | edge-1 ~40 GB sau khi gỡ Garage; edge-2/3 ~100 GB | nginx `proxy_cache` (phụ lục ADR-032) | Tỷ lệ cache hit |
 | Oracle egress | 10 TB/tháng | HLS qua nginx gate. Ở 60% thì xét CDN Cloudflare | vmagent: bytes ra của media-cache |
 | Oracle Object Storage | 20 GB | Chưa dùng. Dự phòng làm đích backup thứ hai | — |
+| Đĩa máy gia đình | Theo máy | vault (rclone); khi ≥ 3 máy thì thành cụm Garage ở các nhà (RF 2) | Tuổi của lần sync gần nhất |
 | R2 lưu trữ | 10 GB-tháng, sau đó 0.015 USD/GB | raw, media, pg-backup, backup | `r2-usage` (dự báo chi phí) |
 | R2 Class A / Class B | 1 triệu / 10 triệu mỗi tháng | Upload, HLS, WAL / miss của nginx cache, vault sync | `r2-usage` |
 | GitHub Actions | Không giới hạn (repo public) | Runner GitHub-hosted; **không** dùng self-hosted | — |

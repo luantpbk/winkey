@@ -54,6 +54,8 @@ rollback.
 5. Daily etcd snapshot and ClickHouse backup to winkey-backup.
 6. **PostgreSQL restore drill from R2** (to a scratch instance) and paste the result. Only then remove Garage:
    keep it read-only for 7 days, then uninstall; remove the Tailscale rule tag:gpu → tag:edge:30900.
+7. After Garage is uninstalled: move edge-1's nginx `proxy_cache` from `/` (10 GB) to the freed LV data, about
+   40 GB, with `proxy_cache_lock on` and `inactive=30d` (ADR-032 addendum).
 
 # PHASE INF-R2b — cost guard
 - Exporter `r2-usage`: Cloudflare GraphQL Analytics, token "Account Analytics: Read", every 15 min.
@@ -72,6 +74,13 @@ rollback.
   - 14-day retention; monthly PostgreSQL restore drill from the vault copy;
   - alert when the last successful sync is > 36 h old.
 - probe: blackbox exporter for https://winkey.vn/healthz and one media URL.
+
+# PHASE INF-W2 — home Garage cluster (only when ≥ 3 tag:worker nodes with disks exist; wait for the go)
+- Each house is a zone: RF 2, consistency_mode consistent. S3 and RPC open on the tailnet only
+  (tag:worker → tag:worker:3900,3901). Admin token and RPC secret stay on the hosts (`read -s`).
+- Role `garage_vault` replaces the rclone directories: nightly R2 → home-Garage sync, 14-day retention, monthly
+  restore drill. Never on the user path.
+- New edges (edge-2/3) reuse the same nginx role with about 100 GB of `proxy_cache` each; no Garage on edges.
 
 # PHASE INF-E1 — edge-1 to 2 OCPU / 12 GB
 - From the INF-0 numbers, propose new requests/limits for every Winkey pod (target total requests ≤ 1 vCPU / 5 GB, host
