@@ -24,6 +24,29 @@ Moves `analytics.playback` v1 events from the JetStream stream `ANALYTICS` into 
 * Migrations: `db/clickhouse/*.sql` from `CLICKHOUSE_MIGRATIONS_DIR` (mounted at `/migrations`) are applied in name order
   at start-up and recorded in `winkey.schema_migrations`. A failing statement stops the start.
 
+## Recommendation experiment telemetry (R2-ab-w, ADR-030)
+
+The worker accepts optional `surface` (`for_you`, `latest`, `trending`, `up_next`, `search`, `subscriptions`,
+`channel`, `playlist`, `other`) and `reco_variant` (`reco`, `control`). Missing or explicit-null values remain NULL;
+invalid enums/types and unknown fields are malformed and terminated. Both columns are written in the same explicitly
+named-column INSERT as the existing sample fields. Batch tokens, dependent-view deduplication and #193 replay
+reconciliation are unchanged.
+
+Architect-authored migration `0002_reco_ab.sql` adds the nullable raw columns and `reco_ab_daily` through a materialized
+view. It records only authenticated samples with a non-null arm, grouped by Asia/Ho_Chi_Minh day, arm and surface
+(`unknown` when absent), with sample/start/watch sums and mergeable distinct viewer states. The daily table retains
+one year. `sum(watched_ms) / uniqMerge(viewers)` across all surfaces gives watch time per active viewer for an arm/day;
+merging the viewer states avoids counting a viewer again when they use another surface.
+
+Deploy this worker and its migration **before** R2-ab-v video-svc starts emitting the new fields: the previous worker's
+strict decoder terminates unknown fields. No new worker configuration or metrics are introduced. Integration fixtures
+run on ClickHouse 26.9 and 25.8, asserting exact daily rows, NULL/anonymous exclusion, nullable raw round-trips, timezone
+boundaries, retry deduplication, differently bounded replay and the real JetStream ingestion path:
+
+```bash
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecoABDailyMaterializationAndReplay -count=1 -v
+```
+
 ## Configuration
 
 | Variable | Default | Meaning |

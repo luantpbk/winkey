@@ -176,18 +176,26 @@ type sample struct {
 	watched, rebuffer, rebufferCount, startup int
 	hasStartup                                bool
 	errCode                                   *string
+	authenticated                             bool
+	surface, recoVariant                      *string
 }
 
 func (sm sample) payload() []byte {
 	d := map[string]any{
 		"playback_id": sm.playback.String(), "video_id": sm.video.String(), "owner_id": sm.owner.String(), "viewer_key": sm.viewer,
-		"authenticated": false, "kind": sm.kind, "seq": sm.seq, "received_at": sm.received.Format(time.RFC3339Nano),
+		"authenticated": sm.authenticated, "kind": sm.kind, "seq": sm.seq, "received_at": sm.received.Format(time.RFC3339Nano),
 		"sent_at": sm.received.Add(-time.Second).Format(time.RFC3339Nano), "position_ms": sm.seq * 1000, "watched_ms": sm.watched,
 		"rebuffer_ms": sm.rebuffer, "rebuffer_count": sm.rebufferCount, "startup_ms": nil, "rendition": "720p", "bitrate_kbps": 2800,
 		"error_code": sm.errCode, "client": "web", "country": nil,
 	}
 	if sm.hasStartup {
 		d["startup_ms"] = sm.startup
+	}
+	if sm.surface != nil {
+		d["surface"] = sm.surface
+	}
+	if sm.recoVariant != nil {
+		d["reco_variant"] = sm.recoVariant
 	}
 	b, _ := json.Marshal(map[string]any{"event_id": sm.id.String(), "type": "analytics.playback", "version": 1,
 		"occurred_at": sm.received.Format(time.RFC3339), "producer": "video-svc", "data": d})
@@ -373,17 +381,17 @@ func assertSums(t *testing.T, got, want map[hourKey]sums) {
 
 func TestMigrationsAreAppliedOnceAndTheSchemaIsThere(t *testing.T) {
 	s := startStack(t)
-	if got := s.migrate(); len(got) != 1 || got[0] != "0001_playback.sql" {
+	if got := s.migrate(); len(got) != 2 || got[0] != "0001_playback.sql" || got[1] != "0002_reco_ab.sql" {
 		t.Fatalf("first start applied %v", got)
 	}
 	if got := s.migrate(); len(got) != 0 { // the second start is a no-op
 		t.Fatalf("second start applied %v", got)
 	}
 	var n uint64
-	if err := s.conn.QueryRow(context.Background(), `SELECT count() FROM winkey.schema_migrations`).Scan(&n); err != nil || n != 1 {
+	if err := s.conn.QueryRow(context.Background(), `SELECT count() FROM winkey.schema_migrations`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("schema_migrations rows: %d %v", n, err)
 	}
-	for _, table := range []string{"playback_events", "video_qoe_hourly", "video_qoe_hourly_mv", "schema_migrations"} {
+	for _, table := range []string{"playback_events", "video_qoe_hourly", "video_qoe_hourly_mv", "schema_migrations", "reco_ab_daily", "reco_ab_daily_mv"} {
 		var c uint64
 		if err := s.conn.QueryRow(context.Background(), `SELECT count() FROM system.tables WHERE database = 'winkey' AND name = ?`, table).Scan(&c); err != nil || c != 1 {
 			t.Fatalf("table %s: %d %v", table, c, err)
