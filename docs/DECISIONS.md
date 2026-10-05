@@ -458,6 +458,11 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Thay toàn bảng mỗi lần chạy chỉ hợp ở quy mô beta. Khi bảng lớn thì đổi sang bảng tạm + `ALTER TABLE … RENAME` trong cùng transaction, không đổi contract.
 - Contract không hứa công thức. Đổi trọng số hay nguồn ứng viên chỉ cần sửa ADR này.
 
+- **Bổ sung R2-perf (2026-10-05): chặn chi phí khi dữ liệu lớn.**
+  - *Co-view (worker):* trước self-join, mỗi `viewer_key` chỉ giữ tối đa `RECO_COVIEW_MAX_PER_VIEWER` (mặc định 200) video xem đủ **gần nhất**. Chi phí self-join tăng theo bình phương số video của một người; một tài khoản bất thường (bot, người xem cả ngày) không được phép làm chậm cả job. `viewers(v)` vẫn đếm trên tập đã giới hạn, để score nhất quán. Metric `analytics_reco_viewers_capped_total`.
+  - *Ứng viên (video-svc):* câu SQL ứng viên trả tối đa `RECO_CANDIDATE_LIMIT` (mặc định 2 000) dòng theo đúng thứ tự `final` DESC, `published_at` DESC, `id` DESC, rồi mới chạy luật đa dạng và cắt 200. 2 000 là đủ để luật đa dạng (tối đa 2 mỗi 10) luôn tìm được video khác kênh, trừ khi cả kho chỉ có một vài kênh, và khi đó luật vốn đã là best effort. Phần lấp đầy theo "mới nhất" nằm trong cùng giới hạn này.
+  - Không đổi contract, không migration.
+
 ### ADR-029 — Observability (I3): đo ở edge-1, lưu và cảnh báo trên gpu-01
 **Bối cảnh.** Chưa có dashboard hay cảnh báo nào. Mọi service đã có `/metrics` (Prometheus) và log JSON ra stdout. Kế hoạch gốc (ADR-011, INFRASTRUCTURE §3) đặt VictoriaMetrics, Loki và Grafana trên gpu-01. Nhưng gpu-01 có uptime yếu (ADR-015), còn edge-1 chỉ cho Winkey tối đa 2 vCPU / 10 GB requests.
 **Quyết định.**
