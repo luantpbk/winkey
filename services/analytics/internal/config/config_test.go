@@ -19,7 +19,7 @@ func TestLoadDefaultsAndRequired(t *testing.T) {
 	if c.BatchMaxMessages != 5000 || c.BatchMaxWait != 2*time.Second || c.MigrationsDir != "/migrations" || c.ClickHouseUser != "default" || c.InsertTimeout != 30*time.Second {
 		t.Fatalf("%+v", c)
 	}
-	if !c.RecoEnabled || c.RecoEvery != 30*time.Minute || c.RecoWindow != 30 || c.RecoMinWatch != 20000 || c.RecoNeighbors != 30 || c.RecoHistory != 50 {
+	if !c.RecoEnabled || c.RecoEvery != 30*time.Minute || c.RecoWindow != 30 || c.RecoMinWatch != 20000 || c.RecoNeighbors != 30 || c.RecoHistory != 50 || c.RecoCoviewMax != 200 {
 		t.Fatal("recommendation defaults differ from ADR-028")
 	}
 }
@@ -27,7 +27,7 @@ func TestLoadDefaultsAndRequired(t *testing.T) {
 func TestRecoValidation(t *testing.T) {
 	ok := Config{BatchMaxMessages: 10, BatchMaxWait: time.Second, InsertTimeout: time.Second,
 		RecoEnabled: true, PostgresURL: "postgres://x", RecoEvery: 30 * time.Minute, RecoWindow: 30,
-		RecoMinWatch: 20000, RecoNeighbors: 30, RecoHistory: 50}
+		RecoMinWatch: 20000, RecoNeighbors: 30, RecoHistory: 50, RecoCoviewMax: 200}
 	if err := ok.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +39,7 @@ func TestRecoValidation(t *testing.T) {
 		"watch low": func(c *Config) { c.RecoMinWatch = 999 }, "watch high": func(c *Config) { c.RecoMinWatch = 600001 },
 		"neighbors low": func(c *Config) { c.RecoNeighbors = 0 }, "neighbors high": func(c *Config) { c.RecoNeighbors = 101 },
 		"history low": func(c *Config) { c.RecoHistory = 0 }, "history high": func(c *Config) { c.RecoHistory = 201 },
+		"coview cap low": func(c *Config) { c.RecoCoviewMax = 9 }, "coview cap high": func(c *Config) { c.RecoCoviewMax = 5001 },
 	} {
 		c := ok
 		mod(&c)
@@ -53,12 +54,14 @@ func TestRecoValidation(t *testing.T) {
 		c.RecoMinWatch = 1000
 		c.RecoNeighbors = 1
 		c.RecoHistory = 1
+		c.RecoCoviewMax = 10
 		if upper {
 			c.RecoEvery = 6 * time.Hour
 			c.RecoWindow = 90
 			c.RecoMinWatch = 600000
 			c.RecoNeighbors = 100
 			c.RecoHistory = 200
+			c.RecoCoviewMax = 5000
 		}
 		if err := c.Validate(); err != nil {
 			t.Fatal(err)

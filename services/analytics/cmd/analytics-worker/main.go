@@ -130,7 +130,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		}
 		if cfg.RecoEnabled {
 			rr := &reco.Runner{Source: &reco.ClickHouse{Conn: conn}, Sink: &reco.Postgres{Pool: pool}, Log: log,
-				Interval: cfg.RecoEvery, Options: reco.Options{WindowDays: cfg.RecoWindow, MinWatchMs: cfg.RecoMinWatch, Neighbors: cfg.RecoNeighbors, History: cfg.RecoHistory}}
+				Interval: cfg.RecoEvery, Options: reco.Options{WindowDays: cfg.RecoWindow, MinWatchMs: cfg.RecoMinWatch, Neighbors: cfg.RecoNeighbors, History: cfg.RecoHistory, CoviewMax: cfg.RecoCoviewMax}}
 			wg.Add(1)
 			go func() { defer wg.Done(); rr.Run(ctx) }()
 		}

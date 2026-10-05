@@ -38,6 +38,7 @@ type Config struct {
 	RecoMinWatch   int           `env:"RECO_MIN_WATCH_MS" default:"20000"`
 	RecoNeighbors  int           `env:"RECO_NEIGHBORS" default:"30"`
 	RecoHistory    int           `env:"RECO_HISTORY" default:"50"`
+	RecoCoviewMax  int           `env:"RECO_COVIEW_MAX_PER_VIEWER" default:"200"`
 }
 
 // Load reads and validates the environment.
@@ -64,6 +65,9 @@ func (c Config) Validate() error {
 		return errors.New("POSTGRES_URL is required when ROLLUP_ENABLED=true or RECO_ENABLED=true")
 	}
 	if c.RecoEnabled {
+		if c.RecoCoviewMax < 10 || c.RecoCoviewMax > 5000 {
+			return errors.New("RECO_COVIEW_MAX_PER_VIEWER must be between 10 and 5000")
+		}
 		if c.RecoEvery < 5*time.Minute || c.RecoEvery > 6*time.Hour {
 			return errors.New("RECO_INTERVAL must be between 5m and 6h")
 		}

@@ -14,16 +14,23 @@ type ClickHouse struct{ Conn driver.Conn }
 
 // FINAL collapses the raw sorting key before aggregation, including unmerged duplicate parts.
 // Never use the hourly materialized view for per-viewer qualification.
-const pairsSQL = `WITH qualified AS (
- SELECT viewer_key, video_id
+const qualifiedSQL = `SELECT viewer_key, video_id, max(received_at) AS last_watched_at
  FROM winkey.playback_events FINAL
  WHERE received_at >= ? AND received_at < ?
- GROUP BY viewer_key, video_id HAVING sum(toUInt64(watched_ms)) >= ?
+ GROUP BY viewer_key, video_id HAVING sum(toUInt64(watched_ms)) >= ?`
+
+const cappedCountSQL = `WITH qualified AS (` + qualifiedSQL + `)
+SELECT count() FROM (SELECT viewer_key FROM qualified GROUP BY viewer_key HAVING count() > ?)`
+
+const pairsSQL = `WITH qualified AS (` + qualifiedSQL + `), capped AS (
+ SELECT viewer_key, video_id FROM qualified
+ ORDER BY viewer_key, last_watched_at DESC, video_id ASC
+ LIMIT ? BY viewer_key
 ), viewers AS (
- SELECT video_id, count() AS viewers FROM qualified GROUP BY video_id
+ SELECT video_id, count() AS viewers FROM capped GROUP BY video_id
 ), shared AS (
  SELECT a.video_id AS video_id, b.video_id AS neighbor_id, count() AS co_viewers
- FROM qualified AS a INNER JOIN qualified AS b ON a.viewer_key = b.viewer_key
+ FROM capped AS a INNER JOIN capped AS b ON a.viewer_key = b.viewer_key
  WHERE a.video_id != b.video_id
  GROUP BY a.video_id, b.video_id HAVING co_viewers >= 3
 )
@@ -43,40 +50,44 @@ GROUP BY viewer_key, video_id HAVING watched >= ?
 ORDER BY viewer_key, last_watched_at DESC, video_id ASC
 LIMIT ? BY viewer_key`
 
-func (c *ClickHouse) Read(ctx context.Context, now time.Time, o Options) ([]Pair, []Watch, error) {
+func (c *ClickHouse) Read(ctx context.Context, now time.Time, o Options) ([]Pair, []Watch, uint64, error) {
 	since := now.AddDate(0, 0, -o.WindowDays)
-	rows, err := c.Conn.Query(ctx, pairsSQL, since, now, o.MinWatchMs, o.Neighbors)
+	var capped uint64
+	if err := c.Conn.QueryRow(ctx, cappedCountSQL, since, now, o.MinWatchMs, o.CoviewMax).Scan(&capped); err != nil {
+		return nil, nil, 0, fmt.Errorf("capped viewers query: %w", err)
+	}
+	rows, err := c.Conn.Query(ctx, pairsSQL, since, now, o.MinWatchMs, o.CoviewMax, o.Neighbors)
 	if err != nil {
-		return nil, nil, fmt.Errorf("coview query: %w", err)
+		return nil, nil, 0, fmt.Errorf("coview query: %w", err)
 	}
 	var pairs []Pair
 	for rows.Next() {
 		var p Pair
 		if err := rows.Scan(&p.VideoID, &p.NeighborID, &p.CoViewers, &p.Score); err != nil {
 			_ = rows.Close()
-			return nil, nil, fmt.Errorf("coview scan: %w", err)
+			return nil, nil, 0, fmt.Errorf("coview scan: %w", err)
 		}
 		pairs = append(pairs, p)
 	}
 	err = rows.Err()
 	_ = rows.Close()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	rows, err = c.Conn.Query(ctx, historySQL, since, now, o.MinWatchMs, o.History)
 	if err != nil {
-		return nil, nil, fmt.Errorf("history query: %w", err)
+		return nil, nil, 0, fmt.Errorf("history query: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	var history []Watch
 	for rows.Next() {
 		var w Watch
 		if err := rows.Scan(&w.ViewerKey, &w.VideoID, &w.LastWatchedAt, &w.WatchedMs); err != nil {
-			return nil, nil, fmt.Errorf("history scan: %w", err)
+			return nil, nil, 0, fmt.Errorf("history scan: %w", err)
 		}
 		history = append(history, w)
 	}
-	return pairs, history, rows.Err()
+	return pairs, history, capped, rows.Err()
 }
 
 type Postgres struct{ Pool *pgxpool.Pool }

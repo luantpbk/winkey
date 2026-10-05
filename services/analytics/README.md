@@ -69,6 +69,7 @@ WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecoABDailyMater
 | `RECO_MIN_WATCH_MS` | `20000` | qualified watch threshold, 1000..600000 ms |
 | `RECO_NEIGHBORS` | `30` | neighbors retained per video, 1..100 |
 | `RECO_HISTORY` | `50` | recent qualified videos per authenticated viewer, 1..200 |
+| `RECO_COVIEW_MAX_PER_VIEWER` | `200` | most recent qualified videos per viewer before co-view join, 10..5000; validated when reco is enabled |
 | `HTTP_ADDR` | `:8081` | `/healthz`, `/readyz`, `/metrics` |
 | `LOG_LEVEL` | `info` | |
 
@@ -127,6 +128,17 @@ The job transfers only the bounded SQL results into Go, then replaces **both** P
 `pgx.CopyFrom` in one transaction. Empty results clear stale content. `refreshed_at` is the shared run-start timestamp.
 Any read, COPY or commit error keeps the previous published projection and retries at the next tick.
 
+R2-perf limits each viewer's qualified co-view set before the self-join: order by `max(received_at) DESC`,
+then `video_id ASC`, and retain at most `RECO_COVIEW_MAX_PER_VIEWER`. Qualification still aggregates deduplicated
+raw samples across the rolling window. Both pair counts and `viewers(v)` denominators use the capped set, including
+anonymous viewers; authenticated `viewer_history` remains governed by `RECO_HISTORY` independently. The self-join
+can generate at most N*(N-1) directed pairs per viewer.
+
+`analytics_reco_viewers_capped_total` is a gauge of viewers truncated in the last successful projection commit,
+as requested by ADR-028 despite its `_total` name. It resets to the latest count (including zero), retains the previous
+value after read/write failure, and has no viewer labels. Its count query uses the same FINAL/window/qualification
+expression as the pair query.
+
 Metrics: `analytics_reco_runs_total{result="success|error"}`, `analytics_reco_errors_total`,
 `analytics_reco_last_success_timestamp_seconds`, `analytics_reco_duration_seconds`, `analytics_reco_rows{table}`.
 Rows and success timestamp change only after commit. JSON logs contain counts and the failing step; driver error
@@ -143,3 +155,10 @@ WINKEY_REQUIRE_DOCKER=1 WINKEY_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.
 On native Windows, set `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=//var/run/docker.sock` for the Linux Ryuk container.
 The integration fixture verifies exact co-view scores/history, anonymous qualification, thresholds, duplicate parts,
 window bounds, complete replacement and rollback after the second COPY fails.
+
+R2-perf regression on ClickHouse 25.8 and 26.9 (exact retained membership, capped denominators, cutoff ties,
+unchanged history and unrelated pairs, anonymous viewers):
+
+```bash
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/integration -run TestRecoCoviewCapBeforeJoin -count=1 -v
+```

@@ -58,8 +58,8 @@ func TestRecoQualificationReplacementAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := &reco.ClickHouse{Conn: conn}
-	opts := reco.Options{WindowDays: 30, MinWatchMs: 20000, Neighbors: 30, History: 50}
-	pairs, history, err := src.Read(ctx, now, opts)
+	opts := reco.Options{WindowDays: 30, MinWatchMs: 20000, Neighbors: 30, History: 50, CoviewMax: 200}
+	pairs, history, _, err := src.Read(ctx, now, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestRecoQualificationReplacementAndRollback(t *testing.T) {
 	}
 	limited := opts
 	limited.History = 1
-	_, recent, err := src.Read(ctx, now, limited)
+	_, recent, _, err := src.Read(ctx, now, limited)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestRecoQualificationReplacementAndRollback(t *testing.T) {
 	if err := conn.Exec(ctx, `ALTER TABLE winkey.playback_events DELETE WHERE received_at < ? SETTINGS mutations_sync=1`, now.Add(-20*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	pairs, history, err = src.Read(ctx, now.Add(time.Minute), opts)
+	pairs, history, _, err = src.Read(ctx, now.Add(time.Minute), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestRecoQualificationReplacementAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	limited.Neighbors = 1
-	pairs, _, err = src.Read(ctx, now, limited)
+	pairs, _, _, err = src.Read(ctx, now, limited)
 	if err != nil {
 		t.Fatal(err)
 	}
