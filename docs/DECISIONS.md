@@ -526,3 +526,29 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Hai cột mới trong `playback_events` và một bảng tổng hợp nhỏ. Không thêm dữ liệu cá nhân: arm suy ra từ user id, không lưu user id rõ.
 - 50 % người dùng đăng nhập tạm thời nhận feed kém cá nhân hoá hơn trong thời gian thí nghiệm. Chấp nhận được, vì đó chính là điều cần đo.
 - `surface` cũng phục vụ phân tích khác (tỉ trọng xem từ tìm kiếm, "Xem tiếp"…) sau thí nghiệm.
+
+### ADR-031 — V4: rút ngắn upload → READY bằng đo đạc và chồng lấn, không làm full-GPU/chia đoạn
+**Bối cảnh.** ROADMAP ghi V4 là "full-GPU pipeline + transcode song song theo chunk + DASH". Số đo thật trên gpu-01 (INFRASTRUCTURE §6, V2b) đi ngược với kế hoạch đó:
+- Một job NVENC đã làm **khối NVENC bão hoà**: thêm phiên song song không nhanh hơn (5.6× → 5.9× tổng).
+- Khi GPU dùng chung với miner và ComfyUI, **decode bằng NVDEC chậm gấp đôi decode CPU** (3.0× so với 5.6×). Vì vậy full-GPU (`-hwaccel cuda` + `scale_cuda`) hiện chậm hơn chứ không nhanh hơn.
+- Chia video thành đoạn rồi encode song song trên **một** GPU không tăng thông lượng, vì cùng một khối NVENC. Trộn encoder (NVENC + x264) trong cùng một rendition thì chất lượng không đồng đều giữa các đoạn.
+- Pipeline hiện tại chạy **tuần tự**: tải về → archive → probe → encode → poster → storyboard → **upload toàn bộ** → READY. Ước tính trong INFRASTRUCTURE §6 là upload (~4.3 GB mỗi giờ video, ~6 phút ở 100 Mbps) có thể ngang thời gian encode (~10.7 phút mỗi giờ video), nhưng **chưa từng đo từng bước** trên job thật.
+- DASH: hls.js phát được mọi trình duyệt không phải Safari, Safari phát HLS gốc. Chưa có client nào cần DASH.
+**Quyết định.**
+- **V4-a: đo từng bước (Sonnet 2, transcoder).**
+  - Histogram `transcoder_stage_seconds{stage}` với `stage` ∈ download, archive, probe, encode, poster, storyboard, upload, commit; histogram `transcoder_job_seconds` (tải xong → READY); counter `transcoder_upload_bytes_total`.
+  - Mỗi job ghi một dòng log JSON tổng kết thời gian từng bước, kèm `media_sec` và encoder (không có dữ liệu người dùng).
+  - Antigravity 2 thêm panel "Transcode stages" vào dashboard Pipeline.
+- **V4-b: chồng lấn upload với encode (Sonnet 2), làm ngay sau V4-a.**
+  - FFmpeg ghi segment với `-hls_flags independent_segments+temp_file` (segment xong mới được đổi sang tên thật).
+  - Trong lúc FFmpeg chạy, một goroutine quét thư mục HLS (mỗi giây, hoặc dùng fsnotify) và upload mỗi `seg_*.m4s` đã hoàn tất **đúng một lần**, dùng chung giới hạn `UPLOAD_PARALLELISM`.
+  - `init.mp4`, mọi playlist (`*.m3u8`), poster và storyboard vẫn upload **sau** khi FFmpeg kết thúc thành công. Player chỉ thấy video khi có `master.m3u8` và trạng thái READY.
+  - Archive (chép bản gốc sang HDD) chạy song song với probe và encode, và phải xong trước commit.
+  - FFmpeg lỗi thì huỷ uploader. Prefix `v/{id}/a{attempt}/` dở dang đã được `cleanupPrefix` và `RemoveOldAttempts` dọn như hiện nay, nên không cần cơ chế mới.
+  - Kỳ vọng: thời gian job gần bằng max(encode, upload) thay vì tổng.
+- **V4-c (chỉ làm khi số đo V4-a cho thấy encode là nút thắt):** đẩy rendition 480p sang tiến trình x264 chạy song song với NVENC, để khối NVENC chỉ còn 1080p và 720p. Phải có số đo trước/sau trên job thật. Full-GPU chỉ xem lại khi gpu-01 không còn chia GPU với miner.
+- **DASH hoãn sang P4.** Segment CMAF hiện tại đã dùng lại được cho DASH, nên khi cần chỉ thêm manifest, không phải transcode lại.
+**Hệ quả.**
+- Không đổi contract, không migration, không đổi đầu ra HLS (vẫn đúng ladder và segment như ADR-006). Video cũ không bị ảnh hưởng.
+- Có số đo thật cho từng bước, để các quyết định tối ưu sau này dựa trên dữ liệu.
+- Upload trong lúc encode tăng tải mạng nhà trong thời gian encode. Cùng giới hạn `UPLOAD_PARALLELISM` như hiện nay nên không vượt mức cũ.
