@@ -251,6 +251,74 @@
       ],
       "title": "Transcode Realtime Ratio (p50 / p95)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Stage Timings & Latency (V4-a, ADR-031)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "description": "Per-stage execution duration (p50 / p95) and total job duration (job_seconds) from task V4-a (ADR-031).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum by (stage, le) (rate(transcoder_stage_seconds_bucket[10m])))",
+          "legendFormat": "{{stage}} (p50)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(transcoder_stage_seconds_bucket[10m])))",
+          "legendFormat": "{{stage}} (p95)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum(rate(transcoder_job_seconds_bucket[10m])) by (le))",
+          "legendFormat": "job_seconds (p50)",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum(rate(transcoder_job_seconds_bucket[10m])) by (le))",
+          "legendFormat": "job_seconds (p95)",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Transcode stages",
+      "type": "timeseries"
     }
   ],
   "refresh": "15s",
