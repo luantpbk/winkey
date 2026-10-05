@@ -668,3 +668,20 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - **INF-W1** (Antigravity 2): node-01 làm vault + probe.
   - **INF-E1** (Antigravity 2): hạ requests và resize edge-1.
   - **V6** (ChatGPT): chỉ khi số liệu yêu cầu.
+
+**Phụ lục ADR-032 (2026-10-05) — lộ trình 3 edge + 3 node; không đặt Garage trên edge.**
+- **Đã cân nhắc và bác bỏ: Garage làm tầng nóng trên edge, R2 làm tầng lạnh.**
+  - Muốn ghi được khi 1 edge chết thì phải dùng RF 3 (quorum ghi 2/3), khi đó dung lượng dùng được chỉ bằng node nhỏ nhất (edge-1, khoảng 70 GB). Dùng RF 2 thì một edge chết là một phần lượt ghi lỗi.
+  - Khoản tiết kiệm chỉ khoảng 1–2.6 USD/tháng tiền R2, đổi lại cần job chuyển tầng, phải sửa code để xoá ở hai nơi, và tốn RAM trên edge vốn chỉ có 12 GB.
+- **Tầng nóng = nginx `proxy_cache` trên mỗi edge** (ADR-005/017, cùng một Ansible role):
+  - edge-1: sau khi gỡ Garage, chuyển cache từ `/` (10 GB) sang LV data, khoảng 40 GB;
+  - edge-2/3: khoảng 100 GB mỗi node;
+  - `proxy_cache_lock on`, `inactive=30d`.
+
+  Video bị xoá hoặc bị ẩn vẫn bị `auth_request` chặn dù file còn trong cache. Không có dữ liệu nào chỉ nằm duy nhất trên một edge.
+- **Tầng sao lưu = cụm Garage ở các nhà, khi có ≥ 3 node `tag:worker` có đĩa.**
+  - Mỗi nhà là một zone. RF 2, chế độ `consistent`: quorum ghi 2, quorum đọc 1. Job sao lưu là batch nên có thể retry.
+  - Cụm này thay thư mục rclone của vai trò vault (vai trò mới: `garage_vault`).
+  - Không nằm trên đường ghi của người dùng. S3 và RPC chỉ mở trên tailnet: thêm luật `tag:worker → tag:worker:3900,3901`.
+  - Trước khi đủ 3 node, vault vẫn là `rclone sync` ra đĩa local như §3.
+- **Tầng lạnh thật** (chuyển video cũ, ít xem từ R2 sang cụm Garage gia đình) chỉ xét khi `r2-usage` dự báo **> 10 USD/tháng hai tháng liền** (khoảng 700 GB). Khi đó viết một ADR riêng, có số liệu phân bố lượt xem.
