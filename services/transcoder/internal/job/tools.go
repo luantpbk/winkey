@@ -43,7 +43,7 @@ func (t Tools) Probe(ctx context.Context, path string) (media.Info, error) {
 	defer cancel()
 	var out bytes.Buffer
 	var errTail tailBuffer
-	cmd := exec.CommandContext(ctx, t.FFprobe, media.BuildProbeArgs(path)...)
+	cmd := exec.CommandContext(ctx, t.FFprobe, media.BuildProbeArgs(path)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
 	cmd.Stdout, cmd.Stderr = &out, &errTail
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -68,7 +68,7 @@ func EncodeTimeout(durationSec float64) time.Duration {
 // plan.OutDir, reporting progress (0..100) as it goes.
 func (t Tools) RunHLS(ctx context.Context, plan media.HLSPlan, durationSec float64, onProgress func(float64)) error {
 	for _, r := range plan.Renditions {
-		if err := os.MkdirAll(filepath.Join(plan.OutDir, r.Name), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(plan.OutDir, r.Name), 0o750); err != nil {
 			return fmt.Errorf("create output dir: %w", err)
 		}
 	}
@@ -76,7 +76,7 @@ func (t Tools) RunHLS(ctx context.Context, plan media.HLSPlan, durationSec float
 	rctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
-	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildHLSArgs(plan)...)
+	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildHLSArgs(plan)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
 	// ffmpeg's HLS muxer fails with "Permission denied" on Windows when its
 	// working directory is on a different drive than the output. Run it in the
 	// output directory so the worker does not depend on where it was started.
@@ -113,13 +113,13 @@ func (t Tools) RunHLS(ctx context.Context, plan media.HLSPlan, durationSec float
 
 // Thumbnail writes a poster JPEG taken at atSec.
 func (t Tools) Thumbnail(ctx context.Context, input, output string, atSec float64) error {
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var errTail tailBuffer
-	cmd := exec.CommandContext(ctx, t.FFmpeg, media.BuildThumbnailArgs(input, output, atSec)...)
+	cmd := exec.CommandContext(ctx, t.FFmpeg, media.BuildThumbnailArgs(input, output, atSec)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
 	cmd.Stderr = &errTail
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -144,7 +144,7 @@ func (t Tools) ResolveEncoder(ctx context.Context, setting string) (string, erro
 	case "auto", "":
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		if err := exec.CommandContext(ctx, t.FFmpeg, media.BuildEncoderProbeArgs()...).Run(); err == nil {
+		if err := exec.CommandContext(ctx, t.FFmpeg, media.BuildEncoderProbeArgs()...).Run(); err == nil { // #nosec G204 -- configured executable and constant one-frame encoder-probe arguments; no shell.
 			return media.EncoderNVENC, nil
 		}
 		return media.EncoderX264, nil

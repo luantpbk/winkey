@@ -177,7 +177,7 @@ func (m *MemObjects) Download(_ context.Context, bucket, key, dst string) error 
 	if !ok {
 		return errors.New("no such key")
 	}
-	return os.WriteFile(dst, o.Data, 0o644)
+	return os.WriteFile(dst, o.Data, 0o600)
 }
 
 func (m *MemObjects) UploadFile(ctx context.Context, bucket, key, src, ct, cc string) error {
@@ -273,10 +273,10 @@ func MaterializeHLS(t testing.TB, m *MemObjects, bucket, prefix string) string {
 		}
 		o, _ := m.Get(bucket, k)
 		dst := filepath.Join(dir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(dst, o.Data, 0o644); err != nil {
+		if err := os.WriteFile(dst, o.Data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
