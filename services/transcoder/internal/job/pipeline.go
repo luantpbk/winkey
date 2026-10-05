@@ -79,6 +79,9 @@ type Result struct {
 	Err    error // failure that led to Nak/Term, for logging
 	// Stats of a successful run.
 	Stats *Stats
+	// Steps are the timed steps that ran (V4-a), in the order they finished, whether or not the job
+	// succeeded; empty when the job never started (nothing to do, begin failed).
+	Steps []StepTiming
 }
 
 // Stats describe a successful transcode (used for benchmarks and metrics).
@@ -89,6 +92,9 @@ type Stats struct {
 	TotalWall   time.Duration
 	Renditions  int
 	UploadBytes int64
+	// JobWall is the time from the start of the download to the video being READY (V4-a); 0 when the
+	// video was not made READY (it was deleted meanwhile).
+	JobWall time.Duration
 	// Storyboard is true when the seek-preview storyboard was produced; StoryboardWall is
 	// what the step cost (V5a), whether or not it succeeded.
 	Storyboard     bool
@@ -144,14 +150,19 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 	log = log.With("job_id", begin.JobID, "attempt", begin.Attempt)
 
 	stopHeartbeat := p.startHeartbeat(ctx, d, begin.JobID, log)
-	stats, runErr := p.run(ctx, begin, log)
+	tm := &timings{}
+	stats, runErr := p.run(ctx, begin, log, tm)
 	stopHeartbeat()
+	steps := tm.snapshot()
 	if runErr == nil {
 		stats.TotalWall = time.Since(start)
+		// The one summary line of the job: the stage durations in seconds beside what the job made.
 		log.InfoContext(ctx, "transcode succeeded", "encoder", stats.Encoder,
-			"media_sec", stats.MediaSec, "encode_wall", stats.EncodeWall.Round(time.Millisecond).String(),
-			"x_realtime", fmt.Sprintf("%.1f", stats.XRealtime()))
-		return Result{Action: ActionAck, Stats: &stats}
+			"media_sec", stats.MediaSec, "renditions", stats.Renditions, "upload_bytes", stats.UploadBytes,
+			"job_seconds", stats.JobWall.Round(time.Millisecond).Seconds(),
+			"encode_wall", stats.EncodeWall.Round(time.Millisecond).String(),
+			"x_realtime", fmt.Sprintf("%.1f", stats.XRealtime()), stageSeconds(steps))
+		return Result{Action: ActionAck, Stats: &stats, Steps: steps}
 	}
 
 	// Shutdown: give the job back without blaming the video.
@@ -161,28 +172,28 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 		if err := p.Store.FailJob(context.WithoutCancel(ctx), fr); err != nil {
 			log.ErrorContext(ctx, "record interrupted job", "error", err)
 		}
-		log.WarnContext(ctx, "interrupted by shutdown; nak")
-		return Result{Action: ActionNak, Err: ErrInterrupted}
+		log.WarnContext(ctx, "interrupted by shutdown; nak", stageSeconds(steps))
+		return Result{Action: ActionNak, Err: ErrInterrupted, Steps: steps}
 	}
 
 	f := Classify(runErr)
 	terminal := !f.Retryable || d.Last()
 	log.ErrorContext(ctx, "transcode failed", "reason", f.Reason, "retryable", f.Retryable,
-		"terminal", terminal, "error", runErr)
+		"terminal", terminal, "error", runErr, stageSeconds(steps))
 	rec := FailRecord{VideoID: videoID, OwnerID: begin.Video.OwnerID, JobID: begin.JobID,
 		Attempt: begin.Attempt, Failure: f, Terminal: terminal}
 	if err := p.Store.FailJob(context.WithoutCancel(ctx), rec); err != nil {
 		log.ErrorContext(ctx, "record failure", "error", err)
 		// The DB is unreachable: let JetStream redeliver rather than lose the job.
-		return Result{Action: ActionNak, Delay: retryDelay(d), Err: runErr}
+		return Result{Action: ActionNak, Delay: retryDelay(d), Err: runErr, Steps: steps}
 	}
 	switch {
 	case !f.Retryable:
-		return Result{Action: ActionTerm, Err: runErr}
+		return Result{Action: ActionTerm, Err: runErr, Steps: steps}
 	case d.Last():
-		return Result{Action: ActionTermDLQ, Err: runErr}
+		return Result{Action: ActionTermDLQ, Err: runErr, Steps: steps}
 	default:
-		return Result{Action: ActionNak, Delay: retryDelay(d), Err: runErr}
+		return Result{Action: ActionNak, Delay: retryDelay(d), Err: runErr, Steps: steps}
 	}
 }
 
@@ -233,8 +244,8 @@ func retryDelay(d Delivery) time.Duration {
 	return time.Minute * time.Duration(max(1, d.Num))
 }
 
-// run executes steps 2-8 of the job.
-func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (Stats, error) {
+// run executes steps 2-8 of the job and records the duration of each timed step in tm.
+func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm *timings) (Stats, error) {
 	v := b.Video
 	work := filepath.Join(p.Cfg.ScratchDir, fmt.Sprintf("%s-a%d", v.ID, b.Attempt))
 	if err := os.RemoveAll(work); err != nil {
@@ -249,21 +260,22 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 	source := filepath.Join(work, "source")
 
 	// 2. Download (and archive) the raw object.
+	jobStart := time.Now()
 	rep.report(ctx, StageDownloading, 0)
-	if err := p.Objects.Download(ctx, v.RawBucket, v.RawKey, source); err != nil {
+	if err := tm.time(StepDownload, func() error { return p.Objects.Download(ctx, v.RawBucket, v.RawKey, source) }); err != nil {
 		return Stats{}, &StorageError{Op: "download", Err: err}
 	}
 	if p.Cfg.ArchiveDir != "" {
-		if err := archive(source, p.Cfg.ArchiveDir, v); err != nil {
-			// The archive is a convenience copy; do not fail the video for it.
+		// The archive is a convenience copy; do not fail the video for it.
+		if err := tm.time(StepArchive, func() error { return archive(source, p.Cfg.ArchiveDir, v) }); err != nil {
 			log.ErrorContext(ctx, "archive raw copy failed", "error", err)
 		}
 	}
 
 	// 3. Probe.
 	rep.report(ctx, StageProbing, progressProbe)
-	info, err := p.Tools.Probe(ctx, source)
-	if err != nil {
+	var info media.Info
+	if err := tm.time(StepProbe, func() (err error) { info, err = p.Tools.Probe(ctx, source); return }); err != nil {
 		return Stats{}, err
 	}
 
@@ -285,7 +297,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		})
 	}
 	rep.report(ctx, StageTranscoding, progressTranscode)
-	err = encode(encoder)
+	err := encode(encoder)
 	var ee *EncoderError
 	if err != nil && encoder == media.EncoderNVENC && errors.As(err, &ee) {
 		log.WarnContext(ctx, "nvenc failed; retrying with x264 in the same attempt", "error", err)
@@ -295,17 +307,18 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 		}
 		err = encode(encoder)
 	}
+	encodeWall := time.Since(encStart)
+	tm.add(StepEncode, encodeWall, err != nil)
 	if err != nil {
 		return Stats{}, err
 	}
-	encodeWall := time.Since(encStart)
 	if err := media.VerifyOutput(hlsDir, rs); err != nil {
 		return Stats{}, &EncoderError{Op: "verify output", Err: err}
 	}
 
 	// 6. Poster at 10% of the duration.
 	poster := filepath.Join(outDir, "thumb", "poster.jpg")
-	if err := p.Tools.Thumbnail(ctx, source, poster, info.DurationSec*0.1); err != nil {
+	if err := tm.time(StepPoster, func() error { return p.Tools.Thumbnail(ctx, source, poster, info.DurationSec*0.1) }); err != nil {
 		return Stats{}, err
 	}
 
@@ -313,14 +326,20 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 	// smallest HLS rendition on the CPU (or the source when none qualifies), which keeps it cheap.
 	prefix := fmt.Sprintf("v/%s/a%d/", v.ID, b.Attempt)
 	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, storyboardInput(rs, hlsDir, source), outDir, prefix, info.DurationSec, log)
+	// The step counts as failed when there is no storyboard: the job goes on, the metric shows it.
+	tm.add(StepStoryboard, storyboardWall, err != nil || storyboardKey == "")
 	if err != nil {
 		return Stats{}, err
 	}
 
 	// 7. Upload under v/{video_id}/a{attempt}/.
 	rep.report(ctx, StageUploading, progressUpload)
-	bytes, err := p.uploadAll(ctx, outDir, prefix, func(frac float64) {
-		rep.report(ctx, StageUploading, progressUpload+(progressDone-progressUpload)*frac)
+	var bytes int64
+	err = tm.time(StepUpload, func() (err error) {
+		bytes, err = p.uploadAll(ctx, outDir, prefix, func(frac float64) {
+			rep.report(ctx, StageUploading, progressUpload+(progressDone-progressUpload)*frac)
+		})
+		return
 	})
 	if err != nil {
 		p.cleanupPrefix(prefix, v, log)
@@ -339,7 +358,9 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 	for _, r := range rs {
 		res.PlaylistKeys = append(res.PlaylistKeys, prefix+"hls/"+r.Name+"/index.m3u8")
 	}
-	ok, err := p.Store.Complete(ctx, res)
+	var ok bool
+	err = tm.time(StepCommit, func() (err error) { ok, err = p.Store.Complete(ctx, res); return })
+	jobWall := time.Since(jobStart)
 	if err != nil {
 		p.cleanupPrefix(prefix, v, log)
 		return Stats{}, err
@@ -357,7 +378,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger) (St
 	}
 	return Stats{
 		Encoder: encoder, MediaSec: info.DurationSec, EncodeWall: encodeWall,
-		Renditions: len(rs), UploadBytes: bytes,
+		Renditions: len(rs), UploadBytes: bytes, JobWall: jobWall,
 		Storyboard: storyboardKey != "", StoryboardWall: storyboardWall,
 	}, nil
 }
