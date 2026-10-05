@@ -19,7 +19,10 @@ import (
 )
 
 // Postgres implements domain.Store.
-type Postgres struct{ Pool *pgxpool.Pool }
+type Postgres struct {
+	Pool                         *pgxpool.Pool
+	RecommendationCandidateLimit int // zero uses the default for embedded callers
+}
 
 var _ domain.Store = (*Postgres)(nil)
 

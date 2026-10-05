@@ -96,7 +96,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		log.Info("video cache enabled", "ttl", cfg.CacheTTL.String())
 	}
 
-	st := &store.Postgres{Pool: pool}
+	st := &store.Postgres{Pool: pool, RecommendationCandidateLimit: cfg.RecoCandidateLimit}
 
 	s3c, err := s3x.New(s3x.Config{Endpoint: cfg.S3Endpoint, Region: cfg.S3Region, AccessKeyID: cfg.S3AccessKeyID, SecretAccessKey: cfg.S3SecretAccessKey})
 	if err != nil {

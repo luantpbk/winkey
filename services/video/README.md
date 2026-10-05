@@ -305,9 +305,11 @@ videos and videos outside the public-feed predicate are excluded.
 The diversity pass runs once before pagination: at each position, take the first remaining candidate whose channel
 has fewer than two videos in the preceding nine positions; if none qualifies, take the first remaining candidate.
 Candidates are deferred rather than dropped, including when every video belongs to one channel. Stop at 200 or
-when the list is exhausted. The initial candidate query reads the full ordered list of lightweight IDs and channel
-IDs: an early limit could remove the first compatible candidate. This is a beta-scale query; a large catalog will
-need a streaming or indexed implementation that preserves this exact selection rule.
+when the list is exhausted. The candidate query applies `RECO_CANDIDATE_LIMIT` after computing scores and sorting by `final DESC,
+published_at DESC, id DESC`, including newest fill within the same bound (ADR-028 R2-perf). Diversity then runs on
+that SQL prefix and stops at 200. Control and anonymous requests use the same bound. Candidates below the prefix
+are intentionally not considered; if alternatives exist only beyond it, diversity remains best effort. This bounds
+rows transferred and diversity work; PostgreSQL still computes scores/normalization over the eligible catalog.
 
 Signed-in lists use Valkey `reco:{user_id}:{variant}:{list_id}` for ten minutes. The HMAC cursor carries `{list_id, offset}` and
 is bound to the user and endpoint. A missing/expired list or unavailable Valkey recomputes it and continues at the
@@ -334,6 +336,7 @@ is disabled. Switching `RECO_AB_ENABLED` off does not remove this rollout depend
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
+| `RECO_CANDIDATE_LIMIT` | `2000` | SQL candidate bound before diversity; validated integer 200..20000 |
 | `RECO_AB_ENABLED` | `true` | Assign signed-in viewers; `false` keeps personalized ranking and emits a null variant |
 | `RECO_AB_SEED` | `r2ab-1` | Nonblank assignment seed; use the same value across replicas; changing it reassigns viewers |
 | `RECO_AB_TREATMENT_PERCENT` | `50` | Integer 0..100; 0 sends all signed-in viewers to control, 100 sends all to reco |
@@ -421,3 +424,9 @@ WINKEY_REQUIRE_DOCKER=1 go test -race ./...  # CI: PostgreSQL 17 via testkit
 docker buildx build --platform linux/amd64,linux/arm64 -f services/video/Dockerfile .   # from the repo root
 ```
 Distroless `static:nonroot`, no shell, runs as non-root.
+
+R2-perf SQL bound and EXPLAIN regression (2,105 eligible videos, hand-built first 200, both authenticated arms):
+
+```bash
+WINKEY_REQUIRE_DOCKER=1 go test ./internal/store -run TestRecommendationCandidateLimitAndExplain -count=1 -v
+```
