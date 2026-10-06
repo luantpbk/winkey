@@ -24,13 +24,6 @@
     mode: preserve
   register: data_manifests_sync
 
-- name: Template postgres-cluster manifest with R2 endpoint
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/../k8s/data/postgres-cluster.yaml"
-    dest: /var/lib/rancher/k3s/data-manifests/postgres-cluster.yaml
-    mode: "0644"
-  register: pg_manifest_sync
-
 - name: Make scripts executable
   ansible.builtin.file:
     path: "{{ item }}"
@@ -75,7 +68,7 @@
 
 - name: Recreate setup jobs when manifests changed
   ansible.builtin.command: /usr/local/bin/k3s kubectl delete job winkey-pg-setup nats-bootstrap -n default --ignore-not-found
-  when: data_manifests_sync.changed or pg_manifest_sync.changed
+  when: data_manifests_sync.changed
 
 - name: Check for drift in data plane manifests
   ansible.builtin.command: /usr/local/bin/k3s kubectl diff -k /var/lib/rancher/k3s/data-manifests/
@@ -86,11 +79,11 @@
 
 - name: Recreate setup jobs when drift detected
   ansible.builtin.command: /usr/local/bin/k3s kubectl delete job winkey-pg-setup nats-bootstrap -n default --ignore-not-found
-  when: not (data_manifests_sync.changed or pg_manifest_sync.changed) and (data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr))
+  when: not data_manifests_sync.changed and (data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr))
 
 - name: Apply data plane kustomization
   ansible.builtin.command: /usr/local/bin/k3s kubectl apply -k /var/lib/rancher/k3s/data-manifests/
-  when: data_manifests_sync.changed or pg_manifest_sync.changed or pg_cluster_check.rc != 0 or data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr)
+  when: data_manifests_sync.changed or pg_cluster_check.rc != 0 or data_drift_check.rc == 1 or (data_drift_check.rc > 1 and "field is immutable" in data_drift_check.stderr)
 
 - name: Wait for PostgreSQL cluster winkey-pg
   ansible.builtin.command: /usr/local/bin/k3s kubectl wait --for=condition=Ready cluster/winkey-pg -n default --timeout=300s
