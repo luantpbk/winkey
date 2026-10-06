@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ClickHouse Backup Timer to Cloudflare R2
+Documentation=https://github.com/luantpbk/winkey
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

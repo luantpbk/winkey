@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily ClickHouse Backup to Cloudflare R2 (winkey-backup)
+Documentation=https://github.com/luantpbk/winkey
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=thanhluan
+Group=thanhluan
+WorkingDirectory=/home/thanhluan/winkey/deploy/gpu-01/analytics
+ExecStart=/bin/bash /home/thanhluan/winkey/deploy/gpu-01/analytics/backup_clickhouse.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

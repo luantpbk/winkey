@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Interim Vault Sync Timer (R2 to HDD)
+Documentation=https://github.com/luantpbk/winkey
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
