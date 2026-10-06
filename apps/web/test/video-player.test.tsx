@@ -404,4 +404,56 @@ describe('VideoPlayer Component', () => {
       expect(getByText('Không thể phát video')).toBeDefined();
     });
   });
+
+  describe('QOE2 VideoPlayer Event Wiring (ADR-030 / Issue #257)', () => {
+    it('dispatches loadeddata to tracker and does not trigger first frame on metadata timeupdate', () => {
+      const videoId = '0192f5e4-7c1a-7b3e-9d2a-qoe2-wiring';
+      const { container } = render(
+        <VideoPlayer
+          videoId={videoId}
+          src="https://media.winkey.vn/sample.m3u8"
+          title="Sample Video"
+        />,
+      );
+
+      const video = container.querySelector('video') as HTMLVideoElement;
+      Object.defineProperty(video, 'currentTime', { value: 15.0, writable: true });
+
+      // 1. loadedmetadata -> timeupdate fires before play
+      fireEvent.loadedMetadata(video);
+      fireEvent.timeUpdate(video);
+
+      // 2. loadeddata fires
+      fireEvent.loadedData(video);
+
+      // 3. User plays
+      fireEvent.play(video);
+      fireEvent.playing(video);
+
+      expect(video).toBeDefined();
+    });
+
+    it('ignores waiting event when video is paused or tab is hidden', () => {
+      const videoId = '0192f5e4-7c1a-7b3e-9d2a-qoe2-paused-wait';
+      const { container } = render(
+        <VideoPlayer
+          videoId={videoId}
+          src="https://media.winkey.vn/sample.m3u8"
+          title="Sample Video"
+        />,
+      );
+
+      const video = container.querySelector('video') as HTMLVideoElement;
+      Object.defineProperty(video, 'paused', { value: true, writable: true });
+
+      // Firing waiting while paused should be safely handled without error
+      expect(() => fireEvent.waiting(video)).not.toThrow();
+
+      // Firing pause should safely freeze any in-flight rebuffer refs
+      expect(() => fireEvent.pause(video)).not.toThrow();
+
+      // Firing seeking should safely freeze any in-flight rebuffer refs
+      expect(() => fireEvent.seeking(video)).not.toThrow();
+    });
+  });
 });

@@ -30,9 +30,13 @@ export class PlaybackTracker {
 
   private seq = 0;
   private playRequestedAt: number | null = null;
+  private hasLoadedData = false;
+  private pendingPlayingPosition: number | null = null;
   private hasStarted = false;
   private hasEnded = false;
 
+  private isPaused = false;
+  private isHidden = false;
   private isSeeking = false;
   private isStalled = false;
   private stallStartTime: number | null = null;
@@ -71,22 +75,11 @@ export class PlaybackTracker {
     this.getAccessToken = options.getAccessToken ?? (() => tokenStore.get());
     this.customTransport = options.transport;
 
+    this.isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
     if (this.enabled && typeof window !== 'undefined' && typeof document !== 'undefined') {
       this.boundVisibilityHandler = () => {
-        if (document.visibilityState === 'hidden') {
-          // On tab hidden: emit heartbeat + flushSync, stop timer, but keep hasEnded = false
-          // so tracking resumes when the user returns (Item 1, PR #128)
-          if (this.enabled && this.hasStarted && !this.hasEnded) {
-            this.emitSample('heartbeat', this.lastPositionSec ?? 0);
-            this.flushSync();
-            this.stopHeartbeatTimer();
-          }
-        } else if (document.visibilityState === 'visible') {
-          // On tab visible: restart the periodic heartbeat timer
-          if (this.enabled && this.hasStarted && !this.hasEnded) {
-            this.startHeartbeatTimer();
-          }
-        }
+        this.recordVisibilityChange(document.visibilityState === 'hidden');
       };
 
       this.boundPageHideHandler = () => {
@@ -100,10 +93,56 @@ export class PlaybackTracker {
   }
 
   /**
+   * Called when media 'loadeddata' event fires.
+   * First frame is defined as first 'playing' after 'loadeddata' (QOE2).
+   */
+  public recordLoadedData(): void {
+    if (!this.enabled || this.hasEnded) return;
+    this.hasLoadedData = true;
+    if (!this.hasStarted && this.pendingPlayingPosition !== null) {
+      const pos = this.pendingPlayingPosition;
+      this.pendingPlayingPosition = null;
+      this.recordFirstFrame(pos);
+    }
+  }
+
+  /**
+   * Handles tab visibility changes.
+   * Freezes in-flight stalls on hidden, unfreezes on visible (QOE2).
+   */
+  public recordVisibilityChange(hidden: boolean): void {
+    if (!this.enabled || this.hasEnded) return;
+    this.isHidden = hidden;
+
+    if (hidden) {
+      // On tab hidden: stop/freeze in-flight stall so no rebuffer accumulates while hidden
+      if (this.isStalled && this.stallStartTime !== null) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this.deltaRebufferMs += Math.max(0, now - this.stallStartTime);
+        this.stallStartTime = null;
+      }
+      if (this.hasStarted) {
+        this.emitSample('heartbeat', this.lastPositionSec ?? 0);
+        this.flushSync();
+        this.stopHeartbeatTimer();
+      }
+    } else {
+      // On tab visible: unfreeze stall clock if still waiting during intended playback
+      if (this.isStalled && !this.isPaused && !this.isSeeking) {
+        this.stallStartTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      }
+      if (this.hasStarted) {
+        this.startHeartbeatTimer();
+      }
+    }
+  }
+
+  /**
    * Called when play is requested (e.g. click play or autoplay request).
    */
   public recordPlayRequest(): void {
     if (!this.enabled || this.hasEnded) return;
+    this.isPaused = false;
     if (this.playRequestedAt === null) {
       this.playRequestedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     }
@@ -115,6 +154,7 @@ export class PlaybackTracker {
   public recordFirstFrame(positionSec = 0): void {
     if (!this.enabled || this.hasStarted || this.hasEnded) return;
     this.hasStarted = true;
+    this.isPaused = false;
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const playReq = this.playRequestedAt ?? now;
@@ -132,13 +172,10 @@ export class PlaybackTracker {
 
   /**
    * Called on media 'timeupdate' events during active playback.
+   * First frame is first 'playing' after 'loadeddata', not any 'timeupdate' (QOE2).
    */
   public recordTimeUpdate(currentTimeSec: number): void {
-    if (!this.enabled || this.hasEnded) return;
-    if (!this.hasStarted) {
-      this.recordFirstFrame(currentTimeSec);
-      return;
-    }
+    if (!this.enabled || this.hasEnded || !this.hasStarted) return;
     if (this.isSeeking || this.isStalled) {
       this.lastPositionSec = currentTimeSec;
       return;
@@ -157,9 +194,14 @@ export class PlaybackTracker {
 
   /**
    * Called when playback is paused.
+   * Stops/freezes in-flight stall on pause and prevents stalls while paused (QOE2).
    */
   public recordPause(): void {
     if (!this.enabled || this.hasEnded) return;
+    this.isPaused = true;
+    if (!this.hasStarted) {
+      this.pendingPlayingPosition = null;
+    }
     if (this.isStalled) {
       this.isStalled = false;
       if (this.stallStartTime !== null) {
@@ -172,10 +214,19 @@ export class PlaybackTracker {
 
   /**
    * Called when seeking begins.
+   * Stops/freezes in-flight stall when a seek starts (QOE2).
    */
   public recordSeeking(): void {
     if (!this.enabled || this.hasEnded) return;
     this.isSeeking = true;
+    if (this.isStalled) {
+      this.isStalled = false;
+      if (this.stallStartTime !== null) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this.deltaRebufferMs += Math.max(0, now - this.stallStartTime);
+        this.stallStartTime = null;
+      }
+    }
   }
 
   /**
@@ -193,14 +244,15 @@ export class PlaybackTracker {
    * Called when player enters waiting/buffering state.
    * Notes:
    * 1. Initial load before first frame is NOT a stall.
-   * 2. Buffering while actively seeking (isSeeking = true) is part of seek latency,
+   * 2. Buffering while paused or hidden is NOT a stall (QOE2: visible waiting during intended playback).
+   * 3. Buffering while actively seeking (isSeeking = true) is part of seek latency,
    *    not a playback stall.
-   * 3. Buffering after seek completion (isSeeking = false) while waiting for media
+   * 4. Buffering after seek completion (isSeeking = false) while waiting for media
    *    pipeline to resume is tracked as a stall until recordPlaying() fires.
    */
   public recordWaiting(): void {
     if (!this.enabled || !this.hasStarted || this.hasEnded) return;
-    if (this.isSeeking || this.isStalled) return;
+    if (this.isPaused || this.isHidden || this.isSeeking || this.isStalled) return;
 
     this.isStalled = true;
     this.stallStartTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -209,14 +261,21 @@ export class PlaybackTracker {
 
   /**
    * Called when playback resumes from pause or stall.
+   * First frame = first 'playing' after 'loadeddata' (QOE2).
    */
   public recordPlaying(currentTimeSec?: number): void {
     if (!this.enabled || this.hasEnded) return;
 
     if (!this.hasStarted) {
-      this.recordFirstFrame(currentTimeSec ?? 0);
+      if (this.hasLoadedData) {
+        this.recordFirstFrame(currentTimeSec ?? 0);
+      } else {
+        this.pendingPlayingPosition = currentTimeSec ?? 0;
+      }
       return;
     }
+
+    this.isPaused = false;
 
     if (this.isStalled) {
       this.isStalled = false;
@@ -323,7 +382,7 @@ export class PlaybackTracker {
     if (this.isStalled && this.stallStartTime !== null) {
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       this.deltaRebufferMs += Math.max(0, now - this.stallStartTime);
-      this.stallStartTime = now;
+      this.stallStartTime = this.isHidden ? null : now;
     }
 
     const posMs = Math.max(0, Math.min(86400000, Math.floor((positionSec || 0) * 1000)));
