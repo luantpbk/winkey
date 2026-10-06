@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: r2-usage
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: r2-usage
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: r2-usage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: r2-usage
+        app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9095'
+        prometheus.io/path: '/metrics'
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: r2-usage
+          image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+          imagePullPolicy: IfNotPresent
+          command: ['python3', '/opt/winkey/r2_usage_exporter.py']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: r2-usage-secrets
+                optional: false
+          env:
+            - name: CLOUDFLARE_ACCOUNT_ID
+              value: '2588dff2e56bf889918bc5c7af53ad86'
+            - name: EXPORTER_PORT
+              value: '9095'
+            - name: SCRAPE_INTERVAL_SECONDS
+              value: '900'
+            - name: R2_BUCKETS
+              value: 'winkey-raw,winkey-media,winkey-pg-backup,winkey-backup'
+          ports:
+            - name: metrics
+              containerPort: 9095
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9095
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9095
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: script
+              mountPath: /opt/winkey
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: r2-usage-script
+            defaultMode: 0755

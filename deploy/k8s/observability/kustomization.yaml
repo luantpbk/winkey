@@ -12,3 +12,11 @@ resources:
   - node-exporter-daemonset.yaml
   - kube-state-metrics-deployment.yaml
   - nats-exporter-deployment.yaml
+  - r2-usage-deployment.yaml
+  - r2-usage-service.yaml
+
+configMapGenerator:
+  - name: r2-usage-script
+    namespace: observability
+    files:
+      - r2_usage_exporter.py=scripts/r2_usage_exporter.py

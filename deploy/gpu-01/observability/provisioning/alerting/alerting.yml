@@ -581,3 +581,159 @@ groups:
               expression: A
               refId: B
               type: threshold
+
+      - uid: alert-r2-projected-cost-warning
+        title: 'R2 Projected Cost > 5 USD'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Cloudflare R2 projected month-end cost exceeds $5 USD'
+          runbook: 'Check r2-usage metrics in Grafana. Inspect high Class A/B operation counts or storage usage on Cloudflare dashboard.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_cost_projected_usd'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [5]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-projected-cost-critical
+        title: 'R2 Projected Cost > 10 USD'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Cloudflare R2 projected month-end cost exceeds $10 USD'
+          runbook: 'Immediate investigation required: check for hot loops calling R2, unexpected storage growth, or high egress/operation volumes.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_cost_projected_usd'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-free-tier-quota-warning
+        title: 'R2 Free-Tier Quota > 85%'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Cloudflare R2 free-tier quota usage for {{ $labels.resource }} exceeds 85%'
+          runbook: 'Review R2 usage by resource: storage, Class A, or Class B operations. Prepare for tier transition or optimize requests.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_free_tier_quota_used_ratio'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.85]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-cost-guard-blind
+        title: 'R2 cost guard blind'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'R2 cost guard exporter is blind (failing scrapes or no success for > 1h)'
+          runbook: 'Check r2-usage deployment in observability namespace on edge-1 (kubectl logs -n observability -l app.kubernetes.io/name=r2-usage), Cloudflare API token validity, or network connectivity.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'max(r2_usage_scrape_success == bool 0) + max((time() - r2_usage_last_success_timestamp_seconds) > bool 3600)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
