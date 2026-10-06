@@ -1,9 +1,15 @@
+- name: Check if Tailscale repository is configured
+  ansible.builtin.stat:
+    path: /etc/yum.repos.d/tailscale.repo
+  register: ts_repo_stat
+
 - name: Tailscale repository
   ansible.builtin.get_url:
     url: "https://pkgs.tailscale.com/stable/{{ 'oracle' if ansible_distribution == 'OracleLinux' else 'rhel' }}/{{ ansible_distribution_major_version }}/tailscale.repo"
     dest: /etc/yum.repos.d/tailscale.repo
     mode: "0644"
     force: false
+  when: not ts_repo_stat.stat.exists
 
 - name: Tailscale package
   ansible.builtin.dnf:

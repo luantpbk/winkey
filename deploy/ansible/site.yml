@@ -16,4 +16,5 @@
     - role: edge_ingress
     - role: storage_k3s
     - role: data_k3s
+      tags: [data_k3s]
     - role: apps_k3s
