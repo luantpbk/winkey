@@ -14,7 +14,7 @@ It follows ADR-003 and ADR-015: **standalone binary + FFmpeg, no inbound ports f
    Progress: `-progress pipe:1`, parsed from `out_time_us`.
 6. Poster: `v/{id}/a{n}/thumb/poster.jpg` at 10 % of the duration, at most 1280 px wide (never upscaled).
 6b. **Storyboard** (V5a, seek preview; best effort): one ffmpeg call over the **smallest HLS rendition of at least 90 px** (its local playlist, CPU, key frames only; the source when no rendition qualifies) with `fps=1/{interval}`, letter-boxed to 160×90 (aspect kept, black bars), `tile=10x10`, JPEG about quality 75 → `v/{id}/a{n}/storyboard/sheet-001.jpg` (…-002 …) and `storyboard.vtt`. `interval = max(2 s, duration / 200)` (at most 200 frames, so at most 2 sheets), cue `i` is `i × interval → min((i+1) × interval, duration)` with the payload `sheet-NNN.jpg#xywh=X,Y,160,90` — **relative** names, so the signed prefix of SEC1 (`/s/{exp}/{sig}/…`) applies to the sheets. A video shorter than one interval still gets one cue. **Any failure is logged at warn with the video id and the job goes on without a storyboard** (`storyboard_key` is NULL in `media.videos` and `null` in `video.ready`); only a shutdown interrupts the job. Budget `max(2 min, duration)`. Measured cost: see *Storyboard cost* below (0.42 s on the benchmark clip).
-7. While FFmpeg runs, scan the HLS directory every second and upload each completed `<variant>/seg_NNNNN.m4s` once (never `.tmp`) to `winkey-media` under `v/{video_id}/a{attempt}/`. The scanner and final uploads use the same `UPLOAD_PARALLELISM` (default 8); they never run separate pools concurrently. After FFmpeg exits successfully, scan once more and join all segment uploads, verify the output, and make poster/storyboard. Upload remaining segments, init files (whatever names the playlists reference), variant playlists, poster/storyboard sheets, storyboard VTT, then **`master.m3u8` as the last upload of the whole attempt**. All uploads keep the existing Content-Type and `Cache-Control: public, max-age=31536000, immutable`. Failure/cancellation drains the uploader before cleaning the partial attempt; no partial attempt can become READY.
+7. While FFmpeg runs, scan the HLS directory every second and upload each completed `<variant>/seg_NNNNN.m4s` once (never `.tmp`) to `winkey-media` under `v/{video_id}/a{attempt}/`. The scanner and final uploads use the same `UPLOAD_PARALLELISM` (code default 8; gpu-01 uses 16); they never run separate pools concurrently. After FFmpeg exits successfully, scan once more and join all segment uploads, verify the output, and make poster/storyboard. Upload remaining segments, init files (whatever names the playlists reference), variant playlists, poster/storyboard sheets, storyboard VTT, then **`master.m3u8` as the last upload of the whole attempt**. All uploads keep the existing Content-Type and `Cache-Control: public, max-age=31536000, immutable`. Failure/cancellation drains the uploader before cleaning the partial attempt; no partial attempt can become READY.
 8. One transaction: replace `video_renditions`, set duration/width/height/keys (including `storyboard_key`, in the same `UPDATE` that makes the row READY), `PROCESSING → READY`, `published_at = coalesce(published_at, now())`, job `SUCCEEDED`, outbox `video.ready` (`data.visibility` is the visibility the row has at that moment, read by `UPDATE … RETURNING visibility` in the statement that makes it READY: an owner who changed it while the video was transcoding is not contradicted; task C4). Then ack, then delete older attempts' prefixes.
 
 **Progress** is one bar for the whole job (download 0–5, probe 5, transcode 5–90, upload 90–99, 100 when READY). It is written to `transcode_jobs.progress` and published on core NATS `rt.video.{id}.progress`, at most once per 5 s. `stage` says what the worker is doing.
@@ -66,7 +66,7 @@ S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; 
 | `X264_PRESET` | `veryfast` | |
 | `HWACCEL_DECODE` | `true` | NVENC only. `false` = decode on the CPU, encode on the GPU. **gpu-01 uses `false` with `WORKER_CONCURRENCY=1`**: with the miner running, `-hwaccel cuda` decode measured 3.0x realtime vs 5.6x with CPU decode (docs/INFRASTRUCTURE.md section 6) |
 | `WORKER_CONCURRENCY` | auto | 2 with NVENC (GeForce allows ~8 sessions, each job uses 3), 1 with x264 |
-| `UPLOAD_PARALLELISM` | `8` | parallel uploads per job |
+| `UPLOAD_PARALLELISM` | `8` | parallel uploads per job; **gpu-01 uses `16`** for R2 |
 | `SCRATCH_DIR` | `<os temp>/winkey-scratch` | fast local disk (NVMe) |
 | `ARCHIVE_DIR` | unset | optional raw archive |
 | `FFMPEG_PATH` / `FFPROBE_PATH` | **required** | absolute paths; production never relies on `PATH` (gpu-01: `/opt/ffmpeg-7.1/bin/ffmpeg`, `/opt/ffmpeg-7.1/bin/ffprobe`) |
@@ -77,6 +77,8 @@ S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; 
 | `HTTP_ADDR` | `:8081` | `/healthz`, `/readyz` (PostgreSQL, NATS, S3), `/metrics` |
 | `LOG_LEVEL` | `info` | JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | tracing is a no-op when unset |
+
+gpu-01 uses `UPLOAD_PARALLELISM=16` to hide R2 per-PUT latency (~0.77 s): on a 65 s clip, upload tail fell from 12.4 s to 3.2 s and job time from 26.1 s to 15.0 s.
 
 ## Metrics and the per-job summary (V4-a, ADR-031)
 

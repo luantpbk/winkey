@@ -161,7 +161,7 @@ sudoedit /etc/winkey/transcoder.env && sudo systemctl restart winkey-transcoder
 | `WORKER_CONCURRENCY` | 1 while NVENC is saturated; 2 adds ~5 % total throughput and doubles per-job latency | jobs in parallel (each NVENC job uses 3 sessions; the GeForce limit is about 8) |
 | `ENCODER` | NVENC unavailable or the GPU is needed by something else: `x264` | `x264` is CPU only (~5.2x realtime here, 77 % of the 32 threads); `nvenc` needs a working GPU |
 | `X264_PRESET` | with `x264`: `ultrafast`/`superfast` to go faster, `medium` for quality | x264 preset |
-| `UPLOAD_PARALLELISM` | home uplink congested: lower it | parallel uploads to Garage per job |
+| `UPLOAD_PARALLELISM` | `16` on gpu-01; lower it if the home uplink is congested | parallel R2 PUTs per job; at ~0.77 s per PUT, a 65 s clip measured upload tail 12.4 s to 3.2 s and job time 26.1 s to 15.0 s |
 | `LOG_LEVEL` | debugging: `debug` | log verbosity |
 | `SHUTDOWN_GRACE` | jobs are long and stops should let them finish | **also raise the unit's `TimeoutStopSec` to grace + 30 s** (drop-in below) |
 
