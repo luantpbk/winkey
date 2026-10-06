@@ -48,6 +48,12 @@ PRICE_STORAGE_PER_GB = 0.015
 PRICE_CLASS_A_PER_MILLION = 4.50
 PRICE_CLASS_B_PER_MILLION = 0.36
 
+FREE_ACTIONS = {
+    "DeleteObject",
+    "DeleteObjects",
+    "AbortMultipartUpload",
+}
+
 CLASS_A_ACTIONS = {
     "PutObject",
     "CopyObject",
@@ -66,11 +72,13 @@ CLASS_B_ACTIONS = {
     "HeadObject",
 }
 
+seen_unknown_actions = set()
+
 # Thread-safe metrics cache
 metrics_lock = threading.Lock()
 cached_metrics = {
     "scrape_success": 0,
-    "last_scrape_ts": 0,
+    "last_success_ts": 0,
     "storage_bytes": {b.strip(): 0 for b in DEFAULT_BUCKETS},
     "storage_objects": {b.strip(): 0 for b in DEFAULT_BUCKETS},
     "ops_class_a": {b.strip(): 0 for b in DEFAULT_BUCKETS},
@@ -174,111 +182,124 @@ def collect_metrics():
     storage_objects = {b.strip(): 0 for b in DEFAULT_BUCKETS}
     ops_class_a = {b.strip(): 0 for b in DEFAULT_BUCKETS}
     ops_class_b = {b.strip(): 0 for b in DEFAULT_BUCKETS}
-    scrape_success = 0
 
-    if not API_TOKEN:
-        logger.warning("CLOUDFLARE_API_TOKEN is not configured; serving baseline metrics")
-    else:
-        try:
-            start_iso = start_of_month.strftime("%Y-%m-%dT%H:%M:%SZ")
-            end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            data = query_cloudflare_graphql(ACCOUNT_ID, API_TOKEN, start_iso, end_iso)
+    try:
+        start_iso = start_of_month.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        data = query_cloudflare_graphql(ACCOUNT_ID, API_TOKEN, start_iso, end_iso)
 
-            if "errors" in data and data["errors"]:
-                logger.error(f"GraphQL API errors: {data['errors']}")
+        if "errors" in data and data["errors"]:
+            raise RuntimeError(f"GraphQL API errors: {data['errors']}")
+
+        accounts = data.get("data", {}).get("viewer", {}).get("accounts", [])
+        if not accounts:
+            raise RuntimeError("GraphQL API returned empty accounts list")
+
+        acct = accounts[0]
+        # Parse Storage
+        storage_groups = acct.get("r2StorageAdaptiveGroups", [])
+        for group in storage_groups:
+            bname = group.get("dimensions", {}).get("bucketName", "")
+            if not bname:
+                continue
+            if bname not in storage_bytes:
+                storage_bytes[bname] = 0
+                storage_objects[bname] = 0
+                ops_class_a[bname] = 0
+                ops_class_b[bname] = 0
+            max_metrics = group.get("max", {}) or {}
+            psize = max_metrics.get("payloadSize") or 0
+            objs = max_metrics.get("objectCount") or 0
+            storage_bytes[bname] = max(storage_bytes[bname], int(psize))
+            storage_objects[bname] = max(storage_objects[bname], int(objs))
+
+        # Parse Operations
+        op_groups = acct.get("r2OperationsAdaptiveGroups", [])
+        for group in op_groups:
+            bname = group.get("dimensions", {}).get("bucketName", "")
+            if not bname:
+                continue
+            if bname not in ops_class_a:
+                ops_class_a[bname] = 0
+                ops_class_b[bname] = 0
+                storage_bytes[bname] = 0
+                storage_objects[bname] = 0
+            action = group.get("dimensions", {}).get("actionType", "")
+            reqs = (group.get("sum", {}) or {}).get("requests") or 0
+            req_count = int(reqs)
+
+            if action in FREE_ACTIONS:
+                continue
+            elif action in CLASS_B_ACTIONS:
+                ops_class_b[bname] += req_count
+            elif action in CLASS_A_ACTIONS:
+                ops_class_a[bname] += req_count
             else:
-                accounts = data.get("data", {}).get("viewer", {}).get("accounts", [])
-                if accounts:
-                    acct = accounts[0]
-                    # Parse Storage
-                    storage_groups = acct.get("r2StorageAdaptiveGroups", [])
-                    for group in storage_groups:
-                        bname = group.get("dimensions", {}).get("bucketName", "")
-                        if not bname:
-                            continue
-                        if bname not in storage_bytes:
-                            storage_bytes[bname] = 0
-                            storage_objects[bname] = 0
-                            ops_class_a[bname] = 0
-                            ops_class_b[bname] = 0
-                        max_metrics = group.get("max", {}) or {}
-                        psize = max_metrics.get("payloadSize") or 0
-                        objs = max_metrics.get("objectCount") or 0
-                        storage_bytes[bname] = max(storage_bytes[bname], int(psize))
-                        storage_objects[bname] = max(storage_objects[bname], int(objs))
+                if action not in seen_unknown_actions:
+                    seen_unknown_actions.add(action)
+                    logger.warning(
+                        f"Unknown R2 actionType '{action}' encountered; counting conservatively as Class A"
+                    )
+                ops_class_a[bname] += req_count
 
-                    # Parse Operations
-                    op_groups = acct.get("r2OperationsAdaptiveGroups", [])
-                    for group in op_groups:
-                        bname = group.get("dimensions", {}).get("bucketName", "")
-                        if not bname:
-                            continue
-                        if bname not in ops_class_a:
-                            ops_class_a[bname] = 0
-                            ops_class_b[bname] = 0
-                            storage_bytes[bname] = 0
-                            storage_objects[bname] = 0
-                        action = group.get("dimensions", {}).get("actionType", "")
-                        reqs = (group.get("sum", {}) or {}).get("requests") or 0
-                        req_count = int(reqs)
+        # If storage was empty via GraphQL (e.g. reporting delay), try REST usage
+        for bname in DEFAULT_BUCKETS:
+            b = bname.strip()
+            if storage_bytes[b] == 0:
+                rest_res = query_bucket_usage_rest(ACCOUNT_ID, API_TOKEN, b)
+                if rest_res:
+                    storage_bytes[b] = int(rest_res.get("payloadSize") or 0)
+                    storage_objects[b] = int(rest_res.get("objectCount") or 0)
 
-                        if action in CLASS_A_ACTIONS:
-                            ops_class_a[bname] += req_count
-                        elif action in CLASS_B_ACTIONS:
-                            ops_class_b[bname] += req_count
+        # Calculate Costs & Quotas
+        total_bytes = sum(storage_bytes.values())
+        total_storage_gb = total_bytes / (1024.0**3)
 
-                    # If storage was empty via GraphQL (e.g. reporting delay), try REST usage
-                    for bname in DEFAULT_BUCKETS:
-                        b = bname.strip()
-                        if storage_bytes[b] == 0:
-                            rest_res = query_bucket_usage_rest(ACCOUNT_ID, API_TOKEN, b)
-                            if rest_res:
-                                storage_bytes[b] = int(rest_res.get("payloadSize") or 0)
-                                storage_objects[b] = int(rest_res.get("objectCount") or 0)
+        billable_storage_gb = max(0.0, total_storage_gb - FREE_STORAGE_GB)
+        cost_storage = billable_storage_gb * PRICE_STORAGE_PER_GB
 
-                    scrape_success = 1
-                    logger.info("Cloudflare R2 usage scrape completed successfully")
-        except Exception as e:
-            logger.error(f"Failed to query Cloudflare GraphQL API: {e}")
-            scrape_success = 0
+        total_ops_a = sum(ops_class_a.values())
+        projected_ops_a = total_ops_a * projection_factor
+        billable_ops_a = max(0.0, projected_ops_a - FREE_CLASS_A_OPS)
+        cost_class_a = (billable_ops_a / 1_000_000.0) * PRICE_CLASS_A_PER_MILLION
 
-    # Calculate Costs & Quotas
-    total_bytes = sum(storage_bytes.values())
-    total_storage_gb = total_bytes / (1024.0**3)
+        total_ops_b = sum(ops_class_b.values())
+        projected_ops_b = total_ops_b * projection_factor
+        billable_ops_b = max(0.0, projected_ops_b - FREE_CLASS_B_OPS)
+        cost_class_b = (billable_ops_b / 1_000_000.0) * PRICE_CLASS_B_PER_MILLION
 
-    billable_storage_gb = max(0.0, total_storage_gb - FREE_STORAGE_GB)
-    cost_storage = billable_storage_gb * PRICE_STORAGE_PER_GB
+        cost_total = cost_storage + cost_class_a + cost_class_b
 
-    total_ops_a = sum(ops_class_a.values())
-    projected_ops_a = total_ops_a * projection_factor
-    billable_ops_a = max(0.0, projected_ops_a - FREE_CLASS_A_OPS)
-    cost_class_a = (billable_ops_a / 1_000_000.0) * PRICE_CLASS_A_PER_MILLION
+        quota_storage = total_storage_gb / FREE_STORAGE_GB
+        quota_class_a = projected_ops_a / FREE_CLASS_A_OPS
+        quota_class_b = projected_ops_b / FREE_CLASS_B_OPS
 
-    total_ops_b = sum(ops_class_b.values())
-    projected_ops_b = total_ops_b * projection_factor
-    billable_ops_b = max(0.0, projected_ops_b - FREE_CLASS_B_OPS)
-    cost_class_b = (billable_ops_b / 1_000_000.0) * PRICE_CLASS_B_PER_MILLION
+        now_ts = int(time.time())
+        with metrics_lock:
+            cached_metrics["scrape_success"] = 1
+            cached_metrics["last_success_ts"] = now_ts
+            cached_metrics["storage_bytes"] = storage_bytes
+            cached_metrics["storage_objects"] = storage_objects
+            cached_metrics["ops_class_a"] = ops_class_a
+            cached_metrics["ops_class_b"] = ops_class_b
+            cached_metrics["cost_projected_storage"] = round(cost_storage, 4)
+            cached_metrics["cost_projected_class_a"] = round(cost_class_a, 4)
+            cached_metrics["cost_projected_class_b"] = round(cost_class_b, 4)
+            cached_metrics["cost_projected_total"] = round(cost_total, 4)
+            cached_metrics["quota_ratio_storage"] = round(quota_storage, 4)
+            cached_metrics["quota_ratio_class_a"] = round(quota_class_a, 4)
+            cached_metrics["quota_ratio_class_b"] = round(quota_class_b, 4)
 
-    cost_total = cost_storage + cost_class_a + cost_class_b
+        logger.info("Cloudflare R2 usage scrape completed successfully")
 
-    quota_storage = total_storage_gb / FREE_STORAGE_GB
-    quota_class_a = projected_ops_a / FREE_CLASS_A_OPS
-    quota_class_b = projected_ops_b / FREE_CLASS_B_OPS
-
-    with metrics_lock:
-        cached_metrics["scrape_success"] = scrape_success
-        cached_metrics["last_scrape_ts"] = int(time.time())
-        cached_metrics["storage_bytes"] = storage_bytes
-        cached_metrics["storage_objects"] = storage_objects
-        cached_metrics["ops_class_a"] = ops_class_a
-        cached_metrics["ops_class_b"] = ops_class_b
-        cached_metrics["cost_projected_storage"] = round(cost_storage, 4)
-        cached_metrics["cost_projected_class_a"] = round(cost_class_a, 4)
-        cached_metrics["cost_projected_class_b"] = round(cost_class_b, 4)
-        cached_metrics["cost_projected_total"] = round(cost_total, 4)
-        cached_metrics["quota_ratio_storage"] = round(quota_storage, 4)
-        cached_metrics["quota_ratio_class_a"] = round(quota_class_a, 4)
-        cached_metrics["quota_ratio_class_b"] = round(quota_class_b, 4)
+    except Exception as e:
+        logger.error(f"Failed to query Cloudflare GraphQL API: {e}")
+        with metrics_lock:
+            cached_metrics["scrape_success"] = 0
+            # Retain last good values: do NOT overwrite storage_bytes, ops, costs, quota_ratios, or last_success_ts
+        logger.warning(
+            "Scrape failed; retaining last known good metrics and setting r2_usage_scrape_success=0"
+        )
 
 
 def render_prometheus_metrics():
@@ -290,9 +311,13 @@ def render_prometheus_metrics():
         "# TYPE r2_usage_scrape_success gauge",
         f"r2_usage_scrape_success {m['scrape_success']}",
         "",
-        "# HELP r2_usage_last_scrape_timestamp_seconds Unix timestamp of last scrape",
+        "# HELP r2_usage_last_success_timestamp_seconds Unix timestamp of last successful scrape",
+        "# TYPE r2_usage_last_success_timestamp_seconds gauge",
+        f"r2_usage_last_success_timestamp_seconds {m['last_success_ts']}",
+        "",
+        "# HELP r2_usage_last_scrape_timestamp_seconds Unix timestamp of last successful scrape",
         "# TYPE r2_usage_last_scrape_timestamp_seconds gauge",
-        f"r2_usage_last_scrape_timestamp_seconds {m['last_scrape_ts']}",
+        f"r2_usage_last_scrape_timestamp_seconds {m['last_success_ts']}",
         "",
         "# HELP r2_storage_bytes Current stored payload bytes per bucket",
         "# TYPE r2_storage_bytes gauge",
@@ -381,6 +406,10 @@ def scrape_loop():
 
 
 def main():
+    if not API_TOKEN:
+        logger.warning("CLOUDFLARE_API_TOKEN is not configured; exiting non-zero")
+        sys.exit(1)
+
     if "--once" in sys.argv:
         collect_metrics()
         sys.stdout.write(render_prometheus_metrics())

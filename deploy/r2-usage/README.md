@@ -33,36 +33,29 @@ Prometheus exporter for Cloudflare R2 storage usage, operation counts, and proje
 
 Per ADR-032 and cluster rules:
 - **Never commit API tokens to git.**
-- Tokens must be configured via `setup_r2_usage.sh` using `read -rs` into a Kubernetes Secret (`r2-usage-secrets` in `observability` namespace) or host environment file `/etc/winkey/r2-usage.env` (`chmod 600`).
+- Tokens must be configured via `setup_r2_usage.sh` using `read -rs` into a Kubernetes Secret (`r2-usage-secrets` in `observability` namespace).
 - The token only requires read-only permission: **Account -> Analytics -> Read**.
 
 ## Deployment
 
 ### Kubernetes (edge-1)
 
-Deployed in the `observability` namespace:
+Deployed in the `observability` namespace on `edge-1` (single source of truth):
 ```bash
+# 1. Configure secret interactively (never stored in git)
+bash deploy/r2-usage/setup_r2_usage.sh
+
+# 2. Apply manifests
 kubectl apply -k deploy/k8s/observability/
 ```
 The Deployment includes Prometheus scrape annotations (`prometheus.io/scrape: 'true'`, `prometheus.io/port: '9095'`), enabling automatic discovery by `vmagent`.
 
-### Systemd (host service)
-
-1. Run the secure setup script to configure `/etc/winkey/r2-usage.env`:
-   ```bash
-   bash deploy/r2-usage/setup_r2_usage.sh
-   ```
-2. Copy the exporter script to `/opt/winkey/scripts/r2_usage_exporter.py`:
-   ```bash
-   sudo cp deploy/r2-usage/r2_usage_exporter.py /opt/winkey/scripts/
-   sudo chmod 755 /opt/winkey/scripts/r2_usage_exporter.py
-   ```
-3. Install and enable the systemd service:
-   ```bash
-   sudo cp deploy/r2-usage/r2-usage.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now r2-usage.service
-   ```
+Security context:
+- Runs as non-root (`runAsNonRoot: true`, user `65534`).
+- Read-only root filesystem (`readOnlyRootFilesystem: true`).
+- Dropped all capabilities (`drop: [ALL]`).
+- Pinned multi-arch base image (`python:3.12-alpine@sha256:...`).
+- Non-optional `r2-usage-secrets` Secret reference (exporter terminates non-zero without token).
 
 ## Endpoints
 
@@ -74,7 +67,7 @@ The Deployment includes Prometheus scrape annotations (`prometheus.io/scrape: 't
 
 Run a one-shot query directly to inspect metrics without starting the server:
 ```bash
-python3 deploy/r2-usage/r2_usage_exporter.py --once
+python3 deploy/k8s/observability/scripts/r2_usage_exporter.py --once
 ```
 
 Scrape active server:

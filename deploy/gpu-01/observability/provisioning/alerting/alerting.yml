@@ -585,7 +585,7 @@ groups:
       - uid: alert-r2-projected-cost-warning
         title: 'R2 Projected Cost > 5 USD'
         condition: B
-        noDataState: OK
+        noDataState: Alerting
         execErrState: Error
         for: 15m
         labels:
@@ -624,7 +624,7 @@ groups:
       - uid: alert-r2-projected-cost-critical
         title: 'R2 Projected Cost > 10 USD'
         condition: B
-        noDataState: OK
+        noDataState: Alerting
         execErrState: Error
         for: 15m
         labels:
@@ -663,7 +663,7 @@ groups:
       - uid: alert-r2-free-tier-quota-warning
         title: 'R2 Free-Tier Quota > 85%'
         condition: B
-        noDataState: OK
+        noDataState: Alerting
         execErrState: Error
         for: 15m
         labels:
@@ -687,6 +687,45 @@ groups:
               conditions:
                 - evaluator:
                     params: [0.85]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-cost-guard-blind
+        title: 'R2 cost guard blind'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'R2 cost guard exporter is blind (failing scrapes or no success for > 1h)'
+          runbook: 'Check r2-usage deployment in observability namespace on edge-1 (kubectl logs -n observability -l app.kubernetes.io/name=r2-usage), Cloudflare API token validity, or network connectivity.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'max(r2_usage_scrape_success == bool 0) + max((time() - r2_usage_last_success_timestamp_seconds) > bool 3600)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
                     type: gt
                   operator:
                     type: and

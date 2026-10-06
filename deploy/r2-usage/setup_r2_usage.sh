@@ -52,18 +52,18 @@ R2_BUCKETS=winkey-raw,winkey-media,winkey-pg-backup,winkey-backup
 EOF
 )
 
-# 1. Store host environment file in /etc/winkey/r2-usage.env
-sudo mkdir -p /etc/winkey
-sudo cp "${TMP_ENV}" /etc/winkey/r2-usage.env
-sudo chmod 600 /etc/winkey/r2-usage.env
-echo "-> Đã lưu cấu hình an toàn tại /etc/winkey/r2-usage.env (chmod 600)."
-
-# 2. If k3s kubectl is present, create secret in observability namespace
+# Create secret in observability namespace for the Kubernetes deployment
 if command -v /usr/local/bin/k3s >/dev/null 2>&1; then
   sudo /usr/local/bin/k3s kubectl create namespace observability --dry-run=client -o yaml | sudo /usr/local/bin/k3s kubectl apply -f -
   sudo /usr/local/bin/k3s kubectl create secret generic r2-usage-secrets -n observability \
     --from-env-file="${TMP_ENV}" \
     --dry-run=client -o yaml | sudo /usr/local/bin/k3s kubectl apply -f -
+  echo "-> Đã tạo Secret r2-usage-secrets trong namespace observability."
+elif command -v kubectl >/dev/null 2>&1; then
+  kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic r2-usage-secrets -n observability \
+    --from-env-file="${TMP_ENV}" \
+    --dry-run=client -o yaml | kubectl apply -f -
   echo "-> Đã tạo Secret r2-usage-secrets trong namespace observability."
 fi
 

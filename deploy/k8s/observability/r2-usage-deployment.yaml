@@ -21,15 +21,26 @@ spec:
         prometheus.io/port: '9095'
         prometheus.io/path: '/metrics'
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
       containers:
         - name: r2-usage
-          image: python:3.12-alpine
+          image: python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
           imagePullPolicy: IfNotPresent
           command: ['python3', '/opt/winkey/r2_usage_exporter.py']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - secretRef:
                 name: r2-usage-secrets
-                optional: true
+                optional: false
           env:
             - name: CLOUDFLARE_ACCOUNT_ID
               value: '2588dff2e56bf889918bc5c7af53ad86'
