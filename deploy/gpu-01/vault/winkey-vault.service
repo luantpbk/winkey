@@ -9,7 +9,7 @@ Type=oneshot
 User=winkey
 Group=winkey
 WorkingDirectory=/mnt/hdd_storage/winkey/vault
-ExecStart=/bin/bash /home/thanhluan/winkey/deploy/gpu-01/vault/sync_vault.sh
+ExecStart=/opt/winkey/scripts/sync_vault.sh
 StandardOutput=journal
 StandardError=journal
 

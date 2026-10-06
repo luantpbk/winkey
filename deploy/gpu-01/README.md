@@ -64,23 +64,35 @@ The interim vault protects Winkey against primary storage loss or R2 outage by m
 # 1. Run interactive setup as user thanhluan (creates ~/.config/rclone/rclone.conf):
 bash deploy/gpu-01/vault/setup_vault.sh
 
-# 2. Complete systemd & permission setup with sudo:
-sudo cp /tmp/rclone /usr/local/bin/rclone && sudo chmod 755 /usr/local/bin/rclone
+# 2. Complete systemd & binary setup with sudo:
+# 2a. Install official rclone v1.69.1 verified with SHA256:
+curl -fsSLO https://downloads.rclone.org/v1.69.1/rclone-v1.69.1-linux-amd64.zip
+echo "231841f8d8029ae6cfca932b601b3b50d0e2c3c2cb9da3166293f1c3eae7d79c  rclone-v1.69.1-linux-amd64.zip" | sha256sum -c -
+unzip -q -j rclone-v1.69.1-linux-amd64.zip "*/rclone" -d /tmp
+sudo mv /tmp/rclone /usr/local/bin/rclone && sudo chown root:root /usr/local/bin/rclone && sudo chmod 755 /usr/local/bin/rclone
+rm -f rclone-v1.69.1-linux-amd64.zip
+
+# 2b. Install sync_vault.sh root-owned at /opt/winkey/scripts:
+sudo mkdir -p /opt/winkey/scripts
+sudo cp deploy/gpu-01/vault/sync_vault.sh /opt/winkey/scripts/sync_vault.sh
+sudo chown root:root /opt/winkey/scripts/sync_vault.sh && sudo chmod 755 /opt/winkey/scripts/sync_vault.sh
+
+# 2c. Copy rclone config to user winkey's home:
 sudo mkdir -p /home/winkey/.config/rclone
 sudo cp ~/.config/rclone/rclone.conf /home/winkey/.config/rclone/rclone.conf
 sudo chown -R winkey:winkey /home/winkey/.config
 sudo chmod 600 /home/winkey/.config/rclone/rclone.conf
 
-# Grant textfile metrics directory access to winkey group:
+# 2d. Grant textfile metrics directory access to winkey group:
 sudo chown root:winkey /var/lib/prometheus/node-exporter
 sudo chmod 775 /var/lib/prometheus/node-exporter
 
-# Install and start systemd timer (runs at 04:00 UTC):
+# 2e. Install and start systemd timer (runs daily at 04:00 UTC):
 sudo cp deploy/gpu-01/vault/winkey-vault.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now winkey-vault.timer
 
-# Test immediate run:
+# 2f. Test immediate run:
 sudo systemctl start winkey-vault.service
 sudo journalctl -u winkey-vault.service -n 50 --no-pager
 ```

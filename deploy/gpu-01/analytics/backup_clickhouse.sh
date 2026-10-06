@@ -34,7 +34,7 @@ echo "=========================================================="
 
 # 1. Native ClickHouse Backup to NVMe backup disk
 echo "-> 1. Triggering native ClickHouse backup to Disk('backups')..."
-docker exec winkey-analytics-clickhouse clickhouse-client -u winkey --password "${CLICKHOUSE_PASSWORD}" \
+docker exec -e CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD}" winkey-analytics-clickhouse clickhouse-client -u winkey \
   --query "BACKUP DATABASE winkey TO Disk('backups', '${BACKUP_NAME}')"
 
 echo "  [OK] ClickHouse native backup created successfully."
@@ -48,22 +48,20 @@ echo "  [OK] Compression complete. Size: $(du -h "${ARCHIVE_PATH}" | cut -f1)"
 # 3. Upload to Cloudflare R2 using rclone
 echo "-> 3. Uploading archive to Cloudflare R2 (winkey-backup/clickhouse/)..."
 
-RCLONE_BIN="$(command -v rclone || echo "/usr/local/bin/rclone")"
-if [ ! -x "${RCLONE_BIN}" ] && [ -x "/tmp/rclone" ]; then
-  RCLONE_BIN="/tmp/rclone"
-fi
-
+RCLONE_BIN="/usr/local/bin/rclone"
 if [ ! -x "${RCLONE_BIN}" ]; then
-  echo "ERROR: rclone binary not found! Please ensure rclone is installed." >&2
+  echo "ERROR: /usr/local/bin/rclone not found or not executable!" >&2
+  echo "Please ensure root-owned rclone v1.69.1 is installed at /usr/local/bin with verified checksum." >&2
   exit 1
 fi
 
 export RCLONE_CONFIG_R2_TYPE="s3"
 export RCLONE_CONFIG_R2_PROVIDER="Cloudflare"
 export RCLONE_CONFIG_R2_REGION="auto"
-export RCLONE_CONFIG_R2_ENDPOINT="${R2_ENDPOINT}"
+export RCLONE_CONFIG_R2_ENDPOINT="${R2_ENDPOINT:-${S3_ENDPOINT}}"
 export RCLONE_CONFIG_R2_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
 export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+export RCLONE_CONFIG_R2_NO_CHECK_BUCKET="true"
 
 "${RCLONE_BIN}" copy "${ARCHIVE_PATH}" "R2:winkey-backup/clickhouse/" --fast-list -v
 echo "  [OK] Archive uploaded to Cloudflare R2."

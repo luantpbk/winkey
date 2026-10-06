@@ -561,7 +561,7 @@ groups:
               to: 0
             datasourceUid: victoriametrics
             model:
-              expr: '(time() - winkey_vault_last_success_timestamp_seconds) > bool 129600 or (winkey_vault_sync_success == bool 0)'
+              expr: '(time() - winkey_vault_last_success_timestamp_seconds) > 129600 or winkey_vault_sync_success == 0'
               instant: true
               refId: A
           - refId: B
@@ -570,11 +570,14 @@ groups:
               conditions:
                 - evaluator:
                     params: [0]
-                    type: gt
+                    type: gte
                   operator:
                     type: and
                   query:
                     params: [A]
+                  reducer:
+                    type: last
+                  type: query
               expression: A
               refId: B
               type: threshold
