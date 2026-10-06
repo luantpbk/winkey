@@ -287,7 +287,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (stage, le) (rate(transcoder_stage_seconds_bucket[10m])))",
+          "expr": "histogram_quantile(0.50, sum by (stage, le) (increase(transcoder_stage_seconds_bucket[1h])))",
           "legendFormat": "{{stage}} (p50)",
           "range": true,
           "refId": "A"
@@ -295,7 +295,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(transcoder_stage_seconds_bucket[10m])))",
+          "expr": "histogram_quantile(0.95, sum by (stage, le) (increase(transcoder_stage_seconds_bucket[1h])))",
           "legendFormat": "{{stage}} (p95)",
           "range": true,
           "refId": "B"
@@ -303,7 +303,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(transcoder_job_seconds_bucket[10m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(increase(transcoder_job_seconds_bucket[1h])) by (le))",
           "legendFormat": "job_seconds (p50)",
           "range": true,
           "refId": "C"
@@ -311,7 +311,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(transcoder_job_seconds_bucket[10m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(transcoder_job_seconds_bucket[1h])) by (le))",
           "legendFormat": "job_seconds (p95)",
           "range": true,
           "refId": "D"

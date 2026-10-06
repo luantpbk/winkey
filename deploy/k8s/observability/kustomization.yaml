@@ -12,3 +12,6 @@ resources:
   - node-exporter-daemonset.yaml
   - kube-state-metrics-deployment.yaml
   - nats-exporter-deployment.yaml
+  - r2-usage-configmap.yaml
+  - r2-usage-deployment.yaml
+  - r2-usage-service.yaml

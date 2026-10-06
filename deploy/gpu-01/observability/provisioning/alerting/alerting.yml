@@ -581,3 +581,120 @@ groups:
               expression: A
               refId: B
               type: threshold
+
+      - uid: alert-r2-projected-cost-warning
+        title: 'R2 Projected Cost > 5 USD'
+        condition: B
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Cloudflare R2 projected month-end cost exceeds $5 USD'
+          runbook: 'Check r2-usage metrics in Grafana. Inspect high Class A/B operation counts or storage usage on Cloudflare dashboard.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_cost_projected_usd'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [5]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-projected-cost-critical
+        title: 'R2 Projected Cost > 10 USD'
+        condition: B
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Cloudflare R2 projected month-end cost exceeds $10 USD'
+          runbook: 'Immediate investigation required: check for hot loops calling R2, unexpected storage growth, or high egress/operation volumes.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_cost_projected_usd'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
+
+      - uid: alert-r2-free-tier-quota-warning
+        title: 'R2 Free-Tier Quota > 85%'
+        condition: B
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Cloudflare R2 free-tier quota usage for {{ $labels.resource }} exceeds 85%'
+          runbook: 'Review R2 usage by resource: storage, Class A, or Class B operations. Prepare for tier transition or optimize requests.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'r2_free_tier_quota_used_ratio'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.85]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold
