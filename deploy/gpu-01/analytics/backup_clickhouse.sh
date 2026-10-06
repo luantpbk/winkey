@@ -21,6 +21,7 @@ if [ -z "${CLICKHOUSE_PASSWORD:-}" ]; then
   echo "ERROR: CLICKHOUSE_PASSWORD could not be retrieved from ${CH_ENV}!" >&2
   exit 1
 fi
+export CLICKHOUSE_PASSWORD
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_NAME="ch_backup_${TIMESTAMP}"
@@ -34,7 +35,7 @@ echo "=========================================================="
 
 # 1. Native ClickHouse Backup to NVMe backup disk
 echo "-> 1. Triggering native ClickHouse backup to Disk('backups')..."
-docker exec -e CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD}" winkey-analytics-clickhouse clickhouse-client -u winkey \
+docker exec -e CLICKHOUSE_PASSWORD winkey-analytics-clickhouse clickhouse-client -u winkey \
   --query "BACKUP DATABASE winkey TO Disk('backups', '${BACKUP_NAME}')"
 
 echo "  [OK] ClickHouse native backup created successfully."
