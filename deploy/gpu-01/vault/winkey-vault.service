@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly Interim Vault Sync from Cloudflare R2 to HDD
+Documentation=https://github.com/luantpbk/winkey
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=winkey
+Group=winkey
+WorkingDirectory=/mnt/hdd_storage/winkey/vault
+ExecStart=/opt/winkey/scripts/sync_vault.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

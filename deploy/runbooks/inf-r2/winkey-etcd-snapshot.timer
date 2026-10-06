@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily k3s etcd Snapshot to Cloudflare R2 Timer
+Documentation=https://github.com/luantpbk/winkey
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

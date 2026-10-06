@@ -542,3 +542,42 @@ groups:
               expression: B
               refId: C
               type: threshold
+
+      - uid: alert-vault-sync-lag
+        title: 'Vault Sync Lag > 36h'
+        condition: B
+        noDataState: Alerting
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Interim vault sync on gpu-01 has not succeeded for > 36 hours'
+          runbook: 'Check winkey-vault systemd logs on gpu-01: journalctl -u winkey-vault.service. Verify R2 connectivity and /mnt/hdd_storage disk space.'
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: victoriametrics
+            model:
+              expr: 'max((time() - winkey_vault_last_success_timestamp_seconds) > bool 129600) + max(winkey_vault_sync_success == bool 0)'
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              expression: A
+              refId: B
+              type: threshold

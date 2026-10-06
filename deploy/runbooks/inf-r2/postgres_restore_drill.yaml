@@ -1,0 +1,44 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: winkey-pg-scratch
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres-scratch
+    app.kubernetes.io/part-of: winkey
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+  storage:
+    size: 15Gi
+    storageClass: local-path
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  bootstrap:
+    recovery:
+      source: winkey-pg-live
+  externalClusters:
+    - name: winkey-pg-live
+      barmanObjectStore:
+        serverName: winkey-pg
+        destinationPath: s3://winkey-pg-backup/
+        endpointURL: https://2588dff2e56bf889918bc5c7af53ad86.r2.cloudflarestorage.com
+        s3Credentials:
+          accessKeyId:
+            name: r2-pg-backup
+            key: AWS_ACCESS_KEY_ID
+          secretAccessKey:
+            name: r2-pg-backup
+            key: AWS_SECRET_ACCESS_KEY
+          region:
+            name: r2-pg-backup
+            key: S3_REGION
+        wal:
+          compression: gzip
+        data:
+          compression: gzip

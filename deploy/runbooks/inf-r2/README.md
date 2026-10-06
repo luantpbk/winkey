@@ -53,3 +53,49 @@ export WINKEY_SMOKE_EMAIL WINKEY_SMOKE_PASSWORD
 
 python3 deploy/runbooks/inf-r2/smoke_test_r2.py
 ```
+
+### 4. `setup_backup_secrets.sh` (Step 5)
+Interactive helper script for configuring Cloudflare R2 backup secrets for `winkey-backup`:
+- Prompts for Cloudflare Account ID, Access Key ID, and Secret Access Key (masked with `read -rsp`).
+- Writes secrets into temporary files in `/dev/shm` (`umask 077`) to prevent memory/disk leakage.
+- Applies Kubernetes secret `r2-backup-jobs` in namespace `default` (for cron jobs and tooling).
+- Applies Kubernetes secret `k3s-etcd-s3` in namespace `kube-system` (for k3s etcd snapshot integration).
+- Writes host file `/etc/rancher/k3s/etcd-s3.env` (`chmod 600`).
+
+**Usage:**
+```bash
+bash deploy/runbooks/inf-r2/setup_backup_secrets.sh
+```
+
+### 5. `etcd_snapshot.sh` (Step 5)
+Automated script for taking compressed k3s etcd snapshots directly to Cloudflare R2:
+- Utilizes `k3s etcd-snapshot save` with `--snapshot-compress` (saving ~66% space).
+- Uploads to `s3://winkey-backup/etcd`.
+- Enforces `--s3-retention 7` (maintains exactly the 7 most recent snapshots).
+- Accompanied by systemd units `winkey-etcd-snapshot.service` and `winkey-etcd-snapshot.timer` running daily at 02:00 UTC.
+
+**Usage:**
+```bash
+# Manual run:
+bash deploy/runbooks/inf-r2/etcd_snapshot.sh
+
+# Systemd timer installation:
+sudo cp deploy/runbooks/inf-r2/winkey-etcd-snapshot.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now winkey-etcd-snapshot.timer
+```
+
+### 6. `postgres_restore_drill.sh` & `postgres_restore_drill.yaml` (Step 6)
+Point-In-Time Recovery (PITR) drill script for validating CloudNativePG backups on Cloudflare R2:
+- Initiates an on-demand base backup of live PostgreSQL (`winkey-pg`) to `winkey-pg-backup`.
+- Records live table row counts (`media.videos`, `auth.users`).
+- Deploys an isolated scratch cluster `winkey-pg-scratch` bootstrapped from the R2 Barman backup store.
+- Waits for restore completion, replays WALs, and verifies 100% data and row count parity.
+- Records total recovery duration.
+- Cleans up the scratch instance and its persistent volume.
+
+**Usage:**
+```bash
+bash deploy/runbooks/inf-r2/postgres_restore_drill.sh
+```
+
