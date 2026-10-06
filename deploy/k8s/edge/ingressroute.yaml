@@ -191,8 +191,22 @@ spec:
           port: 3005
           namespace: default
 
-    # 7. Web Next.js fallback (explicitly excludes /v1 to prevent API bleed)
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/`) && !PathPrefix(`/v1`)'
+    # 7. Smoke test route for header stripping verification
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`) || Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && PathPrefix(`/smoke/whoami`)'
+      kind: Rule
+      priority: 80
+      middlewares:
+        - name: strip-user-headers
+          namespace: default
+        - name: rate-limit
+          namespace: default
+      services:
+        - name: whoami
+          port: 80
+          namespace: default
+
+    # 8. Web Next.js fallback (explicitly excludes /v1 and /smoke to prevent API bleed)
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && PathPrefix(`/`) && !PathPrefix(`/v1`) && !PathPrefix(`/smoke`)'
       kind: Rule
       priority: 10
       middlewares:
@@ -205,7 +219,7 @@ spec:
           port: 3000
           namespace: default
 
-    # 8. S3 Garage storage endpoint (presigned uploads and downloads)
+    # 9. S3 Garage storage endpoint (presigned uploads and downloads)
     - match: 'Host(`s3.winkey.vn`)'
       kind: Rule
       priority: 50
@@ -217,7 +231,7 @@ spec:
           port: 3900
           namespace: default
 
-    # 9. Media origin endpoint (HLS video segments)
+    # 10. Media origin endpoint (HLS video segments)
     - match: 'Host(`media.winkey.vn`) || Host(`winkey-media.winkey.vn`)'
       kind: Rule
       priority: 50
@@ -229,7 +243,7 @@ spec:
           port: 8080
           namespace: default
 
-    # 10. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)
+    # 11. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)
     - match: 'Host(`media-auth.internal`) && PathPrefix(`/internal/media-access/`)'
       kind: Rule
       priority: 95
