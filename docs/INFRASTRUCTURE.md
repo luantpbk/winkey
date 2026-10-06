@@ -251,3 +251,6 @@ Nguyên tắc: tận dụng free tier trước. Vượt mức chỉ khi chi phí
 | GitHub Actions | Không giới hạn (repo public) | Runner GitHub-hosted; **không** dùng self-hosted | — |
 | Tailscale (gói Personal) | Đủ cho số node hiện tại | edge, gpu, worker, admin | — |
 | Resend | Gói free | Mail sản phẩm + cảnh báo Grafana | Dashboard Resend |
+
+*Ghi chú về proxy_cache tầng nóng*: `edge-1` đặt dung lượng cache 40 GB trên LV data (`/var/lib/rancher/k3s/storage/nginx-cache/winkey-media`, cấu hình trong `host_vars/edge-1.yml`). Các nút edge kế tiếp (`edge-2`, `edge-3`) không bị hạn chế phân vùng dữ liệu dùng chung nên sẽ được cấu hình khoảng 100 GB cache.
+

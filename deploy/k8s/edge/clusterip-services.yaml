@@ -107,39 +107,3 @@ spec:
       protocol: TCP
   selector:
     app.kubernetes.io/name: web-svc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: garage-s3
-  namespace: default
-  labels:
-    app.kubernetes.io/name: garage
-    app.kubernetes.io/part-of: winkey
-spec:
-  type: ClusterIP
-  ports:
-    - name: s3-api
-      port: 3900
-      targetPort: 3900
-      protocol: TCP
-  selector:
-    app.kubernetes.io/name: garage
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: garage-web
-  namespace: default
-  labels:
-    app.kubernetes.io/name: garage
-    app.kubernetes.io/part-of: winkey
-spec:
-  type: ClusterIP
-  ports:
-    - name: web
-      port: 3902
-      targetPort: 3902
-      protocol: TCP
-  selector:
-    app.kubernetes.io/name: garage

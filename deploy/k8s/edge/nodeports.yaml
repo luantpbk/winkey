@@ -40,22 +40,3 @@ spec:
       protocol: TCP
   selector:
     app.kubernetes.io/name: postgres
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: garage-s3-nodeport
-  namespace: default
-  labels:
-    app.kubernetes.io/name: garage
-    app.kubernetes.io/part-of: winkey
-spec:
-  type: NodePort
-  ports:
-    - name: s3-api
-      port: 3900
-      targetPort: 3900
-      nodePort: 30900
-      protocol: TCP
-  selector:
-    app.kubernetes.io/name: garage

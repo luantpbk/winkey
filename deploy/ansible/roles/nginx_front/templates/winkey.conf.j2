@@ -1,9 +1,9 @@
 # Managed by Ansible (deploy/ansible/roles/nginx_front). Local edits are overwritten.
 # Winkey hosts on the shared host nginx -> Traefik (k3s NodePort on the tailnet IP).
 
-# Edge media caching zone on host disk (ADR-005, ADR-014)
-# Max 10 GB disk cache on /, keys in memory (10m zone ~ 80,000 keys)
-proxy_cache_path /var/cache/nginx/winkey-media levels=1:2 keys_zone=winkey_media:10m max_size=10g inactive=30d use_temp_path=off;
+# Edge media caching zone on host disk (ADR-005, ADR-014, ADR-032)
+# Configured on LV data (max 40 GB)
+proxy_cache_path {{ nginx_front.media_cache_path | default('/var/cache/nginx/winkey-media') }} levels=1:2 keys_zone=winkey_media:10m max_size={{ nginx_front.media_cache_max_size | default('40g') }} inactive=30d use_temp_path=off;
 
 # Internal media access auth caching zone (ADR-017, SEC1-b)
 # 10m zone (~80,000 video IDs), inactive 10m
@@ -98,38 +98,8 @@ server {
     }
 }
 
-# 2. S3 Object Storage endpoint (Garage): presigned PUT upload parts and downloads
-server {
-    listen 443 ssl http2;
-    server_name s3.winkey.vn;
 
-    ssl_certificate /etc/letsencrypt/live/{{ nginx_front.cert_name }}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{{ nginx_front.cert_name }}/privkey.pem;
-
-    # Presigned multipart upload parts (≥ 64 MiB); stream directly to avoid filling host disk
-    client_max_body_size 64m;
-    proxy_request_buffering off;
-    proxy_buffering off;
-
-    # Long timeouts for large multipart chunk uploads
-    proxy_read_timeout 300s;
-    proxy_send_timeout 300s;
-
-    location / {
-        proxy_pass http://winkey_traefik;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
-
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $winkey_connection;
-    }
-}
-
-# 3. Media delivery: HLS segments and video playback with host proxy_cache (ADR-005, ADR-014, ADR-017)
+# 2. Media delivery: HLS segments and video playback with host proxy_cache (ADR-005, ADR-014, ADR-017)
 server {
     listen 443 ssl http2;
     server_name media.winkey.vn;

@@ -219,19 +219,7 @@ spec:
           port: 3000
           namespace: default
 
-    # 9. S3 Garage storage endpoint (presigned uploads and downloads)
-    - match: 'Host(`s3.winkey.vn`)'
-      kind: Rule
-      priority: 50
-      middlewares:
-        - name: strip-user-headers
-          namespace: default
-      services:
-        - name: garage-s3
-          port: 3900
-          namespace: default
-
-    # 10. Media origin endpoint (HLS video segments)
+    # 9. Media origin endpoint (HLS video segments)
     - match: 'Host(`media.winkey.vn`) || Host(`winkey-media.winkey.vn`)'
       kind: Rule
       priority: 50
@@ -243,7 +231,7 @@ spec:
           port: 8080
           namespace: default
 
-    # 11. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)
+    # 10. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)
     - match: 'Host(`media-auth.internal`) && PathPrefix(`/internal/media-access/`)'
       kind: Rule
       priority: 95
