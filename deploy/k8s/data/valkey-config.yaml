@@ -14,7 +14,7 @@ data:
     protected-mode yes
 
     # Memory capping and eviction policy
-    maxmemory 512mb
+    maxmemory 128mb
     # IMPORTANT: volatile-lru ensures keys without TTL (like video-svc view flush hashes) are never evicted
     maxmemory-policy volatile-lru
 
