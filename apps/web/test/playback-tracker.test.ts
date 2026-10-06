@@ -39,6 +39,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       await vi.advanceTimersByTimeAsync(450);
 
       // First frame shown at position 0.0s
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -77,6 +78,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(1.5);
       await Promise.resolve();
 
@@ -106,6 +108,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       });
 
       tracker.recordPlayRequest();
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(sentBatches).toHaveLength(1); // start sample
@@ -161,6 +164,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(sentBatches).toHaveLength(1); // start sample
@@ -211,6 +215,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       });
 
       tracker.setRendition('1080p', 5000);
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -249,6 +254,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -296,6 +302,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -336,6 +343,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       await vi.advanceTimersByTimeAsync(800);
 
       // First frame shown
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -360,6 +368,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -411,6 +420,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -463,6 +473,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(sentBatches).toHaveLength(1);
@@ -497,6 +508,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -526,6 +538,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       for (let s = 1; s <= 5; s++) {
@@ -555,6 +568,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(batches).toHaveLength(1); // start sample
@@ -631,6 +645,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         getAccessToken: () => 'valid-jwt-token-123',
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -659,6 +674,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         getAccessToken: () => 'my-secret-access-token',
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       // Trigger flushSync via pagehide
       tracker.handlePageHide();
@@ -698,6 +714,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         getAccessToken: () => null, // Anonymous
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       tracker.handlePageHide();
 
@@ -722,6 +739,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(sentBatches).toHaveLength(1); // start sample
@@ -751,6 +769,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
       expect(tracker.isBackoff()).toBe(true);
@@ -786,6 +805,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -819,6 +839,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -854,6 +875,7 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       });
 
       tracker.recordPlayRequest();
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       tracker.recordTimeUpdate(10);
       tracker.recordWaiting();
@@ -863,6 +885,352 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
 
       expect(mockTransport).not.toHaveBeenCalled();
       expect(tracker.getQueueLength()).toBe(0);
+    });
+  });
+
+  describe('QOE2 Deterministic Event-Sequence Tests (ADR-030 / Issue #257)', () => {
+    it('1. wait→seek: stops in-flight stall when seek starts, does not count seek duration as rebuffer', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      // Playback starts
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(1); // start sample
+
+      // Play normally for 5s
+      for (let s = 1; s <= 5; s++) {
+        await vi.advanceTimersByTimeAsync(1000);
+        tracker.recordTimeUpdate(s);
+      }
+
+      // Stall begins at t = 5000ms
+      tracker.recordWaiting();
+      await vi.advanceTimersByTimeAsync(800); // 800ms of stall
+
+      // User seeks at t = 5800ms: seek starts -> in-flight stall MUST stop/freeze
+      tracker.recordSeeking();
+
+      // Seeking operation takes 1200ms (t = 5800ms -> 7000ms)
+      await vi.advanceTimersByTimeAsync(1200);
+
+      // Spurious waiting while actively seeking must be ignored
+      tracker.recordWaiting();
+
+      // Seek finishes to 60s
+      tracker.recordSeeked(60);
+
+      // Playback resumes at 60s
+      tracker.recordPlaying(60);
+
+      // Play 5s after seek (61s..65s)
+      for (let s = 61; s <= 65; s++) {
+        await vi.advanceTimersByTimeAsync(1000);
+        tracker.recordTimeUpdate(s);
+      }
+
+      // Advance remaining time to 30s heartbeat interval
+      await vi.advanceTimersByTimeAsync(18000);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(2);
+      const hb = sentBatches[1].samples[0];
+      expect(hb.kind).toBe('heartbeat');
+      // Exactly 1 stall count (the stall before seek)
+      expect(hb.rebuffer_count).toBe(1);
+      // Exactly 800ms rebuffer (seek duration 1200ms is NOT counted!)
+      expect(hb.rebuffer_ms).toBe(800);
+      // Watched time is 5s before seek + 5s after seek = 10s
+      expect(hb.watched_ms).toBe(10000);
+      expect(hb.position_ms).toBe(65000);
+
+      tracker.destroy();
+    });
+
+    it('2. wait→hide→return: freezes in-flight stall on hidden, accumulates 0ms while hidden, unfreezes on visible', async () => {
+      const batches: { batch: PlaybackHeartbeatBatch; sync?: boolean }[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch, sync?: boolean) => {
+        batches.push({ batch, sync });
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+      expect(batches).toHaveLength(1); // start sample
+
+      // Play for 5s
+      for (let s = 1; s <= 5; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+
+      // Stall begins at t = 5000ms
+      tracker.recordWaiting();
+      await vi.advanceTimersByTimeAsync(1200); // 1200ms stall before hide
+
+      // User switches tab (hidden): in-flight stall freezes, sends heartbeat synchronously
+      tracker.recordVisibilityChange(true);
+
+      expect(batches).toHaveLength(2);
+      expect(batches[1].sync).toBe(true);
+      const hiddenSample = batches[1].batch.samples[0];
+      expect(hiddenSample.kind).toBe('heartbeat');
+      expect(hiddenSample.rebuffer_count).toBe(1);
+      expect(hiddenSample.rebuffer_ms).toBe(1200);
+      expect(hiddenSample.watched_ms).toBe(5000);
+
+      // Tab remains hidden for 60 seconds (1 minute in background!)
+      await vi.advanceTimersByTimeAsync(60000);
+
+      // Waiting events fired while hidden must be ignored ("never start a stall while hidden")
+      tracker.recordWaiting();
+
+      // User returns to tab (visible): unfreezes the in-flight stall clock
+      tracker.recordVisibilityChange(false);
+
+      // Still waiting for 800ms after returning
+      await vi.advanceTimersByTimeAsync(800);
+
+      // Playback resumes at position 5s
+      tracker.recordPlaying(5);
+
+      // Play for 30s smoothly
+      for (let s = 6; s <= 35; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      await Promise.resolve();
+
+      expect(batches).toHaveLength(3);
+      const returnSample = batches[2].batch.samples[0];
+      expect(returnSample.kind).toBe('heartbeat');
+      // The 60,000ms background time was NOT added! Only the 800ms visible stall is tracked
+      expect(returnSample.rebuffer_ms).toBe(800);
+      // Rebuffer count for this period is 0 (already counted in the earlier sample for this single stall)
+      expect(returnSample.rebuffer_count).toBe(0);
+      expect(returnSample.watched_ms).toBe(30000);
+
+      tracker.destroy();
+    });
+
+    it('3. paused waiting: never starts a stall while paused, accumulates 0 rebuffer_count and 0 rebuffer_ms', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(1); // start sample
+
+      // Play for 5s
+      for (let s = 1; s <= 5; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+
+      // User pauses playback
+      tracker.recordPause();
+
+      // While paused, browser/player buffers (e.g. background buffer eviction or track change)
+      tracker.recordWaiting();
+      await vi.advanceTimersByTimeAsync(15000); // 15 seconds paused waiting
+      tracker.recordWaiting(); // another waiting event while paused
+
+      // User resumes playback
+      tracker.recordPlayRequest();
+      tracker.recordPlaying(5);
+
+      // Play for 25s (clock t = 20s..45s)
+      for (let s = 6; s <= 30; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      // Advance remaining 5s to hit second 30s interval mark (clock t = 50s..60s)
+      await vi.advanceTimersByTimeAsync(15000);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(3);
+      const hb1 = sentBatches[1].samples[0];
+      expect(hb1.kind).toBe('heartbeat');
+      // In first 30s period: 5s played before pause + 10s played after pause = 15s
+      expect(hb1.rebuffer_count).toBe(0);
+      expect(hb1.rebuffer_ms).toBe(0);
+      expect(hb1.watched_ms).toBe(15000);
+
+      const hb2 = sentBatches[2].samples[0];
+      expect(hb2.kind).toBe('heartbeat');
+      // In second 30s period: remaining 15s played
+      expect(hb2.rebuffer_count).toBe(0);
+      expect(hb2.rebuffer_ms).toBe(0);
+      expect(hb2.watched_ms).toBe(15000);
+
+      tracker.destroy();
+    });
+
+    it('4. metadata/seek timeupdate before play: timeupdate before play never starts first frame, startup begins on playing after loadeddata', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      // 1. Initial metadata loads, position restored to 42s -> timeupdate fires before play
+      tracker.recordTimeUpdate(42.0);
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(0); // MUST NOT start
+
+      // 2. loadeddata fires
+      tracker.recordLoadedData();
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(0); // MUST NOT start (playing has not fired!)
+
+      // 3. User scrubs or seeks while paused before play
+      tracker.recordSeeking();
+      tracker.recordSeeked(45.0);
+      tracker.recordTimeUpdate(45.0);
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(0); // MUST NOT start
+
+      // 4. Advance 5 seconds while user looks at poster
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(sentBatches).toHaveLength(0);
+
+      // 5. User clicks play at t = 5000ms
+      tracker.recordPlayRequest();
+
+      // Media decoder takes 300ms to decode first frame after play
+      await vi.advanceTimersByTimeAsync(300);
+
+      // First playing event fires after loadeddata
+      tracker.recordPlaying(45.0);
+      await Promise.resolve();
+
+      // Now start sample is emitted!
+      expect(sentBatches).toHaveLength(1);
+      const start = sentBatches[0].samples[0];
+      expect(start.kind).toBe('start');
+      expect(start.seq).toBe(0);
+      expect(start.startup_ms).toBe(300); // 300ms from play request, NOT 5300ms from page load!
+      expect(start.position_ms).toBe(45000);
+      expect(start.watched_ms).toBe(0);
+      expect(start.rebuffer_ms).toBe(0);
+      expect(start.rebuffer_count).toBe(0);
+
+      tracker.destroy();
+    });
+
+    it('5. manual quality switch: attributes rendition and bitrate changes, tracks rebuffering if switch stalls, ignores stall if switched while paused', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      tracker.setRendition('1080p', 5000);
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+      expect(sentBatches).toHaveLength(1);
+      expect(sentBatches[0].samples[0].rendition).toBe('1080p');
+      expect(sentBatches[0].samples[0].bitrate_kbps).toBe(5000);
+
+      // Play 10s at 1080p
+      for (let s = 1; s <= 10; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+
+      // User manually switches to 720p: player buffers new rendition segments for 500ms
+      tracker.setRendition('720p', 2800);
+      tracker.recordWaiting();
+      await vi.advanceTimersByTimeAsync(500);
+      tracker.recordPlaying(10); // resumes at 720p
+
+      // Play remaining 20s of the interval at 720p
+      for (let s = 11; s <= 30; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(2);
+      const hb1 = sentBatches[1].samples[0];
+      expect(hb1.kind).toBe('heartbeat');
+      expect(hb1.rendition).toBe('720p');
+      expect(hb1.bitrate_kbps).toBe(2800);
+      expect(hb1.rebuffer_count).toBe(1);
+      expect(hb1.rebuffer_ms).toBe(500);
+      expect(hb1.watched_ms).toBe(30000);
+
+      // Now user pauses and manually switches to 480p while paused
+      tracker.recordPause();
+      tracker.setRendition('480p', 1200);
+      // Buffering occurs while paused
+      tracker.recordWaiting();
+      await vi.advanceTimersByTimeAsync(10000); // 10s paused
+      tracker.recordPlayRequest();
+      tracker.recordPlaying(30);
+
+      // Play 30s at 480p
+      for (let s = 31; s <= 60; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(3);
+      const hb2 = sentBatches[2].samples[0];
+      expect(hb2.rendition).toBe('480p');
+      expect(hb2.bitrate_kbps).toBe(1200);
+      // Buffering while paused was NOT counted as rebuffer
+      expect(hb2.rebuffer_count).toBe(0);
+      expect(hb2.rebuffer_ms).toBe(0);
+      // In this 30s period: 10s paused + 20s played = 20000ms watched
+      expect(hb2.watched_ms).toBe(20000);
+
+      tracker.destroy();
     });
   });
 });

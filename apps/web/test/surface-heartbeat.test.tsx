@@ -339,6 +339,7 @@ describe('ADR-030 / R2-ab-web: Surface telemetry & watch link builder', () => {
       });
 
       // 1. First frame -> start sample
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -382,6 +383,7 @@ describe('ADR-030 / R2-ab-web: Surface telemetry & watch link builder', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       await Promise.resolve();
 
@@ -403,6 +405,7 @@ describe('ADR-030 / R2-ab-web: Surface telemetry & watch link builder', () => {
         transport: mockTransport,
       });
 
+      tracker.recordLoadedData();
       tracker.recordPlaying(0);
       // Simulate unload flush
       tracker.handlePageHide();

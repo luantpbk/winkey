@@ -598,6 +598,10 @@ export function VideoPlayer({
     onPlay(video.currentTime);
   };
 
+  const handleLoadedDataEvent = () => {
+    trackerRef.current?.recordLoadedData();
+  };
+
   const handlePlayingEvent = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -640,10 +644,20 @@ export function VideoPlayer({
     setIsPlaying(false);
     setShowControls(true);
     savePlaybackPosition(video.currentTime, true);
+    if (rebufferStartTimeRef.current !== null) {
+      const rebuffDuration = performance.now() - rebufferStartTimeRef.current;
+      totalRebufferDurationRef.current += rebuffDuration;
+      rebufferStartTimeRef.current = null;
+    }
     trackerRef.current?.recordPause();
   };
 
   const handleSeekingEvent = () => {
+    if (rebufferStartTimeRef.current !== null) {
+      const rebuffDuration = performance.now() - rebufferStartTimeRef.current;
+      totalRebufferDurationRef.current += rebuffDuration;
+      rebufferStartTimeRef.current = null;
+    }
     onSeeking();
     trackerRef.current?.recordSeeking();
   };
@@ -656,6 +670,13 @@ export function VideoPlayer({
   };
 
   const handleWaitingEvent = () => {
+    const video = videoRef.current;
+    if (
+      video?.paused ||
+      (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+    ) {
+      return;
+    }
     if (hasFirstFrameRef.current && rebufferStartTimeRef.current === null) {
       rebufferCountRef.current += 1;
       rebufferStartTimeRef.current = performance.now();
@@ -731,6 +752,7 @@ export function VideoPlayer({
           resumePlaybackPosition();
           applySubtitleMode(selectedSubtitleLang);
         }}
+        onLoadedData={handleLoadedDataEvent}
         onPlay={handlePlayEvent}
         onPlaying={handlePlayingEvent}
         onPause={handlePauseEvent}
