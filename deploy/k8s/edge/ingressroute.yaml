@@ -238,8 +238,6 @@ spec:
       middlewares:
         - name: strip-user-headers
           namespace: default
-        - name: media-headers
-          namespace: default
       services:
         - name: media-origin
           port: 8080

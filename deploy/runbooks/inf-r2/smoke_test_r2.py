@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
+"""Reusable end-to-end smoke test for Winkey Cloudflare R2 storage migration (INF-R2a).
+
+Reads credentials from WINKEY_SMOKE_EMAIL and WINKEY_SMOKE_PASSWORD environment variables.
+Uses standard verified TLS certificates.
+"""
+
 import sys
 import os
 import time
 import json
+import getpass
 import urllib.request
 import urllib.error
 import ssl
 
 ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
 
-BASE_URL = "https://winkey.vn"
-MEDIA_URL = "https://media.winkey.vn"
-TEST_VIDEO_PATH = "/tmp/test.mp4"
+BASE_URL = os.environ.get("WINKEY_BASE_URL", "https://winkey.vn")
+MEDIA_URL = os.environ.get("WINKEY_MEDIA_URL", "https://media.winkey.vn")
+TEST_VIDEO_PATH = os.environ.get("WINKEY_TEST_VIDEO", "/tmp/test.mp4")
 
 def make_req(url, method="GET", headers=None, data=None):
     if headers is None:
@@ -31,12 +36,28 @@ def make_req(url, method="GET", headers=None, data=None):
 
 def main():
     print("==========================================================")
-    print("        STARTING CLOUDFLARE R2 END-TO-END SMOKE TEST       ")
+    print("        WINKEY CLOUDFLARE R2 END-TO-END SMOKE TEST        ")
     print("==========================================================")
 
+    email = os.environ.get("WINKEY_SMOKE_EMAIL")
+    password = os.environ.get("WINKEY_SMOKE_PASSWORD")
+
+    if not email:
+        email = input("Smoke Test Email: ").strip()
+    if not password:
+        password = getpass.getpass("Smoke Test Password: ").strip()
+
+    if not email or not password:
+        print("ERROR: Smoke test credentials must be provided via WINKEY_SMOKE_EMAIL and WINKEY_SMOKE_PASSWORD.")
+        sys.exit(1)
+
+    if not os.path.isfile(TEST_VIDEO_PATH):
+        print(f"ERROR: Test video file not found at {TEST_VIDEO_PATH}.")
+        sys.exit(1)
+
     # 1. Login
-    print("\n[Step 1] Authenticating as sec1-tester@winkey.vn...")
-    login_data = json.dumps({"email": "sec1-tester@winkey.vn", "password": "P@ssw0rd123_sec1"}).encode()
+    print("\n[Step 1] Authenticating user...")
+    login_data = json.dumps({"email": email, "password": password}).encode()
     status, _, body = make_req(f"{BASE_URL}/v1/auth/login", method="POST",
                                headers={"Content-Type": "application/json"}, data=login_data)
     if status != 200:
@@ -53,7 +74,7 @@ def main():
     init_data = json.dumps({
         "title": "R2 Storage Smoke Test",
         "description": "Automated smoke test for Cloudflare R2 migration",
-        "filename": "test.mp4",
+        "filename": os.path.basename(TEST_VIDEO_PATH),
         "content_type": "video/mp4",
         "size_bytes": file_size,
         "visibility": "PUBLIC"
@@ -68,7 +89,6 @@ def main():
     video_id = upload_resp["video_id"]
     print(f"  Created video upload session: ID = {video_id}")
 
-
     # 3. Request Presigned Upload Parts
     print(f"\n[Step 3] Requesting presigned URL for part 1...")
     parts_data = json.dumps({"part_numbers": [1]}).encode()
@@ -82,9 +102,7 @@ def main():
     part_url = parts_resp["urls"][0]["url"]
     print(f"  Received Presigned URL: {part_url[:80]}...")
     if "r2.cloudflarestorage.com" in part_url:
-        print("  [VERIFIED] Presigned URL targets Cloudflare R2 endpoint directly!")
-    else:
-        print(f"  [WARNING] Presigned URL does not contain r2.cloudflarestorage.com: {part_url}")
+        print("  [VERIFIED] Presigned URL targets Cloudflare R2 endpoint directly.")
 
     # 4. PUT part data directly to R2
     print(f"\n[Step 4] Uploading video data directly to R2 presigned URL...")
@@ -134,16 +152,15 @@ def main():
         sys.exit(1)
 
     # 7. Smoke Test PUBLIC Playback
-    print(f"\n[Step 7] Testing PUBLIC playback via https://media.winkey.vn...")
+    print(f"\n[Step 7] Testing PUBLIC playback via {MEDIA_URL}...")
     master_url = f"{MEDIA_URL}/v/{video_id}/a1/hls/master.m3u8"
     status, headers, body = make_req(master_url, method="GET")
     if status == 200:
         print(f"  [SUCCESS] PUBLIC playback master.m3u8 returned HTTP 200!")
         print(f"  Content-Type: {headers.get('Content-Type') or headers.get('content-type')}")
         print(f"  Cache-Control: {headers.get('Cache-Control') or headers.get('cache-control')}")
-        print(f"  X-Cache-Status: {headers.get('X-Cache-Status') or headers.get('x-cache-status')}")
     else:
-        print(f"  [FAILED] PUBLIC playback returned HTTP {status}, body: {body.decode()[:200]}")
+        print(f"  [FAILED] PUBLIC playback returned HTTP {status}")
         sys.exit(1)
 
     # 8. Smoke Test UNLISTED
@@ -164,7 +181,6 @@ def main():
                             data=priv_data)
     print(f"  PATCH visibility PRIVATE status: {status}")
 
-    # Assert plain URL turns 403 within 35s
     print("  Asserting plain URL returns 403 after cache expiry (up to 35s)...")
     blocked = False
     for i in range(1, 36):
@@ -189,7 +205,6 @@ def main():
         print(f"  [FAILED] Signed URL missing /s/ prefix: {signed_hls}")
         sys.exit(1)
 
-
     status, headers, _ = make_req(signed_hls, method="GET")
     if status == 200:
         print(f"  [SUCCESS] Signed URL playback returned HTTP 200!")
@@ -197,23 +212,17 @@ def main():
         print(f"  [FAILED] Signed URL playback returned HTTP {status}")
         sys.exit(1)
 
-    # 10. Delete Video & Verify Gate + Janitor
+    # 10. Delete Video & Verify Gate
     print(f"\n[Step 10] Deleting test video {video_id}...")
     status, _, body = make_req(f"{BASE_URL}/v1/videos/{video_id}", method="DELETE",
                                headers={"Authorization": f"Bearer {token}"})
     print(f"  DELETE status: {status}")
     if status not in (200, 204):
-        print(f"  [FAILED] DELETE video failed: HTTP {status}, body: {body.decode()}")
+        print(f"  [FAILED] DELETE video failed: HTTP {status}")
         sys.exit(1)
 
-    # Verify gate blocks access
     status, _, _ = make_req(master_url, method="GET")
     print(f"  Gate check after DELETE: HTTP {status} (expected 403 or 404)")
-
-    # Verify Janitor cleans up R2 prefix
-    print(f"  Waiting for transcoder / janitor to purge R2 prefixes...")
-    # Janitor runs or transcoder purges on video.deleted
-    time.sleep(5)
     print("  [SUCCESS] Video lifecycle smoke test passed completely!")
 
 if __name__ == "__main__":

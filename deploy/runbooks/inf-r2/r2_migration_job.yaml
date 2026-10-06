@@ -102,7 +102,7 @@ spec:
               echo "      BẮT ĐẦU SAO CHÉP DỮ LIỆU: GARAGE -> CLOUDFLARE R2    "
               echo "=========================================================="
               echo ""
-              
+
               echo ">>> 1. Sao chép winkey-raw..."
               rclone copy garage_raw:winkey-raw r2:winkey-raw --fast-list --transfers=8 -v
               echo ">>> Kiểm tra đối soát winkey-raw (rclone check)..."

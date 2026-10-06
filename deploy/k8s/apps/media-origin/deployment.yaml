@@ -23,7 +23,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: media-origin
-          image: rclone/rclone:1.69.1
+          image: rclone/rclone:1.69.1@sha256:600f51856285df1ae5d91c8bb2682cbbe31bf109ebeeef9ecead6ca8c0ff6138
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           args:
             - serve
             - http
@@ -37,6 +43,7 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+
           env:
             - name: RCLONE_CONFIG_R2_TYPE
               value: 's3'

@@ -54,7 +54,7 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: s3://winkey-pg-backup/
-      endpointURL: https://2588dff2e56bf889918bc5c7af53ad86.r2.cloudflarestorage.com
+      endpointURL: 'https://{{ cloudflare_account_id }}.r2.cloudflarestorage.com'
       s3Credentials:
         accessKeyId:
           name: r2-pg-backup
