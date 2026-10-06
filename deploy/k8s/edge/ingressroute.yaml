@@ -231,7 +231,7 @@ spec:
           port: 3900
           namespace: default
 
-    # 10. Media Garage web endpoint (HLS video segments)
+    # 10. Media origin endpoint (HLS video segments)
     - match: 'Host(`media.winkey.vn`) || Host(`winkey-media.winkey.vn`)'
       kind: Rule
       priority: 50
@@ -239,8 +239,8 @@ spec:
         - name: strip-user-headers
           namespace: default
       services:
-        - name: garage-web
-          port: 3902
+        - name: media-origin
+          port: 8080
           namespace: default
 
     # 11. Internal media access authorization for nginx auth_request (ADR-017 / SEC1-b)

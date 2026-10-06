@@ -40,13 +40,25 @@ spec:
             - name: LOG_LEVEL
               value: 'info'
             - name: S3_ENDPOINT
-              value: 'http://garage-s3.default.svc:3900'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-upload-svc
+                  key: S3_ENDPOINT
             - name: S3_PUBLIC_ENDPOINT
-              value: 'https://s3.winkey.vn'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-upload-svc
+                  key: S3_PUBLIC_ENDPOINT
             - name: S3_REGION
-              value: 'garage'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-upload-svc
+                  key: S3_REGION
             - name: S3_RAW_BUCKET
-              value: 'winkey-raw'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-upload-svc
+                  key: S3_RAW_BUCKET
             - name: JANITOR_INTERVAL
               value: '10m'
             - name: UPLOAD_STALE_AFTER
@@ -66,12 +78,12 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: garage-key-upload-svc
+                  name: r2-upload-svc
                   key: AWS_ACCESS_KEY_ID
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: garage-key-upload-svc
+                  name: r2-upload-svc
                   key: AWS_SECRET_ACCESS_KEY
           resources:
             requests:

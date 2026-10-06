@@ -29,3 +29,7 @@ data_mountpoint: /var/lib/rancher/k3s/storage
 nginx_front: {}
 
 root_domain: winkey.vn
+
+# Cloudflare R2 object storage (ADR-032 / INF-R2)
+cloudflare_account_id: 2588dff2e56bf889918bc5c7af53ad86
+r2_endpoint: "https://{{ cloudflare_account_id }}.r2.cloudflarestorage.com"
