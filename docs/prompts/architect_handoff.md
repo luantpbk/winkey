@@ -51,23 +51,38 @@ issue #47 (the project log) before doing anything.
 - Antigravity 4: systest/, loadtest/ (idle).
 - Architect (Opus A) also covers the Designer role; Opus B stopped.
 
-# STATE AT HANDOFF (2026-10-05)
-Live in production: R2 recommendation v1 (ADR-028), R2-ab experiment (ADR-030, started 2026-10-05; decide no earlier
-than 2026-10-19 and only with ≥ 200 active viewers per arm, Grafana dashboard "R2-ab"), I3 observability (ADR-029:
-vmagent/Alloy on edge-1 → VictoriaMetrics/Loki/Grafana on gpu-01, tailnet only), MAIL via Resend, R2-c "Xem tiếp".
+# STATE AT HANDOFF (2026-10-07)
+Live in production:
+- R2 recommendations (ADR-028) and the R2-ab experiment (ADR-030). Decide no earlier than 2026-10-19, and only with
+  ≥ 200 active viewers per arm.
+- I3 observability (ADR-029).
+- **ADR-032**:
+  - Cloudflare R2 is the object store. Garage is removed. nginx gate → media-origin (rclone) → R2.
+  - Backups to R2: PostgreSQL WAL and base, etcd daily, ClickHouse daily. Interim vault on gpu-01 HDD.
+  - r2-usage cost guard with alerts at 5 / 10 USD.
+  - edge-1 resized to **2 OCPU / 12 GB** (INF-E1 done 2026-10-07). nginx media cache is 40 GB on LV data.
+- **V4-b** (overlap upload) runs on gpu-01 with NVENC, the system unit as `winkey-transcoder`, and
+  `UPLOAD_PARALLELISM=16`. A 65 s clip reaches READY in about 11–15 s.
+- QOE1 (#257) closed: the 2.6 % rebuffer ratio was one session; the pipeline is verified end to end.
+
 Postgres schema_migrations = 18; ClickHouse 0001 + 0002.
 
 In progress:
-| Agent | Task | Brief | What to check |
-|---|---|---|---|
-| ChatGPT | V4-b upload segments while encoding (ADR-031) | docs/prompts/chatgpt_V4b_transcoder-takeover.md | object set identical to before; master last; never .tmp/twice; NVENC→x264 retry leaves only x264 segments; no partial READY; before/after transcoder_job_seconds |
-| Antigravity 2 | deploy V4-a transcoder + "Transcode stages" panel; R2-perf rollout (worker ≥ 46b7732f, video ≥ 75479fd4) | #47 relay of 2026-10-05 | digests = CI logs; first job summary line |
+| Agent | Task | What to check |
+|---|---|---|
+| Antigravity 2 | PR #258: repo must match production after INF-E1 | review on #258: remove the storage_k3s role and Garage manifests; replace `chmod 755` on the local-path root with a nginx ACL; codify SELinux fcontext; CI green; a `--check --diff` with 0 changes |
+| Antigravity 1 | QOE2: tracker correctness (stall clock on hidden tab, pause, seek; first frame) | deterministic sequence tests; no contract change |
+| ChatGPT | idle | — |
 
-Known data points: all-time rebuffer ratio 2.6 % (P2 target < 1 %, small sample) — candidate next investigation.
-gpu-01 `/` is ~90 % full (alert at < 5 GB). Dependabot: docker/compose patch-only (DEP-4); stateful upgrades are
-planned tasks, one service per PR.
+Backlog:
+- QOE3 (Antigravity 2): nginx media access log with cache status and upstream time shipped to Loki; data-freshness
+  panel on the QoE dashboard.
+- #249: remove test accounts before launch.
+- node-01 (INF-W1) when the user adds it; home Garage cluster (INF-W2) at ≥ 3 home nodes.
+- ClickHouse restore check in the monthly restore drill.
 
-Waiting on the user: SEC0, LEGAL, LT2 window; whether to resume Sonnet / Sonnet 2.
+Waiting on the user: SEC0, LEGAL, the LT2 window, whether to resume Sonnet / Sonnet 2, and dropping the `qoe_ro`
+ClickHouse user.
 
 # FIRST STEPS
 1. `gh pr list --state open`, `gh run list --branch main -L 5`, read the newest #47 comments.
