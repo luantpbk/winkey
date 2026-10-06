@@ -140,6 +140,11 @@ server {
     client_max_body_size 2m;
     include /etc/nginx/winkey-media-secret.conf;
 
+    # 0. Reject directory listings on media URIs ending in / (ADR-032 / media-origin)
+    location ~ "/$" {
+        return 404;
+    }
+
     # 1. Signed media URLs: for non-public videos (owner, moderator, admin)
     location ~ "^/s/(?<exp>\d+)/(?<sig>[A-Za-z0-9_-]+)/(?<path>v/(?<vid>[0-9a-f-]{36})/.+)$" {
         secure_link $sig,$exp;
@@ -176,6 +181,7 @@ server {
         add_header X-Cache-Status $upstream_cache_status;
         add_header Access-Control-Allow-Origin * always;
         add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
 
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
@@ -214,6 +220,7 @@ server {
         add_header X-Cache-Status $upstream_cache_status;
         add_header Access-Control-Allow-Origin * always;
         add_header X-Content-Type-Options nosniff always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
 
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;

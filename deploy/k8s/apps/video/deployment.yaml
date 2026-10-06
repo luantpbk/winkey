@@ -42,11 +42,20 @@ spec:
             - name: MEDIA_BASE_URL
               value: 'https://media.winkey.vn'
             - name: S3_MEDIA_BUCKET
-              value: 'winkey-media'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-video-svc
+                  key: S3_MEDIA_BUCKET
             - name: S3_ENDPOINT
-              value: 'http://garage-s3.default.svc:3900'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-video-svc
+                  key: S3_ENDPOINT
             - name: S3_REGION
-              value: 'garage'
+              valueFrom:
+                secretKeyRef:
+                  name: r2-video-svc
+                  key: S3_REGION
             - name: CACHE_TTL
               value: '30s'
             - name: TRUST_PROXY_CIDRS
@@ -92,12 +101,12 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: garage-key-video-svc
+                  name: r2-video-svc
                   key: AWS_ACCESS_KEY_ID
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: garage-key-video-svc
+                  name: r2-video-svc
                   key: AWS_SECRET_ACCESS_KEY
           resources:
             requests:

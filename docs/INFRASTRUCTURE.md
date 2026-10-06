@@ -40,6 +40,7 @@ Ngân sách tài nguyên trên edge-1 (4 vCPU / 24 GB, dùng chung): Winkey gi�
 |---|---|---|---|---|
 | **gpu-01** (nhà; hostname `X9DRL-3F-iF`, tailnet `gpu-01` 100.88.247.70, **Ubuntu 26.04**, driver NVIDIA 595) | 2× Xeon E5-2690 (Sandy Bridge-EP, **16C/32T**, AVX, **không AVX2**), **64 GB** RAM, **RTX 5060 Ti** (Blackwell, NVENC/NVDEC thế hệ mới: H.264/HEVC/AV1), NVMe Kingmax 512 GB (root port CPU), NVMe Samsung PM981 256 GB (root port chipset X79, **PCIe 2.0**), 6 cổng SATA trống, 2× GbE 82574L | amd64 | Mạng gia đình, sau NAT, **uplink chưa rõ [đo]** | Mạnh về tính toán, yếu về uptime và băng thông upload → **không bao giờ phục vụ traffic public** |
 | **edge-1/2/3** (Oracle, **cùng region**, Pay-As-You-Go) | VM QEMU/virtio, 4 vCPU, 24 GB RAM, 200 GB block volume (virtio-scsi), 1 NIC virtio | **arm64** (`uname -m` = `aarch64` trên edge-1) | IP public, ~1 Gbps/OCPU, **10 TB egress/tháng/tenancy** miễn phí | Ổn định, băng thông lớn, đĩa nhỏ → edge + dữ liệu trạng thái |
+| **node-NN** (nhà, nhiều mạng khác nhau, 24/7, ADR-032) | Cấu hình vừa/thấp. **node-01**: tailnet `100.82.170.119`, user `thanhluan` — **tạm hoãn**, bổ sung sau. Trong lúc chờ, gpu-01 làm vault tạm (phụ lục ADR-032). vault cần đĩa ≥ 500 GB; cpu-transcode cần ≥ 4 nhân AVX2, ≥ 8 GB RAM | amd64/arm64 | Sau NAT, chỉ nối qua Tailscale (`tag:worker`) | Không public, không stateful, chỉ kéo việc/kéo dữ liệu |
 
 Tất cả kết nối với nhau qua **Tailscale** (tailnet riêng). Traffic nội bộ không bao giờ đi qua IP public.
 Các AI agent (Sonnet 5.5, Antigravity 1–3) chạy trên máy **cùng LAN với gpu-01** và SSH được vào gpu-01.
@@ -161,6 +162,7 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 
     Cache media của nginx host đặt trên `/`, giới hạn `max_size=10g`. VG chỉ còn khoảng 3 GB nên **không mở rộng LV được**. Cần thêm dung lượng thì mua block volume, hoặc chuyển `winkey-media` sang R2 sớm hơn.
 - 1 giờ video 1080p với đủ ladder (5.0 + 2.8 + 1.4 Mbps video + 3 × 128 kbps audio) ≈ **4.3 GB**, nên chứa được khoảng **35–40 giờ nội dung**. Đủ cho thử nghiệm.
+- **ADR-032 (2026-10-05): mọi bucket chuyển sang Cloudflare R2, giữ nguyên tên và key; Garage bị gỡ.** Nội dung bên dưới mô tả giai đoạn Garage.
 - **Khi vượt ~70%**: chuyển origin `winkey-media` sang **Cloudflare R2** (không phí egress, được phép phục vụ video qua CDN của Cloudflare) hoặc Backblaze B2. Nhờ ADR-004 chỉ cần đổi endpoint.
 - **Khuyến nghị cho gpu-01**: gắn thêm 1 HDD SATA 4–8 TB cho raw archive và bản sao backup. Đặt NVMe Kingmax (PCIe 3.0) làm **scratch cho transcode**, Samsung (PCIe 2.0) cho OS và log.
 
@@ -208,6 +210,8 @@ Nameserver của `winkey.vn` chuyển sang **Cloudflare (gói Free)**, vì cert-
 | Uplink nhà thấp/không ổn định | Chờ READY lâu | Multipart upload có retry; đo bằng `iperf3` qua Tailscale; cân nhắc giới hạn 1080p |
 | Một GPU duy nhất | Single point of failure cho tốc độ | Fallback x264 tự động |
 | **GPU dùng chung với miner/ComfyUI** | Transcode chậm hoặc lỗi hết VRAM khi tải cao | Transcoder retry được (NVENC→x264 fallback, NAK); đo job thật trong V2b; nếu decode CUDA bị nghẽn thì chuyển decode về CPU (`HWACCEL_DECODE=false`); ưu tiên dừng miner khi có hàng đợi dài |
+| **Oracle giảm A1 Always Free xuống 2 OCPU / 12 GB (áp dụng từ 2026-08-18)** | edge-1 (4 OCPU / 24 GB) vượt hạn mức mới | User chọn A: chuyển storage sang R2, đo, rồi resize về 2 / 12 (ADR-032 §2) |
+| Chi phí R2 tăng ngoài dự kiến (không có trần chi tiêu) | Bị tính tiền | Exporter `r2-usage`: cảnh báo khi dự báo > 5 / 10 USD/tháng hoặc 85% free tier; lifecycle rule (ADR-032) |
 | Ổ `/` trên gpu-01 gần đầy (85%) | Log hoặc tmp làm đầy ổ, service chết | Scratch và archive đặt ngoài `/`; logrotate; cảnh báo khi còn < 10 GB (I3) |
 
 ## 9. Checklist I0 (Antigravity 2 chạy, dán kết quả vào issue I0)
@@ -229,3 +233,21 @@ ffmpeg -hide_banner -encoders | grep nvenc
 ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 60 -c:v h264_nvenc -preset p5 -f null -   # tốc độ ×realtime
 # Thử 3, 4, … phiên NVENC song song để xác nhận giới hạn phiên
 ```
+
+## 10. Ngân sách tài nguyên miễn phí (ADR-032)
+
+Nguyên tắc: tận dụng free tier trước. Vượt mức chỉ khi chi phí tăng tuyến tính, nhỏ và có cảnh báo (R2). Mọi hạn mức đều có số đo.
+
+| Nguồn | Hạn mức miễn phí | Phân bổ | Theo dõi |
+|---|---|---|---|
+| Oracle A1 (mỗi tenancy) | 2 OCPU / 12 GB | edge-1 về 2 / 12 (INF-E1). Thêm edge = thêm tenancy | Cost Analysis hằng tháng |
+| Oracle block volume | 200 GB | edge-1 dùng hết. Sau khi gỡ Garage, LV data dành cho PG, NATS, cache | node-exporter |
+| Đĩa edge (tầng nóng) | edge-1 ~40 GB sau khi gỡ Garage; edge-2/3 ~100 GB | nginx `proxy_cache` (phụ lục ADR-032) | Tỷ lệ cache hit |
+| Oracle egress | 10 TB/tháng | HLS qua nginx gate. Ở 60% thì xét CDN Cloudflare | vmagent: bytes ra của media-cache |
+| Oracle Object Storage | 20 GB | Chưa dùng. Dự phòng làm đích backup thứ hai | — |
+| Đĩa máy gia đình | Theo máy | Tạm thời: vault trên HDD gpu-01; sau đó vault trên node-01; khi ≥ 3 máy thì thành cụm Garage ở các nhà (RF 2) | Tuổi của lần sync gần nhất |
+| R2 lưu trữ | 10 GB-tháng, sau đó 0.015 USD/GB | raw, media, pg-backup, backup | `r2-usage` (dự báo chi phí) |
+| R2 Class A / Class B | 1 triệu / 10 triệu mỗi tháng | Upload, HLS, WAL / miss của nginx cache, vault sync | `r2-usage` |
+| GitHub Actions | Không giới hạn (repo public) | Runner GitHub-hosted; **không** dùng self-hosted | — |
+| Tailscale (gói Personal) | Đủ cho số node hiện tại | edge, gpu, worker, admin | — |
+| Resend | Gói free | Mail sản phẩm + cảnh báo Grafana | Dashboard Resend |

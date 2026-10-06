@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily k3s etcd Snapshot to Cloudflare R2 (winkey-backup)
+Documentation=https://github.com/luantpbk/winkey
+After=network-online.target k3s.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/winkey/scripts/etcd_snapshot.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

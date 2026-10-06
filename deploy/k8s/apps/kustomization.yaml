@@ -8,4 +8,5 @@ resources:
   - social
   - realtime
   - web
+  - media-origin
   - ../observability

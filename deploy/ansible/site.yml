@@ -3,12 +3,16 @@
   hosts: edge
   roles:
     - base
-    - tailscale
+    - role: tailscale
+      tags: [tailscale, nginx_front]
     - firewall
+
     - storage
     - k3s_server
     - role: nginx_front
+      tags: [nginx_front]
       when: nginx_front.hosts | default([]) | length > 0
+
     - role: edge_ingress
     - role: storage_k3s
     - role: data_k3s

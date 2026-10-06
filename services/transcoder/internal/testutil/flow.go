@@ -32,7 +32,7 @@ type Flow struct {
 // video and builds a pipeline using the given encoder ("nvenc" or "x264").
 func NewFlow(t testing.TB, tools job.Tools, encoder, clipPath string) *Flow {
 	t.Helper()
-	data, err := os.ReadFile(clipPath)
+	data, err := os.ReadFile(clipPath) // #nosec G304 -- test fixture clip generated locally by MakeClip.
 	if err != nil {
 		t.Fatal(err)
 	}

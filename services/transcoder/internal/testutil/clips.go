@@ -79,11 +79,11 @@ func MakeClip(t testing.TB, tools job.Tools, dir string, c Clip) string {
 		target = filepath.Join(dir, c.Name+"_unrotated.mp4")
 	}
 	args = append(args, target)
-	if b, err := exec.Command(tools.FFmpeg, args...).CombinedOutput(); err != nil {
+	if b, err := exec.Command(tools.FFmpeg, args...).CombinedOutput(); err != nil { // #nosec G204 -- test-only configured FFmpeg and generated local clip arguments; no shell.
 		t.Fatalf("generate clip %s: %v\n%s", c.Name, err, b)
 	}
 	if c.Rotate != 0 { // attach a display matrix without re-encoding
-		b, err := exec.Command(tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-y",
+		b, err := exec.Command(tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-y", // #nosec G204 -- test-only configured FFmpeg and generated local clip arguments; no shell.
 			"-display_rotation:v:0", fmt.Sprint(c.Rotate), "-i", target, "-c", "copy", out).CombinedOutput()
 		if err != nil {
 			t.Fatalf("rotate clip %s: %v\n%s", c.Name, err, b)

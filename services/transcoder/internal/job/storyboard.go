@@ -57,7 +57,7 @@ func (t Tools) Storyboard(ctx context.Context, in StoryboardInput, dir string, d
 	if durationSec <= 0 {
 		return StoryboardResult{}, errors.New("storyboard: unknown duration")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return StoryboardResult{}, err
 	}
 	interval := media.StoryboardInterval(durationSec)
@@ -67,7 +67,7 @@ func (t Tools) Storyboard(ctx context.Context, in StoryboardInput, dir string, d
 	rctx, cancel := context.WithTimeout(ctx, storyboardTimeout(durationSec))
 	defer cancel()
 	var errTail tailBuffer
-	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildStoryboardArgs(in.Path, dir, interval, in.KeyframesOnly)...)
+	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildStoryboardArgs(in.Path, dir, interval, in.KeyframesOnly)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
 	cmd.Stderr = &errTail
 	cmd.WaitDelay = 10 * time.Second
 	if err := cmd.Run(); err != nil {
@@ -92,7 +92,7 @@ func (t Tools) Storyboard(ctx context.Context, in StoryboardInput, dir string, d
 			break
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, media.StoryboardVTT), []byte(media.BuildStoryboardVTT(durationSec, interval)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, media.StoryboardVTT), []byte(media.BuildStoryboardVTT(durationSec, interval)), 0o600); err != nil {
 		return StoryboardResult{}, err
 	}
 	return StoryboardResult{Frames: frames, Sheets: sheets, Interval: interval}, nil

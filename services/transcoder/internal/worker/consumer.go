@@ -131,7 +131,7 @@ func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) {
 		_ = msg.Term()
 		return
 	}
-	d := job.Delivery{Num: int(md.NumDelivered), Max: MaxDeliver}
+	d := job.Delivery{Num: int(min(md.NumDelivered, uint64(MaxDeliver))), Max: MaxDeliver}
 
 	var env outbox.Envelope
 	var ev job.UploadedEvent
