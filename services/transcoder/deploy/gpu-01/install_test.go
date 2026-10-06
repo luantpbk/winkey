@@ -196,7 +196,7 @@ func TestInstallScriptRefusesDirtyTreeUnlessAllowed(t *testing.T) {
 	if err := os.WriteFile(probe, []byte("dirty"), 0o644); err != nil {
 		t.Skip("cannot dirty the tree")
 	}
-	defer os.Remove(probe)
+	defer func() { _ = os.Remove(probe) }()
 
 	prefix := filepath.Join(t.TempDir(), "p")
 	_ = os.MkdirAll(prefix, 0o755)

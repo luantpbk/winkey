@@ -251,7 +251,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	if err := os.RemoveAll(work); err != nil {
 		return Stats{}, fmt.Errorf("clean scratch: %w", err)
 	}
-	if err := os.MkdirAll(work, 0o755); err != nil {
+	if err := os.MkdirAll(work, 0o750); err != nil {
 		return Stats{}, fmt.Errorf("create scratch: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(work) }()
@@ -512,21 +512,21 @@ func contentType(rel string) string {
 // archive copies the raw file to ArchiveDir/{owner}/{video}/source atomically.
 func archive(src, dir string, v Video) error {
 	dst := filepath.Join(dir, v.OwnerID.String(), v.ID.String(), "source")
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
-	in, err := os.Open(src)
+	in, err := os.Open(src) // #nosec G304 -- src is the downloaded raw file in UUID-scoped worker scratch.
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	tmp := dst + ".part"
-	out, err := os.Create(tmp)
+	out, err := os.Create(tmp) // #nosec G304 -- archive path combines configured root, validated UUIDs and a fixed filename.
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		_ = os.Remove(tmp)
 		return err
 	}

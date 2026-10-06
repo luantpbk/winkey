@@ -32,7 +32,7 @@ func ParseMaster(text string) []Variant {
 			val := strings.Trim(m[2], `"`)
 			switch m[1] {
 			case "BANDWIDTH":
-				fmt.Sscanf(val, "%d", &v.Bandwidth)
+				_, _ = fmt.Sscanf(val, "%d", &v.Bandwidth)
 			case "RESOLUTION":
 				v.Resolution = val
 			case "CODECS":
@@ -62,7 +62,7 @@ var (
 // ffmpeg appends the variant index/name to -hls_fmp4_init_filename (e.g.
 // init_0.mp4), so the init file is located through #EXT-X-MAP, not by name.
 func VerifyOutput(dir string, rs []Rendition) error {
-	raw, err := os.ReadFile(filepath.Join(dir, MasterPlaylist))
+	raw, err := os.ReadFile(filepath.Join(dir, MasterPlaylist)) // #nosec G304 -- fixed playlist name inside worker-generated local output.
 	if err != nil {
 		return fmt.Errorf("master playlist missing: %w", err)
 	}
@@ -90,7 +90,7 @@ func VerifyOutput(dir string, rs []Rendition) error {
 }
 
 func verifyVariant(dir string) error {
-	raw, err := os.ReadFile(filepath.Join(dir, "index.m3u8"))
+	raw, err := os.ReadFile(filepath.Join(dir, "index.m3u8")) // #nosec G304 -- fixed playlist name inside worker-generated local output.
 	if err != nil {
 		return fmt.Errorf("playlist missing: %w", err)
 	}
@@ -99,7 +99,7 @@ func verifyVariant(dir string) error {
 	if m == nil {
 		return fmt.Errorf("playlist has no #EXT-X-MAP")
 	}
-	if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(m[1]))); err != nil || st.Size() == 0 {
+	if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(m[1]))); err != nil || st.Size() == 0 { // #nosec G703 -- names come from FFmpeg-generated local playlists, never user-supplied manifests.
 		return fmt.Errorf("init segment %q missing or empty", m[1])
 	}
 	segs := 0
@@ -109,7 +109,7 @@ func verifyVariant(dir string) error {
 			continue
 		}
 		segs++
-		if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(l))); err != nil || st.Size() == 0 {
+		if st, err := os.Stat(filepath.Join(dir, filepath.FromSlash(l))); err != nil || st.Size() == 0 { // #nosec G703 -- names come from FFmpeg-generated local playlists, never user-supplied manifests.
 			return fmt.Errorf("segment %q missing or empty", l)
 		}
 	}

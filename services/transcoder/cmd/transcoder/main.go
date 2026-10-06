@@ -80,7 +80,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	log.Info("starting", "encoder", encoder, "hwaccel_decode", cfg.HWAccelDecode, "concurrency", concurrency, "worker_id", host,
 		"scratch_dir", cfg.ScratchDir, "archive_dir", cfg.ArchiveDir)
 
-	if err := os.MkdirAll(cfg.ScratchDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.ScratchDir, 0o750); err != nil {
 		return fmt.Errorf("scratch dir: %w", err)
 	}
 	worker.CleanScratch(cfg.ScratchDir, log)

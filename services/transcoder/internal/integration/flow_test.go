@@ -100,7 +100,7 @@ func (s *stack) seed(t *testing.T, path string) (videoID, ownerID uuid.UUID) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	st, _ := f.Stat()
 	if s.g != nil { // without Garage the row and event are enough
 		if _, err := s.g.S3Client().PutObject(ctx, &s3.PutObjectInput{

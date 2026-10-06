@@ -104,7 +104,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		return sum, err
 	}
 	if !r.Opt.DryRun {
-		if err := os.MkdirAll(r.Opt.ScratchDir, 0o755); err != nil {
+		if err := os.MkdirAll(r.Opt.ScratchDir, 0o750); err != nil {
 			sum.Duration = time.Since(start)
 			return sum, fmt.Errorf("scratch dir: %w", err)
 		}
@@ -288,14 +288,14 @@ func errorClass(err error) string {
 // fetchRendition downloads index.m3u8 of a rendition and every file it names (the fMP4 init
 // segment and the media segments) into dir, from the same key prefix.
 func (r *Runner) fetchRendition(ctx context.Context, playlistKey, dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	local := filepath.Join(dir, "index.m3u8")
 	if err := r.Objects.Download(ctx, r.Opt.MediaBucket, playlistKey, local); err != nil {
 		return fmt.Errorf("download playlist: %w", err)
 	}
-	raw, err := os.ReadFile(local)
+	raw, err := os.ReadFile(local) // #nosec G304 -- local is the playlist downloaded into this video's private scratch directory.
 	if err != nil {
 		return err
 	}

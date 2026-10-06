@@ -55,7 +55,7 @@ func parseEnvFile(t *testing.T, path string) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	out := map[string]string{}
 	sc := bufio.NewScanner(f)
 	for n := 1; sc.Scan(); n++ {
@@ -173,7 +173,7 @@ func parseUnit(t *testing.T, path string) map[string]map[string][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	out := map[string]map[string][]string{}
 	section := ""
 	sc := bufio.NewScanner(f)

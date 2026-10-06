@@ -73,10 +73,10 @@ func BuildHLSArgs(p HLSPlan) []string {
 	} else {
 		fg.WriteString("[0:v:0]split=" + strconv.Itoa(n))
 		for i := 0; i < n; i++ {
-			fg.WriteString(fmt.Sprintf("[s%d]", i))
+			_, _ = fmt.Fprintf(&fg, "[s%d]", i)
 		}
 		for i, r := range p.Renditions {
-			fg.WriteString(fmt.Sprintf(";[s%d]%s[v%d]", i, chain(r, fps), i))
+			_, _ = fmt.Fprintf(&fg, ";[s%d]%s[v%d]", i, chain(r, fps), i)
 		}
 	}
 	a = append(a, "-filter_complex", fg.String())
