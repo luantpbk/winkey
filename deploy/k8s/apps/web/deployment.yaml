@@ -47,8 +47,8 @@ spec:
               value: 'https://media.winkey.vn'
           resources:
             requests:
-              cpu: 150m
-              memory: 384Mi
+              cpu: 50m
+              memory: 192Mi
             limits:
               cpu: 500m
               memory: 768Mi

@@ -31,7 +31,7 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 | `storage` | LV `ocivolume/data` (110 GB, XFS) on `/var/lib/rancher/k3s/storage`, so Garage/Postgres cannot fill `/` |
 | `k3s_server` | `/etc/rancher/k3s/config.yaml`, pinned k3s install, Traefik `HelmChartConfig`; asserts `FLANNEL_MTU <= 1230` |
 | `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `s3.winkey.vn`, `media.winkey.vn`), `proxy_cache` on host disk (10 GB max), `client_max_body_size 64m` on s3, and Certbot TLS |
-| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432/30900 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
+| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), and fixed internal NodePorts 30422/30432/30900 (ADR-015) via `/var/lib/rancher/k3s/server/manifests/` |
 | `storage_k3s` | Garage S3 storage cluster on k3s via Kustomize (task STO) |
 | `data_k3s` | CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and database setup jobs (task DATA) |
 | `apps_k3s` | Winkey product services (auth, upload, video, social, realtime, web) via Kustomize (task I2) |
@@ -67,9 +67,8 @@ client ─443─► host nginx ── winkey.vn, media., s3.  ─► Traefik Nod
 
 Kubernetes manifests are located under `deploy/k8s/edge/`:
 - `middlewares.yaml`: `strip-user-headers` (removes client `X-User-Id` / `X-User-Roles`), `auth-verify` (forwardAuth to `http://auth-svc:3001/v1/auth/verify`), and `rate-limit` (per client IP).
-- `ingressroute.yaml`: Traefik `IngressRoute` implementing exact path rules from `deploy/compose/traefik/dynamic.yml` (`/v1/*` routes, `/smoke/whoami`, and web `/` excluding `/v1`).
+- `ingressroute.yaml`: Traefik `IngressRoute` implementing exact path rules from `deploy/compose/traefik/dynamic.yml` (`/v1/*` routes and web `/` excluding `/v1`).
 - `nodeports.yaml`: Internal NodePorts 30422 (NATS), 30432 (PostgreSQL), and 30900 (Garage S3) bound strictly to the Tailscale IP per ADR-015.
-- `whoami.yaml`: Stand-in upstream for smoke testing gateway header stripping and routing.
 - `clusterip-services.yaml`: ClusterIP service definitions for in-cluster service resolution.
   - `social-svc`: port 3004 with `targetPort: http` (note: when deploying social-svc in task I2, configure `HTTP_PORT=3004` matching compose, or name container port `http`).
   - `realtime-svc`: port 3005 with `targetPort: http` (note: realtime-svc in #57 defaults to `HTTP_PORT=8003`; when deploying in task I2, ensure the container port is named `http` or configure `HTTP_PORT=3005`).

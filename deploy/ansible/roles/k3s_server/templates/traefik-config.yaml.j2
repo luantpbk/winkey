@@ -24,3 +24,9 @@ spec:
         nodePort: {{ traefik_nodeport_websecure }}
         forwardedHeaders:
           trustedIPs: {{ traefik_trusted_ips | to_json }}
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
