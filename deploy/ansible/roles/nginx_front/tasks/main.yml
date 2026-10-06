@@ -1,3 +1,31 @@
+- name: Grant nginx traverse-only access on k3s storage root via ACL
+  ansible.posix.acl:
+    path: /var/lib/rancher/k3s/storage
+    entity: nginx
+    etype: user
+    permissions: --x
+    state: present
+  when:
+    - nginx_front.media_cache_path is defined
+    - nginx_front.media_cache_path.startswith('/var/lib/rancher/k3s/storage')
+
+- name: Set SELinux fcontext for nginx media cache on k3s storage
+  community.general.sefcontext:
+    target: '/var/lib/rancher/k3s/storage/nginx-cache(/.*)?'
+    setype: httpd_cache_t
+    state: present
+  when:
+    - ansible_selinux.status == 'enabled'
+    - nginx_front.media_cache_path is defined
+    - nginx_front.media_cache_path.startswith('/var/lib/rancher/k3s/storage')
+  register: media_cache_sefcontext
+
+- name: Restore SELinux context on nginx media cache
+  ansible.builtin.command: restorecon -F -Rv /var/lib/rancher/k3s/storage/nginx-cache
+  when:
+    - ansible_selinux.status == 'enabled'
+    - media_cache_sefcontext.changed
+
 - name: Ensure nginx media cache directories exist
   ansible.builtin.file:
     path: "{{ item }}"

@@ -78,7 +78,6 @@ updates:
   - package-ecosystem: 'docker'
     directories:
       - '/deploy/k8s/data'
-      - '/deploy/k8s/storage'
       - '/deploy/k8s/edge'
     schedule:
       interval: 'weekly'

@@ -30,9 +30,8 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 | `firewall` | public: `http`, `https`, `41641/udp`. trusted: `tailscale0`, pod CIDR, service CIDR |
 | `storage` | LV `ocivolume/data` (110 GB, XFS) on `/var/lib/rancher/k3s/storage`, so Garage/Postgres cannot fill `/` |
 | `k3s_server` | `/etc/rancher/k3s/config.yaml`, pinned k3s install, Traefik `HelmChartConfig`; asserts `FLANNEL_MTU <= 1230` |
-| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `s3.winkey.vn`, `media.winkey.vn`), `proxy_cache` on host disk (10 GB max), `client_max_body_size 64m` on s3, and Certbot TLS |
-| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432/30900 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
-| `storage_k3s` | Garage S3 storage cluster on k3s via Kustomize (task STO) |
+| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `media.winkey.vn`), `proxy_cache` on host LV data (40 GB max, ADR-032), and Certbot TLS |
+| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
 | `data_k3s` | CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and database setup jobs (task DATA) |
 | `apps_k3s` | Winkey product services (auth, upload, video, social, realtime, web) via Kustomize (task I2) |
 
