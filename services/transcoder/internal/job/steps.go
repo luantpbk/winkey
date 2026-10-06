@@ -49,11 +49,19 @@ func (t *timings) add(step string, d time.Duration, failed bool) {
 	t.mu.Unlock()
 }
 
-// snapshot returns the recorded steps in the order they finished.
+// snapshot returns steps by identity in pipeline order, independent of completion order.
 func (t *timings) snapshot() []StepTiming {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return append([]StepTiming(nil), t.steps...)
+	out := make([]StepTiming, 0, len(t.steps))
+	for _, name := range Steps {
+		for _, step := range t.steps {
+			if step.Step == name {
+				out = append(out, step)
+			}
+		}
+	}
+	return out
 }
 
 // stageSeconds is the `stage_seconds` object of the summary log line: seconds per step, to the millisecond.
