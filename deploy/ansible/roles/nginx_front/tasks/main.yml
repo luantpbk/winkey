@@ -6,7 +6,7 @@
     group: nginx
     mode: "0700"
   loop:
-    - /var/cache/nginx/winkey-media
+    - "{{ nginx_front.media_cache_path | default('/var/cache/nginx/winkey-media') }}"
     - /var/cache/nginx/winkey-media-auth
 
 - name: Slurp media link secret from host

@@ -17,4 +17,5 @@ nginx_front:
     - winkey.vn
     - www.winkey.vn
     - media.winkey.vn
-    - s3.winkey.vn
+  media_cache_path: /var/lib/rancher/k3s/storage/nginx-cache/winkey-media
+  media_cache_max_size: 40g
