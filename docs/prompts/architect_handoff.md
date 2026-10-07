@@ -70,7 +70,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
 
-# STATE (updated 2026-10-07, by Claude Opus A)
+# STATE (updated 2026-10-07, by ChatGPT Astra, acting architect)
 ## Live in production
 - R2 recommendations (ADR-028) and the R2-ab experiment (ADR-030). Decide no earlier than 2026-10-19, and only with
   ≥ 200 active viewers per arm.
@@ -95,19 +95,22 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
   - the smoke code is in `/etc/winkey/smoke.env`.
 - Postgres schema_migrations = 18; ClickHouse 0001 + 0002.
 
-## Merged, not yet deployed
-- **CIN1 cinema home** (#267, `ba5795c`):
-  - `/` is the cinema home, with CinemaShell, `/kham-pha`, and 308 redirects for `/?tab=` and `/phim`;
-  - the hero is server-rendered, with SEO tags;
-  - the design is in `docs/design/cinema-home/` (ADR-033 + addendum).
-  - Waiting for Antigravity 2 to pin the web digest and roll it out with the `CINEMA_CURATOR_HANDLE` and
-    `FEEDBACK_URL` env (both may be empty).
+## CIN1 rollout accepted and merged
+- CIN1 cinema home (#267, main `ba5795c`) is live; rollout PR #269 squash-merged as
+  `0a5843b0a661bcc4bcc736ebf48bebb056a71766` using exact head
+  `70bc385613c8d3e6063d14868832213c7cd8c6cd`, with green CI.
+- Astra programmatically matched the web pin against `containerimage.digest` in images run 37585564468,
+  web job 112675397392, for main `ba5795cca24e8dd2160f8c249c07dd9a308daa1b`.
+- Independent production check: home 200 with cinema hero/title; both redirects 308; kendrickheller.com,
+  cuuhohanam.com, kidzlab.edu.vn and sblaichau.vn all 200. rs.kendrickheller.com also 200.
+- CINEMA_CURATOR_HANDLE and FEEDBACK_URL are empty. Remove the redundant NEXT_PUBLIC_FEEDBACK_URL in the later
+  BETA1-web rollout.
 
 ## In progress
 | Agent | Task | Brief | What to check |
 |---|---|---|---|
-| Antigravity 2 | CIN1 rollout | BETA-ops C2 | digest = CI `containerimage.digest` of `ba5795c`; `/` shows the cinema home; the redirects work; the 4 legacy sites return 200 |
-| Antigravity 1 | BETA1-web | `antigravity-1_BETA1web_invite-legal.md` | see the next 4 items |
+| Antigravity 2 | LT2 temporary generator preparation | BETA-ops D | give the user exact OCI/Tailscale steps; ap-singapore-1, A1 arm64 2 OCPU/12 GB; same-night VM and boot-volume deletion; no load before gates pass |
+| Antigravity 1 | BETA1-web, PR #270 | `antigravity-1_BETA1web_invite-legal.md` | see the next 4 items |
 | Antigravity 4 | LT2 harness, PR #263 | `antigravity-4_LT2_production-1000-viewers.md` | see the LT2 items below; **must not run until merged** |
 
 BETA1-web must:
@@ -119,27 +122,46 @@ BETA1-web must:
     hidden when empty, https or mailto only;
   - on mobile, the hero ⓘ button stays on the same row as the other buttons.
 
-LT2 harness (#263) open review items:
-- deleteMe is `DELETE /v1/auth/me`, and only 204 counts as success (it currently uses `/v1/me` and accepts 404);
-- log in again before the delete, because tokens last 15 min;
-- create the account file before the run, without passwords or tokens, so cleanup works after an abort;
-- 5 accounts at most (register is limited to 5/h/IP);
-- purge the comments the run created;
-- the aggregate non-seek ratio is the gate;
-- legacy-site watchdog;
-- CI lint is red.
+Astra review observations (2026-10-07):
+- #270 head `f4528b05c9d54133a66910c60cace783060e87dd`: CI green; independent register/legal unit tests 23/23
+  and production build pass. FEEDBACK_URL is read in the layout without request-time opt-in; the build confirms
+  /register is prerendered without revalidation. HTTP runtime smoke on this Windows host was inconclusive
+  (redirect/timeout). Require a build-once/runtime-change regression test, including a sidebar route.
+- The hero mobile row has the requested nowrap/sizing changes; require the brief's actual Playwright outputs,
+  mobile evidence and 10 consecutive new-test passes before acceptance.
+
+LT2 harness #263 head `60ed525b47866cff452a0729412ea4e90a2f25f0`: NOT APPROVED; do not run production.
+- Fixed in the diff: deleteMe path /v1/auth/me, 204 success branch, fresh login before deletion, max 5 preseed
+  accounts and metadata journal written before registrations.
+- Still blocking: cleanup swallows failures and deletes recovery journals. Astra reproduced a 401 login on a local
+  fake server: no deletion, exit 0, metadata journal removed. Retain unresolved records and return nonzero.
+- Comment IDs are appended to per-VU setup-data copies; teardown never receives those mutations, and the comments
+  file stays empty. Persist/recover comment IDs and confirm deletion before deleting accounts.
+- Aggregate non-seek ratio is not computed/enforced; p95 still controls the threshold. Use sum(stall)/(sum(watch)
+  + sum(stall)), report both ratios and propagate the aggregate result to the runner's exit status.
+- Watchdog is optional, treats HTTP 500 as curl success, and does not reliably stop both Docker generators.
+  Require all four sites, check HTTP 200, handle INT/TERM, stop/wait both containers, then cleanup.
+- HTTP >5% for one minute and edge available RAM <1 GiB need operational abort enforcement/explicit monitoring.
+  Preserve each generator's result: `wait PID_HLS PID_API` only returns the last status.
+- Tokens are written to disk; login/refresh in memory using the metadata journal. Refresh during the 35-minute
+  workload too (15-minute token lifetime). Do not fall back to unjournaled registrations after preseed failure.
+- Root lint & format CI remains red; add deterministic offline tests for the failure and abort paths.
 
 ## Beta gate order (ADR-034)
-SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 (merged; rollout pending) + BETA1-web ⏳ → LT2 ⏳.
+SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (changes requested) → LT2 ⏳ (changes requested).
 
 Then the user sends the first wave of invites, using the link `https://winkey.vn/register?invite=<code>`. This happens
 only after BETA1-web is deployed AND LT2 has passed.
 - LT2 window: 02:00–03:30 Asia/Ho_Chi_Minh, from the night of 2026-10-09.
 - Generator: a temporary OCI A1 VM (BETA-ops D), deleted the same night.
 
+## Legal text filled; BETA1-web deploy pending
+- User supplied the legal details on 2026-10-07. Astra filled docs/legal and matching web copies; effective date
+  is 10/10/2026 and backup retention is 14 days. These source documents and matching web copies are committed
+  together in the Astra continuity docs PR; include these exact copies before
+  BETA1-web deploys. Do not announce invitations ready before the chosen effective date.
+
 ## Waiting on the user
-- Fill the `[…]` placeholders in docs/legal/*.md (operator name, address, contact email, effective date, OCI region)
-  before BETA1-web is deployed. The architect commits the user's text; it is never invented.
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: create the OCI VM and an ephemeral Tailscale key (Antigravity 2 gives the exact steps).
 - Drop the `qoe_ro` ClickHouse user (if not done).
