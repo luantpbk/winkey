@@ -42,6 +42,7 @@ export const options = {
 };
 
 const TARGET_URL = __ENV.TARGET_URL || 'https://winkey.vn';
+const COLLECTOR_URL = __ENV.COLLECTOR_URL || 'http://127.0.0.1:9999';
 
 const isLocalhost =
   TARGET_URL.includes('localhost') ||
@@ -164,7 +165,7 @@ export function setup() {
   }
 
   const finalUsers = lt2Accounts.length > 0 ? lt2Accounts : seedUsers;
-  return { users: finalUsers, videos: videoList, createdComments: [] };
+  return { users: finalUsers, videos: videoList };
 }
 
 export default function (data) {
@@ -234,11 +235,17 @@ export default function (data) {
         if (res.status === 201) {
           try {
             const body = JSON.parse(res.body);
-            if (body && body.id && Array.isArray(data.createdComments)) {
-              data.createdComments.push({
-                id: body.id,
-                userEmail: selectedUser.email,
-              });
+            if (body && body.id) {
+              // Flush comment ID to collector for persistent data recovery tracking
+              http.post(
+                `${COLLECTOR_URL}/comment`,
+                JSON.stringify({
+                  id: body.id,
+                  authorEmail: selectedUser.email,
+                  authorHandle: selectedUser.handle,
+                }),
+                { headers: { 'Content-Type': 'application/json' }, timeout: '1s' },
+              );
             }
           } catch {
             // ignore
@@ -275,7 +282,6 @@ export default function (data) {
 export function teardown(data) {
   const users = data && Array.isArray(data.users) ? data.users : [];
   const lt2Users = users.filter((u) => u.handle && u.handle.startsWith('lt2_'));
-  const comments = data && Array.isArray(data.createdComments) ? data.createdComments : [];
 
   if (lt2Users.length > 0) {
     console.log(`[teardown] Teardown starting for ${lt2Users.length} lt2 accounts...`);
@@ -298,15 +304,7 @@ export function teardown(data) {
 
         const freshToken = JSON.parse(loginRes.body).access_token;
 
-        // Step 2: Delete any comments created by this user
-        const userComments = comments.filter((c) => c.userEmail === u.email);
-        for (const c of userComments) {
-          http.del(`${TARGET_URL}/v1/comments/${c.id}`, null, {
-            headers: { Authorization: `Bearer ${freshToken}` },
-          });
-        }
-
-        // Step 3: Call DELETE /v1/auth/me with confirm_handle and password
+        // Step 2: Call DELETE /v1/auth/me with confirm_handle and password
         const delBody = JSON.stringify({
           confirm_handle: u.handle,
           password: envPassword,
@@ -331,6 +329,6 @@ export function teardown(data) {
       }
       sleep(0.5);
     }
-    console.log('[teardown] lt2 accounts deletion completed.');
+    console.log('[teardown] lt2 accounts teardown completed.');
   }
 }
