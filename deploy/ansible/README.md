@@ -88,6 +88,8 @@ Verifies:
 4. Traefik rate limiting triggers HTTP 429 under concurrent bursts.
 5. S3/media proxy caching behavior (`MISS` then `HIT`).
 6. NodePorts 30422, 30432, 30900 are TCP unreachable from the public IP.
+7. User authentication lifecycle (register -> login -> /v1/auth/me) with automated throwaway cleanup via `DELETE /v1/auth/me` (`deleteMe`, ADR-034, #249). Reads `INVITE_CODE` from environment or `/etc/winkey/smoke.env`.
+8. Direct multipart upload and SEC1 media access control checks (credential-free).
 
 
 ### Do not set `traefik_service_type: LoadBalancer` on edge-1
