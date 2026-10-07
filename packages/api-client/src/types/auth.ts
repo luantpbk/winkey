@@ -12,6 +12,12 @@ export interface paths {
          * Create an account with email and password.
          * @description Also queues a `VERIFY_EMAIL` mail in the same transaction (task A6, see `resendEmailVerification`).
          *     An unverified email blocks nothing yet; the user sees a reminder in the web app.
+         *
+         *     Closed beta (task BETA1, ADR-034): when auth-svc runs with `REGISTRATION_MODE=invite`, a new account
+         *     needs a valid `invite_code`. Missing → `403` code `INVITE_REQUIRED`; not one of the configured codes →
+         *     `403` code `INVITE_INVALID`. Both are checked before any other conflict, so the response never reveals
+         *     whether an email or handle exists. With `REGISTRATION_MODE=open` (default) `invite_code` is accepted
+         *     and ignored. Existing accounts sign in normally in both modes.
          */
         post: operations["register"];
         delete?: never;
@@ -264,7 +270,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Google OAuth callback. Links or creates the account, sets `wk_rt`, redirects to `return_to`. */
+        /**
+         * Google OAuth callback. Links or creates the account, sets `wk_rt`, redirects to `return_to`.
+         * @description With `REGISTRATION_MODE=invite` (ADR-034), creating a NEW account needs the `invite_code` given to
+         *     `googleStart`. Missing → redirect to `/register?error=INVITE_REQUIRED`; invalid → redirect to
+         *     `/register?error=INVITE_INVALID`. In both cases no user is created and `wk_rt` is not set. Linking to an
+         *     existing account (same verified email) and signing in an already linked account never need a code.
+         */
         get: operations["googleCallback"];
         put?: never;
         post?: never;
@@ -455,6 +467,8 @@ export interface components {
             password: string;
             handle: string;
             display_name: string;
+            /** @description Closed-beta invite (ADR-034). Required only when auth-svc runs with `REGISTRATION_MODE=invite`. */
+            invite_code?: string;
         };
         LoginRequest: {
             /** Format: email */
@@ -622,6 +636,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Authenticated but not allowed. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Resource is in a state that does not allow this operation. */
         Conflict: {
             headers: {
@@ -643,15 +666,6 @@ export interface components {
         };
         /** @description Missing or invalid credentials. */
         Unauthorized: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
-        /** @description Authenticated but not allowed. */
-        Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
@@ -705,6 +719,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
         };
@@ -991,6 +1006,13 @@ export interface operations {
             query?: {
                 /** @description Relative path to return to after sign-in. Absolute URLs are rejected. */
                 return_to?: string;
+                /**
+                 * @description Closed beta (ADR-034). Carried in the signed, HttpOnly OAuth state cookie next to the PKCE verifier
+                 *     (never sent to Google) and checked in the callback only when the Google account is not linked to an
+                 *     existing user. Not validated here, so a
+                 *     wrong code is reported after the Google round trip.
+                 */
+                invite_code?: string;
             };
             header?: never;
             path?: never;

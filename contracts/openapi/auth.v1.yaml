@@ -47,6 +47,12 @@ paths:
       description: |
         Also queues a `VERIFY_EMAIL` mail in the same transaction (task A6, see `resendEmailVerification`).
         An unverified email blocks nothing yet; the user sees a reminder in the web app.
+
+        Closed beta (task BETA1, ADR-034): when auth-svc runs with `REGISTRATION_MODE=invite`, a new account
+        needs a valid `invite_code`. Missing → `403` code `INVITE_REQUIRED`; not one of the configured codes →
+        `403` code `INVITE_INVALID`. Both are checked before any other conflict, so the response never reveals
+        whether an email or handle exists. With `REGISTRATION_MODE=open` (default) `invite_code` is accepted
+        and ignored. Existing accounts sign in normally in both modes.
       security: []
       requestBody:
         required: true
@@ -67,6 +73,8 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '409':
           $ref: './common.yaml#/components/responses/Conflict'
         '429':
@@ -387,6 +395,18 @@ paths:
           schema:
             type: string
             pattern: '^/[^/].*$|^/$'
+        - name: invite_code
+          in: query
+          required: false
+          description: |
+            Closed beta (ADR-034). Carried in the signed, HttpOnly OAuth state cookie next to the PKCE verifier
+            (never sent to Google) and checked in the callback only when the Google account is not linked to an
+            existing user. Not validated here, so a
+            wrong code is reported after the Google round trip.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
       responses:
         '302':
           description: Redirect to Google.
@@ -398,6 +418,11 @@ paths:
       tags: [auth]
       operationId: googleCallback
       summary: Google OAuth callback. Links or creates the account, sets `wk_rt`, redirects to `return_to`.
+      description: |
+        With `REGISTRATION_MODE=invite` (ADR-034), creating a NEW account needs the `invite_code` given to
+        `googleStart`. Missing → redirect to `/register?error=INVITE_REQUIRED`; invalid → redirect to
+        `/register?error=INVITE_INVALID`. In both cases no user is created and `wk_rt` is not set. Linking to an
+        existing account (same verified email) and signing in an already linked account never need a code.
       security: []
       parameters:
         - name: code
@@ -728,6 +753,12 @@ components:
           type: string
           minLength: 1
           maxLength: 50
+        invite_code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          writeOnly: true
+          description: Closed-beta invite (ADR-034). Required only when auth-svc runs with `REGISTRATION_MODE=invite`.
 
     LoginRequest:
       type: object

@@ -722,3 +722,55 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Có ngay một trang "web phim" mà backend không phải làm gì. Edge có thêm vài request API mỗi lượt vào trang, phần lớn được cache 60 s (trending, ẩn danh).
 - Thể loại, năm, phim bộ/tập, poster dọc và xem tiếp đồng bộ giữa thiết bị là **CIN2**: cần contract (`Video.genres`, collection kiểu series, ảnh poster), migration và việc của transcoder. Chỉ làm khi user muốn, sau khi CIN1 đã chạy.
 - Lượt phát từ Trang phim mang các surface sẵn có, nên chưa tách được hiệu quả riêng của trang này. Nếu cần đo, thêm `cinema` vào enum `surface` là một thay đổi contract nhỏ, cộng thêm (giống R2-ab).
+- **Phần bổ sung 2026-10-07: Trang phim là trang chủ.** User quyết định trang phim thay trang chủ hiện tại. Bản thiết kế có độ chi tiết cao nằm ở `docs/design/cinema-home/`, gồm desktop, hộp chi tiết, mobile, trạng thái thẻ và token. Bản thiết kế là chuẩn khi brief và hình khác nhau ở chi tiết trình bày; brief là chuẩn về dữ liệu và hành vi.
+  - **Route.**
+    - `/` (và `/en`) là trang phim.
+    - Trang chủ dạng lưới theo tab cũ chuyển sang `/kham-pha` ("Khám phá"), giữ nguyên tab và `surface`.
+    - `/?tab=<x>` chuyển hướng 308 sang `/kham-pha?tab=<x>`, để link cũ vẫn chạy.
+    - `/phim` chuyển hướng 308 về `/`.
+  - **Vỏ trang riêng (`CinemaShell`), chỉ dùng cho `/`.** Các trang khác giữ `Shell` hiện tại.
+    - Desktop không có sidebar. Thanh trên trong suốt, nằm đè lên banner, và chuyển sang nền đặc `#0A0A0D` khi cuộn quá 64 px.
+    - Thanh trên có các link: Trang chủ `/`, Thịnh hành `/trending`, Khám phá `/kham-pha`, Đang theo dõi `/feed/subscriptions` (khi đã đăng nhập), Danh sách của tôi `/playlist/watch-later` (khi đã đăng nhập).
+    - Bên phải thanh trên: tìm kiếm, tải lên, chuông thông báo, menu tài khoản. Studio và Admin nằm trong menu tài khoản.
+    - Mobile dưới 768 px dùng thanh tab dưới đáy: Trang chủ, Khám phá, Tải lên, Thông báo, Tôi.
+    - Banner nhắc xác minh email vẫn hiện, ngay dưới thanh trên.
+  - **Chân trang của vỏ phim** có Điều khoản, Quyền riêng tư, Quy tắc cộng đồng và Góp ý beta (ADR-034).
+  - `surface` (ADR-030) của từng hàng giữ nguyên như bảng ở trên.
+  - **SEO.** `/` có `<title>` "Winkey – Xem video, phim và clip", meta description và Open Graph lấy từ banner đầu. Trang render phía server phần khung và banner đầu (dữ liệu trending ẩn danh, cache 60 s), còn các hàng chỉ tải khi sắp vào màn hình.
+
+### ADR-034 — Beta kín: mã mời, các bước bắt buộc trước khi mời người dùng
+**Bối cảnh.** Chức năng P2 đã chạy trên production. User muốn chạy beta và giao kiến trúc sư tự quyết các việc tồn đọng. Các tiêu chí hiện có: P2 cần LT2 (1.000 người xem, rebuffer < 1 %) và 50 beta user. SEC0 vẫn còn mở. #249 (tài khoản test) chưa làm. LEGAL (ví dụ Nghị định 147/2024/NĐ-CP) là nghĩa vụ của một mạng xã hội **mở công khai**.
+**Quyết định.**
+- **Beta là beta kín, có mã mời**, tối đa khoảng 100 tài khoản mới. Chưa quảng bá công khai. Trang xem và nội dung công khai vẫn ai cũng xem được, kể cả không đăng nhập (giống hôm nay). Chỉ việc **tạo tài khoản mới** cần mã mời.
+- **Mã mời (BETA1).**
+  - auth-svc có `REGISTRATION_MODE` = `open` | `invite` (mặc định `open`) và `INVITE_CODES`. `INVITE_CODES` là Secret, gồm các mã cách nhau bằng dấu phẩy, mỗi mã 12–64 ký tự `[A-Za-z0-9-]`; mã không hợp lệ thì service không khởi động.
+  - So khớp bằng `timingSafeEqual` trên SHA-256 của mã. Không giới hạn số lần dùng, không bảng mới, không migration. Đổi hoặc thu hồi mã bằng cách đổi Secret rồi restart; tài khoản đã tạo không bị ảnh hưởng.
+  - Mỗi đợt mời một mã, ví dụ `wk-beta1-…`, để biết ai đến từ đợt nào: log ghi **chỉ số thứ tự** của mã (`invite_index`), không bao giờ ghi bản thân mã.
+  - Contract: `RegisterRequest.invite_code`, lỗi `403` `INVITE_REQUIRED` / `INVITE_INVALID`, `googleStart?invite_code=`, callback chuyển về `/register?error=…`.
+  - Kiểm mã **trước** mọi kiểm tra trùng email hoặc handle (không lộ tài khoản). Rate limit hiện có vẫn áp dụng.
+  - Web: link mời `https://winkey.vn/register?invite=<mã>` điền sẵn mã. Nút Google mang mã theo. Thông báo lỗi bằng tiếng Việt.
+- **Văn bản pháp lý bản beta.**
+  - Kiến trúc sư soạn `docs/legal/` (Điều khoản sử dụng, Chính sách quyền riêng tư theo Nghị định 13/2023/NĐ-CP, Quy tắc cộng đồng), có chỗ trống `[…]` cho thông tin chủ thể vận hành mà user phải điền.
+  - Web hiển thị nguyên văn ở `/dieu-khoan`, `/quyen-rieng-tu`, `/quy-tac-cong-dong`. Form đăng ký có ô bắt buộc "Tôi đồng ý…" (chỉ ở client; contract không lưu).
+  - **Trước khi mở công khai** user vẫn phải nhờ tư vấn pháp lý rà lại (task LEGAL giữ nguyên, và chặn public launch chứ không chặn beta kín).
+- **Góp ý beta:** link ở chân trang trỏ tới `FEEDBACK_URL`, một biến runtime của web, ví dụ Google Form hoặc `mailto:`. Biến trống thì ẩn link.
+- **Bắt buộc trước khi gửi mã mời đầu tiên.** Thứ tự không đổi; việc nào song song được thì làm song song.
+  1. **SEC0** (Antigravity 2):
+     - Cockpit 9090 và cổng 7890 chỉ mở qua `tailscale0`, đóng khỏi public;
+     - PostgreSQL host chỉ nghe `127.0.0.1` (và giao diện cho pod nếu cần, như hiện tại);
+     - SSH chỉ dùng key, không cho đăng nhập root;
+     - `www.winkey.vn` có DNS và cert, chuyển hướng 301 về `winkey.vn`.
+  2. **#249** (Antigravity 2): khoá (suspend) mọi tài khoản test, xoá hẳn những tài khoản còn biết mật khẩu. Chỉ giữ tài khoản của user, tức các tài khoản có role `admin` mà user xác nhận là của mình. Không có ngoại lệ nào khác.
+  3. **BETA1** chạy trên production với `REGISTRATION_MODE=invite`.
+  4. **CIN1** (trang chủ phim) và **BETA1-web** (form mời, trang pháp lý, chân trang) đã deploy.
+  5. **LT2** đạt: 1.000 người xem HLS đồng thời, rebuffer < 1 %, lỗi HTTP < 1 %, 4 site cũ không sập.
+     - Máy tạo tải là **một VM OCI A1 tạm**, dùng phần free tier còn lại (2 OCPU / 12 GB, cùng region). Máy nhà không đủ băng thông tải xuống: 1.000 người xem cần khoảng 1,5 Gbit/s.
+     - Chạy trong khung **02:00–03:30 giờ Việt Nam**, từ đêm 09/10/2026.
+     - Xoá VM ngay sau khi chạy.
+     - Tài khoản ghi (comment, like) là ≤ 20 tài khoản `lt2_*`, tạo bằng một mã mời riêng và tự xoá (`deleteMe`) ngay sau khi chạy.
+     - Không upload video mới: dùng các video công khai đang có.
+- **Không chặn beta kín:** LEGAL (chặn public launch), QOE3, follow-up QOE2, R2-ab, node-01. Sonnet và Sonnet 2 vẫn tạm dừng, vì ChatGPT đủ cho phần Go.
+**Hệ quả.**
+- Beta có cổng vào kiểm soát được mà không cần bảng hay migration. Đổi lại, mã có thể bị chia sẻ lại, nên giữ mỗi đợt nhỏ và thay mã khi cần.
+- Smoke test và load test tạo tài khoản trên production phải dùng một mã mời riêng, chỉ để trên host (`read -rs`).
+- Mở công khai về sau chỉ cần đặt `REGISTRATION_MODE=open`, sau khi LEGAL xong.
