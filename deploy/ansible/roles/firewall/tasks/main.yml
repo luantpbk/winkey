@@ -22,6 +22,25 @@
     immediate: true
     state: enabled
 
+- name: Remove cockpit service from public zone
+  ansible.posix.firewalld:
+    zone: public
+    service: cockpit
+    permanent: true
+    immediate: true
+    state: disabled
+
+- name: Remove unneeded ports from public zone (SEC0 / ADR-034)
+  ansible.posix.firewalld:
+    zone: public
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: disabled
+  loop:
+    - 9090/tcp
+    - 7890/tcp
+
 - name: Tailnet traffic is trusted (Tailscale ACLs already filter it)
   ansible.posix.firewalld:
     zone: trusted
