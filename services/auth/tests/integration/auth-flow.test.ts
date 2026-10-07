@@ -1614,7 +1614,7 @@ describe('auth-svc full integration flow', () => {
       });
       expect(startRes.statusCode).toBe(302);
       const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
-      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+      const stateParam = new URL(startRes.headers.location!).searchParams.get('state')!;
 
       const callbackRes = await betaApp.inject({
         method: 'GET',
@@ -1642,7 +1642,7 @@ describe('auth-svc full integration flow', () => {
       });
       expect(startRes.statusCode).toBe(302);
       const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
-      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+      const stateParam = new URL(startRes.headers.location!).searchParams.get('state')!;
 
       const callbackRes = await betaApp.inject({
         method: 'GET',
@@ -1666,7 +1666,7 @@ describe('auth-svc full integration flow', () => {
       });
       expect(startRes.statusCode).toBe(302);
       const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
-      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+      const stateParam = new URL(startRes.headers.location!).searchParams.get('state')!;
 
       const callbackRes = await betaApp.inject({
         method: 'GET',
@@ -1714,7 +1714,7 @@ describe('auth-svc full integration flow', () => {
         url: '/v1/auth/oauth/google?return_to=/home',
       });
       const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
-      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+      const stateParam = new URL(startRes.headers.location!).searchParams.get('state')!;
 
       const callbackRes = await betaApp.inject({
         method: 'GET',
@@ -1754,7 +1754,7 @@ describe('auth-svc full integration flow', () => {
         url: '/v1/auth/oauth/google?return_to=/',
       });
       const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
-      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+      const stateParam = new URL(startRes.headers.location!).searchParams.get('state')!;
 
       const callbackRes = await betaApp.inject({
         method: 'GET',
