@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Winkey · Trang chủ phim</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0A0D}
+a{color:#F4F4F6;text-decoration:none}a:hover{color:#FFFFFF}
+.cin-nav-link{color:#B9B9C2;font-size:15px;font-weight:500;padding:8px 0;border-bottom:2px solid transparent}
+.cin-nav-link:hover{color:#FFFFFF}
+.cin-nav-link.is-active{color:#FFFFFF;font-weight:700;border-bottom-color:#FF0033}
+.cin-icon-btn{width:44px;height:44px;border-radius:999px;border:0;background:transparent;color:#F4F4F6;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.cin-icon-btn:hover{background:rgba(255,255,255,.10)}
+.cin-btn{height:48px;padding:0 24px;border-radius:8px;border:0;font:700 16px/1 'Be Vietnam Pro',system-ui,sans-serif;display:inline-flex;align-items:center;gap:10px;cursor:pointer;transition:background .2s,transform .2s}
+.cin-btn:active{transform:scale(.97)}
+.cin-btn-primary{background:#FFFFFF;color:#0A0A0D}.cin-btn-primary:hover{background:#E4E4E8}
+.cin-btn-ghost{background:rgba(110,110,125,.42);color:#FFFFFF;backdrop-filter:blur(8px)}.cin-btn-ghost:hover{background:rgba(110,110,125,.6)}
+.cin-round{width:48px;height:48px;border-radius:999px;border:1.5px solid rgba(255,255,255,.55);background:rgba(10,10,13,.35);color:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.cin-round:hover{border-color:#fff;background:rgba(255,255,255,.12)}
+.cin-dot{height:4px;border-radius:2px;border:0;padding:0;background:rgba(255,255,255,.28);cursor:pointer;transition:width .3s,background .3s}
+.cin-row-title{display:flex;align-items:baseline;gap:14px}
+.cin-row-title .cin-more{opacity:0;color:#8FB4FF;font-size:14px;font-weight:600;transition:opacity .2s,transform .2s;transform:translateX(-6px)}
+.cin-row:hover .cin-more{opacity:1;transform:none}
+.cin-card{position:relative;flex:0 0 auto;border-radius:6px;outline:none}
+.cin-card:focus-visible .cin-thumb{box-shadow:0 0 0 3px #FFFFFF}
+.cin-thumb{position:relative;aspect-ratio:16/9;border-radius:6px;overflow:hidden}
+.cin-pop{position:absolute;left:-14%;top:-34%;width:128%;z-index:30;border-radius:10px;overflow:hidden;background:#1D1D25;box-shadow:0 18px 48px rgba(0,0,0,.65);opacity:0;transform:scale(.9);pointer-events:none;transition:opacity .22s ease .3s,transform .22s ease .3s}
+.cin-card:hover .cin-pop,.cin-card:focus-within .cin-pop{opacity:1;transform:scale(1);pointer-events:auto}
+.cin-card.is-first .cin-pop{left:0;transform-origin:left center}
+.cin-arrow{position:absolute;top:0;bottom:0;width:48px;border:0;background:rgba(10,10,13,.55);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .2s;z-index:40}
+.cin-row:hover .cin-arrow{opacity:1}
+.cin-arrow:hover{background:rgba(10,10,13,.8)}
+.cin-rank{font:800 168px/0.8 'Be Vietnam Pro',system-ui,sans-serif;color:#0A0A0D;-webkit-text-stroke:3px #5C5C68;letter-spacing:-12px}
+.cin-foot-link{color:#8E8E99;font-size:14px}.cin-foot-link:hover{color:#F4F4F6;text-decoration:underline}
+@media (prefers-reduced-motion: reduce){*{transition:none !important;animation:none !important}}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0A0A0D; color: #F4F4F6; font-family: 'Be Vietnam Pro', system-ui, sans-serif; overflow-x: hidden">
+
+  <header style="position: absolute; top: 0; left: 0; right: 0; z-index: 50; height: 72px; padding: 0 48px; display: flex; align-items: center; gap: 40px; background: linear-gradient(180deg, rgba(10,10,13,.88) 0%, rgba(10,10,13,0) 100%)">
+    <a href="#" aria-label="Winkey, trang chủ" style="display: flex; align-items: center; gap: 10px">
+      <span style="width: 32px; height: 32px; border-radius: 8px; background: #FF0033; display: inline-flex; align-items: center; justify-content: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg>
+      </span>
+      <span style="font-size: 22px; font-weight: 800; letter-spacing: -0.5px">Winkey</span>
+    </a>
+    <nav aria-label="Chính" style="display: flex; align-items: center; gap: 28px; flex-wrap: wrap">
+      <a class="cin-nav-link is-active" href="#" aria-current="page">Trang chủ</a>
+      <a class="cin-nav-link" href="#">Thịnh hành</a>
+      <a class="cin-nav-link" href="#">Khám phá</a>
+      <a class="cin-nav-link" href="#">Đang theo dõi</a>
+      <a class="cin-nav-link" href="#">Danh sách của tôi</a>
+    </nav>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 4px">
+      <button class="cin-icon-btn" aria-label="Tìm kiếm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></button>
+      <button class="cin-icon-btn" aria-label="Tải video lên"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"></path></svg></button>
+      <button class="cin-icon-btn" aria-label="Thông báo, 3 chưa đọc" style="position: relative"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8"></path><path d="M10 20a2 2 0 004 0"></path></svg><span style="position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 999px; background: #FF0033; box-shadow: 0 0 0 2px #0A0A0D"></span></button>
+      <button aria-label="Tài khoản" style="margin-left: 8px; width: 36px; height: 36px; border-radius: 8px; border: 0; background: #3D5AFE; color: #fff; font-weight: 700; font-size: 15px; cursor: pointer">L</button>
+    </div>
+  </header>
+
+  <section aria-roledescription="carousel" aria-label="Nổi bật" style="position: relative; height: 820px">
+    <div style="{{heroBackdrop}}; position: absolute; inset: 0"></div>
+    <div style="position: absolute; right: 48px; top: 120px; padding: 6px 10px; border: 1px dashed rgba(255,255,255,.35); border-radius: 6px; color: rgba(255,255,255,.7); font-size: 12px">[Thumbnail 16:9 của video, phủ toàn khung; sau 3 s phát xem trước tắt tiếng ở rendition thấp nhất]</div>
+    <div style="position: absolute; inset: 0; background: linear-gradient(90deg, #0A0A0D 0%, rgba(10,10,13,.82) 26%, rgba(10,10,13,.25) 58%, rgba(10,10,13,0) 75%)"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 320px; background: linear-gradient(180deg, rgba(10,10,13,0) 0%, #0A0A0D 92%)"></div>
+
+    <div style="position: absolute; left: 48px; bottom: 236px; width: 600px; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="display: inline-flex; align-items: center; justify-content: center; height: 26px; padding: 0 8px; border-radius: 4px; background: #FF0033; color: #fff; font-size: 13px; font-weight: 800; letter-spacing: .5px">TOP {{heroRank}}</span>
+        <span style="font-size: 15px; font-weight: 600; color: #F4F4F6">Thịnh hành hôm nay</span>
+      </div>
+      <h1 style="margin: 0; font-size: 60px; line-height: 1.04; font-weight: 800; letter-spacing: -1.5px; text-wrap: balance">{{hero.title}}</h1>
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 15px; color: #C9C9D1">
+        <span style="display: inline-flex; align-items: center; gap: 8px; color: #F4F4F6; font-weight: 600"><span style="width: 24px; height: 24px; border-radius: 999px; background: #5B6B8C; display: inline-block"></span>{{hero.channel}}</span>
+        <span aria-hidden="true">·</span><span>{{hero.duration}}</span>
+        <span aria-hidden="true">·</span><span>{{hero.views}} lượt xem</span>
+        <span aria-hidden="true">·</span><span>{{hero.age}}</span>
+        <span style="margin-left: 4px; height: 22px; padding: 0 6px; border: 1px solid rgba(255,255,255,.4); border-radius: 4px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center">{{hero.quality}}</span>
+      </div>
+      <p style="margin: 0; font-size: 17px; line-height: 1.55; color: #D4D4DA; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden">{{hero.desc}}</p>
+      <div style="display: flex; align-items: center; gap: 12px; margin-top: 6px">
+        <button class="cin-btn cin-btn-primary"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg>Xem ngay</button>
+        <button class="cin-btn cin-btn-ghost"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Xem sau</button>
+        <button class="cin-round" aria-label="Thông tin chi tiết"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg></button>
+      </div>
+    </div>
+
+    <div style="position: absolute; right: 48px; bottom: 244px; display: flex; align-items: center; gap: 16px">
+      <button class="cin-round" aria-label="Bật tiếng xem trước"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M22 9l-6 6M16 9l6 6"></path></svg></button>
+    </div>
+
+    <div role="group" aria-label="Chọn video nổi bật" style="position: absolute; left: 48px; bottom: 196px; display: flex; gap: 8px">
+      <sc-for list="{{dots}}" as="d" hint-placeholder-count="5">
+        <button class="cin-dot" style="{{d.style}}" aria-label="{{d.label}}" aria-pressed="{{d.active}}" onClick="{{d.pick}}"></button>
+      </sc-for>
+    </div>
+  </section>
+
+  <main style="position: relative; z-index: 10; margin-top: -168px; display: flex; flex-direction: column; gap: 48px; padding-bottom: 64px">
+
+    <section class="cin-row" aria-labelledby="row-continue" style="position: relative">
+      <div class="cin-row-title" style="padding: 0 48px 14px"><h2 id="row-continue" style="margin: 0; font-size: 22px; font-weight: 700">Xem tiếp</h2></div>
+      <div style="display: flex; gap: 12px; padding: 0 48px">
+        <sc-for list="{{continueRow}}" as="c" hint-placeholder-count="5">
+          <a class="cin-card" href="#" style="width: 244px">
+            <div class="cin-thumb" style="{{c.tone}}">
+              <span style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center"><span style="width: 48px; height: 48px; border-radius: 999px; background: rgba(10,10,13,.55); border: 1.5px solid rgba(255,255,255,.7); display: inline-flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg></span></span>
+              <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.25)"><span style="{{c.progress}}; display: block; height: 4px; background: #FF0033"></span></span>
+            </div>
+            <div style="padding-top: 10px; display: flex; flex-direction: column; gap: 3px">
+              <span style="font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{c.title}}</span>
+              <span style="font-size: 13px; color: #A3A3AD">Còn {{c.left}}</span>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <section class="cin-row" aria-labelledby="row-top" style="position: relative">
+      <div class="cin-row-title" style="padding: 0 48px 14px"><h2 id="row-top" style="margin: 0; font-size: 22px; font-weight: 700">Top 10 hôm nay</h2><a class="cin-more" href="#">Xem tất cả ›</a></div>
+      <div style="display: flex; gap: 20px; padding: 0 48px">
+        <sc-for list="{{topRow}}" as="t" hint-placeholder-count="5">
+          <a class="cin-card" href="#" style="display: flex; align-items: flex-end; width: 312px">
+            <span class="cin-rank" aria-hidden="true" style="flex: 0 0 auto; margin-right: -18px; position: relative; z-index: 0">{{t.rank}}</span>
+            <span style="position: relative; z-index: 1; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px">
+              <span class="cin-thumb" style="{{t.tone}}; display: block"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{t.duration}}</span></span>
+              <span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><span class="sr-only" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Hạng {{t.rank}}: </span>{{t.title}}</span>
+            </span>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <section class="cin-row" aria-labelledby="row-foryou" style="position: relative">
+      <div class="cin-row-title" style="padding: 0 48px 14px"><h2 id="row-foryou" style="margin: 0; font-size: 22px; font-weight: 700">Dành cho bạn</h2><a class="cin-more" href="#">Xem tất cả ›</a></div>
+      <div style="position: relative">
+        <button class="cin-arrow" aria-label="Cuộn sang trái" style="left: 0; border-radius: 0 6px 6px 0"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></svg></button>
+        <div style="display: flex; gap: 12px; padding: 0 48px">
+          <sc-for list="{{forYouRow}}" as="v" hint-placeholder-count="6">
+            <div class="{{v.cls}}" tabindex="0" style="width: 236px">
+              <div class="cin-thumb" style="{{v.tone}}"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{v.duration}}</span></div>
+              <div style="padding-top: 10px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</div>
+              <div class="cin-pop">
+                <div class="cin-thumb" style="{{v.tone}}; border-radius: 0"><span style="position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: rgba(255,255,255,.75)">[thumbnail, không phát video khi rê chuột]</span></div>
+                <div style="padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px">
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <a href="#" aria-label="Xem {{v.title}}" style="width: 38px; height: 38px; border-radius: 999px; background: #fff; color: #0A0A0D; display: inline-flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5z"></path></svg></a>
+                    <button aria-label="Thêm vào Xem sau" style="width: 38px; height: 38px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.55); background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+                    <button aria-label="Thông tin chi tiết" style="margin-left: auto; width: 38px; height: 38px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.55); background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+                  </div>
+                  <div style="font-size: 15px; font-weight: 700; line-height: 1.3">{{v.title}}</div>
+                  <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; color: #C9C9D1"><span style="color: #4ADE80; font-weight: 700">{{v.badge}}</span><span>{{v.duration}}</span><span>·</span><span>{{v.views}} lượt xem</span></div>
+                  <div style="font-size: 13px; color: #A3A3AD">{{v.channel}} · {{v.age}}</div>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <button class="cin-arrow" aria-label="Cuộn sang phải" style="right: 0; border-radius: 6px 0 0 6px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></svg></button>
+      </div>
+    </section>
+
+    <section class="cin-row" aria-labelledby="row-new" style="position: relative">
+      <div class="cin-row-title" style="padding: 0 48px 14px"><h2 id="row-new" style="margin: 0; font-size: 22px; font-weight: 700">Mới cập nhật</h2><a class="cin-more" href="#">Xem tất cả ›</a></div>
+      <div style="display: flex; gap: 12px; padding: 0 48px">
+        <sc-for list="{{newRow}}" as="v" hint-placeholder-count="6">
+          <a class="cin-card" href="#" style="width: 236px">
+            <div class="cin-thumb" style="{{v.tone}}"><span style="position: absolute; left: 6px; top: 6px; padding: 2px 6px; border-radius: 4px; background: #FF0033; font-size: 11px; font-weight: 800; letter-spacing: .4px">MỚI</span><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{v.duration}}</span></div>
+            <div style="padding-top: 10px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</div>
+            <div style="font-size: 13px; color: #A3A3AD; margin-top: 3px">{{v.channel}} · {{v.age}}</div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <section class="cin-row" aria-labelledby="row-ed" style="position: relative; margin: 8px 48px 0; padding: 32px 0 28px; border-radius: 16px; background: #14141A">
+      <div class="cin-row-title" style="padding: 0 32px 4px"><h2 id="row-ed" style="margin: 0; font-size: 22px; font-weight: 700">[Tên danh sách phát tuyển chọn]</h2><a class="cin-more" href="#">Xem tất cả ›</a></div>
+      <p style="margin: 0; padding: 0 32px 16px; font-size: 14px; color: #A3A3AD">[Mô tả danh sách phát, 1 dòng] · Tuyển chọn bởi Winkey</p>
+      <div style="display: flex; gap: 12px; padding: 0 32px; overflow: hidden">
+        <sc-for list="{{editorialRow}}" as="v" hint-placeholder-count="5">
+          <a class="cin-card" href="#" style="width: 236px">
+            <div class="cin-thumb" style="{{v.tone}}"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{v.duration}}</span></div>
+            <div style="padding-top: 10px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <section class="cin-row" aria-labelledby="row-subs" style="position: relative">
+      <div class="cin-row-title" style="padding: 0 48px 14px"><h2 id="row-subs" style="margin: 0; font-size: 22px; font-weight: 700">Từ kênh bạn theo dõi</h2><a class="cin-more" href="#">Xem tất cả ›</a></div>
+      <div style="display: flex; gap: 12px; padding: 0 48px">
+        <sc-for list="{{subsRow}}" as="v" hint-placeholder-count="6">
+          <a class="cin-card" href="#" style="width: 236px">
+            <div class="cin-thumb" style="{{v.tone}}"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{v.duration}}</span></div>
+            <div style="padding-top: 10px; display: flex; gap: 10px">
+              <span style="flex: 0 0 auto; width: 32px; height: 32px; border-radius: 999px; background: #4A5568"></span>
+              <span style="min-width: 0; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</span><span style="font-size: 13px; color: #A3A3AD">{{v.channel}} · {{v.age}}</span></span>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+
+  <footer style="border-top: 1px solid rgba(255,255,255,.08); padding: 32px 48px 48px; display: flex; flex-wrap: wrap; align-items: center; gap: 24px">
+    <span style="font-size: 14px; color: #8E8E99">© 2026 Winkey · Bản beta</span>
+    <nav aria-label="Chân trang" style="display: flex; flex-wrap: wrap; gap: 20px">
+      <a class="cin-foot-link" href="#">Điều khoản sử dụng</a>
+      <a class="cin-foot-link" href="#">Quyền riêng tư</a>
+      <a class="cin-foot-link" href="#">Quy tắc cộng đồng</a>
+      <a class="cin-foot-link" href="#">Góp ý beta</a>
+    </nav>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#FF0033","options":["#FF0033","#3D5AFE","#F5A524"]},"$preview":{"width":1440,"height":2480}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: 0 };
+  }
+  tone(i) {
+    var t = [
+      ['#3B2A5C', '#1A1430'], ['#1F4A5A', '#0E2129'], ['#5A2A2A', '#2A1212'], ['#2E4A2A', '#13210F'],
+      ['#5A4A24', '#2A2210'], ['#2A3A5E', '#111A2E'], ['#4A2450', '#200F24'], ['#24504A', '#0F2421'],
+      ['#55372A', '#26170F'], ['#36385A', '#171828']
+    ][i % 10];
+    return 'background: radial-gradient(120% 120% at 70% 30%, ' + t[0] + ' 0%, ' + t[1] + ' 70%)';
+  }
+  renderVals() {
+    var self = this;
+    var slides = [
+      { title: '[Tiêu đề video #1 thịnh hành]', channel: '[Tên kênh]', duration: '24:18', views: '[N]', age: '[2 ngày trước]', quality: '1080p', desc: '[Mô tả video lấy từ getVideo, tối đa 3 dòng. Người xem đọc đủ để quyết định có bấm Xem ngay hay không.]' },
+      { title: '[Tiêu đề video #2]', channel: '[Tên kênh]', duration: '12:04', views: '[N]', age: '[5 giờ trước]', quality: '1080p', desc: '[Mô tả video #2, tối đa 3 dòng.]' },
+      { title: '[Tiêu đề video #3]', channel: '[Tên kênh]', duration: '41:50', views: '[N]', age: '[hôm qua]', quality: '720p', desc: '[Mô tả video #3, tối đa 3 dòng.]' },
+      { title: '[Tiêu đề video #4]', channel: '[Tên kênh]', duration: '08:33', views: '[N]', age: '[3 ngày trước]', quality: '1080p', desc: '[Mô tả video #4, tối đa 3 dòng.]' },
+      { title: '[Tiêu đề video #5]', channel: '[Tên kênh]', duration: '1:02:10', views: '[N]', age: '[1 tuần trước]', quality: '1080p', desc: '[Mô tả video #5, tối đa 3 dòng.]' }
+    ];
+    var active = this.state.active;
+    var accent = this.props.accent ?? '#FF0033';
+    var hero = slides[active];
+    var heroTones = [['#4B2E7A', '#1A1230'], ['#1E5A6E', '#0B1F27'], ['#7A2E2E', '#250D0D'], ['#2E6A3A', '#0E2213'], ['#7A5A22', '#2A1E0A']];
+    var ht = heroTones[active];
+    var dots = slides.map(function (s, i) {
+      return {
+        label: 'Video nổi bật ' + (i + 1) + ' trên 5',
+        active: i === active ? 'true' : 'false',
+        style: i === active ? 'width: 40px; background: ' + accent : 'width: 16px',
+        pick: function () { self.setState({ active: i }); }
+      };
+    });
+    function row(n, offset, extra) {
+      var out = [];
+      for (var i = 0; i < n; i++) {
+        var item = { title: '[Tiêu đề video ' + (offset + i + 1) + ']', duration: ['12:04', '8:33', '24:18', '3:47', '41:50', '15:22', '6:09'][(offset + i) % 7], channel: '[Tên kênh]', age: '[' + ((offset + i) % 6 + 1) + ' ngày trước]', views: '[N]', tone: self.tone(offset + i) };
+        if (extra) extra(item, i);
+        out.push(item);
+      }
+      return out;
+    }
+    return {
+      accent: accent,
+      hero: hero,
+      heroRank: active + 1,
+      heroBackdrop: 'background: radial-gradient(90% 110% at 72% 38%, ' + ht[0] + ' 0%, ' + ht[1] + ' 62%, #0A0A0D 100%)',
+      dots: dots,
+      continueRow: row(6, 0, function (it, i) { it.progress = 'width: ' + [62, 18, 81, 40, 27, 55][i] + '%'; it.left = ['9 phút', '33 phút', '2 phút', '14 phút', '18 phút', '6 phút'][i]; }),
+      topRow: row(5, 10, function (it, i) { it.rank = i + 1; }),
+      forYouRow: row(7, 20, function (it, i) { it.cls = i === 0 ? 'cin-card is-first' : 'cin-card'; it.badge = 'Phù hợp với bạn'; }),
+      newRow: row(7, 30),
+      editorialRow: row(6, 40),
+      subsRow: row(7, 50)
+    };
+  }
+}
+</script>
+</body>
+</html>

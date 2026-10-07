@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Winkey · Hộp chi tiết video</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0A0D}
+a{color:#8FB4FF}a:hover{color:#B8CEFF}
+.cin-btn{height:48px;padding:0 24px;border-radius:8px;border:0;font:700 16px/1 'Be Vietnam Pro',system-ui,sans-serif;display:inline-flex;align-items:center;gap:10px;cursor:pointer}
+.cin-btn-primary{background:#FFFFFF;color:#0A0A0D}
+.cin-round{width:48px;height:48px;border-radius:999px;border:1.5px solid rgba(255,255,255,.55);background:rgba(10,10,13,.35);color:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.cin-sim{border-radius:8px;overflow:hidden;background:#1D1D25}
+.cin-sim:hover{background:#262630}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1180px; box-sizing: border-box; position: relative; background: #0A0A0D; font-family: 'Be Vietnam Pro', system-ui, sans-serif; color: #F4F4F6; overflow: hidden">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(80% 60% at 30% 20%, #241A3A 0%, #0A0A0D 70%); opacity: .55"></div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(0,0,0,.6)"></div>
+
+  <div role="dialog" aria-modal="true" aria-labelledby="dlg-title" style="position: absolute; left: 50%; top: 32px; width: 880px; margin-left: -440px; border-radius: 12px; overflow: hidden; background: #16161D; box-shadow: 0 30px 80px rgba(0,0,0,.7)">
+    <div style="position: relative; height: 495px; background: radial-gradient(90% 110% at 65% 35%, #4B2E7A 0%, #1A1230 62%, #16161D 100%)">
+      <span style="position: absolute; right: 72px; top: 24px; padding: 6px 10px; border: 1px dashed rgba(255,255,255,.35); border-radius: 6px; color: rgba(255,255,255,.7); font-size: 12px">[Thumbnail 16:9, rộng 880 px]</span>
+      <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 240px; background: linear-gradient(180deg, rgba(22,22,29,0) 0%, #16161D 95%)"></div>
+      <button aria-label="Đóng" style="position: absolute; right: 16px; top: 16px; width: 40px; height: 40px; border-radius: 999px; border: 0; background: #0A0A0D; color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+      <div style="position: absolute; left: 48px; bottom: 40px; right: 48px; display: flex; flex-direction: column; gap: 20px">
+        <h2 id="dlg-title" style="margin: 0; font-size: 44px; line-height: 1.08; font-weight: 800; letter-spacing: -1px; max-width: 640px">[Tiêu đề video]</h2>
+        <div style="display: flex; align-items: center; gap: 12px">
+          <button class="cin-btn cin-btn-primary"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg>Xem ngay</button>
+          <button class="cin-round" aria-label="Thêm vào Xem sau"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+          <button class="cin-round" aria-label="Thích"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-7a2 2 0 012 2v4h5a2 2 0 012 2.3l-1.2 6A2 2 0 0116.8 20H7"></path></svg></button>
+          <button class="cin-round" aria-label="Sao chép liên kết chia sẻ"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4-4 4M12 2v13"></path></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 8px 48px 40px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 40px">
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 15px; color: #C9C9D1">
+          <span style="color: #4ADE80; font-weight: 700">Thịnh hành #1</span><span>[24:18]</span><span>·</span><span>[N] lượt xem</span><span>·</span><span>[2 ngày trước]</span>
+          <span style="height: 22px; padding: 0 6px; border: 1px solid rgba(255,255,255,.4); border-radius: 4px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center">1080p</span>
+          <span style="height: 22px; padding: 0 6px; border: 1px solid rgba(255,255,255,.4); border-radius: 4px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center">CC</span>
+        </div>
+        <p style="margin: 0; font-size: 16px; line-height: 1.65; color: #D4D4DA; white-space: pre-line">[Mô tả đầy đủ từ getVideo().description. Giữ xuống dòng của tác giả; link trong mô tả là văn bản thường, không tự chuyển thành thẻ a để tránh lừa đảo.]</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.5">
+        <div><span style="color: #8E8E99">Kênh: </span><a href="#">[Tên kênh]</a></div>
+        <div><span style="color: #8E8E99">Đăng ngày: </span>[07/10/2026]</div>
+        <div><span style="color: #8E8E99">Phụ đề: </span>[Tiếng Việt, English]</div>
+      </div>
+    </div>
+
+    <section aria-labelledby="sim-title" style="padding: 0 48px 48px">
+      <h3 id="sim-title" style="margin: 0 0 18px; font-size: 22px; font-weight: 700">Tương tự</h3>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{similar}}" as="s" hint-placeholder-count="6">
+          <a class="cin-sim" href="#" style="display: block; color: #F4F4F6">
+            <div style="{{s.tone}}; position: relative; aspect-ratio: 16/9"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">{{s.duration}}</span></div>
+            <div style="padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 6px">
+              <span style="font-size: 15px; font-weight: 600; line-height: 1.35">{{s.title}}</span>
+              <span style="font-size: 13px; color: #A3A3AD">[Tên kênh] · [N] lượt xem</span>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var tones = [['#1F4A5A', '#0E2129'], ['#5A2A2A', '#2A1212'], ['#2E4A2A', '#13210F'], ['#5A4A24', '#2A2210'], ['#2A3A5E', '#111A2E'], ['#4A2450', '#200F24']];
+    var durs = ['12:04', '8:33', '24:18', '3:47', '41:50', '15:22'];
+    return {
+      similar: tones.map(function (t, i) {
+        return { title: '[Tiêu đề video tương tự ' + (i + 1) + ']', duration: durs[i], tone: 'background: radial-gradient(120% 120% at 70% 30%, ' + t[0] + ' 0%, ' + t[1] + ' 70%)' };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>
