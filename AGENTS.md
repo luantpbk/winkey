@@ -6,7 +6,8 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 
 | Agent | Role | Owns |
 |---|---|---|
-| Claude Opus (architect) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
+| Claude Opus (architect, **paused** since 2026-10-07; ChatGPT Astra is acting architect, see `docs/prompts/architect_handoff.md`) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
+| ChatGPT Astra | Acting architect while Claude Opus is paused: same role, same ownership | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
 | Claude Sonnet 5.5 | Go data plane: API side (**paused**; ChatGPT is acting owner) | `services/video`, `services/analytics`, `libs/go` |
 | ChatGPT (Codex) | Go data plane: API side + media pipeline, acting owner while Sonnet and Sonnet 2 are paused | `services/video`, `services/analytics`, `libs/go`, `services/upload`, `services/transcoder` |
 | Claude Sonnet 5.5 ("Sonnet 2") | Go data plane: media pipeline (**paused** since 2026-10-05; ChatGPT is acting owner) | `services/upload`, `services/transcoder` |

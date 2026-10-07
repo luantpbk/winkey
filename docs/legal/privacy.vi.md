@@ -1,6 +1,6 @@
 # Chính sách quyền riêng tư Winkey (bản beta)
 
-*Phiên bản beta-2026-10 · Hiệu lực từ [ngày] · Bên kiểm soát dữ liệu: [tên cá nhân/tổ chức], [địa chỉ], liên hệ [email]. Chính sách này áp dụng Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.*
+*Phiên bản beta-2026-10 · Hiệu lực từ 10/10/2026 · Bên kiểm soát dữ liệu: Phạm Thành Luân, NTHome Phương Canh, Xuân Phương, Hà Nội, liên hệ thanhluanbka@gmail.com. Chính sách này áp dụng Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.*
 
 ## 1. Dữ liệu chúng tôi thu thập
 | Loại | Ví dụ | Mục đích |
@@ -14,7 +14,7 @@
 Chúng tôi **không** bán dữ liệu cá nhân, **không** dùng quảng cáo bên thứ ba, và **không** thu thập dữ liệu cá nhân nhạy cảm.
 
 ## 2. Nơi lưu và bên xử lý
-- Máy chủ ứng dụng và cơ sở dữ liệu: Oracle Cloud ([region OCI]).
+- Máy chủ ứng dụng và cơ sở dữ liệu: Oracle Cloud (ap-singapore-1).
 - Video, ảnh và bản sao lưu: Cloudflare R2.
 - Chuyển mã, thống kê, bản sao lưu dự phòng: máy chủ đặt tại Việt Nam.
 - Gửi email: Resend. Đăng nhập Google: Google LLC, chỉ khi bạn chọn cách này.
@@ -25,12 +25,12 @@ Một số bên trên lưu dữ liệu **ngoài Việt Nam**. Bằng cách dùng
 - Tài khoản và nội dung: đến khi bạn xoá. Khi xoá tài khoản, thông tin định danh được ẩn danh hoá ngay, còn email và handle được giải phóng.
 - Dữ liệu xem chi tiết: 90 ngày. Số liệu tổng hợp không định danh: tối đa 1 năm.
 - Nhật ký kỹ thuật: 14 ngày. Chỉ số giám sát: 30 ngày.
-- Bản sao lưu: tối đa [14–30] ngày, sau đó bị ghi đè.
+- Bản sao lưu: tối đa 14 ngày, sau đó bị ghi đè.
 
 ## 4. Quyền của bạn
 Bạn có quyền được biết, truy cập, chỉnh sửa, xoá dữ liệu, rút lại sự đồng ý, phản đối hoặc hạn chế xử lý.
 - Tự làm trong ứng dụng: sửa hồ sơ, đổi mật khẩu, xoá video, xoá tài khoản.
-- Các yêu cầu khác: gửi tới [email]. Chúng tôi trả lời trong thời hạn Nghị định 13/2023/NĐ-CP quy định.
+- Các yêu cầu khác: gửi tới thanhluanbka@gmail.com. Chúng tôi trả lời trong thời hạn Nghị định 13/2023/NĐ-CP quy định.
 
 ## 5. Bảo mật
 Kết nối dùng HTTPS. Mật khẩu được băm. Video không công khai được bảo vệ bằng liên kết ký có hạn dùng. Quyền truy cập máy chủ được giới hạn trong mạng nội bộ riêng. Nếu xảy ra sự cố lộ lọt dữ liệu, chúng tôi thông báo cho bạn và cơ quan có thẩm quyền theo quy định.
@@ -39,4 +39,4 @@ Kết nối dùng HTTPS. Mật khẩu được băm. Video không công khai đ�
 Dịch vụ không dành cho người dưới 16 tuổi. Nếu phát hiện tài khoản của người dưới 16 tuổi mà không có sự đồng ý của cha mẹ, chúng tôi sẽ xoá tài khoản đó.
 
 ## 7. Liên hệ
-[email] · [địa chỉ]
+thanhluanbka@gmail.com · NTHome Phương Canh, Xuân Phương, Hà Nội

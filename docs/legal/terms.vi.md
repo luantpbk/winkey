@@ -1,6 +1,6 @@
 # Điều khoản sử dụng Winkey (bản beta)
 
-*Phiên bản beta-2026-10 · Hiệu lực từ [ngày] · Chủ thể vận hành: [tên cá nhân/tổ chức], [địa chỉ], liên hệ [email].*
+*Phiên bản beta-2026-10 · Hiệu lực từ 10/10/2026 · Chủ thể vận hành: Phạm Thành Luân, NTHome Phương Canh, Xuân Phương, Hà Nội, liên hệ thanhluanbka@gmail.com.*
 
 ## 1. Về dịch vụ
 Winkey là nền tảng chia sẻ và xem video, đang trong giai đoạn **thử nghiệm kín (beta)**. Tài khoản mới chỉ được tạo bằng mã mời. Dịch vụ có thể thay đổi, gián đoạn, hoặc mất dữ liệu thử nghiệm mà không báo trước. Đừng dùng Winkey làm nơi lưu bản gốc duy nhất của video của bạn.
@@ -22,7 +22,7 @@ Winkey là nền tảng chia sẻ và xem video, đang trong giai đoạn **th�
 - Mạo danh người hoặc tổ chức khác.
 
 ## 5. Xử lý vi phạm
-Winkey có thể ẩn hoặc gỡ nội dung, và khoá tài khoản vi phạm. Ai cũng có thể báo cáo nội dung bằng nút "Báo cáo". Yêu cầu gỡ bỏ của cơ quan nhà nước có thẩm quyền được xử lý trong thời hạn pháp luật quy định. Nếu bạn cho rằng quyết định là nhầm, hãy liên hệ [email].
+Winkey có thể ẩn hoặc gỡ nội dung, và khoá tài khoản vi phạm. Ai cũng có thể báo cáo nội dung bằng nút "Báo cáo". Yêu cầu gỡ bỏ của cơ quan nhà nước có thẩm quyền được xử lý trong thời hạn pháp luật quy định. Nếu bạn cho rằng quyết định là nhầm, hãy liên hệ thanhluanbka@gmail.com.
 
 ## 6. Giới hạn trách nhiệm
 Dịch vụ beta được cung cấp "nguyên trạng" và miễn phí. Trong phạm vi pháp luật cho phép, Winkey không chịu trách nhiệm về thiệt hại gián tiếp, hay mất dữ liệu phát sinh từ việc dùng bản thử nghiệm.
