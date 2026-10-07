@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, type ReactNode } from 'react';
+import { usePathname } from '../../i18n/routing';
 import { TopBar } from './top-bar';
 import { Sidebar } from './sidebar';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
@@ -8,6 +9,8 @@ import { EmailVerificationBanner } from '../auth/email-verification-banner';
 export function Shell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+  const isCinema = pathname === '/phim' || pathname?.endsWith('/phim');
 
   const toggleSidebar = () => {
     // On small screen toggle mobile drawer; on desktop toggle collapsed rail
@@ -29,9 +32,9 @@ export function Shell({ children }: { children: ReactNode }) {
           onCloseMobile={() => setMobileOpen(false)}
         />
         <main
-          className={`flex-1 transition-all duration-200 min-h-[calc(100vh-56px)] p-4 sm:p-6 overflow-x-hidden ${
-            collapsed ? 'md:ml-[72px]' : 'md:ml-60'
-          }`}
+          className={`flex-1 transition-all duration-200 min-h-[calc(100vh-56px)] ${
+            isCinema ? 'p-0 overflow-x-hidden' : 'p-4 sm:p-6 overflow-x-hidden'
+          } ${collapsed ? 'md:ml-[72px]' : 'md:ml-60'}`}
         >
           {children}
         </main>

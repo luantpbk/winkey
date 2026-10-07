@@ -20,6 +20,7 @@ import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
 import { PlaybackTracker } from '../../lib/video/playback-tracker';
 import { type WatchSurface, stripWatchSurfaceFromAddressBar } from '../../lib/video/watch-url';
+import { saveContinueWatching, removeContinueWatching } from '../../lib/video/continue-watching';
 
 export interface VideoPlayerProps {
   videoId?: string;
@@ -156,10 +157,31 @@ export function VideoPlayer({
     return videoId ? `winkey_playback_pos_${videoId}` : null;
   }, [videoId]);
 
+  const clearPlaybackPosition = useCallback(() => {
+    if (videoId) {
+      removeContinueWatching(videoId);
+    }
+    const key = getStorageKey();
+    if (!key) return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore storage exceptions
+    }
+  }, [getStorageKey, videoId]);
+
   const savePlaybackPosition = useCallback(
     (time: number, force = false) => {
       const key = getStorageKey();
       if (!key || time <= 0) return;
+
+      const video = videoRef.current;
+      const duration = video?.duration || (durationMs ? durationMs / 1000 : 0);
+      if (duration > 0 && time / duration >= 0.95) {
+        clearPlaybackPosition();
+        return;
+      }
+
       if (!force && Math.abs(time - lastSavedTimeRef.current) < 5) {
         return;
       }
@@ -169,19 +191,13 @@ export function VideoPlayer({
       } catch {
         // Ignore storage exceptions
       }
-    },
-    [getStorageKey],
-  );
 
-  const clearPlaybackPosition = useCallback(() => {
-    const key = getStorageKey();
-    if (!key) return;
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Ignore storage exceptions
-    }
-  }, [getStorageKey]);
+      if (duration > 0 && videoId) {
+        saveContinueWatching(videoId, time, duration);
+      }
+    },
+    [getStorageKey, durationMs, videoId, clearPlaybackPosition],
+  );
 
   const resumePlaybackPosition = useCallback(() => {
     const key = getStorageKey();

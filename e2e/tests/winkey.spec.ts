@@ -1463,4 +1463,208 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       )
       .toBe(true);
   });
+
+  test('Task CIN1: /phim desktop & mobile flow, dialog, heartbeat surface, and keyboard navigation', async ({
+    page,
+  }) => {
+    test.setTimeout(180000);
+
+    // 1. Desktop flow: renders hero + rows
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/phim');
+    await page.waitForLoadState('domcontentloaded');
+
+    const hero = page.locator('[data-testid="cinema-hero"]');
+    await expect(hero).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="cinema-hero-title"]')).toBeVisible();
+
+    // Check rows appear
+    const top10Row = page.locator('[data-testid="cinema-row-top10"]');
+    await expect(top10Row).toBeVisible({ timeout: 15000 });
+
+    // Intercept heartbeat requests
+    const capturedBatches: PlaybackHeartbeatBatch[] = [];
+    let hasConsoleSurfaceOther = false;
+
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('"surface":"other"') || text.includes('surface: other')) {
+        hasConsoleSurfaceOther = true;
+      }
+    });
+
+    page.on('request', (req) => {
+      if (req.url().includes('/v1/playback/heartbeats') && req.method() === 'POST') {
+        try {
+          const raw = req.postData();
+          if (raw) {
+            const data = JSON.parse(raw) as PlaybackHeartbeatBatch;
+            if (data && Array.isArray(data.samples)) {
+              capturedBatches.push(data);
+              return;
+            }
+          }
+          const data = req.postDataJSON() as PlaybackHeartbeatBatch;
+          if (data && Array.isArray(data.samples)) {
+            capturedBatches.push(data);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    // 2. Open card detail dialog
+    const firstCard = page.locator('[data-testid="cinema-card"]').first();
+    await expect(firstCard).toBeVisible({ timeout: 15000 });
+    await firstCard.scrollIntoViewIfNeeded();
+
+    // Hover card to reveal quick actions panel
+    await firstCard.hover();
+    const detailsBtn = firstCard.locator('[data-testid="cinema-card-quick-details"]');
+    await expect(detailsBtn).toBeVisible({ timeout: 5000 });
+    await detailsBtn.click({ force: true });
+
+    // Dialog opens with ?v=<id>
+    const dialog = page.locator('[data-testid="cinema-detail-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 10000 });
+    expect(page.url()).toContain('?v=');
+
+    // 3. Click "Xem ngay" inside dialog -> lands on /watch/<id>
+    const dialogWatchBtn = page.locator('[data-testid="cinema-detail-watch-btn"]');
+    await expect(dialogWatchBtn).toBeVisible();
+    await dialogWatchBtn.click();
+    await expect(page).toHaveURL(/\/watch\/.+/, { timeout: 30000 });
+
+    // 4. Address bar has stripped src parameter
+    await expect.poll(() => page.url(), { timeout: 10000 }).not.toContain('src=');
+
+    // 5. Trigger video playback and check first heartbeat has surface
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('loadeddata'));
+        v.dispatchEvent(new Event('play'));
+        v.dispatchEvent(new Event('playing'));
+      }
+    });
+
+    await expect
+      .poll(
+        () => {
+          const allSamples = capturedBatches.flatMap((b) => b?.samples || []);
+          return allSamples.some((s) => s.surface === 'other') || hasConsoleSurfaceOther;
+        },
+        { timeout: 20000, intervals: [500] },
+      )
+      .toBe(true);
+
+    // 6. Mobile viewport test: card tap directly opens dialog
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/phim');
+    await page.waitForLoadState('domcontentloaded');
+
+    await expect(page.locator('[data-testid="cinema-hero"]')).toBeVisible({ timeout: 15000 });
+    const mobileCard = page.locator('[data-testid="cinema-card"]').first();
+    await expect(mobileCard).toBeVisible({ timeout: 15000 });
+    // On mobile, tap on card directly opens dialog
+    await mobileCard.click();
+    await expect(page.locator('[data-testid="cinema-detail-dialog"]')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Close button closes dialog
+    await page.locator('[data-testid="cinema-detail-close-btn"]').click();
+    await expect(page.locator('[data-testid="cinema-detail-dialog"]')).not.toBeVisible();
+
+    // 7. Keyboard-only navigation pass
+    await page.goto('/phim');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Focus hero and press ArrowRight
+    await page.locator('[data-testid="cinema-hero"]').focus();
+    await page.keyboard.press('ArrowRight');
+
+    // Focus detail dialog with Esc close
+    const detailOpener = page.locator('[data-testid="cinema-hero-details-btn"]');
+    await detailOpener.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-testid="cinema-detail-dialog"]')).toBeVisible({
+      timeout: 10000,
+    });
+    // Escape key closes dialog
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-testid="cinema-detail-dialog"]')).not.toBeVisible();
+  });
+
+  test('Capture CIN1 screenshots: Desktop and Mobile in Light and Dark themes', async ({
+    page,
+  }) => {
+    const screenshotDir = path.join(process.cwd(), 'screenshots');
+    const artifactDir =
+      'C:\\Users\\Admin\\.gemini\\antigravity\\brain\\e5a1d785-628e-4928-82fd-05d52f2cfb0b';
+    if (!fs.existsSync(screenshotDir)) {
+      fs.mkdirSync(screenshotDir, { recursive: true });
+    }
+
+    const saveScreenshot = async (filename: string) => {
+      const localPath = path.join(screenshotDir, filename);
+      await page.screenshot({ path: localPath, fullPage: false });
+      if (fs.existsSync(artifactDir)) {
+        try {
+          fs.copyFileSync(localPath, path.join(artifactDir, filename));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    // 1. Desktop Viewport (1440x900)
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/phim');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-testid="cinema-hero"]', { timeout: 15000 });
+    await page.waitForTimeout(1000);
+
+    // Desktop Light Theme
+    await page.evaluate(() => {
+      localStorage.setItem('winkey-theme', 'light');
+      document.documentElement.classList.remove('dark');
+    });
+    await page.waitForTimeout(500);
+    await saveScreenshot('cinema-desktop-light.png');
+
+    // Desktop Dark Theme
+    await page.evaluate(() => {
+      localStorage.setItem('winkey-theme', 'dark');
+      document.documentElement.classList.add('dark');
+    });
+    await page.waitForTimeout(500);
+    await saveScreenshot('cinema-desktop-dark.png');
+
+    // 2. Mobile Viewport (375x667)
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/phim');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-testid="cinema-hero"]', { timeout: 15000 });
+    await page.waitForTimeout(1000);
+
+    // Mobile Light Theme
+    await page.evaluate(() => {
+      localStorage.setItem('winkey-theme', 'light');
+      document.documentElement.classList.remove('dark');
+    });
+    await page.waitForTimeout(500);
+    await saveScreenshot('cinema-mobile-light.png');
+
+    // Mobile Dark Theme
+    await page.evaluate(() => {
+      localStorage.setItem('winkey-theme', 'dark');
+      document.documentElement.classList.add('dark');
+    });
+    await page.waitForTimeout(500);
+    await saveScreenshot('cinema-mobile-dark.png');
+  });
 });
