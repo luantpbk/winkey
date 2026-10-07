@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Winkey · Trạng thái thẻ và token</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#0A0A0D}
+a{color:#8FB4FF}a:hover{color:#B8CEFF}
+@keyframes cin-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+.cin-skel{background:linear-gradient(90deg,#1A1A21 0%,#24242D 50%,#1A1A21 100%);background-size:400px 100%;animation:cin-shimmer 1.4s linear infinite}
+@media (prefers-reduced-motion: reduce){.cin-skel{animation:none}}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 56px 64px; background: #0A0A0D; color: #F4F4F6; font-family: 'Be Vietnam Pro', system-ui, sans-serif; display: flex; flex-direction: column; gap: 48px">
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <h2 style="margin: 0; font-size: 24px; font-weight: 700">Thẻ video 16:9</h2>
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 28px; align-items: start">
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <div style="aspect-ratio: 16/9; border-radius: 6px; position: relative; background: radial-gradient(120% 120% at 70% 30%, #1F4A5A 0%, #0E2129 70%)"><span style="position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; background: rgba(10,10,13,.82); font-size: 12px; font-weight: 600">12:04</span></div>
+        <span style="font-size: 15px; font-weight: 600">[Tiêu đề video]</span>
+        <figcaption style="font-size: 13px; color: #A3A3AD">Mặc định. Tiêu đề 1 dòng, cắt bằng dấu …</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <div style="border-radius: 10px; overflow: hidden; background: #1D1D25; box-shadow: 0 18px 48px rgba(0,0,0,.65); transform: scale(1.04); transform-origin: top center">
+          <div style="aspect-ratio: 16/9; background: radial-gradient(120% 120% at 70% 30%, #5A2A2A 0%, #2A1212 70%)"></div>
+          <div style="padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 6px"><span style="width: 32px; height: 32px; border-radius: 999px; background: #fff"></span><span style="width: 32px; height: 32px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.55)"></span><span style="margin-left: auto; width: 32px; height: 32px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.55)"></span></div>
+            <span style="font-size: 14px; font-weight: 700">[Tiêu đề đầy đủ]</span>
+            <span style="font-size: 12px; color: #C9C9D1">8:33 · [N] lượt xem · [Tên kênh]</span>
+          </div>
+        </div>
+        <figcaption style="font-size: 13px; color: #A3A3AD">Hover / focus sau 300 ms: phóng ~1,28×, nổi lên trên hàng. Chỉ desktop có chuột.</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <div style="aspect-ratio: 16/9; border-radius: 6px; background: radial-gradient(120% 120% at 70% 30%, #2E4A2A 0%, #13210F 70%); box-shadow: 0 0 0 3px #0A0A0D, 0 0 0 6px #FFFFFF"></div>
+        <span style="font-size: 15px; font-weight: 600">[Tiêu đề video]</span>
+        <figcaption style="font-size: 13px; color: #A3A3AD">Focus bàn phím: viền trắng 3 px tách nền 3 px. Không bao giờ bỏ outline.</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <div style="aspect-ratio: 16/9; border-radius: 6px; position: relative; overflow: hidden; background: radial-gradient(120% 120% at 70% 30%, #5A4A24 0%, #2A2210 70%)"><span style="position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.25)"><span style="display: block; width: 62%; height: 4px; background: #FF0033"></span></span><button aria-label="Bỏ khỏi Xem tiếp" style="position: absolute; right: 6px; top: 6px; width: 28px; height: 28px; border-radius: 999px; border: 0; background: rgba(10,10,13,.75); color: #fff; display: inline-flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+        <span style="font-size: 15px; font-weight: 600">[Tiêu đề video]</span>
+        <figcaption style="font-size: 13px; color: #A3A3AD">Xem tiếp: thanh tiến độ đỏ 4 px, nút × hiện khi hover/focus.</figcaption>
+      </figure>
+      <figure style="margin: 0; display: flex; flex-direction: column; gap: 10px">
+        <div class="cin-skel" style="aspect-ratio: 16/9; border-radius: 6px"></div>
+        <div class="cin-skel" style="height: 14px; width: 80%; border-radius: 4px"></div>
+        <figcaption style="font-size: 13px; color: #A3A3AD">Skeleton khi hàng đang tải. Hàng rỗng hoặc lỗi thì ẩn cả hàng.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 700">Màu (chỉ trong vỏ trang chủ)</h2>
+      <sc-for list="{{colors}}" as="c" hint-placeholder-count="7">
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 14px"><span style="{{c.swatch}}; width: 36px; height: 24px; border-radius: 4px; border: 1px solid rgba(255,255,255,.16)"></span><code style="font-size: 13px; color: #C9C9D1; width: 150px">{{c.token}}</code><span style="color: #A3A3AD">{{c.value}}</span></div>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 700">Chữ: Be Vietnam Pro</h2>
+      <div style="font-size: 60px; font-weight: 800; letter-spacing: -1.5px; line-height: 1">Aa Ơ Đ</div>
+      <div style="font-size: 14px; color: #A3A3AD; line-height: 1.8">Hero 60/1.04 800 (mobile 28) · Hộp chi tiết 44/1.08 800 · Tiêu đề hàng 22/700 (mobile 18) · Tiêu đề thẻ 15/600 · Meta 13–15/400 #A3A3AD · Nút 16/700</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 700">Khoảng cách và chuyển động</h2>
+      <div style="font-size: 14px; color: #C9C9D1; line-height: 1.8">Lề trang 48 px (tablet 32, mobile 16) · Khe thẻ 12 px · Giữa các hàng 48 px (mobile 28) · Bo góc thẻ 6, hộp 12, nút 8 · Hover 220 ms ease, trễ 300 ms · Banner đổi 8 s, fade 600 ms · Tắt mọi chuyển động khi prefers-reduced-motion</div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var list = [
+      ['--cin-bg', '#0A0A0D', 'nền trang'],
+      ['--cin-surface', '#14141A', 'khối biên tập'],
+      ['--cin-elevated', '#1D1D25', 'popover, hộp'],
+      ['--cin-text', '#F4F4F6', 'chữ chính'],
+      ['--cin-muted', '#A3A3AD', 'meta (7,9:1 trên nền)'],
+      ['--cin-accent', '#FF0033', 'brand: tiến độ, TOP, chấm'],
+      ['--cin-positive', '#4ADE80', 'nhãn phù hợp / thịnh hành']
+    ];
+    return {
+      colors: list.map(function (c) { return { token: c[0], value: c[1] + ' · ' + c[2], swatch: 'background: ' + c[1] }; })
+    };
+  }
+}
+</script>
+</body>
+</html>
