@@ -11,6 +11,8 @@ import {
   REFRESH_COOKIE_NAME,
 } from '../crypto/refresh.js';
 import { generateEmailToken } from '../tokens/email-tokens.js';
+import { checkInvite } from '../tokens/invite-codes.js';
+import { authRegistrationsCounter } from '../metrics.js';
 import { ProblemError } from '../errors/problem.js';
 import { buildRegisterRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import type { Env } from '../config/env.js';
@@ -23,6 +25,7 @@ const registerBodySchema = z.object({
   password: z.string().min(8).max(128),
   handle: z.string().regex(/^[A-Za-z0-9_.]{3,30}$/),
   display_name: z.string().min(1).max(50),
+  invite_code: z.string().min(1).max(64).optional(),
 });
 
 export const registerRoute: FastifyPluginAsync<{
@@ -49,7 +52,22 @@ export const registerRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_FAILED');
     }
 
-    const { email, password, handle, display_name } = parseResult.data;
+    const { email, password, handle, display_name, invite_code } = parseResult.data;
+
+    // 2b. Validate closed-beta invite code BEFORE any database lookup (ADR-034, Task BETA1)
+    const inviteResult = checkInvite(env, invite_code);
+    if (!inviteResult.ok) {
+      if (inviteResult.reason === 'INVITE_REQUIRED') {
+        authRegistrationsCounter.inc({ method: 'password', result: 'invite_required' });
+        throw ProblemError.forbidden(
+          'Invite code is required for registration during closed beta',
+          'INVITE_REQUIRED',
+        );
+      } else {
+        authRegistrationsCounter.inc({ method: 'password', result: 'invite_invalid' });
+        throw ProblemError.forbidden('Invalid invite code', 'INVITE_INVALID');
+      }
+    }
 
     // 3. Pre-check email & handle uniqueness for clear error responses
     const existingEmail = await db
@@ -215,6 +233,17 @@ export const registerRoute: FastifyPluginAsync<{
 
     // 7. Set wk_rt cookie
     reply.setCookie(REFRESH_COOKIE_NAME, opaqueRefreshToken, getRefreshCookieOptions(env));
+
+    authRegistrationsCounter.inc({ method: 'password', result: 'ok' });
+
+    request.log.info(
+      {
+        user_id: createdUser.id,
+        handle: createdUser.handle,
+        invite_index: inviteResult.index,
+      },
+      'user registered',
+    );
 
     // 8. 201 Response with TokenResponse
     return reply.status(201).send({

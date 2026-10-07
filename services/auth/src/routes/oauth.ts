@@ -18,12 +18,19 @@ import {
   getRefreshCookieOptions,
   REFRESH_COOKIE_NAME,
 } from '../crypto/refresh.js';
+import { checkInvite } from '../tokens/invite-codes.js';
+import { authRegistrationsCounter } from '../metrics.js';
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role, UserStatus } from '../db/types.js';
 import type { Kysely, Transaction } from 'kysely';
 
 class SuspendedOAuthError extends Error {}
+class InvalidOAuthInviteError extends Error {
+  constructor(public readonly reason: 'INVITE_REQUIRED' | 'INVITE_INVALID') {
+    super(reason);
+  }
+}
 
 async function checkOrLiftSuspension(
   trx: Transaction<Database>,
@@ -133,7 +140,10 @@ export const oauthRoute: FastifyPluginAsync<{
       return reply.redirect('/login?error=oauth_unavailable', 302);
     }
 
-    const { return_to } = request.query as { return_to?: string };
+    const { return_to, invite_code } = request.query as {
+      return_to?: string;
+      invite_code?: string;
+    };
     const targetReturnTo = return_to || '/';
 
     // Must be a relative path only
@@ -141,12 +151,23 @@ export const oauthRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Invalid return_to: must be a relative path');
     }
 
+    if (invite_code !== undefined) {
+      if (typeof invite_code !== 'string' || invite_code.length < 1 || invite_code.length > 64) {
+        throw ProblemError.badRequest('Invalid invite_code: must be between 1 and 64 characters');
+      }
+    }
+
     const state = generateState();
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
     const signedCookie = signOAuthPayload(
-      { state, codeVerifier, returnTo: targetReturnTo },
+      {
+        state,
+        codeVerifier,
+        returnTo: targetReturnTo,
+        ...(invite_code ? { inviteCode: invite_code } : {}),
+      },
       env.COOKIE_SECRET,
     );
 
@@ -252,6 +273,14 @@ export const oauthRoute: FastifyPluginAsync<{
             }
           } else {
             // 3. Create new user
+            const inviteResult = checkInvite(env, sessionState.inviteCode);
+            if (!inviteResult.ok) {
+              const metricResult =
+                inviteResult.reason === 'INVITE_REQUIRED' ? 'invite_required' : 'invite_invalid';
+              authRegistrationsCounter.inc({ method: 'google', result: metricResult });
+              throw new InvalidOAuthInviteError(inviteResult.reason);
+            }
+
             targetUserId = uuidv7();
             const derivedHandle = await generateUniqueHandle(trx, googleUser.email);
             const displayName = (googleUser.name || derivedHandle).slice(0, 50);
@@ -294,6 +323,17 @@ export const oauthRoute: FastifyPluginAsync<{
               },
               { producer: 'auth-svc', version: 1 },
             );
+
+            authRegistrationsCounter.inc({ method: 'google', result: 'ok' });
+
+            request.log.info(
+              {
+                user_id: targetUserId,
+                handle: derivedHandle,
+                invite_index: inviteResult.index,
+              },
+              'user registered',
+            );
           }
         }
 
@@ -316,6 +356,10 @@ export const oauthRoute: FastifyPluginAsync<{
       if (err instanceof SuspendedOAuthError) {
         reply.setCookie(OAUTH_COOKIE_NAME, '', getClearOAuthCookieOptions(env));
         return reply.redirect('/login?error=ACCOUNT_SUSPENDED', 302);
+      }
+      if (err instanceof InvalidOAuthInviteError) {
+        reply.setCookie(OAUTH_COOKIE_NAME, '', getClearOAuthCookieOptions(env));
+        return reply.redirect(`/register?error=${err.reason}`, 302);
       }
       throw err;
     }
