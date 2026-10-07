@@ -36,3 +36,5 @@ export function sanitizeFeedbackUrl(url: string | null | undefined): string | nu
     return null;
   }
 }
+
+export { useFeedbackUrl } from './use-feedback-url';

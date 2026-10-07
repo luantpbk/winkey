@@ -18,6 +18,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
+import { useFeedbackUrl } from '../../lib/feedback';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -26,9 +27,16 @@ interface SidebarProps {
   feedbackUrl?: string | null;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onCloseMobile, feedbackUrl }: SidebarProps) {
+export function Sidebar({
+  collapsed,
+  mobileOpen,
+  onCloseMobile,
+  feedbackUrl: propFeedbackUrl,
+}: SidebarProps) {
   const t = useTranslations('nav');
   const tCin = useTranslations('cinema');
+  const tLegal = useTranslations('legal');
+  const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
   const { canAccessAdmin, isAuthenticated } = useAuth();
 
@@ -168,7 +176,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile, feedbackUrl }: S
               className="mt-auto p-4 text-[11px] text-gray-500 space-y-2 border-t border-[#272727] dark:border-[#272727] border-gray-200"
             >
               <nav
-                aria-label="Thông tin pháp lý"
+                aria-label={tLegal('legalNav')}
                 className="flex flex-wrap gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400"
               >
                 <Link

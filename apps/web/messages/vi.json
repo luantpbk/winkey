@@ -588,7 +588,9 @@
     "curatedBy": "Tuyển chọn bởi Winkey"
   },
   "legal": {
-    "englishNotice": "Lưu ý: Văn bản pháp lý này hiện chỉ có bản tiếng Việt trong giai đoạn thử nghiệm kín.",
+    "englishNoticeNote": "Lưu ý:",
+    "englishNotice": "Văn bản pháp lý này hiện chỉ có bản tiếng Việt do Winkey chủ yếu hoạt động tại Việt Nam trong giai đoạn thử nghiệm kín.",
+    "legalNav": "Thông tin pháp lý",
     "termsTitle": "Điều khoản sử dụng – Winkey",
     "privacyTitle": "Chính sách quyền riêng tư – Winkey",
     "communityTitle": "Quy tắc cộng đồng – Winkey"

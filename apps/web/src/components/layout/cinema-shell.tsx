@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth/auth-context';
 import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { beVietnamPro } from '../../lib/fonts';
+import { useFeedbackUrl } from '../../lib/feedback';
 import {
   Search,
   Upload,
@@ -27,9 +28,11 @@ interface CinemaShellProps {
   feedbackUrl?: string | null;
 }
 
-export function CinemaShell({ children, feedbackUrl }: CinemaShellProps) {
+export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaShellProps) {
   const tNav = useTranslations('nav');
   const tCin = useTranslations('cinema');
+  const tLegal = useTranslations('legal');
+  const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, logout, canAccessAdmin } = useAuth();
@@ -381,7 +384,7 @@ export function CinemaShell({ children, feedbackUrl }: CinemaShellProps) {
         className="border-t border-white/[0.08] px-6 sm:px-12 py-8 pb-24 md:pb-12 flex flex-wrap items-center gap-6 text-sm"
       >
         <span className="text-[#8E8E99]">{tCin('copyright')}</span>
-        <nav aria-label="Chân trang" className="flex flex-wrap gap-5 text-[#8E8E99]">
+        <nav aria-label={tLegal('legalNav')} className="flex flex-wrap gap-5 text-[#8E8E99]">
           <Link href="/dieu-khoan" className="hover:text-white transition hover:underline">
             {tCin('terms')}
           </Link>

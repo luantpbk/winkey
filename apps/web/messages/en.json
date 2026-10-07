@@ -588,7 +588,9 @@
     "curatedBy": "Curated by Winkey"
   },
   "legal": {
-    "englishNotice": "Note: This legal document is currently available in Vietnamese only during the closed beta phase.",
+    "englishNoticeNote": "Note:",
+    "englishNotice": "This legal document is currently available in Vietnamese only as Winkey operates primarily in Vietnam during the closed beta phase.",
+    "legalNav": "Legal information",
     "termsTitle": "Terms of Service – Winkey",
     "privacyTitle": "Privacy Policy – Winkey",
     "communityTitle": "Community Guidelines – Winkey"

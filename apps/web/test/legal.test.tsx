@@ -9,14 +9,18 @@ import { LegalDoc } from '../src/components/legal/legal-doc';
 import { CinemaShell } from '../src/components/layout/cinema-shell';
 import { Sidebar } from '../src/components/layout/sidebar';
 import viMessages from '../messages/vi.json';
+import enMessages from '../messages/en.json';
+
+let currentLocale = 'vi';
 
 // --- Locale Mock ---
 vi.mock('next-intl', () => ({
+  useLocale: () => currentLocale,
   useTranslations: (namespace?: string) => {
     return (key: string, values?: Record<string, unknown>) => {
       const fullPath = namespace ? `${namespace}.${key}` : key;
       const parts = fullPath.split('.');
-      let cur: unknown = viMessages;
+      let cur: unknown = currentLocale === 'en' ? enMessages : viMessages;
       for (const p of parts) {
         if (cur && typeof cur === 'object' && p in cur) {
           cur = (cur as Record<string, unknown>)[p];
@@ -219,9 +223,11 @@ describe('Task BETA1-web: Legal Documents & Feedback URL (ADR-034)', () => {
     });
 
     it('shows English notice banner when locale is "en" and hides it on "vi"', () => {
+      currentLocale = 'vi';
       const { rerender } = render(<LegalDoc content="# Tiêu đề" locale="vi" />);
       expect(screen.queryByTestId('legal-english-notice')).toBeNull();
 
+      currentLocale = 'en';
       rerender(<LegalDoc content="# Tiêu đề" locale="en" />);
       const notice = screen.getByTestId('legal-english-notice');
       expect(notice).not.toBeNull();

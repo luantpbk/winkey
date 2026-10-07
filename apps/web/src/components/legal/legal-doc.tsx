@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useTranslations } from 'next-intl';
 
 interface LegalDocProps {
   content: string;
@@ -8,6 +9,7 @@ interface LegalDocProps {
 }
 
 export function LegalDoc({ content, locale }: LegalDocProps) {
+  const t = useTranslations('legal');
   const isEnglish = locale === 'en';
 
   return (
@@ -17,8 +19,7 @@ export function LegalDoc({ content, locale }: LegalDocProps) {
           data-testid="legal-english-notice"
           className="mb-8 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200/90 leading-relaxed"
         >
-          <strong>Note:</strong> This legal document is currently available in Vietnamese only as
-          Winkey operates primarily in Vietnam during the closed beta phase.
+          <strong>{t('englishNoticeNote')}</strong> {t('englishNotice')}
         </div>
       )}
 

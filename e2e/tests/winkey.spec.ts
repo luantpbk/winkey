@@ -1719,8 +1719,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test('BETA1-web: Register with invite (201 path) and without invite (403 INVITE_REQUIRED)', async ({
     page,
   }) => {
-    // 1. Visit /register?invite=wk-beta1-valid
-    await page.goto('/register?invite=wk-beta1-valid');
+    // 1. Visit /vi/register?invite=wk-beta1-valid
+    await page.goto('/vi/register?invite=wk-beta1-valid');
     await page.waitForLoadState('domcontentloaded');
 
     const inviteInput = page.locator('#invite-code-input');
@@ -1732,8 +1732,14 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     // Fill form
     const validHandle = `beta_user_${Date.now().toString(36)}`;
-    await page.locator('main input[placeholder*="Nguyễn Văn A"]').fill('Beta User Valid');
-    await page.locator('main input[placeholder*="nguyenvana"]').fill(validHandle);
+    await page
+      .locator('main input[placeholder*="Nguyễn Văn A"], main input[placeholder*="John Doe"]')
+      .first()
+      .fill('Beta User Valid');
+    await page
+      .locator('main input[placeholder*="nguyenvana"], main input[placeholder*="johndoe"]')
+      .first()
+      .fill(validHandle);
     await page.locator('main input[type="email"]').fill(`${validHandle}@winkey.vn`);
     await page.locator('main input[type="password"]').fill('password1234');
 
@@ -1750,15 +1756,21 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     // 2. Test 403 INVITE_REQUIRED: Clear cookies and register with need-invite@winkey.vn without invite code
     await page.context().clearCookies();
-    await page.goto('/register');
+    await page.goto('/vi/register');
     await page.waitForLoadState('domcontentloaded');
 
     const inviteEmpty = page.locator('#invite-code-input');
     await inviteEmpty.fill('');
 
     const noInviteHandle = `no_invite_${Date.now().toString(36)}`;
-    await page.locator('main input[placeholder*="Nguyễn Văn A"]').fill('No Invite User');
-    await page.locator('main input[placeholder*="nguyenvana"]').fill(noInviteHandle);
+    await page
+      .locator('main input[placeholder*="Nguyễn Văn A"], main input[placeholder*="John Doe"]')
+      .first()
+      .fill('No Invite User');
+    await page
+      .locator('main input[placeholder*="nguyenvana"], main input[placeholder*="johndoe"]')
+      .first()
+      .fill(noInviteHandle);
     await page.locator('main input[type="email"]').fill('need-invite@winkey.vn');
     await page.locator('main input[type="password"]').fill('password1234');
 
@@ -1768,9 +1780,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // Verify 403 error message is displayed on the invite field and field gets focus
     const inviteError = page.locator('[data-testid="invite-error-msg"]');
     await expect(inviteError).toBeVisible({ timeout: 10000 });
-    await expect(inviteError).toContainText(
-      'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
-    );
+    await expect(inviteError).toContainText(/Winkey đang thử nghiệm kín|Winkey is in closed beta/);
     await expect(inviteEmpty).toBeFocused();
   });
 
@@ -1782,6 +1792,15 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('h1')).toContainText('Điều khoản sử dụng Winkey');
     await expect(page.locator('[data-testid="legal-article"]')).toBeVisible();
+
+    const artifactDir =
+      'C:/Users/Admin/.gemini/antigravity/brain/e5a1d785-628e-4928-82fd-05d52f2cfb0b';
+    if (fs.existsSync(artifactDir)) {
+      await page.screenshot({
+        path: path.join(artifactDir, 'beta1-legal-terms.png'),
+        fullPage: false,
+      });
+    }
 
     // 2. Visit /quyen-rieng-tu on desktop (contains markdown table)
     await page.goto('/quyen-rieng-tu');
@@ -1805,9 +1824,13 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.waitForLoadState('domcontentloaded');
     const cinemaFooter = page.locator('[data-testid="cinema-footer"]');
     await expect(cinemaFooter).toBeVisible();
-    await expect(cinemaFooter.locator('a[href="/dieu-khoan"]')).toBeVisible();
-    await expect(cinemaFooter.locator('a[href="/quyen-rieng-tu"]')).toBeVisible();
-    await expect(cinemaFooter.locator('a[href="/quy-tac-cong-dong"]')).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
+    if (fs.existsSync(artifactDir)) {
+      await cinemaFooter.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(artifactDir, 'beta1-cinema-footer.png') });
+    }
 
     // 6. Mobile viewport test: Verify footer and table responsiveness
     await page.setViewportSize({ width: 375, height: 667 });
@@ -1816,18 +1839,23 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     const scrollContainer = page.locator('.overflow-x-auto');
     await expect(scrollContainer).toBeVisible();
 
-    // Visit /kham-pha on mobile and check sidebar footer in drawer if openable
+    // Visit /kham-pha on mobile and unconditionally check sidebar footer in drawer
     await page.goto('/kham-pha');
     await page.waitForLoadState('domcontentloaded');
-    const menuBtn = page.locator('button[aria-label="Mở menu"], button[aria-label="Menu"]').first();
-    if (await menuBtn.isVisible()) {
-      await menuBtn.click();
-      const sidebarFooter = page.locator('[data-testid="sidebar-footer"]');
-      await expect(sidebarFooter).toBeVisible({ timeout: 5000 });
-      await expect(sidebarFooter.locator('a[href="/dieu-khoan"]')).toBeVisible();
+    const menuBtn = page.locator('[data-testid="sidebar-toggle-btn"]');
+    await expect(menuBtn).toBeVisible({ timeout: 10000 });
+    await menuBtn.click();
+    const sidebarFooter = page.locator('[data-testid="sidebar-footer"]');
+    await expect(sidebarFooter).toBeVisible({ timeout: 5000 });
+    await expect(sidebarFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
+    await expect(sidebarFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
+    await expect(sidebarFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
+    if (fs.existsSync(artifactDir)) {
+      await sidebarFooter.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(artifactDir, 'beta1-mobile-drawer.png') });
     }
 
-    // 7. Mobile banner ⓘ button on 375px mobile is on the same row as Watch and Watch Later
+    // 7. Mobile banner ⓘ button on 375px mobile is on the same row as Watch and Watch Later and fits inside 375px viewport
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     const watchBtn = page.locator('[data-testid="cinema-hero-watch-btn"]');
@@ -1852,5 +1880,11 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     const watchCenterY = watchBox!.y + watchBox!.height / 2;
     const infoCenterY = infoBox!.y + infoBox!.height / 2;
     expect(Math.abs(watchCenterY - infoCenterY)).toBeLessThanOrEqual(4);
+    // Ensure all 3 buttons fit inside the 375px mobile viewport without overflow
+    expect(infoBox!.x + infoBox!.width).toBeLessThanOrEqual(375);
+
+    if (fs.existsSync(artifactDir)) {
+      await page.screenshot({ path: path.join(artifactDir, 'beta1-mobile-hero-375px.png') });
+    }
   });
 });
