@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../src/server.js';
-import { getEnv } from '../../src/config/env.js';
+import { getEnv, type Env } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
 import { createMockDb, createMockStore, type MockStore } from '../fixtures/mock-db.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 import { OAUTH_COOKIE_NAME } from '../../src/crypto/pkce.js';
 import { validate as isValidUuid, version as uuidVersion } from 'uuid';
-import fastify from 'fastify';
+import fastify, { type FastifyInstance } from 'fastify';
 import { oauthRoute } from '../../src/routes/oauth.js';
 
 describe('auth-svc full integration flow', () => {
@@ -1412,6 +1412,406 @@ describe('auth-svc full integration flow', () => {
       expect(reReg.statusCode).toBe(201);
       expect(reReg.json().user.handle).toBe('del_user');
       expect(reReg.json().user.email).toBe('del_user@winkey.vn');
+    });
+  });
+
+  describe('Closed-beta registration mode & invite codes (Task BETA1, ADR-034)', () => {
+    const CODE_A = 'valid-alpha-invite-code-1234';
+    const CODE_B = 'valid-bravo-invite-code-5678';
+
+    let betaStore: MockStore;
+    let betaApp: FastifyInstance;
+    let betaEnv: Env;
+
+    beforeEach(async () => {
+      betaStore = createMockStore();
+      const { db } = createMockDb(betaStore);
+      const rateLimiter = new ValkeyRateLimiter();
+      betaEnv = getEnv({
+        JWT_PRIVATE_KEY: keys.privateKey,
+        JWT_KID: 'winkey-auth-key-1',
+        JWT_ISSUER: 'https://winkey.vn',
+        PUBLIC_ORIGIN: 'https://winkey.vn',
+        MEDIA_BASE_URL: 'https://media.winkey.vn',
+        GOOGLE_CLIENT_ID: 'test-google-client-id.apps.googleusercontent.com',
+        REGISTRATION_MODE: 'invite',
+        INVITE_CODES: `${CODE_A},${CODE_B}`,
+        NODE_ENV: 'test',
+      });
+
+      betaApp = await buildApp({
+        env: betaEnv,
+        db,
+        rateLimiter,
+        googleTokenExchanger: async (code, _verifier) => ({
+          sub: `google-sub-${code}`,
+          email: `${code}@gmail.com`,
+          email_verified: true,
+          name: `Google User ${code}`,
+        }),
+      });
+    });
+
+    it('invite mode: register missing code returns 403 INVITE_REQUIRED', async () => {
+      const res = await betaApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'beta_new@winkey.vn',
+          password: 'Password123!',
+          handle: 'beta_new',
+          display_name: 'Beta User',
+        },
+      });
+
+      expect(res.statusCode).toBe(403);
+      const problem = res.json();
+      expect(problem.code).toBe('INVITE_REQUIRED');
+      expect(betaStore.users.length).toBe(0);
+    });
+
+    it('invite mode: register with wrong code returns 403 INVITE_INVALID', async () => {
+      const res = await betaApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'beta_new@winkey.vn',
+          password: 'Password123!',
+          handle: 'beta_new',
+          display_name: 'Beta User',
+          invite_code: 'wrong-invite-code-9999',
+        },
+      });
+
+      expect(res.statusCode).toBe(403);
+      const problem = res.json();
+      expect(problem.code).toBe('INVITE_INVALID');
+      expect(betaStore.users.length).toBe(0);
+    });
+
+    it('invite mode: register with already-registered email and wrong code returns 403 INVITE_INVALID (no existence leak)', async () => {
+      // Pre-seed an existing user
+      betaStore.users.push({
+        id: '01923456-789a-7bc8-9012-3456789abcde',
+        email: 'taken@winkey.vn',
+        email_verified_at: new Date(),
+        password_hash: 'hash',
+        handle: 'taken_user',
+        display_name: 'Taken User',
+        avatar_key: null,
+        roles: ['viewer'],
+        status: 'ACTIVE',
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const res = await betaApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'taken@winkey.vn',
+          password: 'Password123!',
+          handle: 'brand_new_handle',
+          display_name: 'Brand New',
+          invite_code: 'wrong-invite-code-9999',
+        },
+      });
+
+      // Must be 403 INVITE_INVALID, NOT 409 EMAIL_TAKEN
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('INVITE_INVALID');
+    });
+
+    it('invite mode: register with valid code returns 201, sets wk_rt and creates user', async () => {
+      const res = await betaApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'beta_success@winkey.vn',
+          password: 'Password123!',
+          handle: 'beta_success',
+          display_name: 'Beta Success',
+          invite_code: CODE_A,
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.user.email).toBe('beta_success@winkey.vn');
+      expect(res.headers['set-cookie'] as string).toContain(`${REFRESH_COOKIE_NAME}=`);
+      expect(betaStore.users.length).toBe(1);
+
+      // Second code also works
+      const res2 = await betaApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'beta_success2@winkey.vn',
+          password: 'Password123!',
+          handle: 'beta_success2',
+          display_name: 'Beta Success 2',
+          invite_code: CODE_B,
+        },
+      });
+      expect(res2.statusCode).toBe(201);
+      expect(betaStore.users.length).toBe(2);
+    });
+
+    it('open mode: ignores invite_code (valid, invalid, or missing)', async () => {
+      // Using app which is open mode
+      const resMissing = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'open_missing@winkey.vn',
+          password: 'Password123!',
+          handle: 'open_missing',
+          display_name: 'Open Missing',
+        },
+      });
+      expect(resMissing.statusCode).toBe(201);
+
+      const resInvalid = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'open_invalid@winkey.vn',
+          password: 'Password123!',
+          handle: 'open_invalid',
+          display_name: 'Open Invalid',
+          invite_code: 'any-arbitrary-code',
+        },
+      });
+      expect(resInvalid.statusCode).toBe(201);
+    });
+
+    it('Google OAuth: start validates invite_code length (1-64 chars or 400)', async () => {
+      const badShort = await betaApp.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?invite_code=',
+      });
+      expect(badShort.statusCode).toBe(400);
+
+      const badLong = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google?invite_code=${'a'.repeat(65)}`,
+      });
+      expect(badLong.statusCode).toBe(400);
+
+      const okStart = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google?invite_code=${CODE_A}`,
+      });
+      expect(okStart.statusCode).toBe(302);
+    });
+
+    it('Google OAuth in invite mode: new account without code redirects to /register?error=INVITE_REQUIRED and creates no user', async () => {
+      const startRes = await betaApp.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/',
+      });
+      expect(startRes.statusCode).toBe(302);
+      const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
+      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+
+      const callbackRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=newgoogle1&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthCookie },
+      });
+
+      expect(callbackRes.statusCode).toBe(302);
+      expect(callbackRes.headers.location).toBe('/register?error=INVITE_REQUIRED');
+      // No user or oauth identity created
+      expect(betaStore.users.length).toBe(0);
+      expect(betaStore.oauth_identities.length).toBe(0);
+      // No refresh token cookie
+      const cookiesStr = String(callbackRes.headers['set-cookie'] || '');
+      expect(cookiesStr).not.toContain(`${REFRESH_COOKIE_NAME}=`);
+      // OAuth cookie cleared
+      expect(cookiesStr).toContain(`${OAUTH_COOKIE_NAME}=;`);
+      expect(cookiesStr).toContain('Max-Age=0');
+    });
+
+    it('Google OAuth in invite mode: new account with wrong code redirects to /register?error=INVITE_INVALID and creates no user', async () => {
+      const startRes = await betaApp.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/&invite_code=wrong-invite-code-9999',
+      });
+      expect(startRes.statusCode).toBe(302);
+      const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
+      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+
+      const callbackRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=newgoogle2&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthCookie },
+      });
+
+      expect(callbackRes.statusCode).toBe(302);
+      expect(callbackRes.headers.location).toBe('/register?error=INVITE_INVALID');
+      expect(betaStore.users.length).toBe(0);
+      expect(betaStore.oauth_identities.length).toBe(0);
+      const cookiesStr = String(callbackRes.headers['set-cookie'] || '');
+      expect(cookiesStr).not.toContain(`${REFRESH_COOKIE_NAME}=`);
+      expect(cookiesStr).toContain('Max-Age=0');
+    });
+
+    it('Google OAuth in invite mode: new account with valid code creates user and sets wk_rt', async () => {
+      const startRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google?return_to=/welcome&invite_code=${CODE_A}`,
+      });
+      expect(startRes.statusCode).toBe(302);
+      const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
+      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+
+      const callbackRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=newgoogle3&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthCookie },
+      });
+
+      expect(callbackRes.statusCode).toBe(302);
+      expect(callbackRes.headers.location).toBe('/welcome');
+      expect(betaStore.users.length).toBe(1);
+      expect(betaStore.oauth_identities.length).toBe(1);
+      const cookiesStr = String(callbackRes.headers['set-cookie'] || '');
+      expect(cookiesStr).toContain(`${REFRESH_COOKIE_NAME}=`);
+    });
+
+    it('Google OAuth in invite mode: existing linked user signs in without a code', async () => {
+      // Pre-seed user with linked oauth identity
+      const existingUserId = '01923456-789a-7bc8-9012-3456789abcd1';
+      betaStore.users.push({
+        id: existingUserId,
+        email: 'existing_oauth@gmail.com',
+        email_verified_at: new Date(),
+        password_hash: null,
+        handle: 'existing_oauth',
+        display_name: 'Existing OAuth',
+        avatar_key: null,
+        roles: ['viewer', 'creator'],
+        status: 'ACTIVE',
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      betaStore.oauth_identities.push({
+        provider: 'google',
+        subject: 'google-sub-existing_oauth',
+        user_id: existingUserId,
+        email: 'existing_oauth@gmail.com',
+        created_at: new Date(),
+      });
+
+      // Sign in without invite_code
+      const startRes = await betaApp.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/home',
+      });
+      const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
+      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+
+      const callbackRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=existing_oauth&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthCookie },
+      });
+
+      expect(callbackRes.statusCode).toBe(302);
+      expect(callbackRes.headers.location).toBe('/home');
+      expect(String(callbackRes.headers['set-cookie'])).toContain(`${REFRESH_COOKIE_NAME}=`);
+      // User count remains 1
+      expect(betaStore.users.length).toBe(1);
+    });
+
+    it('Google OAuth in invite mode: linking verified email to existing user never checks code', async () => {
+      // Pre-seed user with same email but no oauth identity
+      const existingUserId = '01923456-789a-7bc8-9012-3456789abcd3';
+      betaStore.users.push({
+        id: existingUserId,
+        email: 'linkme@gmail.com',
+        email_verified_at: new Date(),
+        password_hash: 'somehash',
+        handle: 'linkme_user',
+        display_name: 'Link Me',
+        avatar_key: null,
+        roles: ['viewer', 'creator'],
+        status: 'ACTIVE',
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      // Sign in without invite code
+      const startRes = await betaApp.inject({
+        method: 'GET',
+        url: '/v1/auth/oauth/google?return_to=/',
+      });
+      const oauthCookie = startRes.cookies.find((c) => c.name === OAUTH_COOKIE_NAME)!.value;
+      const stateParam = new URL(startRes.headers.location).searchParams.get('state')!;
+
+      const callbackRes = await betaApp.inject({
+        method: 'GET',
+        url: `/v1/auth/oauth/google/callback?code=linkme&state=${stateParam}`,
+        cookies: { [OAUTH_COOKIE_NAME]: oauthCookie },
+      });
+
+      expect(callbackRes.statusCode).toBe(302);
+      expect(betaStore.oauth_identities.length).toBe(1);
+      expect(betaStore.oauth_identities[0].user_id).toBe(existingUserId);
+    });
+
+    it('Log redaction: logs never contain invite code value', async () => {
+      const SECRET_CODE = 'super-secret-invite-code-9999';
+      const secretEnv = getEnv({
+        JWT_PRIVATE_KEY: keys.privateKey,
+        REGISTRATION_MODE: 'invite',
+        INVITE_CODES: SECRET_CODE,
+        NODE_ENV: 'test',
+      });
+
+      const loggedChunks: string[] = [];
+      const testApp = await buildApp({
+        env: secretEnv,
+        db: createMockDb(createMockStore()).db,
+        rateLimiter: new ValkeyRateLimiter(),
+      });
+
+      // Attempt registration with invalid code
+      await testApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'logtest@winkey.vn',
+          password: 'Password123!',
+          handle: 'logtest',
+          display_name: 'Log Test',
+          invite_code: 'attempted-bad-code-1234',
+        },
+      });
+
+      // Attempt registration with valid secret code
+      await testApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'logtest2@winkey.vn',
+          password: 'Password123!',
+          handle: 'logtest2',
+          display_name: 'Log Test 2',
+          invite_code: SECRET_CODE,
+        },
+      });
+
+      const joinedLogs = loggedChunks.join('\n');
+      expect(joinedLogs).not.toContain(SECRET_CODE);
+      expect(joinedLogs).not.toContain('attempted-bad-code-1234');
     });
   });
 });

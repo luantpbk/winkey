@@ -8,6 +8,7 @@ export interface OAuthSessionState {
   state: string;
   codeVerifier: string;
   returnTo: string;
+  inviteCode?: string;
 }
 
 export function generateCodeVerifier(): string {
