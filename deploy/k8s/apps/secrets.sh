@@ -47,6 +47,19 @@ else
     echo "  Secret auth-secrets already exists." >&2
 fi
 
+# Closed-beta invite codes (ADR-034, task BETA1)
+EXISTING_INVITE_CODES=$(kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.INVITE_CODES}' 2>/dev/null || true)
+if [ -z "$EXISTING_INVITE_CODES" ]; then
+    echo -n "Enter INVITE_CODES (comma-separated, leave blank to skip): " >&2
+    INVITE_CODES=""
+    read -r -s INVITE_CODES || true
+    echo >&2
+    if [ -n "${INVITE_CODES:-}" ]; then
+        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"INVITE_CODES\":\"${INVITE_CODES}\"}}"
+        echo "  Configured INVITE_CODES in auth-secrets." >&2
+    fi
+fi
+
 echo "==> Ensuring auth-google secret exists..."
 if kubectl get secret auth-google -n "$NAMESPACE" >/dev/null 2>&1; then
     echo "  Secret auth-google already exists." >&2
