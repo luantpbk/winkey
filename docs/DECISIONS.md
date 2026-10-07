@@ -690,3 +690,35 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - giữ 14 ngày; mỗi tháng khôi phục thử PostgreSQL một lần.
 
   Như vậy vẫn có một bản sao ngoài Cloudflare. Khi node-01 tham gia thì INF-W1 chuyển vai trò vault sang node-01 (ở nhà khác) và gỡ vault tạm trên gpu-01.
+
+### ADR-033 — Trang phim (CIN1): giao diện kiểu web phim trên dữ liệu sẵn có, không đổi contract
+**Bối cảnh.** User muốn có "Trang phim": cùng các danh sách video hiện có, nhưng trình bày như một web phim (banner lớn, các hàng cuộn ngang, thẻ phóng to khi rê chuột) để hút người xem. Mô hình dữ liệu hiện chưa có thể loại, năm, phim bộ/tập hay poster dọc. Thumbnail là ảnh 16:9, rộng tối đa 1280 px (`BuildThumbnailArgs`).
+**Quyết định.**
+- **CIN1 chỉ làm ở web**, không đổi contract, không migration, không thêm service. Route `/phim` (cả hai locale, ví dụ `/en/phim`), mục "Phim" trên sidebar, ngay dưới "Trang chủ".
+- **Nguồn của từng phần trên trang**, đều là endpoint đang có:
+
+  | Phần | Endpoint | `surface` (ADR-030) |
+  |---|---|---|
+  | Banner lớn (5 video, tự chuyển) | `listVideos?sort=trending&limit=5`, rỗng thì `newest`; `getVideo` cho video đang hiện (mô tả, `playback`) | `trending` (hoặc `latest` khi lấy từ newest) |
+  | Xem tiếp | vị trí xem trong `localStorage` + `batchGetVideos` | `other` |
+  | Top 10 hôm nay | `listVideos?sort=trending&limit=10` | `trending` |
+  | Dành cho bạn (đã đăng nhập) | `getRecommendedFeed` | `for_you` |
+  | Mới cập nhật | `listVideos?sort=newest` | `latest` |
+  | Từ kênh bạn theo dõi (đã đăng nhập) | `getSubscriptionFeed` | `subscriptions` |
+  | Hàng biên tập | danh sách phát `PUBLIC` của kênh tuyển chọn (`/v1/users/{handle}` → `listChannelPlaylists` → items → `batchGetVideos`) | `playlist` |
+  | Tương tự (trong hộp chi tiết) | `listRelatedVideos` | `up_next` |
+
+- **Tuyển chọn bằng danh sách phát.** Kênh tuyển chọn đặt bằng biến runtime `CINEMA_CURATOR_HANDLE` của web (server component đọc rồi truyền xuống, để không phải build lại image khi đổi). Mỗi danh sách phát `PUBLIC` của kênh đó là một hàng, theo thứ tự `listChannelPlaylists` (mới sửa gần nhất lên trước). Tối đa 8 hàng. Biến trống thì không có hàng biên tập. Người vận hành chỉ cần tạo hoặc sửa danh sách phát bằng UI có sẵn, không cần code hay migration.
+- **Xem tiếp chỉ lưu trên máy** (localStorage). Player ghi thêm chỉ mục `winkey.continue_watching`: tối đa 20 mục `{id, t, d, at}`, mục mới nhất đứng đầu. Bỏ mục khi đã xem ≥ 95 % hoặc khi video không còn đọc được. Không đồng bộ giữa các thiết bị. Đồng bộ phía server cần contract và bảng mới, nên để CIN2.
+- **Xem trước trong banner:** sau 3 s đứng yên, banner phát video đang hiện, tắt tiếng, ở rendition thấp nhất. Dừng khi banner ra khỏi màn hình, khi tab bị ẩn, hoặc sau 30 s.
+  - Không phát trên màn hình nhỏ, khi `prefers-reduced-motion` hoặc `Save-Data`.
+  - Bản xem trước **không** gửi heartbeat và không gọi `recordView`, để không làm sai số QoE (QOE1) và lượt xem.
+  - Thẻ trong các hàng **không** phát video khi rê chuột: chỉ phóng to và hiện thông tin. Như vậy không tốn băng thông edge và không phải gọi `getVideo` cho từng thẻ.
+- **Giao diện:** nền tối điện ảnh cố định cho riêng route này (không theo theme sáng/tối), thẻ 16:9.
+  - Mỗi hàng cuộn ngang: snap, có nút trái/phải trên desktop, vuốt trên điện thoại.
+  - Hàng chỉ tải khi sắp vào màn hình (IntersectionObserver), mỗi hàng ≤ 20 video. Hàng rỗng hoặc lỗi thì ẩn, không làm hỏng cả trang.
+  - Bấm thẻ mở hộp chi tiết, đồng bộ với `?v=<id>` để dùng được nút back và chia sẻ link. Nút "Xem ngay" dẫn tới trang xem hiện có, kèm `?src=` đúng surface. Bấm vào trang xem vẫn dùng player hiện có.
+**Hệ quả.**
+- Có ngay một trang "web phim" mà backend không phải làm gì. Edge có thêm vài request API mỗi lượt vào trang, phần lớn được cache 60 s (trending, ẩn danh).
+- Thể loại, năm, phim bộ/tập, poster dọc và xem tiếp đồng bộ giữa thiết bị là **CIN2**: cần contract (`Video.genres`, collection kiểu series, ảnh poster), migration và việc của transcoder. Chỉ làm khi user muốn, sau khi CIN1 đã chạy.
+- Lượt phát từ Trang phim mang các surface sẵn có, nên chưa tách được hiệu quả riêng của trang này. Nếu cần đo, thêm `cinema` vào enum `surface` là một thay đổi contract nhỏ, cộng thêm (giống R2-ab).
