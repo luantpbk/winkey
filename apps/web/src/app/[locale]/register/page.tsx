@@ -1,52 +1,96 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import type { RegisterRequest } from '@winkey/api-client';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 
-export default function RegisterPage() {
+function RegisterForm() {
   const t = useTranslations('auth');
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { register } = useAuth();
 
+  const [displayName, setDisplayName] = useState('');
+  const [handle, setHandle] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [handle, setHandle] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [agreed, setAgreed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
+  const inviteInputRef = useRef<HTMLInputElement>(null);
+
+  // Prefill invite code from ?invite= and handle ?error= from OAuth callback
+  useEffect(() => {
+    const inviteParam = searchParams.get('invite');
+    if (inviteParam) {
+      setInviteCode(inviteParam.slice(0, 64));
+    }
+
+    const errorParam = searchParams.get('error');
+    if (errorParam === 'INVITE_REQUIRED') {
+      setFieldErrors((prev) => ({ ...prev, invite_code: t('inviteRequired') }));
+      inviteInputRef.current?.focus();
+    } else if (errorParam === 'INVITE_INVALID') {
+      setFieldErrors((prev) => ({ ...prev, invite_code: t('inviteInvalid') }));
+      inviteInputRef.current?.focus();
+    }
+  }, [searchParams, t]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!agreed) return;
+
     setFieldErrors({});
     setGeneralError(null);
     setIsSubmitting(true);
 
-    const res = await register({
+    const trimmedInvite = inviteCode.trim();
+    const payload: RegisterRequest = {
       email,
       password,
       handle,
       display_name: displayName,
-    });
+      ...(trimmedInvite ? { invite_code: trimmedInvite } : {}),
+    };
+
+    const res = await register(payload);
     setIsSubmitting(false);
 
     if (res.success) {
       router.push('/');
     } else if (res.error) {
-      if (res.error.errors && res.error.errors.length > 0) {
+      if (res.error.code === 'INVITE_REQUIRED') {
+        setFieldErrors({ invite_code: t('inviteRequired') });
+        inviteInputRef.current?.focus();
+      } else if (res.error.code === 'INVITE_INVALID') {
+        setFieldErrors({ invite_code: t('inviteInvalid') });
+        inviteInputRef.current?.focus();
+      } else if (res.error.errors && res.error.errors.length > 0) {
         const errorsMap: Record<string, string> = {};
         for (const err of res.error.errors) {
           errorsMap[err.field] = err.message;
         }
         setFieldErrors(errorsMap);
+        if (errorsMap.invite_code) {
+          inviteInputRef.current?.focus();
+        }
       } else {
         setGeneralError(res.error.detail || res.error.title || 'Đăng ký thất bại');
       }
     }
   };
+
+  const trimmedInvite = inviteCode.trim();
+  const googleHref =
+    '/v1/auth/oauth/google?return_to=/' +
+    (trimmedInvite ? `&invite_code=${encodeURIComponent(trimmedInvite)}` : '');
 
   return (
     <div className="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
@@ -71,6 +115,7 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
+          {/* Display Name */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
               {t('displayName')}
@@ -92,6 +137,7 @@ export default function RegisterPage() {
             )}
           </div>
 
+          {/* Handle */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
               {t('handle')}
@@ -114,6 +160,7 @@ export default function RegisterPage() {
             )}
           </div>
 
+          {/* Email */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
               {t('email')}
@@ -135,6 +182,7 @@ export default function RegisterPage() {
             )}
           </div>
 
+          {/* Password */}
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
               {t('password')}
@@ -157,10 +205,76 @@ export default function RegisterPage() {
             )}
           </div>
 
+          {/* Invite Code (ADR-034: closed beta invite) */}
+          <div>
+            <label
+              htmlFor="invite-code-input"
+              className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1"
+            >
+              {t('inviteCode')}
+            </label>
+            <input
+              id="invite-code-input"
+              ref={inviteInputRef}
+              type="text"
+              maxLength={64}
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder={t('invitePlaceholder')}
+              className={`w-full h-10 rounded-xl border px-3.5 text-sm bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
+                fieldErrors.invite_code
+                  ? 'border-red-500 focus:ring-red-500'
+                  : 'border-[#383838] dark:border-[#383838] border-gray-300 focus:border-red-500 focus:ring-red-500'
+              }`}
+            />
+            {fieldErrors.invite_code && (
+              <p data-testid="invite-error-msg" className="mt-1 text-xs text-red-500 font-medium">
+                {fieldErrors.invite_code}
+              </p>
+            )}
+          </div>
+
+          {/* Required legal agreement checkbox (client-only) */}
+          <div className="flex items-start gap-2.5 pt-1">
+            <input
+              id="terms-agreement-checkbox"
+              data-testid="terms-agreement-checkbox"
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-red-600 focus:ring-red-500 cursor-pointer shrink-0"
+            />
+            <label
+              htmlFor="terms-agreement-checkbox"
+              className="text-xs text-gray-600 dark:text-gray-400 leading-normal select-none cursor-pointer"
+            >
+              {t('agreeTermsPrefix')}
+              <Link
+                href="/dieu-khoan"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-red-500 hover:underline font-medium"
+              >
+                {t('agreeTermsOfService')}
+              </Link>
+              {t('agreeAnd')}
+              <Link
+                href="/quyen-rieng-tu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-red-500 hover:underline font-medium"
+              >
+                {t('agreePrivacyPolicy')}
+              </Link>
+            </label>
+          </div>
+
+          {/* Submit button: gated by agreement checkbox */}
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-red-600 font-semibold text-sm text-white hover:bg-red-700 transition disabled:opacity-50"
+            disabled={isSubmitting || !agreed}
+            data-testid="register-submit-btn"
+            className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-red-600 font-semibold text-sm text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? 'Đang tạo tài khoản...' : t('submitRegister')}
           </button>
@@ -175,10 +289,21 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Continue with Google */}
+        {/* Continue with Google: gated by agreement checkbox & carries invite_code */}
         <a
-          href="/v1/auth/oauth/google?return_to=/"
-          className="flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 px-4 text-sm font-semibold text-gray-800 dark:text-gray-200 hover:bg-[#282828] dark:hover:bg-[#282828] hover:bg-gray-100 transition"
+          href={agreed ? googleHref : undefined}
+          data-testid="google-oauth-btn"
+          aria-disabled={!agreed}
+          onClick={(e) => {
+            if (!agreed) {
+              e.preventDefault();
+            }
+          }}
+          className={`flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 px-4 text-sm font-semibold text-gray-800 dark:text-gray-200 transition ${
+            !agreed
+              ? 'opacity-50 cursor-not-allowed pointer-events-none'
+              : 'hover:bg-[#282828] dark:hover:bg-[#282828] hover:bg-gray-100'
+          }`}
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">
             <path
@@ -209,5 +334,13 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
   );
 }

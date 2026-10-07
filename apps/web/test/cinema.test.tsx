@@ -732,11 +732,11 @@ describe('Cinema Page (ADR-033 / Task CIN1)', () => {
       expect(topbar.className).toContain('bg-[#0A0A0D]');
     });
 
-    it('renders footer with 4 links (Điều khoản, Quyền riêng tư, Quy tắc cộng đồng, Góp ý beta)', () => {
-      render(
+    it('renders footer with legal links and beta feedback when feedbackUrl is provided', () => {
+      const { rerender } = render(
         <QueryClientProvider client={queryClient}>
           <ToastProvider>
-            <CinemaShell>
+            <CinemaShell feedbackUrl="https://winkey.vn/feedback">
               <div>Cinema Content</div>
             </CinemaShell>
           </ToastProvider>
@@ -749,6 +749,18 @@ describe('Cinema Page (ADR-033 / Task CIN1)', () => {
       expect(screen.getByRole('link', { name: /Quyền riêng tư/i })).toBeDefined();
       expect(screen.getByRole('link', { name: /Quy tắc cộng đồng/i })).toBeDefined();
       expect(screen.getByRole('link', { name: /Góp ý beta/i })).toBeDefined();
+
+      // When feedbackUrl is omitted, the link is hidden
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <CinemaShell>
+              <div>Cinema Content</div>
+            </CinemaShell>
+          </ToastProvider>
+        </QueryClientProvider>,
+      );
+      expect(screen.queryByRole('link', { name: /Góp ý beta/i })).toBeNull();
     });
 
     it('renders mobile navigation bar and quick chips', () => {

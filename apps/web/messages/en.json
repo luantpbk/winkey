@@ -102,7 +102,15 @@
     "emailVerified": "Verified",
     "emailUnverified": "Unverified",
     "oauthUnavailable": "Google sign-in is temporarily unavailable",
-    "accountSuspended": "Your account has been suspended."
+    "accountSuspended": "Your account has been suspended.",
+    "inviteCode": "Invite code",
+    "invitePlaceholder": "Beta invite code",
+    "inviteRequired": "Winkey is in closed beta. You need an invite code to create an account.",
+    "inviteInvalid": "Invalid or expired invite code.",
+    "agreeTermsPrefix": "I agree to the ",
+    "agreeTermsOfService": "Terms of Service",
+    "agreeAnd": " and ",
+    "agreePrivacyPolicy": "Privacy Policy"
   },
   "upload": {
     "title": "Upload Video to Winkey",
@@ -578,5 +586,11 @@
     "betaFeedback": "Beta Feedback",
     "copyright": "© 2026 Winkey · Beta",
     "curatedBy": "Curated by Winkey"
+  },
+  "legal": {
+    "englishNotice": "Note: This legal document is currently available in Vietnamese only during the closed beta phase.",
+    "termsTitle": "Terms of Service – Winkey",
+    "privacyTitle": "Privacy Policy – Winkey",
+    "communityTitle": "Community Guidelines – Winkey"
   }
 }

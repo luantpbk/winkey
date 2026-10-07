@@ -454,24 +454,24 @@ export function CinemaHero({
         )}
 
         {/* Action Buttons: Primary white with dark text, ghost, round */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-nowrap">
           <Link
             href={watchHref}
             data-testid="cinema-hero-watch-btn"
-            className="h-12 px-6 rounded-lg bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] font-bold text-base inline-flex items-center gap-2.5 transition active:scale-[0.98] shadow-md"
+            className="h-11 sm:h-12 px-3.5 sm:px-6 rounded-lg bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] font-bold text-sm sm:text-base inline-flex items-center justify-center gap-1.5 sm:gap-2.5 shrink-0 transition active:scale-[0.98] shadow-md"
           >
-            <Play className="w-5 h-5 fill-current ml-0.5" />
-            <span>{t('watchNow')}</span>
+            <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
+            <span className="whitespace-nowrap">{t('watchNow')}</span>
           </Link>
 
           <button
             type="button"
             onClick={handleWatchLaterClick}
             data-testid="cinema-hero-watch-later-btn"
-            className="h-12 px-6 rounded-lg bg-[rgba(110,110,125,.42)] hover:bg-[rgba(110,110,125,.6)] text-white font-semibold text-base backdrop-blur-md inline-flex items-center gap-2 transition active:scale-[0.98]"
+            className="h-11 sm:h-12 px-3 sm:px-6 rounded-lg bg-[rgba(110,110,125,.42)] hover:bg-[rgba(110,110,125,.6)] text-white font-semibold text-sm sm:text-base backdrop-blur-md inline-flex items-center justify-center gap-1.5 sm:gap-2 shrink-0 transition active:scale-[0.98]"
           >
-            <Plus className="w-5 h-5" />
-            <span>{t('watchLater')}</span>
+            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="whitespace-nowrap">{t('watchLater')}</span>
           </button>
 
           <button
@@ -479,7 +479,7 @@ export function CinemaHero({
             onClick={() => onOpenDetail(activeVideo.id)}
             data-testid="cinema-hero-details-btn"
             aria-label={t('details')}
-            className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
+            className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
           >
             <Info className="w-5 h-5" />
           </button>

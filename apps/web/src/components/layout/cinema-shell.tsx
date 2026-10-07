@@ -24,9 +24,10 @@ import {
 
 interface CinemaShellProps {
   children: ReactNode;
+  feedbackUrl?: string | null;
 }
 
-export function CinemaShell({ children }: CinemaShellProps) {
+export function CinemaShell({ children, feedbackUrl }: CinemaShellProps) {
   const tNav = useTranslations('nav');
   const tCin = useTranslations('cinema');
   const pathname = usePathname();
@@ -65,8 +66,6 @@ export function CinemaShell({ children }: CinemaShellProps) {
   };
 
   const isHomeActive = pathname === '/' || pathname === '';
-
-  const feedbackUrl = process.env.NEXT_PUBLIC_FEEDBACK_URL || '#feedback';
 
   return (
     <div
@@ -392,14 +391,16 @@ export function CinemaShell({ children }: CinemaShellProps) {
           <Link href="/quy-tac-cong-dong" className="hover:text-white transition hover:underline">
             {tCin('communityRules')}
           </Link>
-          <a
-            href={feedbackUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-white transition hover:underline"
-          >
-            {tCin('betaFeedback')}
-          </a>
+          {feedbackUrl && (
+            <a
+              href={feedbackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition hover:underline"
+            >
+              {tCin('betaFeedback')}
+            </a>
+          )}
         </nav>
       </footer>
 

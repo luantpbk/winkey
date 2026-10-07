@@ -23,10 +23,12 @@ interface SidebarProps {
   collapsed: boolean;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  feedbackUrl?: string | null;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+export function Sidebar({ collapsed, mobileOpen, onCloseMobile, feedbackUrl }: SidebarProps) {
   const t = useTranslations('nav');
+  const tCin = useTranslations('cinema');
   const pathname = usePathname();
   const { canAccessAdmin, isAuthenticated } = useAuth();
 
@@ -161,9 +163,47 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
               })}
             </div>
 
-            <div className="mt-auto p-4 text-[11px] text-gray-500 space-y-2">
-              <p>© 2026 Winkey VN</p>
-              <p>Nền tảng Video Streaming Việt Nam</p>
+            <div
+              data-testid="sidebar-footer"
+              className="mt-auto p-4 text-[11px] text-gray-500 space-y-2 border-t border-[#272727] dark:border-[#272727] border-gray-200"
+            >
+              <nav
+                aria-label="Thông tin pháp lý"
+                className="flex flex-wrap gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400"
+              >
+                <Link
+                  href="/dieu-khoan"
+                  onClick={onCloseMobile}
+                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                >
+                  {tCin('terms')}
+                </Link>
+                <Link
+                  href="/quyen-rieng-tu"
+                  onClick={onCloseMobile}
+                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                >
+                  {tCin('privacy')}
+                </Link>
+                <Link
+                  href="/quy-tac-cong-dong"
+                  onClick={onCloseMobile}
+                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                >
+                  {tCin('communityRules')}
+                </Link>
+                {feedbackUrl && (
+                  <a
+                    href={feedbackUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  >
+                    {tCin('betaFeedback')}
+                  </a>
+                )}
+              </nav>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">{tCin('copyright')}</p>
             </div>
           </>
         )}
