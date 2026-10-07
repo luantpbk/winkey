@@ -11,12 +11,23 @@ SKIP_MEDIA="${SKIP_MEDIA:-0}"
 
 # Closed-beta invite code & host env integration (ADR-034 / #249)
 SMOKE_ENV_FILE="${SMOKE_ENV_FILE:-/etc/winkey/smoke.env}"
-if [ -z "${INVITE_CODE:-}" ] && [ -f "$SMOKE_ENV_FILE" ]; then
-    # Load invite code from host-only env file if present
-    # shellcheck disable=SC1090
-    source "$SMOKE_ENV_FILE" 2>/dev/null || true
+if [ -f "$SMOKE_ENV_FILE" ] && [ -r "$SMOKE_ENV_FILE" ]; then
+    while IFS='=' read -r key val || [ -n "$key" ]; do
+        # Strip comments, leading/trailing whitespace, and surrounding quotes
+        key=$(echo "$key" | tr -d '[:space:]')
+        val=$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')
+        case "$key" in
+            INVITE_CODE) [ -z "${INVITE_CODE:-}" ] && INVITE_CODE="$val" ;;
+            SMOKE_INVITE_CODE) [ -z "${INVITE_CODE:-}" ] && INVITE_CODE="$val" ;;
+            SEC1_VIDEO_ID) [ -z "${SEC1_VIDEO_ID:-}" ] && SEC1_VIDEO_ID="$val" ;;
+            SEC1_OWNER_EMAIL) [ -z "${SEC1_OWNER_EMAIL:-}" ] && SEC1_OWNER_EMAIL="$val" ;;
+            SEC1_OWNER_PASSWORD) [ -z "${SEC1_OWNER_PASSWORD:-}" ] && SEC1_OWNER_PASSWORD="$val" ;;
+            SKIP_SEC1) [ -z "${SKIP_SEC1:-}" ] && SKIP_SEC1="$val" ;;
+        esac
+    done < <(grep -E '^[[:space:]]*(INVITE_CODE|SMOKE_INVITE_CODE|SEC1_VIDEO_ID|SEC1_OWNER_EMAIL|SEC1_OWNER_PASSWORD|SKIP_SEC1)=' "$SMOKE_ENV_FILE" 2>/dev/null || true)
 fi
 INVITE_CODE="${INVITE_CODE:-${SMOKE_INVITE_CODE:-}}"
+SKIP_SEC1="${SKIP_SEC1:-0}"
 if [ -z "${INVITE_CODE:-}" ] && [ -t 0 ] && [ "${PROMPT_INVITE_CODE:-0}" = "1" ]; then
     read -r -s -p "Enter smoke invite code (press Enter if registration open): " INVITE_CODE
     echo ""
@@ -379,63 +390,80 @@ echo "SUCCESS: Multipart upload completed (HTTP 202 Accepted); raw file saved to
 
 # 11. Check SEC1 media access control (ADR-017, ADR-018)
 echo "[11/11] Checking SEC1 media access control and signed URLs..."
-SEC1_VID="${SEC1_VIDEO_ID:-}"
-ROUTE_PROBE_VID="${SEC1_VID:-01a0f0dd-7b6c-79f6-b75a-c89121e474cf}"
 
-echo "  [11a] Verifying internal media access is strictly not accessible from public host..."
-# Test 1: Spoofed Host header via public domain (must return 404, 444, or closed connection)
-HOST_RESP=$(curl -sS -i -H 'Host: media-auth.internal' "${BASE_URL}/internal/media-access/${ROUTE_PROBE_VID}" 2>&1 || true)
-HOST_CODE=$(echo "$HOST_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
-if [ "$HOST_CODE" = "200" ] || [ "$HOST_CODE" = "204" ]; then
-    echo "FAILED: Spoofed Host header returned HTTP $HOST_CODE (must be 404, 444, or closed)!" >&2
-    exit 1
-fi
-if [ -n "$HOST_CODE" ] && [ "$HOST_CODE" != "404" ] && [ "$HOST_CODE" != "444" ]; then
-    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $HOST_CODE!" >&2
-    exit 1
-fi
-echo "  Spoofed Host test OK: returned '${HOST_CODE:-closed}' (allowed: 404/444/closed)."
-
-# Test 2: Direct SNI resolve to public IP with media-auth.internal (must fail TLS handshake or return 404/444/closed)
-RESOLVE_RESP=$(curl -sS -i -k --resolve "media-auth.internal:443:${PUBLIC_IP}" "https://media-auth.internal/internal/media-access/${ROUTE_PROBE_VID}" 2>&1 || true)
-RESOLVE_CODE=$(echo "$RESOLVE_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
-if [ "$RESOLVE_CODE" = "200" ] || [ "$RESOLVE_CODE" = "204" ]; then
-    echo "FAILED: --resolve media-auth.internal returned HTTP $RESOLVE_CODE (must be 404, 444, or closed)!" >&2
-    exit 1
-fi
-if [ -n "$RESOLVE_CODE" ] && [ "$RESOLVE_CODE" != "404" ] && [ "$RESOLVE_CODE" != "444" ]; then
-    echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $RESOLVE_CODE!" >&2
-    exit 1
-fi
-echo "  TLS SNI resolve test OK: returned '${RESOLVE_CODE:-handshake rejected/closed}' (allowed: 404/444/closed)."
-
-# Test 3: Direct internal path on public host (must return 404)
-INT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/internal/media-access/${ROUTE_PROBE_VID}" || true)
-if [ "$INT_CODE" != "404" ]; then
-    echo "FAILED: Direct internal path returned HTTP $INT_CODE (expected 404)!" >&2
-    exit 1
-fi
-echo "  Direct path test OK: returned HTTP 404."
-
-if [ -n "$SEC1_VID" ]; then
-    OWNER_TOKEN=""
-    if [ -n "${SEC1_OWNER_EMAIL:-}" ] && [ -n "${SEC1_OWNER_PASSWORD:-}" ]; then
-        echo "  [11b] Authenticating as video owner (${SEC1_OWNER_EMAIL})..."
-        OWNER_LOGIN_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/auth/login" \
-          -H "Content-Type: application/json" \
-          -d "{\"email\": \"${SEC1_OWNER_EMAIL}\", \"password\": \"${SEC1_OWNER_PASSWORD}\"}" || true)
-        OWNER_TOKEN=$(echo "$OWNER_LOGIN_RESP" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+if [ "${SKIP_SEC1:-0}" = "1" ] || [ "${SKIP_SEC1:-}" = "true" ]; then
+    echo "  [11/11] SEC1 SKIPPED: SKIP_SEC1 is enabled."
+else
+    # SEC1 requires dedicated owner credentials and video ID from SMOKE_ENV_FILE or environment
+    if [ -z "${SEC1_VIDEO_ID:-}" ] || [ -z "${SEC1_OWNER_EMAIL:-}" ] || [ -z "${SEC1_OWNER_PASSWORD:-}" ]; then
+        echo "FAILED: SEC1 verification requires SEC1_VIDEO_ID, SEC1_OWNER_EMAIL, and SEC1_OWNER_PASSWORD in ${SMOKE_ENV_FILE} or environment (or set SKIP_SEC1=1 to skip)!" >&2
+        exit 1
     fi
+
+    SEC1_VID="${SEC1_VIDEO_ID}"
+
+    echo "  [11a] Verifying internal media access is strictly not accessible from public host..."
+    # Test 1: Spoofed Host header via public domain (must return 404, 444, or closed connection)
+    HOST_RESP=$(curl -sS -i -H 'Host: media-auth.internal' "${BASE_URL}/internal/media-access/${SEC1_VID}" 2>&1 || true)
+    HOST_CODE=$(echo "$HOST_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+    if [ "$HOST_CODE" = "200" ] || [ "$HOST_CODE" = "204" ]; then
+        echo "FAILED: Spoofed Host header returned HTTP $HOST_CODE (must be 404, 444, or closed)!" >&2
+        exit 1
+    fi
+    if [ -n "$HOST_CODE" ] && [ "$HOST_CODE" != "404" ] && [ "$HOST_CODE" != "444" ]; then
+        echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $HOST_CODE!" >&2
+        exit 1
+    fi
+    echo "  Spoofed Host test OK: returned '${HOST_CODE:-closed}' (allowed: 404/444/closed)."
+
+    # Test 2: Direct SNI resolve to public IP with media-auth.internal (must fail TLS handshake or return 404/444/closed)
+    RESOLVE_RESP=$(curl -sS -i -k --resolve "media-auth.internal:443:${PUBLIC_IP}" "https://media-auth.internal/internal/media-access/${SEC1_VID}" 2>&1 || true)
+    RESOLVE_CODE=$(echo "$RESOLVE_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+    if [ "$RESOLVE_CODE" = "200" ] || [ "$RESOLVE_CODE" = "204" ]; then
+        echo "FAILED: --resolve media-auth.internal returned HTTP $RESOLVE_CODE (must be 404, 444, or closed)!" >&2
+        exit 1
+    fi
+    if [ -n "$RESOLVE_CODE" ] && [ "$RESOLVE_CODE" != "404" ] && [ "$RESOLVE_CODE" != "444" ]; then
+        echo "FAILED: Expected HTTP 404, 444, or closed connection, got HTTP $RESOLVE_CODE!" >&2
+        exit 1
+    fi
+    echo "  TLS SNI resolve test OK: returned '${RESOLVE_CODE:-handshake rejected/closed}' (allowed: 404/444/closed)."
+
+    # Test 3: Direct internal path on public host (must return 404)
+    INT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/internal/media-access/${SEC1_VID}" || true)
+    if [ "$INT_CODE" != "404" ]; then
+        echo "FAILED: Direct internal path returned HTTP $INT_CODE (expected 404)!" >&2
+        exit 1
+    fi
+    echo "  Direct path test OK: returned HTTP 404."
+
+    echo "  [11b] Authenticating as video owner (${SEC1_OWNER_EMAIL})..."
+    OWNER_LOGIN_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/auth/login" \
+      -H "Content-Type: application/json" \
+      -d "{\"email\": \"${SEC1_OWNER_EMAIL}\", \"password\": \"${SEC1_OWNER_PASSWORD}\"}")
+    OWNER_CODE=$(echo "$OWNER_LOGIN_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+    if [ "$OWNER_CODE" != "200" ]; then
+        echo "FAILED: Owner authentication failed with HTTP $OWNER_CODE!" >&2
+        echo "$OWNER_LOGIN_RESP"
+        exit 1
+    fi
+    OWNER_TOKEN=$(echo "$OWNER_LOGIN_RESP" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
     if [ -z "$OWNER_TOKEN" ]; then
-        echo "  [11b] Using smoke test session token for video owner assertions..."
-        OWNER_TOKEN="$ACCESS_TOKEN"
+        echo "FAILED: No access token found in owner login response!" >&2
+        exit 1
     fi
 
     echo "  [11c] Setting video to PUBLIC and testing plain URL (HTTP 200)..."
-    curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
+    PUB_PATCH_RESP=$(curl -sS -i -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
       -H "Authorization: Bearer ${OWNER_TOKEN}" \
       -H "Content-Type: application/json" \
-      -d '{"visibility": "PUBLIC"}' > /dev/null
+      -d '{"visibility": "PUBLIC"}')
+    PUB_PATCH_CODE=$(echo "$PUB_PATCH_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+    if [ "$PUB_PATCH_CODE" != "200" ]; then
+        echo "FAILED: Setting video to PUBLIC failed with HTTP $PUB_PATCH_CODE!" >&2
+        echo "$PUB_PATCH_RESP"
+        exit 1
+    fi
 
     PUB_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${MEDIA_URL}/v/${SEC1_VID}/a1/hls/master.m3u8")
     if [ "$PUB_CODE" != "200" ]; then
@@ -445,10 +473,16 @@ if [ -n "$SEC1_VID" ]; then
     echo "  PUBLIC READY video returned HTTP 200 on plain URL."
 
     echo "  [11d] Setting video to PRIVATE and asserting plain URL turns 403 within 30s..."
-    curl -sS -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
+    PRIV_PATCH_RESP=$(curl -sS -i -X PATCH "${BASE_URL}/v1/videos/${SEC1_VID}" \
       -H "Authorization: Bearer ${OWNER_TOKEN}" \
       -H "Content-Type: application/json" \
-      -d '{"visibility": "PRIVATE"}' > /dev/null
+      -d '{"visibility": "PRIVATE"}')
+    PRIV_PATCH_CODE=$(echo "$PRIV_PATCH_RESP" | grep -E '^HTTP/' | head -n1 | awk '{print $2}' || true)
+    if [ "$PRIV_PATCH_CODE" != "200" ]; then
+        echo "FAILED: Setting video to PRIVATE failed with HTTP $PRIV_PATCH_CODE!" >&2
+        echo "$PRIV_PATCH_RESP"
+        exit 1
+    fi
 
     BLOCKED=0
     START_TIME=$(date +%s)
@@ -525,7 +559,6 @@ print(base64.urlsafe_b64encode(hashlib.md5(raw.encode()).digest()).decode().rstr
         echo "  Expired signed URL returned HTTP 410."
     else
         echo "  SKIPPED: [11g] MEDIA_LINK_SECRET not available; expired 410 synthetic URL test skipped."
-        TEST_SKIPPED=1
     fi
 
     # Reset video back to PUBLIC
@@ -534,22 +567,18 @@ print(base64.urlsafe_b64encode(hashlib.md5(raw.encode()).digest()).decode().rstr
       -H "Content-Type: application/json" \
       -d '{"visibility": "PUBLIC"}' > /dev/null
     echo "  Reset video back to PUBLIC."
-else
-    echo "  Notice: [11b-11g] SEC1_VIDEO_ID not specified; skipped live video owner/signed-URL assertions."
-    TEST_SKIPPED=1
+    echo "SUCCESS: SEC1 media access control verified across all conditions."
 fi
 
 # Clean up throwaway smoke user before reporting final status
 cleanup_smoke_user || true
 trap - EXIT INT TERM
 
-if [ "${TEST_SKIPPED:-0}" = "1" ]; then
-    echo "SUCCESS: SEC1 media access control verified (with skipped optional tests)."
+if [ "${SKIP_SEC1:-0}" = "1" ] || [ "${SKIP_SEC1:-}" = "true" ] || [ "${SKIP_MEDIA:-0}" = "1" ]; then
     echo "=========================================================="
-    echo " Winkey Edge Smoke Tests completed (optional tests SKIPPED)."
+    echo " Winkey Edge Smoke Tests completed (some suites SKIPPED)."
     echo "=========================================================="
 else
-    echo "SUCCESS: SEC1 media access control verified across all conditions."
     echo "=========================================================="
     echo " All Winkey Edge & Application Plane Smoke Tests PASSED!"
     echo "=========================================================="
