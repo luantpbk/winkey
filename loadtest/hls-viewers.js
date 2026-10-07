@@ -1,37 +1,55 @@
 /* global __ENV, open */
 import http from 'k6/http';
 import { sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
-// Custom metrics as required by LT1 specification
-const rebufferRatioTrend = new Trend('rebuffer_ratio');
+// Custom metrics as required by LT2 / QOE2 specification
+const rebufferRatioTrend = new Trend('rebuffer_ratio'); // stalls NOT caused by a seek (P2 gate criterion)
+const rebufferRatioInclSeekTrend = new Trend('rebuffer_ratio_incl_seek'); // informational (incl seek stalls)
 const startupTimeTrend = new Trend('startup_time');
 const httpReqFailed = new Rate('http_req_failed');
 
+const totalStallTimeMs = new Counter('total_stall_time_ms');
+const totalWatchTimeMs = new Counter('total_watch_time_ms');
+
+const executorType = __ENV.EXECUTOR || 'ramping-vus';
+
 export const options = {
   thresholds: {
-    rebuffer_ratio: ['p(95)<0.01'], // rebuffer ratio p95 < 1%
+    rebuffer_ratio: ['p(95)<0.01'], // p95 per VU as informational
     startup_time: ['p(75)<2000'], // startup time p75 < 2 s (2000 ms)
-    http_req_failed: ['rate<0.005'], // HTTP error rate < 0.5%
+    http_req_failed: ['rate<0.01'], // HTTP error rate < 1%
   },
   scenarios: {
-    hls_viewers: {
-      executor: 'constant-vus',
-      vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 50,
-      duration: __ENV.DURATION || '5m',
-    },
+    hls_viewers:
+      executorType === 'ramping-vus'
+        ? {
+            executor: 'ramping-vus',
+            startVUs: 50,
+            stages: [
+              { duration: '5m', target: 50 },
+              { duration: '5m', target: 200 },
+              { duration: '5m', target: 500 },
+              { duration: '5m', target: 1000 },
+              { duration: '15m', target: 1000 },
+            ],
+          }
+        : {
+            executor: 'constant-vus',
+            vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 50,
+            duration: __ENV.DURATION || '5m',
+          },
   },
 };
 
-const TARGET_URL = __ENV.TARGET_URL || 'http://127.0.0.1:8080';
+const TARGET_URL = __ENV.TARGET_URL || 'https://winkey.vn';
 
-const videos = new SharedArray('videos', function () {
+const seedVideos = new SharedArray('seed_videos', function () {
   try {
     const raw = JSON.parse(open('./seed.json'));
     return Array.isArray(raw.videos) ? raw.videos : [];
-  } catch (err) {
-    void err;
+  } catch {
     return [];
   }
 });
@@ -94,21 +112,45 @@ function parseVariantPlaylist(body, baseUrl) {
   return segments;
 }
 
-export default function () {
-  if (videos.length === 0) {
-    // If seed data is missing or empty, hit readyz to record metric
+export function setup() {
+  if (seedVideos.length > 0) {
+    return { videos: seedVideos };
+  }
+  // Production / non-seeded mode: fetch public READY videos via API
+  const res = http.get(`${TARGET_URL}/v1/videos?sort=newest&limit=50`);
+  if (res.status === 200) {
+    try {
+      const body = JSON.parse(res.body);
+      const items = Array.isArray(body.items) ? body.items : [];
+      const videoList = items.map((v) => ({
+        id: v.id,
+        hls_url:
+          v.playback && v.playback.hls_url ? v.playback.hls_url : `/v1/videos/${v.id}/master.m3u8`,
+      }));
+      return { videos: videoList };
+    } catch {
+      // ignore
+    }
+  }
+  return { videos: [] };
+}
+
+export default function (data) {
+  const videoPool = data && data.videos && data.videos.length > 0 ? data.videos : seedVideos;
+
+  if (videoPool.length === 0) {
     const res = http.get(`${TARGET_URL}/readyz`);
     httpReqFailed.add(res.status !== 200);
     sleep(1);
     return;
   }
 
-  // 20% of viewers pick from a "hot" video pool (top 20% of seeded videos)
-  const hotCount = Math.max(1, Math.floor(videos.length * 0.2));
+  // 20% of viewers pick from a "hot" video pool (top 20% of videos)
+  const hotCount = Math.max(1, Math.floor(videoPool.length * 0.2));
   const isHotViewer = Math.random() < 0.2;
   const selectedVideo = isHotViewer
-    ? videos[Math.floor(Math.random() * hotCount)]
-    : videos[Math.floor(Math.random() * videos.length)];
+    ? videoPool[Math.floor(Math.random() * hotCount)]
+    : videoPool[Math.floor(Math.random() * videoPool.length)];
 
   const tStart = Date.now();
 
@@ -123,8 +165,7 @@ export default function () {
   let videoMeta;
   try {
     videoMeta = JSON.parse(watchRes.body);
-  } catch (err) {
-    void err;
+  } catch {
     sleep(1);
     return;
   }
@@ -183,7 +224,8 @@ export default function () {
   const TARGET_BUFFER = 10.0;
 
   let currentBuffer = segments[0].duration;
-  let totalStallTime = 0.0;
+  let stallTimeNoSeek = 0.0;
+  let stallTimeSeekOnly = 0.0;
   let totalWatchTime = segments[0].duration;
 
   let lastBytes = seg0Res.body ? seg0Res.body.length : 0;
@@ -196,9 +238,10 @@ export default function () {
       segIdx = 0; // Loop playlist if video is shorter than target watch session
     }
 
-    // Check seek logic
+    let isSeekPoint = false;
     if (willSeek && segIdx === seekSegmentIndex) {
       currentBuffer = 0.0; // Seek flushes current buffer
+      isSeekPoint = true;
     }
 
     // ABR logic: Evaluate measured throughput against available renditions
@@ -227,15 +270,13 @@ export default function () {
     lastBytes = segRes.body ? segRes.body.length : 0;
     lastDlTimeSec = dlTimeSec;
 
-    // STALL EVALUATION FORMULA:
-    // When segment download time (dlTimeSec) exceeds current playback buffer (currentBuffer),
-    // the player runs out of buffer and stalls.
-    // - Stall duration: stallSec = dlTimeSec - currentBuffer
-    // - Played video time during download: currentBuffer (only what was buffered and played)
-    // - totalWatchTime grows ONLY by the played video time (currentBuffer), NOT by dlTimeSec.
     if (dlTimeSec > currentBuffer) {
       const stallSec = dlTimeSec - currentBuffer;
-      totalStallTime += stallSec;
+      if (isSeekPoint) {
+        stallTimeSeekOnly += stallSec;
+      } else {
+        stallTimeNoSeek += stallSec;
+      }
       totalWatchTime += currentBuffer;
       currentBuffer = 0.0;
     } else {
@@ -245,8 +286,6 @@ export default function () {
 
     currentBuffer += segDuration;
 
-    // Real-time playback pacing: only sleep when buffer exceeds TARGET_BUFFER (10s)
-    // hls.js fetches immediately when buffer is below target to build buffer depth.
     if (currentBuffer > TARGET_BUFFER) {
       const sleepSec = currentBuffer - TARGET_BUFFER;
       sleep(sleepSec);
@@ -257,7 +296,16 @@ export default function () {
     segIdx++;
   }
 
-  // Record rebuffer ratio = total stall time / total watch time
-  const ratio = totalStallTime / Math.max(0.001, totalWatchTime);
-  rebufferRatioTrend.add(ratio);
+  // Record TWO ratios as specified in LT2 brief:
+  // 1. rebuffer_ratio: non-seek stalls (P2 criterion gate)
+  // 2. rebuffer_ratio_incl_seek: informational (includes seek stalls)
+  const watchTimeNoZero = Math.max(0.001, totalWatchTime);
+  const ratioNoSeek = stallTimeNoSeek / watchTimeNoZero;
+  const ratioInclSeek = (stallTimeNoSeek + stallTimeSeekOnly) / watchTimeNoZero;
+
+  rebufferRatioTrend.add(ratioNoSeek);
+  rebufferRatioInclSeekTrend.add(ratioInclSeek);
+
+  totalStallTimeMs.add(Math.round(stallTimeNoSeek * 1000));
+  totalWatchTimeMs.add(Math.round(totalWatchTime * 1000));
 }

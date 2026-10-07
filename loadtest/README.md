@@ -11,39 +11,32 @@ All load tests are executed using Grafana k6 in Docker (pinned by digest). No k6
 ## Safety Rules & Operational Guidelines
 
 > [!CAUTION]
-> **CRITICAL RULE**: NEVER run load tests against `winkey.vn` or production infrastructure without the architect's explicit go-ahead in the PR/issue.
+> **CRITICAL RULE**: NEVER run load tests against `winkey.vn` or production infrastructure without the architect's explicit go-ahead in the PR/issue. Load test execution on production is strictly prohibited outside the approved window.
 
-1. **Target Environment**: Local calibration must only target the dev/systest stack (`http://127.0.0.1:8080`).
-2. **Ramp-Up Profile**: Always start with 50 VUs, calibrate, monitor container resources (`docker stats`), and ramp up progressively (e.g. 50 → 200 → 500 → 1000). Never start execution abruptly at full load.
-3. **Automatic Abort**: If HTTP error rate exceeds **5%** or rebuffer ratio exceeds **1%**, immediately abort the test run using `Ctrl+C` or threshold aborts, then clean up test data immediately (`node loadtest/cleanup.mjs`).
+1. **Target Environment**: Local calibration targets dev/systest stack (`http://127.0.0.1:8080`). Production test targets `https://winkey.vn` (on the OCI VM prepared by Antigravity 2).
+2. **Ramp-Up Profile**: 50 → 200 → 500 → 1000 viewers (5 min per step), then hold 1000 viewers for 15 minutes.
+3. **No Uploads / No Seeding in Production**: In production mode (`https://winkey.vn`), viewers pick from public READY videos (`GET /v1/videos?sort=newest&limit=50`). No video uploads or seed scripts are executed.
+4. **No Default Passwords**: `LOADTEST_USER_PASSWORD` is strictly required for production / non-localhost execution. No default passwords allowed.
+5. **Automatic Abort**: If HTTP error rate exceeds **5%** for 1 minute, available memory on edge-1 falls below **1 GiB**, or a legacy site fails healthcheck, immediately abort the test run (`Ctrl+C`) and execute immediate data cleanup (`node loadtest/cleanup.mjs`).
 
 ---
 
-## 1. Seed Data Preparation
+## 1. Local Calibration (Task LT1)
 
-Before running k6 scenarios, populate the target environment with registered users and READY video clips:
+Before running against production, populate local environment with test clips and users:
 
 ```bash
 ./loadtest/seed.sh
 ```
 
-This populates `loadtest/seed.json`, `loadtest/videos.json`, and `loadtest/users.json`.
-
----
-
-## 2. Running Scenarios Locally
-
 ### HLS Viewer Simulation (`loadtest/hls-viewers.js`)
 
 Simulates viewer behavior (Adaptive Bitrate streaming, ~10 s buffer maintenance, stall/rebuffer ratio calculation, 20% hot video selection, 10% random seeking).
 
-> [!NOTE]
-> A random seek flushes the active playback buffer (`currentBuffer = 0.0`), which counts as a rebuffer event, matching U8 E2E test specifications.
-
 **50 Viewers:**
 ```bash
 docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
-  -e TARGET_URL=http://127.0.0.1:8080 -e VUS=50 -e DURATION=1m \
+  -e TARGET_URL=http://127.0.0.1:8080 -e EXECUTOR=constant-vus -e VUS=50 -e DURATION=1m \
   grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603 \
   run /loadtest/hls-viewers.js
 ```
@@ -51,49 +44,51 @@ docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
 **200 Viewers:**
 ```bash
 docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
-  -e TARGET_URL=http://127.0.0.1:8080 -e VUS=200 -e DURATION=1m \
+  -e TARGET_URL=http://127.0.0.1:8080 -e EXECUTOR=constant-vus -e VUS=200 -e DURATION=1m \
   grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603 \
   run /loadtest/hls-viewers.js
 ```
 
-### Browsing API Mix (`loadtest/api-mix.js`)
-
-Simulates background user browsing traffic (70% feed/watch/search reads, 25% social reads, 5% comments & likes writes with authenticated user tokens).
-
-```bash
-docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
-  -e TARGET_URL=http://127.0.0.1:8080 -e VUS=20 -e DURATION=1m \
-  grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603 \
-  run /loadtest/api-mix.js
-```
-
 ---
 
-## 3. Task LT2: Production / Target VM 1,000 Viewers Load Test
+## 2. Task LT2: Production 1,000 Viewers Load Test Procedure
 
-### Execution Time Window Constraint
-- **Allowed Time Window**: Strictly between **02:00 – 03:30 AM Vietnam time (UTC+7)** starting the night of **October 9, 2026** (19:00 - 20:30 UTC).
-- **Target Infrastructure**: Executed on the target VM prepared by **Antigravity 2** (Platform/DevOps).
+### Execution Constraints & Time Window
+- **Approved Time Window**: Strictly between **02:00 – 03:30 AM Vietnam time (UTC+7)** starting the night of **October 9, 2026** (19:00 - 20:30 UTC).
+- **Generator Infrastructure**: Executed ONLY from the temporary OCI A1 VM prepared by **Antigravity 2**. Never run from local network or dev hosts.
+- **Target URL**: `https://winkey.vn`
+
+### Load Profile & Metrics
+- **Ramp Stages**: 50 (5m) → 200 (5m) → 500 (5m) → 1000 (5m) → 1000 (15m).
+- **Parallel Browsing**: `api-mix` runs in parallel at 5% of VU count (max 50 VUs).
+- **Two Ratios Reported**:
+  - `rebuffer_ratio`: Stalls NOT caused by a seek (P2 gate criterion). Aggregate ratio = `sum(stall_ms) / (sum(watch_ms) + sum(stall_ms))`.
+  - `rebuffer_ratio_incl_seek`: Informational (includes seek stalls).
+- **Thresholds**:
+  - `rebuffer_ratio`: Aggregate `< 1%`
+  - `http_req_failed`: `< 1%`
+  - `startup_time`: `p(75) < 2 s`
+
+### Production Accounts & Teardown Protocol
+- Writes (comments, likes) use at most 20 temporary `lt2_<rand>` accounts registered using `LT2_INVITE_CODE`.
+- Accounts are registered slowly before ramp to respect auth rate limits.
+- **Teardown**:
+  - Deletes all created comments (`DELETE /v1/comments/{comment_id}`).
+  - Calls `deleteMe` (`DELETE /v1/me` with `{ confirm_handle: handle, password: password }`) for all `lt2_` accounts.
+  - Teardown runs automatically on test completion or abort (k6 `teardown()` + standalone `node loadtest/cleanup.mjs`).
 
 ### Execution Command
 ```bash
-TARGET_URL=http://<target-vm-ip>:8080 LOADTEST_USER_PASSWORD=<secure_pass> VUS=1000 DURATION=5m ./loadtest/lt2-run.sh
-```
-
-### Immediate Abort & Cleanup Protocol
-- **Trigger Conditions**:
-  1. HTTP error rate > 5%
-  2. Rebuffer ratio p(95) > 1%
-  3. Server resource exhaustion (CPU/RAM > 90%)
-- **Immediate Action**: Stop k6 execution immediately (`Ctrl+C`), and execute data cleanup:
-```bash
-GATEWAY_URL=http://<target-vm-ip>:8080 node ./loadtest/cleanup.mjs
+TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_CODE=<invite_code> ./loadtest/lt2-run.sh
 ```
 
 ---
 
-## Performance Thresholds Summary
+## 3. Immediate Abort & Emergency Protocol
 
-- **Rebuffer Ratio**: `p(95) < 1%`
-- **Startup Time**: `p(75) < 2 s`
-- **HTTP Error Rate**: `< 0.5%` (HLS viewers) / `< 1%` (API mix)
+If any abort condition is met:
+1. Stop k6 test immediately (`Ctrl+C`).
+2. Run standalone data cleanup script:
+```bash
+TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> node ./loadtest/cleanup.mjs
+```

@@ -6,10 +6,9 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export PATH="/tmp/node/bin:/usr/local/bin:${PATH}"
 
-TARGET_URL="${TARGET_URL:-http://127.0.0.1:8080}"
-VUS="${VUS:-1000}"
-DURATION="${DURATION:-5m}"
-LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD:-Password123!}"
+TARGET_URL="${TARGET_URL:-https://winkey.vn}"
+LT2_INVITE_CODE="${LT2_INVITE_CODE:-}"
+LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD:-}"
 
 K6_IMAGE="grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603"
 
@@ -17,30 +16,43 @@ echo "==================================================================="
 echo "     TASK LT2: PRODUCTION 1,000 CONCURRENT VIEWERS LOAD TEST       "
 echo "==================================================================="
 echo "Target URL:             ${TARGET_URL}"
-echo "Target VUs:            ${VUS}"
-echo "Test Duration:         ${DURATION}"
-echo "Execution Window Rule: 02:00 - 03:30 AM (Vietnam Time, UTC+7)"
+echo "Execution Window Rule: 02:00 - 03:30 AM (Vietnam Time, UTC+7, from 2026-10-09)"
+echo "Ramp Profile:          50 (5m) -> 200 (5m) -> 500 (5m) -> 1000 (5m) -> 1000 (15m)"
 echo "Safety Rule:           Auto-abort on >5% HTTP errors or >1% rebuffer ratio"
 echo "==================================================================="
 
-trap 'echo "[lt2] Signal/Exit caught! Executing automatic data cleanup..."; GATEWAY_URL="${TARGET_URL}" node "${SCRIPT_DIR}/cleanup.mjs"' EXIT
+# Check for production password requirement
+if [[ "${TARGET_URL}" != *"localhost"* && "${TARGET_URL}" != *"127.0.0.1"* ]] && [[ -z "${LOADTEST_USER_PASSWORD}" ]]; then
+  echo "ERROR: LOADTEST_USER_PASSWORD environment variable is required for production / non-localhost targets."
+  exit 1
+fi
 
-# Step 1: Seeding
-echo "[lt2] Step 1/3: Seeding test users and video assets..."
-GATEWAY_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" NUM_VIDEOS=10 NUM_USERS=50 "${SCRIPT_DIR}/seed.sh"
+trap 'echo "[lt2] Signal/Exit caught! Executing automatic data cleanup (deleteMe & comment purge)..."; TARGET_URL="${TARGET_URL}" node "${SCRIPT_DIR}/cleanup.mjs"' EXIT
 
-# Step 2: Executing k6 Load Test
-echo "[lt2] Step 2/3: Executing k6 HLS streaming load test (${VUS} VUs)..."
+echo "[lt2] Executing k6 HLS viewers and API mix parallel load test against ${TARGET_URL}..."
+
+# Run HLS viewers (50 -> 200 -> 500 -> 1000 VUs)
 docker run --rm --net=host -v "${SCRIPT_DIR}:/loadtest" \
   -e TARGET_URL="${TARGET_URL}" \
-  -e VUS="${VUS}" \
-  -e DURATION="${DURATION}" \
+  -e EXECUTOR="ramping-vus" \
   "${K6_IMAGE}" \
-  run /loadtest/hls-viewers.js
+  run /loadtest/hls-viewers.js &
+PID_HLS=$!
 
-# Step 3: Cleanup
-echo "[lt2] Step 3/3: Cleaning up test data on target environment..."
-GATEWAY_URL="${TARGET_URL}" node "${SCRIPT_DIR}/cleanup.mjs"
+# Run API mix in parallel at 5% VU count (3 -> 10 -> 25 -> 50 VUs)
+docker run --rm --net=host -v "${SCRIPT_DIR}:/loadtest" \
+  -e TARGET_URL="${TARGET_URL}" \
+  -e EXECUTOR="ramping-vus" \
+  -e LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" \
+  -e LT2_INVITE_CODE="${LT2_INVITE_CODE}" \
+  "${K6_IMAGE}" \
+  run /loadtest/api-mix.js &
+PID_API=$!
+
+wait ${PID_HLS} ${PID_API}
+
+echo "[lt2] Load test completed. Executing cleanup..."
+TARGET_URL="${TARGET_URL}" node "${SCRIPT_DIR}/cleanup.mjs"
 
 trap - EXIT
-echo "[lt2] Task LT2 load test execution finished."
+echo "[lt2] Task LT2 load test execution finished cleanly."
