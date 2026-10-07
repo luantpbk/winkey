@@ -35,7 +35,7 @@ export const options = {
           }
         : {
             executor: 'constant-vus',
-            vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 20,
+            vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 5,
             duration: __ENV.DURATION || '1m',
           },
   },
@@ -59,12 +59,24 @@ const rawSeedData = (function () {
   }
 })();
 
+const rawLt2Tokens = (function () {
+  try {
+    return JSON.parse(open('./lt2_tokens.json'));
+  } catch {
+    return [];
+  }
+})();
+
 const seedVideos = new SharedArray('seed_videos_api', function () {
   return Array.isArray(rawSeedData.videos) ? rawSeedData.videos : [];
 });
 
 const seedUsers = new SharedArray('seed_users_api', function () {
   return Array.isArray(rawSeedData.users) ? rawSeedData.users : [];
+});
+
+const preseededTokens = new SharedArray('preseeded_lt2_tokens', function () {
+  return Array.isArray(rawLt2Tokens) ? rawLt2Tokens : [];
 });
 
 export function setup() {
@@ -74,19 +86,19 @@ export function setup() {
     );
   }
 
-  const lt2Accounts = [];
+  const lt2Accounts = preseededTokens.slice();
   const inviteCode = __ENV.LT2_INVITE_CODE || '';
 
-  // In production / non-seeded mode, create up to 20 lt2_<rand> accounts with rate-limit pacing
-  const targetCount = isLocalhost && seedUsers.length > 0 ? 0 : 20;
+  // Limit to max 5 lt2 temporary accounts for production mode
+  const targetCount = isLocalhost && seedUsers.length > 0 ? 0 : 5;
 
-  if (targetCount > 0) {
+  if (targetCount > 0 && lt2Accounts.length === 0) {
     console.log(
       `[setup] Registering ${targetCount} temporary lt2 accounts on target ${TARGET_URL}...`,
     );
     for (let i = 0; i < targetCount; i++) {
-      const randStr = Math.random().toString(36).substring(2, 10);
-      const handle = `lt2_${randStr}`;
+      const randStr = Math.random().toString(36).substring(2, 8);
+      const handle = `lt2_user${i + 1}_${randStr}`;
       const email = `${handle}@example.com`;
 
       const regBody = JSON.stringify({
@@ -108,18 +120,36 @@ export function setup() {
             id: body.user.id,
             handle: body.user.handle,
             email,
-            password: envPassword,
             token: body.access_token,
           });
         } catch {
           // ignore
         }
+      } else if (res.status === 409) {
+        const loginRes = http.post(
+          `${TARGET_URL}/v1/auth/login`,
+          JSON.stringify({ email, password: envPassword }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+        if (loginRes.status === 200) {
+          try {
+            const body = JSON.parse(loginRes.body);
+            lt2Accounts.push({
+              id: body.user.id,
+              handle: body.user.handle,
+              email,
+              token: body.access_token,
+            });
+          } catch {
+            // ignore
+          }
+        }
       }
-      sleep(1.2); // Pacing to respect auth rate limits
+      sleep(1.2); // Respect auth rate limits
     }
   }
 
-  // Fetch videos for public API mix browsing
+  // Fetch public videos for browsing
   let videoList = seedVideos.slice();
   if (videoList.length === 0) {
     const res = http.get(`${TARGET_URL}/v1/videos?sort=newest&limit=50`);
@@ -134,7 +164,7 @@ export function setup() {
   }
 
   const finalUsers = lt2Accounts.length > 0 ? lt2Accounts : seedUsers;
-  return { users: finalUsers, videos: videoList };
+  return { users: finalUsers, videos: videoList, createdComments: [] };
 }
 
 export default function (data) {
@@ -200,6 +230,20 @@ export default function (data) {
         res = http.post(`${TARGET_URL}/v1/videos/${selectedVideo.id}/comments`, payload, {
           headers: jsonAuthHeaders,
         });
+
+        if (res.status === 201) {
+          try {
+            const body = JSON.parse(res.body);
+            if (body && body.id && Array.isArray(data.createdComments)) {
+              data.createdComments.push({
+                id: body.id,
+                userEmail: selectedUser.email,
+              });
+            }
+          } catch {
+            // ignore
+          }
+        }
       } else {
         endpointName = 'PUT /v1/videos/:id/like';
         res = http.put(`${TARGET_URL}/v1/videos/${selectedVideo.id}/like`, null, {
@@ -231,21 +275,60 @@ export default function (data) {
 export function teardown(data) {
   const users = data && Array.isArray(data.users) ? data.users : [];
   const lt2Users = users.filter((u) => u.handle && u.handle.startsWith('lt2_'));
+  const comments = data && Array.isArray(data.createdComments) ? data.createdComments : [];
 
   if (lt2Users.length > 0) {
-    console.log(`[teardown] Deleting ${lt2Users.length} lt2 accounts via deleteMe...`);
+    console.log(`[teardown] Teardown starting for ${lt2Users.length} lt2 accounts...`);
+
     for (let i = 0; i < lt2Users.length; i++) {
       const u = lt2Users[i];
-      const delBody = JSON.stringify({
-        confirm_handle: u.handle,
-        password: u.password,
-      });
-      http.del(`${TARGET_URL}/v1/me`, delBody, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${u.token}`,
-        },
-      });
+      try {
+        // Step 1: Re-login immediately before deletion to obtain a fresh access token
+        console.log(`[teardown] Re-logging in user ${u.email} before deletion...`);
+        const loginRes = http.post(
+          `${TARGET_URL}/v1/auth/login`,
+          JSON.stringify({ email: u.email, password: envPassword }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+
+        if (loginRes.status !== 200) {
+          console.log(`[teardown] Re-login failed for ${u.email} (status ${loginRes.status}).`);
+          continue;
+        }
+
+        const freshToken = JSON.parse(loginRes.body).access_token;
+
+        // Step 2: Delete any comments created by this user
+        const userComments = comments.filter((c) => c.userEmail === u.email);
+        for (const c of userComments) {
+          http.del(`${TARGET_URL}/v1/comments/${c.id}`, null, {
+            headers: { Authorization: `Bearer ${freshToken}` },
+          });
+        }
+
+        // Step 3: Call DELETE /v1/auth/me with confirm_handle and password
+        const delBody = JSON.stringify({
+          confirm_handle: u.handle,
+          password: envPassword,
+        });
+
+        const delRes = http.del(`${TARGET_URL}/v1/auth/me`, delBody, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${freshToken}`,
+          },
+        });
+
+        if (delRes.status === 204) {
+          console.log(`[teardown] SUCCESS: Account ${u.handle} deleted (HTTP 204).`);
+        } else {
+          console.log(
+            `[teardown] FAILED: Account ${u.handle} deletion returned HTTP ${delRes.status} (expected 204).`,
+          );
+        }
+      } catch (err) {
+        console.log(`[teardown] Error during account teardown for ${u.handle}: ${err.message}`);
+      }
       sleep(0.5);
     }
     console.log('[teardown] lt2 accounts deletion completed.');

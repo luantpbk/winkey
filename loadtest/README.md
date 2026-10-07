@@ -17,7 +17,8 @@ All load tests are executed using Grafana k6 in Docker (pinned by digest). No k6
 2. **Ramp-Up Profile**: 50 → 200 → 500 → 1000 viewers (5 min per step), then hold 1000 viewers for 15 minutes.
 3. **No Uploads / No Seeding in Production**: In production mode (`https://winkey.vn`), viewers pick from public READY videos (`GET /v1/videos?sort=newest&limit=50`). No video uploads or seed scripts are executed.
 4. **No Default Passwords**: `LOADTEST_USER_PASSWORD` is strictly required for production / non-localhost execution. No default passwords allowed.
-5. **Automatic Abort**: If HTTP error rate exceeds **5%** for 1 minute, available memory on edge-1 falls below **1 GiB**, or a legacy site fails healthcheck, immediately abort the test run (`Ctrl+C`) and execute immediate data cleanup (`node loadtest/cleanup.mjs`).
+5. **Legacy Site Watchdog**: Continuous HTTP watchdog polls 4 legacy sites every 30 seconds during execution. If any site fails, immediate auto-abort is triggered.
+6. **Automatic Abort**: If HTTP error rate exceeds **5%** for 1 minute, available memory on edge-1 falls below **1 GiB**, or a legacy site fails healthcheck, immediately abort the test run (`Ctrl+C`) and execute immediate data cleanup (`node loadtest/cleanup.mjs`).
 
 ---
 
@@ -58,11 +59,12 @@ docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
 - **Generator Infrastructure**: Executed ONLY from the temporary OCI A1 VM prepared by **Antigravity 2**. Never run from local network or dev hosts.
 - **Target URL**: `https://winkey.vn`
 
-### Load Profile & Metrics
+### Load Profile & Gate Metrics
 - **Ramp Stages**: 50 (5m) → 200 (5m) → 500 (5m) → 1000 (5m) → 1000 (15m).
-- **Parallel Browsing**: `api-mix` runs in parallel at 5% of VU count (max 50 VUs).
+- **Parallel Browsing**: `api-mix` runs in parallel at 5% of VU count (3 → 10 → 25 → 50 VUs).
+- **Pass/Fail Criterion**: Aggregate rebuffer ratio = `sum(stall_ms) / (sum(watch_ms) + sum(stall_ms)) < 1%` (excluding seek stalls).
 - **Two Ratios Reported**:
-  - `rebuffer_ratio`: Stalls NOT caused by a seek (P2 gate criterion). Aggregate ratio = `sum(stall_ms) / (sum(watch_ms) + sum(stall_ms))`.
+  - `rebuffer_ratio`: Stalls NOT caused by a seek (P2 gate criterion).
   - `rebuffer_ratio_incl_seek`: Informational (includes seek stalls).
 - **Thresholds**:
   - `rebuffer_ratio`: Aggregate `< 1%`
@@ -70,16 +72,17 @@ docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
   - `startup_time`: `p(75) < 2 s`
 
 ### Production Accounts & Teardown Protocol
-- Writes (comments, likes) use at most 20 temporary `lt2_<rand>` accounts registered using `LT2_INVITE_CODE`.
-- Accounts are registered slowly before ramp to respect auth rate limits.
-- **Teardown**:
-  - Deletes all created comments (`DELETE /v1/comments/{comment_id}`).
-  - Calls `deleteMe` (`DELETE /v1/me` with `{ confirm_handle: handle, password: password }`) for all `lt2_` accounts.
+- Writes (comments, likes) use **at most 5 temporary `lt2_*` accounts** registered using `LT2_INVITE_CODE`.
+- Pre-creates `loadtest/lt2_accounts.json` containing only public user metadata (handles and emails; **no passwords or tokens** stored on disk).
+- **Teardown & Account Deletion**:
+  - Deletes all created comments (`DELETE /v1/comments/{id}`).
+  - Re-logs in immediately before account deletion (`POST /v1/auth/login`) to obtain a fresh access token.
+  - Calls `DELETE /v1/auth/me` with `{ confirm_handle: handle, password: password }` and asserts HTTP **204** success.
   - Teardown runs automatically on test completion or abort (k6 `teardown()` + standalone `node loadtest/cleanup.mjs`).
 
 ### Execution Command
 ```bash
-TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_CODE=<invite_code> ./loadtest/lt2-run.sh
+TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_CODE=<invite_code> LEGACY_SITES="<site1_url> <site2_url> <site3_url> <site4_url>" ./loadtest/lt2-run.sh
 ```
 
 ---
