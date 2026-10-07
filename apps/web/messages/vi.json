@@ -16,7 +16,9 @@
     "lightMode": "Giao diện sáng",
     "darkMode": "Giao diện tối",
     "creatorRoleRequired": "Cần quyền Creator",
-    "watchLater": "Xem sau"
+    "watchLater": "Xem sau",
+    "movies": "Phim",
+    "explore": "Khám phá"
   },
   "home": {
     "recommended": "Video đề xuất",
@@ -539,5 +541,42 @@
     "playlistLimit": "Bạn đã đạt giới hạn tối đa 200 danh sách phát.",
     "tabPlaylists": "Danh sách phát",
     "noPlaylists": "Chưa có danh sách phát nào."
+  },
+  "cinema": {
+    "title": "Phim",
+    "watchNow": "Xem ngay",
+    "watchLater": "Xem sau",
+    "details": "Chi tiết",
+    "continueWatching": "Xem tiếp",
+    "removeFromContinue": "Xóa khỏi danh sách xem tiếp",
+    "top10Today": "Top 10 hôm nay",
+    "forYou": "Dành cho bạn",
+    "newUpdates": "Mới cập nhật",
+    "fromSubscriptions": "Từ kênh bạn theo dõi",
+    "viewAll": "Xem tất cả",
+    "similarVideos": "Tương tự",
+    "share": "Chia sẻ",
+    "linkCopied": "Đã sao chép liên kết vào bộ nhớ tạm",
+    "close": "Đóng",
+    "loginRequiredWatchLater": "Vui lòng đăng nhập để lưu vào Xem sau",
+    "addedToWatchLater": "Đã thêm vào Xem sau",
+    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
+    "noDescription": "Không có mô tả cho video này.",
+    "home": "Trang chủ",
+    "trending": "Thịnh hành",
+    "explore": "Khám phá",
+    "subscriptions": "Đang theo dõi",
+    "myList": "Danh sách của tôi",
+    "my": "Của tôi",
+    "upload": "Tải lên",
+    "notifications": "Thông báo",
+    "me": "Tôi",
+    "beta": "Bản beta",
+    "terms": "Điều khoản sử dụng",
+    "privacy": "Quyền riêng tư",
+    "communityRules": "Quy tắc cộng đồng",
+    "betaFeedback": "Góp ý beta",
+    "copyright": "© 2026 Winkey · Bản beta",
+    "curatedBy": "Tuyển chọn bởi Winkey"
   }
 }

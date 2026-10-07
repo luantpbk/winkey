@@ -16,7 +16,9 @@
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
     "creatorRoleRequired": "Creator role required",
-    "watchLater": "Watch Later"
+    "watchLater": "Watch Later",
+    "movies": "Movies",
+    "explore": "Explore"
   },
   "home": {
     "recommended": "Recommended Videos",
@@ -539,5 +541,42 @@
     "playlistLimit": "You have reached the limit of 200 playlists.",
     "tabPlaylists": "Playlists",
     "noPlaylists": "No playlists found."
+  },
+  "cinema": {
+    "title": "Movies",
+    "watchNow": "Watch now",
+    "watchLater": "Watch later",
+    "details": "Details",
+    "continueWatching": "Continue watching",
+    "removeFromContinue": "Remove from continue watching",
+    "top10Today": "Top 10 today",
+    "forYou": "For you",
+    "newUpdates": "Recently updated",
+    "fromSubscriptions": "From channels you follow",
+    "viewAll": "View all",
+    "similarVideos": "Similar videos",
+    "share": "Share",
+    "linkCopied": "Link copied to clipboard",
+    "close": "Close",
+    "loginRequiredWatchLater": "Please log in to save to Watch later",
+    "addedToWatchLater": "Added to Watch later",
+    "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}",
+    "noDescription": "No description available for this video.",
+    "home": "Home",
+    "trending": "Trending",
+    "explore": "Explore",
+    "subscriptions": "Subscriptions",
+    "myList": "My List",
+    "my": "My",
+    "upload": "Upload",
+    "notifications": "Notifications",
+    "me": "Me",
+    "beta": "Beta",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy",
+    "communityRules": "Community Guidelines",
+    "betaFeedback": "Beta Feedback",
+    "copyright": "© 2026 Winkey · Beta",
+    "curatedBy": "Curated by Winkey"
   }
 }
