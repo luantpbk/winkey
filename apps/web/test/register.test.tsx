@@ -31,29 +31,37 @@ vi.mock('../src/i18n/routing', () => ({
 }));
 
 // --- Locale Mock ---
+const translateFn = (key: string, values?: Record<string, unknown>) => {
+  const parts = key.split('.');
+  let cur: unknown = viMessages;
+  for (const p of parts) {
+    if (cur && typeof cur === 'object' && p in cur) {
+      cur = (cur as Record<string, unknown>)[p];
+    } else {
+      return key;
+    }
+  }
+  if (typeof cur === 'string') {
+    let res = cur;
+    if (values) {
+      for (const [k, v] of Object.entries(values)) {
+        res = res.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+      }
+    }
+    return res;
+  }
+  return key;
+};
+
+const authTranslator = (key: string, values?: Record<string, unknown>) =>
+  translateFn(`auth.${key}`, values);
+
 vi.mock('next-intl', () => ({
   useTranslations: (namespace?: string) => {
+    if (namespace === 'auth') return authTranslator;
     return (key: string, values?: Record<string, unknown>) => {
       const fullPath = namespace ? `${namespace}.${key}` : key;
-      const parts = fullPath.split('.');
-      let cur: unknown = viMessages;
-      for (const p of parts) {
-        if (cur && typeof cur === 'object' && p in cur) {
-          cur = (cur as Record<string, unknown>)[p];
-        } else {
-          return key;
-        }
-      }
-      if (typeof cur === 'string') {
-        let res = cur;
-        if (values) {
-          for (const [k, v] of Object.entries(values)) {
-            res = res.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
-          }
-        }
-        return res;
-      }
-      return key;
+      return translateFn(fullPath, values);
     };
   },
 }));

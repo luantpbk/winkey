@@ -35,10 +35,12 @@ function RegisterForm() {
 
     const errorParam = searchParams.get('error');
     if (errorParam === 'INVITE_REQUIRED') {
-      setFieldErrors((prev) => ({ ...prev, invite_code: t('inviteRequired') }));
+      const msg = t('inviteRequired');
+      setFieldErrors((prev) => (prev.invite_code === msg ? prev : { ...prev, invite_code: msg }));
       inviteInputRef.current?.focus();
     } else if (errorParam === 'INVITE_INVALID') {
-      setFieldErrors((prev) => ({ ...prev, invite_code: t('inviteInvalid') }));
+      const msg = t('inviteInvalid');
+      setFieldErrors((prev) => (prev.invite_code === msg ? prev : { ...prev, invite_code: msg }));
       inviteInputRef.current?.focus();
     }
   }, [searchParams, t]);

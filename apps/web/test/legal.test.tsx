@@ -3,6 +3,7 @@ import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { sanitizeFeedbackUrl } from '../src/lib/feedback';
 import { LegalDoc } from '../src/components/legal/legal-doc';
 import { CinemaShell } from '../src/components/layout/cinema-shell';
@@ -125,11 +126,21 @@ describe('Task BETA1-web: Legal Documents & Feedback URL (ADR-034)', () => {
   });
 
   describe('3. Footer Rendering in CinemaShell and Sidebar', () => {
+    const createWrapper = () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      return ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+    };
+
     it('CinemaShell: hides feedback link when feedbackUrl is null or unset', () => {
       render(
         <CinemaShell feedbackUrl={null}>
           <div>Home Content</div>
         </CinemaShell>,
+        { wrapper: createWrapper() },
       );
 
       const termsLink = screen.getByRole('link', { name: /Điều khoản sử dụng/i });
@@ -148,6 +159,7 @@ describe('Task BETA1-web: Legal Documents & Feedback URL (ADR-034)', () => {
         <CinemaShell feedbackUrl="https://survey.example.com/beta">
           <div>Home Content</div>
         </CinemaShell>,
+        { wrapper: createWrapper() },
       );
 
       const feedbackLink = screen.getByRole('link', { name: /Góp ý beta/i });
