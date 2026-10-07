@@ -6,6 +6,10 @@ import { CinemaView } from '../src/components/cinema/cinema-view';
 import { CinemaHero } from '../src/components/cinema/cinema-hero';
 import { CinemaRow } from '../src/components/cinema/cinema-row';
 import { CinemaDetailDialog } from '../src/components/cinema/cinema-detail-dialog';
+import { CinemaShell } from '../src/components/layout/cinema-shell';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import middleware from '../src/middleware';
+import { NextRequest } from 'next/server';
 import { api } from '../src/lib/api-client';
 import { saveContinueWatching, getContinueWatching } from '../src/lib/video/continue-watching';
 import type { VideoSummary } from '@winkey/api-client';
@@ -42,8 +46,13 @@ vi.mock('next-intl', () => ({
 // --- Router Mock ---
 const mockPush = vi.fn();
 vi.mock('../src/i18n/routing', () => ({
+  routing: {
+    locales: ['vi', 'en'],
+    defaultLocale: 'vi',
+    localePrefix: 'as-needed',
+  },
   useRouter: () => ({ push: mockPush }),
-  usePathname: () => '/phim',
+  usePathname: () => '/',
   Link: ({
     children,
     href,
@@ -664,6 +673,136 @@ describe('Cinema Page (ADR-033 / Task CIN1)', () => {
 
       fireEvent.keyDown(document, { key: 'Escape' });
       expect(handleClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('7. Middleware 308 Redirects', () => {
+    it('redirects /phim to / with 308 status', () => {
+      const req = new NextRequest('http://localhost:3000/phim');
+      const res = middleware(req);
+      expect(res.status).toBe(308);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/');
+    });
+
+    it('redirects /en/phim to /en with 308 status', () => {
+      const req = new NextRequest('http://localhost:3000/en/phim');
+      const res = middleware(req);
+      expect(res.status).toBe(308);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/en');
+    });
+
+    it('redirects /?tab=trending to /kham-pha?tab=trending with 308 status', () => {
+      const req = new NextRequest('http://localhost:3000/?tab=trending');
+      const res = middleware(req);
+      expect(res.status).toBe(308);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/kham-pha?tab=trending');
+    });
+
+    it('redirects /en?tab=for-you to /en/kham-pha?tab=for-you with 308 status', () => {
+      const req = new NextRequest('http://localhost:3000/en?tab=for-you');
+      const res = middleware(req);
+      expect(res.status).toBe(308);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/en/kham-pha?tab=for-you');
+    });
+  });
+
+  describe('8. CinemaShell & Scroll Behavior', () => {
+    const queryClient = new QueryClient();
+
+    it('renders topbar transparent initially and turns solid after 64px scroll', async () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <CinemaShell>
+              <div>Cinema Content</div>
+            </CinemaShell>
+          </ToastProvider>
+        </QueryClientProvider>,
+      );
+
+      const topbar = screen.getByTestId('cinema-desktop-topbar');
+      expect(topbar.className).toContain('from-[#0A0A0D]/90');
+
+      // Scroll beyond 64px
+      act(() => {
+        window.scrollY = 80;
+        fireEvent.scroll(window);
+      });
+
+      expect(topbar.className).toContain('bg-[#0A0A0D]');
+    });
+
+    it('renders footer with 4 links (Điều khoản, Quyền riêng tư, Quy tắc cộng đồng, Góp ý beta)', () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <CinemaShell>
+              <div>Cinema Content</div>
+            </CinemaShell>
+          </ToastProvider>
+        </QueryClientProvider>,
+      );
+
+      const footer = screen.getByTestId('cinema-footer');
+      expect(footer.textContent).toContain('2026 Winkey · Bản beta');
+      expect(screen.getByRole('link', { name: /Điều khoản/i })).toBeDefined();
+      expect(screen.getByRole('link', { name: /Quyền riêng tư/i })).toBeDefined();
+      expect(screen.getByRole('link', { name: /Quy tắc cộng đồng/i })).toBeDefined();
+      expect(screen.getByRole('link', { name: /Góp ý beta/i })).toBeDefined();
+    });
+
+    it('renders mobile navigation bar and quick chips', () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <CinemaShell>
+              <div>Cinema Content</div>
+            </CinemaShell>
+          </ToastProvider>
+        </QueryClientProvider>,
+      );
+
+      expect(screen.getByTestId('cinema-mobile-topbar')).toBeDefined();
+      expect(screen.getByTestId('cinema-mobile-tabbar')).toBeDefined();
+    });
+  });
+
+  describe('9. Top 10 Rank Numerals & Design Tokens', () => {
+    it('renders large outlined rank numerals for Top 10 with -18px overlap style', async () => {
+      render(
+        <ToastProvider>
+          <CinemaRow
+            title="Top 10 hôm nay"
+            surface="trending"
+            isTop10
+            initialVideos={sampleVideos}
+            onOpenDetail={vi.fn()}
+          />
+        </ToastProvider>,
+      );
+
+      const rankElements = screen.getAllByTestId('cinema-top10-rank');
+      expect(rankElements.length).toBeGreaterThan(0);
+      const firstRank = rankElements[0];
+      expect(firstRank.textContent).toBe('1');
+      expect(firstRank.style.marginRight).toBe('-18px');
+      expect(firstRank.getAttribute('style')).toContain('-webkit-text-stroke: 3px #5C5C68');
+    });
+
+    it('renders primary button as white with dark text on hero', () => {
+      render(
+        <ToastProvider>
+          <CinemaHero onOpenDetail={vi.fn()} initialVideos={sampleVideos} />
+        </ToastProvider>,
+      );
+
+      const watchBtn = screen.getByTestId('cinema-hero-watch-btn');
+      expect(watchBtn.className).toContain('bg-white');
+      expect(watchBtn.className).toContain('text-[#0A0A0D]');
+
+      const title = screen.getByTestId('cinema-hero-title');
+      expect(title.style.lineHeight).toBe('1.18');
+      expect(title.style.textWrap).toBe('balance');
     });
   });
 });

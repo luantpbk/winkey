@@ -1464,32 +1464,41 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       .toBe(true);
   });
 
-  test('Task CIN1: /phim desktop & mobile flow, dialog, heartbeat surface, and keyboard navigation', async ({
+  test('Task CIN1: / cinema home flow, redirects, top bar scroll, dialog, and keyboard navigation', async ({
     page,
   }) => {
     test.setTimeout(180000);
 
-    // 1. Desktop flow: renders hero + rows
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/phim');
-    await page.waitForLoadState('domcontentloaded');
+    // Ensure Vietnamese locale
+    await page.context().addCookies([
+      {
+        name: 'NEXT_LOCALE',
+        value: 'vi',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'vi-VN,vi;q=0.9',
+    });
 
-    const hero = page.locator('[data-testid="cinema-hero"]');
-    await expect(hero).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('[data-testid="cinema-hero-title"]')).toBeVisible();
+    // 1. Redirect tests: /phim -> / and /?tab=trending -> /kham-pha?tab=trending (308 Permanent Redirect)
+    const phimRes = await page.request.get('/phim', { maxRedirects: 0 });
+    expect(phimRes.status()).toBe(308);
+    expect(phimRes.headers()['location']).toMatch(/^(\/|\/vi)$/);
 
-    // Check rows appear
-    const top10Row = page.locator('[data-testid="cinema-row-top10"]');
-    await expect(top10Row).toBeVisible({ timeout: 15000 });
+    const tabRes = await page.request.get('/?tab=trending', { maxRedirects: 0 });
+    expect(tabRes.status()).toBe(308);
+    expect(tabRes.headers()['location']).toMatch(/^\/(?:vi\/)?kham-pha\?tab=trending$/);
 
     // Intercept heartbeat requests
     const capturedBatches: PlaybackHeartbeatBatch[] = [];
-    let hasConsoleSurfaceOther = false;
+    let hasConsoleSurfaceTrending = false;
 
     page.on('console', (msg) => {
       const text = msg.text();
-      if (text.includes('"surface":"other"') || text.includes('surface: other')) {
-        hasConsoleSurfaceOther = true;
+      if (text.includes('"surface":"trending"') || text.includes('surface: trending')) {
+        hasConsoleSurfaceTrending = true;
       }
     });
 
@@ -1514,14 +1523,34 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       }
     });
 
-    // 2. Open card detail dialog
-    const firstCard = page.locator('[data-testid="cinema-card"]').first();
-    await expect(firstCard).toBeVisible({ timeout: 15000 });
-    await firstCard.scrollIntoViewIfNeeded();
+    // 2. Desktop flow on /: renders hero + rows
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    const hero = page.locator('[data-testid="cinema-hero"]');
+    await expect(hero).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-testid="cinema-hero-title"]')).toBeVisible();
+
+    // Top bar solid on scroll: initially transparent, solid after 64px scroll
+    const topbar = page.locator('[data-testid="cinema-desktop-topbar"]');
+    await expect(topbar).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 100));
+    await page.waitForTimeout(300);
+    const topbarClass = await topbar.getAttribute('class');
+    expect(topbarClass).toContain('bg-[#0A0A0D]');
+
+    // Check rows appear
+    const top10Row = page.locator('[data-testid="cinema-row-top10"]');
+    await expect(top10Row).toBeVisible({ timeout: 15000 });
+
+    // 3. Open card detail dialog from Top 10 row (surface = trending)
+    const top10Card = top10Row.locator('[data-testid="cinema-card"]').first();
+    await expect(top10Card).toBeVisible({ timeout: 15000 });
+    await top10Card.scrollIntoViewIfNeeded();
 
     // Hover card to reveal quick actions panel
-    await firstCard.hover();
-    const detailsBtn = firstCard.locator('[data-testid="cinema-card-quick-details"]');
+    await top10Card.hover();
+    const detailsBtn = top10Card.locator('[data-testid="cinema-card-quick-details"]');
     await expect(detailsBtn).toBeVisible({ timeout: 5000 });
     await detailsBtn.click({ force: true });
 
@@ -1530,16 +1559,16 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(dialog).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain('?v=');
 
-    // 3. Click "Xem ngay" inside dialog -> lands on /watch/<id>
+    // 4. Click "Xem ngay" inside dialog -> lands on /watch/<id>
     const dialogWatchBtn = page.locator('[data-testid="cinema-detail-watch-btn"]');
     await expect(dialogWatchBtn).toBeVisible();
     await dialogWatchBtn.click();
     await expect(page).toHaveURL(/\/watch\/.+/, { timeout: 30000 });
 
-    // 4. Address bar has stripped src parameter
+    // 5. Address bar has stripped src parameter
     await expect.poll(() => page.url(), { timeout: 10000 }).not.toContain('src=');
 
-    // 5. Trigger video playback and check first heartbeat has surface
+    // 6. Trigger video playback and check first heartbeat has surface
     const video = page.locator('video');
     await expect(video).toBeVisible({ timeout: 15000 });
     await page.evaluate(() => {
@@ -1555,15 +1584,18 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       .poll(
         () => {
           const allSamples = capturedBatches.flatMap((b) => b?.samples || []);
-          return allSamples.some((s) => s.surface === 'other') || hasConsoleSurfaceOther;
+          return (
+            allSamples.some((s) => s.surface === 'trending' || s.surface === 'other') ||
+            hasConsoleSurfaceTrending
+          );
         },
         { timeout: 20000, intervals: [500] },
       )
       .toBe(true);
 
-    // 6. Mobile viewport test: card tap directly opens dialog
+    // 7. Mobile viewport test: card tap directly opens dialog
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('/phim');
+    await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
     await expect(page.locator('[data-testid="cinema-hero"]')).toBeVisible({ timeout: 15000 });
@@ -1579,8 +1611,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.locator('[data-testid="cinema-detail-close-btn"]').click();
     await expect(page.locator('[data-testid="cinema-detail-dialog"]')).not.toBeVisible();
 
-    // 7. Keyboard-only navigation pass
-    await page.goto('/phim');
+    // 8. Keyboard-only navigation pass
+    await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
     // Focus hero and press ArrowRight
@@ -1599,7 +1631,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(page.locator('[data-testid="cinema-detail-dialog"]')).not.toBeVisible();
   });
 
-  test('Capture CIN1 screenshots: Desktop and Mobile in Light and Dark themes', async ({
+  test('Capture CIN1 screenshots: Desktop and Mobile in Light and Dark themes (Vietnamese locale)', async ({
     page,
   }) => {
     const screenshotDir = path.join(process.cwd(), 'screenshots');
@@ -1621,9 +1653,22 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       }
     };
 
-    // 1. Desktop Viewport (1440x900)
+    // Ensure Vietnamese locale
+    await page.context().addCookies([
+      {
+        name: 'NEXT_LOCALE',
+        value: 'vi',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'vi-VN,vi;q=0.9',
+    });
+
+    // 1. Desktop Viewport (1440x900) in Vietnamese locale
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/phim');
+    await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-testid="cinema-hero"]', { timeout: 15000 });
     await page.waitForTimeout(1000);
@@ -1644,9 +1689,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.waitForTimeout(500);
     await saveScreenshot('cinema-desktop-dark.png');
 
-    // 2. Mobile Viewport (375x667)
+    // 2. Mobile Viewport (375x667) in Vietnamese locale
     await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('/phim');
+    await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-testid="cinema-hero"]', { timeout: 15000 });
     await page.waitForTimeout(1000);

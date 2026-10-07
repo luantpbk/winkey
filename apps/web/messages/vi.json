@@ -17,7 +17,8 @@
     "darkMode": "Giao diện tối",
     "creatorRoleRequired": "Cần quyền Creator",
     "watchLater": "Xem sau",
-    "movies": "Phim"
+    "movies": "Phim",
+    "explore": "Khám phá"
   },
   "home": {
     "recommended": "Video đề xuất",
@@ -560,6 +561,22 @@
     "loginRequiredWatchLater": "Vui lòng đăng nhập để lưu vào Xem sau",
     "addedToWatchLater": "Đã thêm vào Xem sau",
     "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
-    "noDescription": "Không có mô tả cho video này."
+    "noDescription": "Không có mô tả cho video này.",
+    "home": "Trang chủ",
+    "trending": "Thịnh hành",
+    "explore": "Khám phá",
+    "subscriptions": "Đang theo dõi",
+    "myList": "Danh sách của tôi",
+    "my": "Của tôi",
+    "upload": "Tải lên",
+    "notifications": "Thông báo",
+    "me": "Tôi",
+    "beta": "Bản beta",
+    "terms": "Điều khoản sử dụng",
+    "privacy": "Quyền riêng tư",
+    "communityRules": "Quy tắc cộng đồng",
+    "betaFeedback": "Góp ý beta",
+    "copyright": "© 2026 Winkey · Bản beta",
+    "curatedBy": "Tuyển chọn bởi Winkey"
   }
 }

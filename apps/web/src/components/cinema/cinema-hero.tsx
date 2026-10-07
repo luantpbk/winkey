@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
-import { Play, Plus, Info } from 'lucide-react';
+import { Play, Plus, Info, Volume2, VolumeX } from 'lucide-react';
 import type { VideoSummary, Video } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { Link, useRouter } from '../../i18n/routing';
@@ -14,20 +14,26 @@ import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
 
-interface CinemaHeroProps {
+export interface CinemaHeroProps {
   onOpenDetail: (videoId: string) => void;
+  initialVideos?: VideoSummary[];
+  initialSortSource?: 'trending' | 'latest';
 }
 
-export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
+export function CinemaHero({
+  onOpenDetail,
+  initialVideos,
+  initialSortSource = 'trending',
+}: CinemaHeroProps) {
   const t = useTranslations('cinema');
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { showToast } = useToast();
 
-  const [videos, setVideos] = useState<VideoSummary[]>([]);
+  const [videos, setVideos] = useState<VideoSummary[]>(initialVideos || []);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isFallback, setIsFallback] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isFallback, setIsFallback] = useState(initialSortSource === 'latest');
+  const [isLoading, setIsLoading] = useState(!initialVideos || initialVideos.length === 0);
   const [isPaused, setIsPaused] = useState(false);
 
   // Lazy description and playback cache: videoId -> Video
@@ -36,6 +42,7 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
   // Muted preview state
   const [previewActive, setPreviewActive] = useState(false);
   const [previewFadedIn, setPreviewFadedIn] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
 
   const heroRef = useRef<HTMLDivElement>(null);
   const videoElRef = useRef<HTMLVideoElement>(null);
@@ -60,10 +67,18 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
     }
     setPreviewActive(false);
     setPreviewFadedIn(false);
+    setIsMuted(true);
   }, []);
 
-  // 1. Fetch hero videos: sort=trending&limit=5, fallback to sort=newest&limit=5
+  // 1. Fetch hero videos on mount if not provided via props
   useEffect(() => {
+    if (initialVideos && initialVideos.length > 0) {
+      setVideos(initialVideos);
+      setIsFallback(initialSortSource === 'latest');
+      setIsLoading(false);
+      return;
+    }
+
     let isMounted = true;
     async function loadHeroVideos() {
       setIsLoading(true);
@@ -102,7 +117,7 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialVideos, initialSortSource]);
 
   const activeVideo: VideoSummary | undefined = videos[activeIndex];
 
@@ -318,10 +333,18 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
     await addToWatchLater(activeVideo.id, { showToast });
   };
 
+  const toggleMute = () => {
+    if (!videoElRef.current) return;
+    const nextMuted = !isMuted;
+    videoElRef.current.muted = nextMuted;
+    videoElRef.current.volume = nextMuted ? 0 : 1;
+    setIsMuted(nextMuted);
+  };
+
   if (isLoading) {
     return (
       <div
-        className="w-full h-[56vw] min-h-[360px] md:h-[70vh] md:min-h-[500px] bg-[#121218] animate-pulse relative"
+        className="w-full h-[56vw] min-h-[360px] md:h-[70vh] md:min-h-[500px] bg-[#14141A] animate-pulse relative"
         data-testid="cinema-hero-skeleton"
       />
     );
@@ -349,8 +372,9 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
       onFocus={() => setIsPaused(true)}
       onBlur={() => setIsPaused(false)}
       aria-label="Cinema Featured Hero"
+      aria-roledescription="carousel"
       data-testid="cinema-hero"
-      className="relative w-full h-[56vw] min-h-[360px] max-h-[85vh] md:h-[70vh] md:min-h-[500px] overflow-hidden select-none outline-none focus:ring-1 focus:ring-red-600/50"
+      className="relative w-full h-[56vw] min-h-[540px] max-h-[85vh] md:h-[70vh] md:min-h-[560px] overflow-hidden select-none outline-none focus:ring-1 focus:ring-[#FF0033]/50"
     >
       {/* Backdrop image */}
       <div className="absolute inset-0 z-0 overflow-hidden">
@@ -359,6 +383,7 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
           alt={activeVideo.title}
           loading="eager"
           decoding="async"
+          fetchPriority="high"
           className="h-full w-full object-cover transform scale-105 transition-transform duration-700 ease-out"
         />
 
@@ -366,7 +391,7 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
         {previewActive && (
           <video
             ref={videoElRef}
-            muted
+            muted={isMuted}
             playsInline
             autoPlay
             className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
@@ -375,50 +400,67 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
           />
         )}
 
-        {/* Gradients to ensure text readability */}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0b0b0f] via-[#0b0b0f]/80 to-transparent w-full md:w-3/4 z-10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0b0b0f] via-[#0b0b0f]/60 to-transparent h-full z-10" />
+        {/* Gradients to ensure text readability matching Main.dc.html */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0D] via-[#0A0A0D]/80 to-transparent w-full md:w-3/4 z-10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0D] via-[#0A0A0D]/60 to-transparent h-full z-10" />
       </div>
 
       {/* Hero Content Overlay */}
-      <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 sm:p-10 md:p-16 max-w-4xl">
-        {/* Title */}
+      <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 sm:p-10 md:p-14 max-w-4xl pb-16 sm:pb-20">
+        {/* TOP Badge & Trending label */}
+        <div className="flex items-center gap-2.5 mb-2">
+          <span className="inline-flex items-center justify-center h-[26px] px-2 rounded bg-[#FF0033] text-white text-[13px] font-extrabold tracking-wide">
+            TOP {activeIndex + 1}
+          </span>
+          <span className="text-[15px] font-semibold text-[#F4F4F6]">
+            {isFallback ? 'Mới cập nhật' : 'Thịnh hành hôm nay'}
+          </span>
+        </div>
+
+        {/* Title: 2-line clamp with room for top diacritics and bottom descenders (fixes "Ấ", "Ợ", "dựng", "Streaming") */}
         <h1
           data-testid="cinema-hero-title"
-          className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight line-clamp-2 drop-shadow-md mb-3"
+          style={{ textWrap: 'balance', lineHeight: 1.18 }}
+          className="text-2xl sm:text-4xl md:text-5xl lg:text-[56px] font-extrabold text-[#F4F4F6] tracking-[-1.5px] line-clamp-2 pt-1 mb-3 drop-shadow-md"
         >
           {activeVideo.title}
         </h1>
 
         {/* Meta row: channel · duration · views · relative date */}
-        <div className="flex items-center gap-2 text-xs sm:text-sm md:text-base text-gray-300 font-medium flex-wrap mb-3">
-          <span className="text-white font-semibold">{activeVideo.owner.display_name}</span>
-          <span className="text-gray-500">•</span>
+        <div className="flex items-center gap-2 text-xs sm:text-sm md:text-[15px] text-[#C9C9D1] font-medium flex-wrap mb-3">
+          <span className="text-[#F4F4F6] font-semibold">{activeVideo.owner.display_name}</span>
+          <span aria-hidden="true" className="text-[#8E8E99]">
+            ·
+          </span>
           <span>{formatDuration(activeVideo.duration_ms)}</span>
-          <span className="text-gray-500">•</span>
+          <span aria-hidden="true" className="text-[#8E8E99]">
+            ·
+          </span>
           <span>{formatViews(activeVideo.view_count)} lượt xem</span>
-          <span className="text-gray-500">•</span>
+          <span aria-hidden="true" className="text-[#8E8E99]">
+            ·
+          </span>
           <span>{formatRelativeTime(activeVideo.published_at)}</span>
         </div>
 
-        {/* Description (max 3 lines, fetched lazily) */}
+        {/* Description (max 3 lines, hidden on mobile per Mobile.dc.html) */}
         {description && (
           <p
             data-testid="cinema-hero-description"
-            className="text-xs sm:text-sm md:text-base text-gray-300/90 line-clamp-3 mb-6 max-w-2xl font-normal leading-relaxed drop-shadow"
+            className="hidden md:block text-xs sm:text-sm md:text-base text-[#D4D4DA] line-clamp-3 mb-6 max-w-2xl font-normal leading-[1.55] drop-shadow"
           >
             {description}
           </p>
         )}
 
-        {/* Action Buttons */}
+        {/* Action Buttons: Primary white with dark text, ghost, round */}
         <div className="flex items-center gap-3 flex-wrap">
           <Link
             href={watchHref}
             data-testid="cinema-hero-watch-btn"
-            className="flex items-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm sm:text-base shadow-lg transition-transform active:scale-95"
+            className="h-12 px-6 rounded-lg bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] font-bold text-base inline-flex items-center gap-2.5 transition active:scale-[0.98] shadow-md"
           >
-            <Play className="h-5 w-5 fill-current" />
+            <Play className="w-5 h-5 fill-current ml-0.5" />
             <span>{t('watchNow')}</span>
           </Link>
 
@@ -426,9 +468,9 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
             type="button"
             onClick={handleWatchLaterClick}
             data-testid="cinema-hero-watch-later-btn"
-            className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl bg-white/20 hover:bg-white/30 text-white font-medium text-sm sm:text-base backdrop-blur-md transition-all active:scale-95"
+            className="h-12 px-6 rounded-lg bg-[rgba(110,110,125,.42)] hover:bg-[rgba(110,110,125,.6)] text-white font-semibold text-base backdrop-blur-md inline-flex items-center gap-2 transition active:scale-[0.98]"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="w-5 h-5" />
             <span>{t('watchLater')}</span>
           </button>
 
@@ -436,30 +478,46 @@ export function CinemaHero({ onOpenDetail }: CinemaHeroProps) {
             type="button"
             onClick={() => onOpenDetail(activeVideo.id)}
             data-testid="cinema-hero-details-btn"
-            className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm sm:text-base backdrop-blur-md transition-all active:scale-95"
+            aria-label={t('details')}
+            className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
           >
-            <Info className="h-5 w-5" />
-            <span>{t('details')}</span>
+            <Info className="w-5 h-5" />
           </button>
         </div>
       </div>
 
+      {/* Mute toggle button (bottom right) */}
+      {previewActive && (
+        <div className="absolute right-6 sm:right-12 bottom-20 sm:bottom-24 z-20 hidden md:flex items-center">
+          <button
+            type="button"
+            onClick={toggleMute}
+            aria-label={isMuted ? 'Bật tiếng xem trước' : 'Tắt tiếng xem trước'}
+            data-testid="cinema-hero-mute-btn"
+            className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition"
+          >
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+        </div>
+      )}
+
       {/* Navigation Dots */}
       {videos.length > 1 && (
         <div
+          role="group"
+          aria-label="Chọn video nổi bật"
           data-testid="cinema-hero-dots"
-          className="absolute bottom-4 right-6 sm:right-10 md:right-16 z-20 flex items-center gap-2"
+          className="absolute left-6 sm:left-10 md:left-14 bottom-6 sm:bottom-8 z-20 flex items-center gap-2"
         >
           {videos.map((vid, idx) => (
             <button
               key={vid.id}
               onClick={() => setActiveIndex(idx)}
-              aria-label={`Slide ${idx + 1}`}
+              aria-label={`Video nổi bật ${idx + 1} trên ${videos.length}`}
+              aria-pressed={idx === activeIndex}
               data-testid={`cinema-hero-dot-${idx}`}
-              className={`h-2 transition-all rounded-full ${
-                idx === activeIndex
-                  ? 'w-7 bg-red-600 shadow-md'
-                  : 'w-2 bg-white/40 hover:bg-white/70'
+              className={`h-1 rounded-sm transition-all duration-300 ${
+                idx === activeIndex ? 'w-10 bg-[#FF0033]' : 'w-4 bg-white/30 hover:bg-white/60'
               }`}
             />
           ))}

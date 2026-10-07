@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth/auth-context';
 import { CinemaHero } from './cinema-hero';
 import { CinemaRow } from './cinema-row';
 import { CinemaDetailDialog } from './cinema-detail-dialog';
+import type { WatchSurface } from '../../lib/video/watch-url';
 import {
   getContinueWatching,
   removeContinueWatching,
@@ -17,14 +18,22 @@ import { useTranslations } from 'next-intl';
 export interface CinemaViewProps {
   curatorHandle?: string;
   initialVideoId?: string;
+  initialHeroVideos?: VideoSummary[];
+  initialSortSource?: 'trending' | 'latest';
 }
 
-export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
+export function CinemaView({
+  curatorHandle,
+  initialVideoId,
+  initialHeroVideos,
+  initialSortSource = 'trending',
+}: CinemaViewProps) {
   const t = useTranslations('cinema');
   const { isAuthenticated } = useAuth();
 
   // URL detail dialog sync (?v=<id>)
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(initialVideoId || null);
+  const [selectedSurface, setSelectedSurface] = useState<WatchSurface>('other');
 
   // Continue Watching state
   const [continueWatchingVideos, setContinueWatchingVideos] = useState<VideoSummary[]>([]);
@@ -43,8 +52,9 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const openDetail = useCallback((id: string) => {
+  const openDetail = useCallback((id: string, surface: WatchSurface = 'other') => {
     setSelectedVideoId(id);
+    setSelectedSurface(surface);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.set('v', id);
@@ -157,10 +167,16 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
   return (
     <div
       data-testid="cinema-page"
-      className="bg-[#0b0b0f] text-gray-100 min-h-screen pb-20 overflow-x-hidden"
+      className="bg-[#0A0A0D] text-[#F4F4F6] min-h-screen pb-20 overflow-x-hidden"
     >
       {/* 1. HERO Full-bleed */}
-      <CinemaHero onOpenDetail={openDetail} />
+      <CinemaHero
+        initialVideos={initialHeroVideos}
+        initialSortSource={initialSortSource}
+        onOpenDetail={(id) =>
+          openDetail(id, initialSortSource === 'latest' ? 'latest' : 'trending')
+        }
+      />
 
       {/* 2. ROWS IN EXACT ORDER */}
       <div className="flex flex-col gap-2 mt-4">
@@ -172,7 +188,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
             initialVideos={continueWatchingVideos}
             progressMap={progressMap}
             onRemoveItem={handleRemoveContinueWatching}
-            onOpenDetail={openDetail}
+            onOpenDetail={(id) => openDetail(id, 'other')}
             testId="cinema-row-continue"
           />
         )}
@@ -189,7 +205,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
             });
             return res.data?.items || [];
           }}
-          onOpenDetail={openDetail}
+          onOpenDetail={(id) => openDetail(id, 'trending')}
           testId="cinema-row-top10"
         />
 
@@ -204,7 +220,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
               });
               return res.data?.items || [];
             }}
-            onOpenDetail={openDetail}
+            onOpenDetail={(id) => openDetail(id, 'for_you')}
             testId="cinema-row-foryou"
           />
         )}
@@ -219,7 +235,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
             });
             return res.data?.items || [];
           }}
-          onOpenDetail={openDetail}
+          onOpenDetail={(id) => openDetail(id, 'latest')}
           testId="cinema-row-latest"
         />
 
@@ -234,7 +250,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
               });
               return res.data?.items || [];
             }}
-            onOpenDetail={openDetail}
+            onOpenDetail={(id) => openDetail(id, 'subscriptions')}
             testId="cinema-row-subscriptions"
           />
         )}
@@ -268,7 +284,7 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
               }
               return ordered;
             }}
-            onOpenDetail={openDetail}
+            onOpenDetail={(id) => openDetail(id, 'playlist')}
             testId={`cinema-row-editorial-${pl.id}`}
           />
         ))}
@@ -277,8 +293,9 @@ export function CinemaView({ curatorHandle, initialVideoId }: CinemaViewProps) {
       {/* 4. DETAIL DIALOG */}
       <CinemaDetailDialog
         videoId={selectedVideoId}
+        surface={selectedSurface}
         onClose={closeDetail}
-        onSelectVideo={(newId) => openDetail(newId)}
+        onSelectVideo={(newId) => openDetail(newId, 'up_next')}
       />
     </div>
   );

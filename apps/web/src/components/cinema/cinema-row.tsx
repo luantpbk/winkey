@@ -130,27 +130,35 @@ export function CinemaRow({
   if (hasError) return null;
   if (hasLoaded && videos.length < minVideos) return null;
 
+  const isEditorial = surface === 'playlist';
+
   return (
     <section
       ref={rowRef}
       aria-label={title}
       data-testid={testId || 'cinema-row'}
-      className="relative my-6 px-4 sm:px-8 group/row"
+      className={`relative group/row ${
+        isEditorial
+          ? 'mx-4 sm:mx-8 md:mx-12 my-3 p-6 sm:p-8 rounded-2xl bg-[#14141A]'
+          : 'my-6 px-4 sm:px-8 md:px-12'
+      }`}
     >
       {/* Row Header */}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-white tracking-tight">
-          {title}
-        </h2>
-        {viewAllHref && (
-          <Link
-            href={viewAllHref}
-            className="text-xs sm:text-sm text-red-500 hover:text-red-400 font-semibold transition-colors flex items-center gap-1"
-          >
-            <span>{t('viewAll')}</span>
-            <ChevronRight className="h-4 w-4" />
-          </Link>
-        )}
+      <div className="flex items-baseline justify-between mb-3 px-1">
+        <div className="flex items-baseline gap-3.5">
+          <h2 className="text-lg sm:text-xl md:text-[22px] font-bold text-[#F4F4F6] tracking-tight">
+            {title}
+          </h2>
+          {viewAllHref && (
+            <Link
+              href={viewAllHref}
+              className="text-xs sm:text-sm text-[#8FB4FF] hover:text-[#B8CEFF] font-semibold transition-colors flex items-center gap-0.5"
+            >
+              <span>{t('viewAll')}</span>
+              <span>›</span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Row Container with Scroll Buttons */}
@@ -160,10 +168,10 @@ export function CinemaRow({
           <button
             type="button"
             onClick={() => handleScroll('left')}
-            aria-label="Scroll left"
-            className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 h-10 w-10 -ml-4 items-center justify-center rounded-full bg-black/80 hover:bg-black text-white shadow-xl transition-all"
+            aria-label="Cuộn sang trái"
+            className="hidden md:flex absolute left-0 top-0 bottom-0 z-30 w-12 items-center justify-center bg-[#0A0A0D]/60 hover:bg-[#0A0A0D]/85 text-white transition-opacity"
           >
-            <ChevronLeft className="h-6 w-6" />
+            <ChevronLeft className="h-7 w-7" />
           </button>
         )}
 
@@ -171,17 +179,19 @@ export function CinemaRow({
         <div
           ref={scrollContainerRef}
           data-testid="cinema-row-scroller"
-          className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory scrollbar-none py-4 px-1"
+          className={`flex overflow-x-auto scroll-smooth snap-x snap-mandatory scrollbar-none py-3 px-1 ${
+            isTop10 ? 'gap-5' : 'gap-3'
+          }`}
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {isLoading
             ? Array.from({ length: 6 }).map((_, idx) => (
                 <div
                   key={idx}
-                  className="shrink-0 snap-start w-[calc((100vw-48px)/2.2)] md:w-[calc((100vw-96px)/3.5)] lg:w-[calc((100vw-120px)/5.5)]"
+                  className="shrink-0 snap-start w-[calc((100vw-48px)/2.2)] sm:w-[calc((100vw-72px)/3.5)] lg:w-[calc((100vw-120px)/5.5)] max-w-[280px]"
                 >
-                  <div className="aspect-video w-full rounded-lg bg-[#181822] animate-pulse" />
-                  <div className="h-3 w-3/4 rounded bg-gray-800 animate-pulse mt-2" />
+                  <div className="aspect-video w-full rounded-[6px] bg-[#1A1A21] animate-pulse" />
+                  <div className="h-3 w-3/4 rounded bg-[#24242D] animate-pulse mt-2.5" />
                 </div>
               ))
             : videos.map((video, idx) => {
@@ -189,33 +199,72 @@ export function CinemaRow({
                 const isLast = idx === videos.length - 1;
                 const progress = progressMap?.[video.id];
 
-                return (
-                  <div
-                    key={video.id}
-                    className="shrink-0 snap-start flex items-center w-[calc((100vw-48px)/2.2)] md:w-[calc((100vw-96px)/3.5)] lg:w-[calc((100vw-120px)/5.5)]"
-                  >
-                    {/* Top 10 Outlined Numeral */}
-                    {isTop10 && (
+                if (isTop10) {
+                  return (
+                    <div
+                      key={video.id}
+                      className="shrink-0 snap-start flex items-end w-[240px] sm:w-[280px] md:w-[312px]"
+                    >
+                      {/* Top 10 168px Outlined Numeral matching Main.dc.html */}
                       <span
                         data-testid="cinema-top10-rank"
-                        className="text-5xl sm:text-6xl lg:text-7xl font-black text-transparent select-none shrink-0 -mr-3 sm:-mr-4 z-0 [text-shadow:_0_0_1px_rgba(255,255,255,0.4)] [-webkit-text-stroke:2px_rgba(255,255,255,0.4)]"
+                        aria-hidden="true"
+                        style={{
+                          fontSize: 'clamp(110px, 12vw, 168px)',
+                          lineHeight: 0.8,
+                          fontWeight: 800,
+                          fontFamily:
+                            "var(--font-be-vietnam-pro), 'Be Vietnam Pro', system-ui, sans-serif",
+                          color: '#0A0A0D',
+                          WebkitTextStroke: '3px #5C5C68',
+                          letterSpacing: '-12px',
+                          marginRight: '-18px',
+                          flex: '0 0 auto',
+                          position: 'relative',
+                          zIndex: 0,
+                          userSelect: 'none',
+                        }}
                       >
                         {idx + 1}
                       </span>
-                    )}
 
-                    <div className="flex-1 w-full">
-                      <CinemaCard
-                        video={video}
-                        surface={surface}
-                        rank={isTop10 ? idx + 1 : undefined}
-                        progressPercent={progress}
-                        onRemove={onRemoveItem ? () => onRemoveItem(video.id) : undefined}
-                        onOpenDetail={onOpenDetail}
-                        isFirst={isFirst}
-                        isLast={isLast}
-                      />
+                      <div
+                        style={{
+                          position: 'relative',
+                          zIndex: 1,
+                          flex: '1 1 auto',
+                          minWidth: 0,
+                        }}
+                      >
+                        <CinemaCard
+                          video={video}
+                          surface={surface}
+                          rank={idx + 1}
+                          progressPercent={progress}
+                          onRemove={onRemoveItem ? () => onRemoveItem(video.id) : undefined}
+                          onOpenDetail={onOpenDetail}
+                          isFirst={isFirst}
+                          isLast={isLast}
+                        />
+                      </div>
                     </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={video.id}
+                    className="shrink-0 snap-start w-[calc((100vw-48px)/2.2)] sm:w-[calc((100vw-72px)/3.5)] lg:w-[calc((100vw-120px)/5.5)] max-w-[280px]"
+                  >
+                    <CinemaCard
+                      video={video}
+                      surface={surface}
+                      progressPercent={progress}
+                      onRemove={onRemoveItem ? () => onRemoveItem(video.id) : undefined}
+                      onOpenDetail={onOpenDetail}
+                      isFirst={isFirst}
+                      isLast={isLast}
+                    />
                   </div>
                 );
               })}
@@ -226,10 +275,10 @@ export function CinemaRow({
           <button
             type="button"
             onClick={() => handleScroll('right')}
-            aria-label="Scroll right"
-            className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 h-10 w-10 -mr-4 items-center justify-center rounded-full bg-black/80 hover:bg-black text-white shadow-xl transition-all"
+            aria-label="Cuộn sang phải"
+            className="hidden md:flex absolute right-0 top-0 bottom-0 z-30 w-12 items-center justify-center bg-[#0A0A0D]/60 hover:bg-[#0A0A0D]/85 text-white transition-opacity"
           >
-            <ChevronRight className="h-6 w-6" />
+            <ChevronRight className="h-7 w-7" />
           </button>
         )}
       </div>

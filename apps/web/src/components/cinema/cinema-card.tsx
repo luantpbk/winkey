@@ -18,7 +18,7 @@ export interface CinemaCardProps {
   rank?: number;
   progressPercent?: number; // 0 - 100 for continue watching
   onRemove?: () => void;
-  onOpenDetail: (videoId: string) => void;
+  onOpenDetail: (videoId: string, surface?: WatchSurface) => void;
   isFirst?: boolean;
   isLast?: boolean;
 }
@@ -87,7 +87,7 @@ export function CinemaCard({
     // On touch devices / screens < 768px, card tap opens detail dialog
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       e.preventDefault();
-      onOpenDetail(video.id);
+      onOpenDetail(video.id, surface);
     }
   };
 
@@ -104,7 +104,7 @@ export function CinemaCard({
   const handleDetailsClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onOpenDetail(video.id);
+    onOpenDetail(video.id, surface);
   };
 
   const handleRemoveClick = (e: React.MouseEvent) => {
@@ -113,7 +113,7 @@ export function CinemaCard({
     onRemove?.();
   };
 
-  // Inward growth transform-origin
+  // Inward growth transform-origin so edge cards are not clipped
   const originClass = isFirst ? 'origin-left' : isLast ? 'origin-right' : 'origin-center';
 
   return (
@@ -134,16 +134,16 @@ export function CinemaCard({
       <div
         className={`relative transition-transform duration-300 ease-out ${
           isHovered
-            ? 'scale-[1.25] shadow-2xl rounded-xl bg-[#14141d] ring-1 ring-white/10'
+            ? 'scale-[1.25] shadow-2xl rounded-[10px] bg-[#1D1D25] ring-1 ring-white/10'
             : 'scale-100'
         }`}
       >
-        {/* Main 16:9 Thumbnail Box */}
+        {/* Main 16:9 Thumbnail Box (radius 6px) */}
         <Link
           href={watchHref}
           onClick={handleCardClick}
           data-testid="cinema-card-link"
-          className="block relative aspect-video w-full overflow-hidden rounded-lg bg-[#181822] focus:outline-none focus:ring-2 focus:ring-red-600"
+          className="block relative aspect-video w-full overflow-hidden rounded-[6px] bg-[#181822] focus:outline-none focus:ring-2 focus:ring-white"
         >
           <img
             src={thumbnailUrl}
@@ -154,18 +154,18 @@ export function CinemaCard({
           />
 
           {/* Duration Badge */}
-          <div className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1 py-0.5 text-[10px] font-semibold text-white">
+          <div className="absolute bottom-1.5 right-1.5 rounded bg-[#0A0A0D]/80 px-1.5 py-0.5 text-[11px] font-semibold text-white">
             {formatDuration(video.duration_ms)}
           </div>
 
-          {/* Continue Watching Progress Bar */}
+          {/* Continue Watching Progress Bar (4px, brand red #FF0033) */}
           {progressPercent !== undefined && progressPercent > 0 && (
             <div
               data-testid="cinema-card-progress"
-              className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700/80 overflow-hidden"
+              className="absolute bottom-0 left-0 right-0 h-1 bg-white/25 overflow-hidden"
             >
               <div
-                className="h-full bg-red-600 transition-all"
+                className="h-full bg-[#FF0033] transition-all"
                 style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
               />
             </div>
@@ -179,17 +179,20 @@ export function CinemaCard({
               aria-label={t('removeFromContinue')}
               title={t('removeFromContinue')}
               data-testid="cinema-card-remove-btn"
-              className="absolute top-1.5 right-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors"
+              className="absolute top-1.5 right-1.5 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-[#0A0A0D]/75 hover:bg-[#FF0033] text-white transition-colors"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
         </Link>
 
-        {/* Normal Mode: Title below card (1 line) */}
+        {/* Normal Mode: Title below card (1 line, 15px/600) */}
         {!isHovered && (
-          <div className="mt-1.5 px-0.5">
-            <h3 className="truncate text-xs sm:text-sm font-medium text-gray-200">{video.title}</h3>
+          <div className="pt-2 px-0.5">
+            <h3 className="truncate text-sm font-semibold text-[#F4F4F6]">{video.title}</h3>
+            <p className="text-xs text-[#A3A3AD] mt-0.5 truncate">
+              {video.owner?.display_name} · {formatRelativeTime(video.published_at)}
+            </p>
           </div>
         )}
 
@@ -197,37 +200,40 @@ export function CinemaCard({
         {isHovered && (
           <div
             data-testid="cinema-card-expanded-panel"
-            className="p-3 bg-[#14141d] rounded-b-xl flex flex-col gap-2"
+            className="p-3 bg-[#1D1D25] rounded-b-[10px] flex flex-col gap-2"
           >
             {/* Quick Action Buttons */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
+                {/* Watch button: White circle with dark text */}
                 <Link
                   href={watchHref}
                   data-testid="cinema-card-quick-watch"
                   aria-label={t('watchNow')}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 hover:bg-red-700 text-white shadow transition-transform active:scale-95"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] shadow transition-transform active:scale-95"
                 >
                   <Play className="h-4 w-4 fill-current ml-0.5" />
                 </Link>
 
+                {/* Watch later button: bordered ghost circle */}
                 <button
                   type="button"
                   onClick={handleWatchLaterClick}
                   data-testid="cinema-card-quick-watch-later"
                   aria-label={t('watchLater')}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
 
+              {/* Detail button: bordered ghost circle */}
               <button
                 type="button"
                 onClick={handleDetailsClick}
                 data-testid="cinema-card-quick-details"
                 aria-label={t('details')}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors"
               >
                 <Info className="h-4 w-4" />
               </button>
@@ -235,15 +241,15 @@ export function CinemaCard({
 
             {/* Title & Metadata */}
             <div>
-              <h3 className="text-xs font-bold text-white line-clamp-2 leading-snug">
+              <h3 className="text-xs font-bold text-[#F4F4F6] line-clamp-2 leading-snug">
                 {video.title}
               </h3>
-              <p className="text-[11px] text-gray-400 mt-1 truncate">{video.owner?.display_name}</p>
-              <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
-                <span>{formatViews(video.view_count)} lượt xem</span>
-                <span>•</span>
-                <span>{formatRelativeTime(video.published_at)}</span>
-              </div>
+              <p className="text-[11px] text-[#C9C9D1] mt-1 truncate">
+                {formatDuration(video.duration_ms)} · {formatViews(video.view_count)} lượt xem
+              </p>
+              <p className="text-[10px] text-[#A3A3AD] mt-0.5 truncate">
+                {video.owner?.display_name}
+              </p>
             </div>
           </div>
         )}

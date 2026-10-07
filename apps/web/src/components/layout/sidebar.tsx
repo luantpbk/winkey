@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '../../i18n/routing';
 import {
   Home,
-  Clapperboard,
+  Compass,
   LayoutDashboard,
   UploadCloud,
   Tv,
@@ -32,7 +32,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
-    { href: '/phim', label: t('movies'), icon: Clapperboard },
+    { href: '/kham-pha', label: t('explore'), icon: Compass },
     { href: '/studio', label: t('studio'), icon: LayoutDashboard },
     ...(canAccessAdmin ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
     { href: '/upload', label: t('upload'), icon: UploadCloud },

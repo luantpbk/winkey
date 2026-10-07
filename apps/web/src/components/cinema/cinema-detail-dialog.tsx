@@ -2,12 +2,12 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import type { Video, VideoSummary } from '@winkey/api-client';
-import { Play, Plus, Share2, X } from 'lucide-react';
+import { Play, Plus, Share2, X, ThumbsUp } from 'lucide-react';
 import { api } from '../../lib/api-client';
 import { Link, useRouter } from '../../i18n/routing';
 import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
-import { buildWatchUrl } from '../../lib/video/watch-url';
+import { type WatchSurface, buildWatchUrl } from '../../lib/video/watch-url';
 import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
@@ -15,11 +15,17 @@ import { useTranslations } from 'next-intl';
 
 export interface CinemaDetailDialogProps {
   videoId: string | null;
+  surface?: WatchSurface;
   onClose: () => void;
   onSelectVideo: (newVideoId: string) => void;
 }
 
-export function CinemaDetailDialog({ videoId, onClose, onSelectVideo }: CinemaDetailDialogProps) {
+export function CinemaDetailDialog({
+  videoId,
+  surface = 'other',
+  onClose,
+  onSelectVideo,
+}: CinemaDetailDialogProps) {
   const t = useTranslations('cinema');
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -148,15 +154,16 @@ export function CinemaDetailDialog({ videoId, onClose, onSelectVideo }: CinemaDe
         video.playback?.thumbnail_url || null,
       )
     : '';
-  const watchHref = buildWatchUrl(videoId, 'other');
+
+  const watchHref = buildWatchUrl(videoId, surface);
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="cinema-detail-title"
+      aria-labelledby="dlg-title"
       data-testid="cinema-detail-dialog"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -164,156 +171,192 @@ export function CinemaDetailDialog({ videoId, onClose, onSelectVideo }: CinemaDe
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#12121a] text-gray-100 shadow-2xl border border-white/10 outline-none"
+        className="relative w-full max-w-[880px] max-h-[92vh] overflow-y-auto rounded-xl bg-[#16161D] text-[#F4F4F6] shadow-[0_30px_80px_rgba(0,0,0,0.7)] border border-white/10 outline-none"
       >
-        {/* Close Button */}
+        {/* Close Button: 40px circle #0A0A0D */}
         <button
           type="button"
           onClick={onClose}
           aria-label={t('close')}
           data-testid="cinema-detail-close-btn"
-          className="absolute top-4 right-4 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 hover:bg-white/20 text-white transition-colors"
+          className="absolute top-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-[#0A0A0D] hover:bg-white/20 text-white transition-colors"
         >
           <X className="h-5 w-5" />
         </button>
 
         {isLoading && !video ? (
           <div className="p-8 space-y-4">
-            <div className="aspect-video w-full rounded-xl bg-gray-800 animate-pulse" />
-            <div className="h-6 w-3/4 rounded bg-gray-800 animate-pulse" />
-            <div className="h-4 w-1/2 rounded bg-gray-800 animate-pulse" />
+            <div className="aspect-video w-full rounded-xl bg-[#1D1D25] animate-pulse" />
+            <div className="h-6 w-3/4 rounded bg-[#1D1D25] animate-pulse" />
+            <div className="h-4 w-1/2 rounded bg-[#1D1D25] animate-pulse" />
           </div>
         ) : video ? (
           <>
-            {/* Header Backdrop Banner */}
-            <div className="relative aspect-video max-h-[420px] w-full overflow-hidden bg-black">
+            {/* Header Backdrop Banner: 16:9 */}
+            <div className="relative aspect-video max-h-[460px] w-full overflow-hidden bg-black">
               <img
                 src={thumbnailUrl}
                 alt={video.title}
                 loading="eager"
                 className="h-full w-full object-cover"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#12121a] via-[#12121a]/40 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#16161D] via-[#16161D]/50 to-transparent" />
 
-              {/* Quick Watch Over Banner */}
-              <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between gap-4">
-                <div className="space-y-2">
-                  <h2
-                    id="cinema-detail-title"
-                    data-testid="cinema-detail-title"
-                    className="text-xl sm:text-2xl md:text-3xl font-black text-white line-clamp-2 drop-shadow"
-                  >
-                    {video.title}
-                  </h2>
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-300 flex-wrap">
-                    <Link
-                      href={`/c/${video.owner.handle}`}
-                      className="font-semibold text-white hover:underline flex items-center gap-2"
-                    >
-                      {video.owner.avatar_url && (
-                        <img
-                          src={video.owner.avatar_url}
-                          alt={video.owner.display_name}
-                          className="h-5 w-5 rounded-full object-cover"
-                        />
-                      )}
-                      <span>{video.owner.display_name}</span>
-                    </Link>
-                    <span>•</span>
-                    <span>{formatDuration(video.duration_ms)}</span>
-                    <span>•</span>
-                    <span>{formatViews(video.view_count)} lượt xem</span>
-                    <span>•</span>
-                    <span>{formatRelativeTime(video.published_at)}</span>
-                  </div>
-                </div>
-
-                <Link
-                  href={watchHref}
-                  data-testid="cinema-detail-watch-btn"
-                  className="flex shrink-0 items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm sm:text-base shadow-lg transition-transform active:scale-95"
+              {/* Title & Action Buttons overlay */}
+              <div className="absolute bottom-8 left-8 right-8 flex flex-col gap-4">
+                <h2
+                  id="dlg-title"
+                  data-testid="cinema-detail-title"
+                  style={{ textWrap: 'balance', lineHeight: 1.08 }}
+                  className="text-2xl sm:text-3xl md:text-[44px] font-extrabold text-[#F4F4F6] tracking-[-1px] line-clamp-2 drop-shadow-md"
                 >
-                  <Play className="h-5 w-5 fill-current" />
-                  <span>{t('watchNow')}</span>
-                </Link>
+                  {video.title}
+                </h2>
+
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Primary button: White with dark text */}
+                  <Link
+                    href={watchHref}
+                    data-testid="cinema-detail-watch-btn"
+                    className="h-12 px-6 rounded-lg bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] font-bold text-base inline-flex items-center gap-2.5 shadow-md transition active:scale-[0.98]"
+                  >
+                    <Play className="w-5 h-5 fill-current ml-0.5" />
+                    <span>{t('watchNow')}</span>
+                  </Link>
+
+                  {/* Watch Later Round Button */}
+                  <button
+                    type="button"
+                    onClick={handleWatchLater}
+                    data-testid="cinema-detail-watch-later-btn"
+                    aria-label={t('watchLater')}
+                    className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+
+                  {/* Like Button */}
+                  <button
+                    type="button"
+                    aria-label="Thích"
+                    className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
+                  >
+                    <ThumbsUp className="w-5 h-5" />
+                  </button>
+
+                  {/* Share Round Button */}
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    data-testid="cinema-detail-share-btn"
+                    aria-label={t('share')}
+                    className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
+                  >
+                    <Share2 className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Dialog Content */}
-            <div className="p-6 sm:p-8 space-y-6">
-              {/* Action Buttons Row */}
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleWatchLater}
-                  data-testid="cinema-detail-watch-later-btn"
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>{t('watchLater')}</span>
-                </button>
+            {/* Dialog Content Grid (2 columns matching Detail.dc.html) */}
+            <div className="p-8 sm:p-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* Left Column (2fr): Meta + Description */}
+              <div className="md:col-span-2 space-y-4">
+                <div className="flex items-center gap-2.5 text-sm text-[#C9C9D1] flex-wrap">
+                  <span className="text-[#4ADE80] font-bold">Thịnh hành</span>
+                  <span aria-hidden="true" className="text-[#8E8E99]">
+                    ·
+                  </span>
+                  <span>{formatDuration(video.duration_ms)}</span>
+                  <span aria-hidden="true" className="text-[#8E8E99]">
+                    ·
+                  </span>
+                  <span>{formatViews(video.view_count)} lượt xem</span>
+                  <span aria-hidden="true" className="text-[#8E8E99]">
+                    ·
+                  </span>
+                  <span>{formatRelativeTime(video.published_at)}</span>
+                  <span className="px-1.5 py-0.5 rounded border border-white/40 text-xs font-bold">
+                    1080p
+                  </span>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={handleShare}
-                  data-testid="cinema-detail-share-btn"
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-colors"
-                >
-                  <Share2 className="h-4 w-4" />
-                  <span>{t('share')}</span>
-                </button>
+                {/* Description: full text with preserved line breaks, plain text links */}
+                <div className="text-base text-[#D4D4DA] leading-[1.65] whitespace-pre-line pt-2">
+                  {video.description || t('noDescription')}
+                </div>
               </div>
 
-              {/* Description */}
-              <div className="text-sm sm:text-base text-gray-300 leading-relaxed whitespace-pre-line border-t border-white/10 pt-4">
-                {video.description || t('noDescription')}
-              </div>
-
-              {/* Related Videos: "Tương tự" */}
-              {relatedVideos.length > 0 && (
-                <div className="border-t border-white/10 pt-6">
-                  <h3 className="text-lg font-bold text-white mb-4">{t('similarVideos')}</h3>
-                  <div
-                    data-testid="cinema-detail-related-grid"
-                    className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
+              {/* Right Column (1fr): Channel, Date, Info */}
+              <div className="space-y-3 text-sm text-[#F4F4F6] border-t md:border-t-0 md:border-l border-white/10 pt-4 md:pt-0 md:pl-6">
+                <div>
+                  <span className="text-[#8E8E99]">Kênh: </span>
+                  <Link
+                    href={`/c/${video.owner.handle}`}
+                    className="font-semibold text-[#8FB4FF] hover:underline"
                   >
-                    {relatedVideos.map((item) => {
-                      const itemThumb = getThumbnailUrl(
-                        'thumbnail_url' in item ? item.thumbnail_url : null,
-                      );
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => onSelectVideo(item.id)}
-                          data-testid="cinema-related-card"
-                          className="group cursor-pointer rounded-lg overflow-hidden bg-[#181824] hover:ring-2 hover:ring-red-600 transition-all"
-                        >
-                          <div className="relative aspect-video w-full bg-black/40">
-                            <img
-                              src={itemThumb}
-                              alt={item.title}
-                              loading="lazy"
-                              className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                            />
-                            <div className="absolute bottom-1 right-1 rounded bg-black/80 px-1 text-[10px] text-white">
-                              {formatDuration(item.duration_ms)}
-                            </div>
-                          </div>
-                          <div className="p-2">
-                            <h4 className="text-xs font-semibold text-white line-clamp-1 group-hover:text-red-400">
-                              {item.title}
-                            </h4>
-                            <p className="text-[10px] text-gray-400 truncate mt-0.5">
-                              {item.owner.display_name}
-                            </p>
+                    {video.owner.display_name}
+                  </Link>
+                </div>
+                <div>
+                  <span className="text-[#8E8E99]">Đăng ngày: </span>
+                  <span>
+                    {video.published_at
+                      ? new Date(video.published_at).toLocaleDateString('vi-VN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                        })
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Related Videos: "Tương tự" (3-column grid matching Detail.dc.html) */}
+            {relatedVideos.length > 0 && (
+              <div className="px-8 sm:px-10 pb-10 pt-2 border-t border-white/10">
+                <h3 className="text-xl font-bold text-[#F4F4F6] mb-4 pt-4">{t('similarVideos')}</h3>
+                <div
+                  data-testid="cinema-detail-related-grid"
+                  className="grid grid-cols-2 sm:grid-cols-3 gap-4"
+                >
+                  {relatedVideos.map((item) => {
+                    const itemThumb = getThumbnailUrl(
+                      'thumbnail_url' in item ? item.thumbnail_url : null,
+                    );
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => onSelectVideo(item.id)}
+                        data-testid="cinema-related-card"
+                        className="group cursor-pointer rounded-lg overflow-hidden bg-[#1D1D25] hover:bg-[#262630] transition-colors"
+                      >
+                        <div className="relative aspect-video w-full bg-black/40">
+                          <img
+                            src={itemThumb}
+                            alt={item.title}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                          <div className="absolute bottom-1.5 right-1.5 rounded bg-[#0A0A0D]/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            {formatDuration(item.duration_ms)}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="p-3">
+                          <h4 className="text-sm font-semibold text-[#F4F4F6] line-clamp-2 leading-snug">
+                            {item.title}
+                          </h4>
+                          <p className="text-xs text-[#A3A3AD] mt-1 truncate">
+                            {item.owner.display_name} · {formatViews(item.view_count)} lượt xem
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </>
         ) : null}
       </div>

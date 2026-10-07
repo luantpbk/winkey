@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import HomePage from '../src/app/[locale]/page';
+import HomePage from '../src/app/[locale]/kham-pha/page';
 import { api } from '../src/lib/api-client';
 import { tokenStore } from '../src/lib/auth/token-store';
 import type { VideoSummary, User } from '@winkey/api-client';
@@ -48,7 +48,7 @@ vi.mock('next-intl', () => ({
 
 // --- Routing Mock ---
 const mockPush = vi.fn();
-let mockPathname = '/vi';
+let mockPathname = '/vi/kham-pha';
 let mockSearchParams = new URLSearchParams();
 
 vi.mock('../src/i18n/routing', () => ({
@@ -173,7 +173,7 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
     tokenStore.clear();
     setTestLocale('vi');
     mockPush.mockClear();
-    mockPathname = '/vi';
+    mockPathname = '/vi/kham-pha';
     mockSearchParams = new URLSearchParams();
     mockCurrentUser = null;
     mockAuthLoading = false;
@@ -369,13 +369,13 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
       const trendingTab = screen.getByTestId('tab-trending');
       fireEvent.click(trendingTab);
 
-      expect(mockPush).toHaveBeenCalledWith('/vi?tab=trending');
+      expect(mockPush).toHaveBeenCalledWith('/vi/kham-pha?tab=trending');
       expect(trendingTab.getAttribute('aria-selected')).toBe('true');
 
       const forYouTab = screen.getByTestId('tab-for-you');
       fireEvent.click(forYouTab);
 
-      expect(mockPush).toHaveBeenCalledWith('/vi?tab=for-you');
+      expect(mockPush).toHaveBeenCalledWith('/vi/kham-pha?tab=for-you');
       expect(forYouTab.getAttribute('aria-selected')).toBe('true');
     });
   });
@@ -634,7 +634,7 @@ describe('Task R2-web: "Dành cho bạn" (For You) Home Feed', () => {
 
       // Clicking explore trending switches to trending tab
       fireEvent.click(trendingBtn);
-      expect(mockPush).toHaveBeenCalledWith('/vi?tab=trending');
+      expect(mockPush).toHaveBeenCalledWith('/vi/kham-pha?tab=trending');
       expect(screen.getByTestId('tab-trending').getAttribute('aria-selected')).toBe('true');
     });
 
