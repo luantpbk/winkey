@@ -65,7 +65,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
 | ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; idle |
 | Antigravity 1 | apps/web, e2e, packages/api-client | BETA1-web |
-| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | CIN1 deploy |
+| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | BETA-ops D generator preparation |
 | Antigravity 3 | auth, social, realtime, shared TS packages | idle |
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
