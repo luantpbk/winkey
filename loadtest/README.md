@@ -85,13 +85,34 @@ docker run --rm --net=host -v $(pwd)/loadtest:/loadtest \
 TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_CODE=<invite_code> LEGACY_SITES="<site1_url> <site2_url> <site3_url> <site4_url>" ./loadtest/lt2-run.sh
 ```
 
+### Environment Variables Reference
+
+| Variable | Description | Required / Default |
+|---|---|---|
+| `TARGET_URL` | Base URL of the Winkey gateway | Default: `https://winkey.vn` |
+| `LOADTEST_USER_PASSWORD` | Password used for `lt2_*` temporary accounts | Required for production / non-localhost |
+| `LT2_INVITE_CODE` | Registration invite code (if required) | Optional |
+| `LEGACY_SITES` | Space-separated URLs of legacy sites monitored by watchdog | Optional |
+| `COLLECTOR_PORT` | Port for real-time comment journal collector | Default: `9999` |
+| `ALLOW_OUTSIDE_WINDOW` | Set `true` to bypass 02:00–03:30 AM VN window check for local tests | Default: `false` |
+
 ---
 
-## 3. Immediate Abort & Emergency Protocol
+## 3. Fail-Closed & Data Recovery Architecture
 
-If any abort condition is met:
-1. Stop k6 test immediately (`Ctrl+C`).
-2. Run standalone data cleanup script:
+- **Fail-Closed Preseed & Collector**: `preseed.mjs` and `comment-collector.mjs` fail closed (`process.exit(1)`) if account creation or collector health verification fails.
+- **Fail-Closed Video Pool**: If no valid video samples exist in `seed.json` or `/v1/videos`, k6 scenarios fail closed immediately.
+- **Retention Recovery**: When `cleanup.mjs` encounters deletion errors (HTTP $\neq 204$), unremoved accounts (`lt2_accounts.json`) and comments (`lt2_comments.json`) are retained for retry recovery. `cleanup.mjs` exits with non-zero exit code (`1`) on any failure.
+- **Dual Generator Abortion**: `lt2-run.sh` traps `EXIT`, `SIGINT`, `SIGTERM` signals and terminates both `PID_HLS` and `PID_API` containers immediately.
+
+---
+
+## 4. Immediate Abort & Emergency Protocol
+
+If any abort condition is met (HTTP errors > 5%, Edge RAM < 1 GiB, legacy site failure):
+1. Stop k6 test immediately (`Ctrl+C` or automatic SIGINT trigger from watchdog).
+2. Both k6 containers are terminated automatically by `lt2-run.sh`.
+3. Standalone data cleanup script executes:
 ```bash
 TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> node ./loadtest/cleanup.mjs
 ```

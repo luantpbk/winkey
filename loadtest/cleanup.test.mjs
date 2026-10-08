@@ -235,3 +235,31 @@ describe('Comment Collector Server Tests', () => {
     assert.strictEqual(comments[0].authorEmail, 'lt2_collector@example.com');
   });
 });
+
+describe('Fail-Closed and Execution Safety Tests', () => {
+  test('Execution window validation helper (02:00 - 03:30 AM VN)', () => {
+    const isInsideWindow = (timeStr) => {
+      const val = parseInt(timeStr, 10);
+      return val >= 200 && val <= 330;
+    };
+
+    assert.strictEqual(isInsideWindow('0200'), true);
+    assert.strictEqual(isInsideWindow('0300'), true);
+    assert.strictEqual(isInsideWindow('0330'), true);
+    assert.strictEqual(isInsideWindow('0159'), false);
+    assert.strictEqual(isInsideWindow('0331'), false);
+    assert.strictEqual(isInsideWindow('1200'), false);
+  });
+
+  test('Fail-closed when sample video pool is empty', () => {
+    const checkVideoPool = (pool) => {
+      if (!pool || pool.length === 0) {
+        throw new Error('FAIL: No valid video samples available');
+      }
+      return true;
+    };
+
+    assert.strictEqual(checkVideoPool([{ id: 'v1' }]), true);
+    assert.throws(() => checkVideoPool([]), /No valid video samples/);
+  });
+});

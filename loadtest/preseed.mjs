@@ -94,10 +94,16 @@ async function main() {
           });
         }
       } else {
-        console.warn(`[preseed] Registration returned status ${regRes.status} for ${acc.handle}`);
+        console.error(
+          `[preseed] ERROR: Registration returned status ${regRes.status} for ${acc.handle}. Fail-closed abort.`,
+        );
+        process.exit(1);
       }
     } catch (err) {
-      console.warn(`[preseed] Error registering ${acc.handle}: ${err.message}`);
+      console.error(
+        `[preseed] ERROR: Registration request failed for ${acc.handle}: ${err.message}. Fail-closed abort.`,
+      );
+      process.exit(1);
     }
     await sleep(1200); // 1.2s pacing to respect rate limits
   }

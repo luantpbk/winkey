@@ -1,6 +1,6 @@
 /* global __ENV, __VU, __ITER, open, console */
 import http from 'k6/http';
-import { sleep } from 'k6';
+import { sleep, fail } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
@@ -171,6 +171,10 @@ export function setup() {
 export default function (data) {
   const userPool = data && data.users && data.users.length > 0 ? data.users : seedUsers;
   const videoPool = data && data.videos && data.videos.length > 0 ? data.videos : seedVideos;
+
+  if (videoPool.length === 0) {
+    fail('FAIL: No valid video samples available for API mix load test');
+  }
 
   const rand = Math.random();
   const selectedVideo = videoPool.length > 0 ? videoPool[(__VU + __ITER) % videoPool.length] : null;

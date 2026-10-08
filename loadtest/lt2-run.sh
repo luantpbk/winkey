@@ -24,6 +24,16 @@ echo "Pass/Fail Criterion:    Aggregate Rebuffer Ratio < 1%, HTTP req failed < 1
 echo "Safety Rule:           Auto-abort on >5% HTTP errors, RAM < 1GiB, legacy site failure"
 echo "==================================================================="
 
+# Check execution window (02:00 - 03:30 AM Vietnam time, UTC+7)
+current_vn_time=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")
+if [[ "${ALLOW_OUTSIDE_WINDOW:-false}" != "true" ]]; then
+  if [[ "${current_vn_time}" -lt "0200" || "${current_vn_time}" -gt "0330" ]]; then
+    echo "ERROR: Current time (${current_vn_time} VN) is outside approved production window (02:00 - 03:30 AM VN)." >&2
+    echo "Set ALLOW_OUTSIDE_WINDOW=true to bypass window enforcement for dry runs." >&2
+    exit 1
+  fi
+fi
+
 # Check for production password requirement
 if [[ "${TARGET_URL}" != *"localhost"* && "${TARGET_URL}" != *"127.0.0.1"* ]] && [[ -z "${LOADTEST_USER_PASSWORD}" ]]; then
   echo "ERROR: LOADTEST_USER_PASSWORD environment variable is required for production / non-localhost targets."
@@ -34,7 +44,21 @@ fi
 echo "[lt2] Starting comment collector on port ${COLLECTOR_PORT}..."
 COLLECTOR_PORT="${COLLECTOR_PORT}" node "${SCRIPT_DIR}/comment-collector.mjs" &
 COLLECTOR_PID=$!
-sleep 1
+
+# Fail-closed check: Ensure comment collector is responding on healthz
+collector_ok=0
+for i in {1..5}; do
+  if curl -s "http://127.0.0.1:${COLLECTOR_PORT}/healthz" > /dev/null 2>&1; then
+    collector_ok=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${collector_ok}" -ne 1 ]]; then
+  echo "ERROR: Comment collector failed to respond on port ${COLLECTOR_PORT}. Fail-closed abort." >&2
+  exit 1
+fi
 
 # Abort and Cleanup Trap: Stops BOTH generators immediately on signal/exit
 abort_all() {

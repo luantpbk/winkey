@@ -211,8 +211,17 @@ export async function runCleanup(opts = {}) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith('cleanup.mjs')) {
-  runCleanup().catch((err) => {
-    console.error('[cleanup] Fatal error during cleanup:', err);
-    process.exit(1);
-  });
+  runCleanup()
+    .then(({ failedAccounts, failedComments }) => {
+      if (failedAccounts.length > 0 || failedComments.length > 0) {
+        console.error(
+          `[cleanup] FAILURE: Cleanup finished with ${failedAccounts.length} failed accounts and ${failedComments.length} failed comments. Retained for retry recovery.`,
+        );
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error('[cleanup] Fatal error during cleanup:', err);
+      process.exit(1);
+    });
 }

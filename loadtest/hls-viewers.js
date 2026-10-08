@@ -1,6 +1,6 @@
 /* global __ENV, open */
 import http from 'k6/http';
-import { sleep } from 'k6';
+import { sleep, fail } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
@@ -133,8 +133,7 @@ export function setup() {
 export default function (data) {
   const videoPool = data && data.videos && data.videos.length > 0 ? data.videos : seedVideos;
   if (videoPool.length === 0) {
-    sleep(1);
-    return;
+    fail('FAIL: No valid video samples available in video pool for load test');
   }
 
   // 20% hot video selection, 80% uniform random
