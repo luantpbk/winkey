@@ -123,26 +123,29 @@ BETA1-web must:
   - on mobile, the hero ⓘ button stays on the same row as the other buttons.
 
 Astra re-review observations (2026-10-08):
-- Main CI run 37656127763 at #272 merge failed in web realtime.test.tsx:189 (subscribe frame missing).
-  Astra inspected the log and reran failed jobs once; result pending. #270 full web suite is green; do not assume
-  this is a flake or weaken the assertion. Investigate with AG1 if the rerun fails again.
-- #270 head `9f214dbf0cfd04cbe2716916fdc93831e568a17d`: CI green; actual CI log has 30 web files / 396 tests
+- Main CI run 37656127763 at #272 merge initially failed in web realtime.test.tsx:189 (subscribe frame missing).
+  Failed jobs rerun once now SUCCESS; no test was weakened and no root-cause claim is made.
+- #270 head `97b20983c06d070f41a38632c44b661d1ce28050`: CI green; actual CI log has 30 web files / 396 tests
   passed. New `/api/feedback-url` is force-dynamic and returns only a sanitized public URL; both shells fetch it.
   This brief adjustment is accepted in the ADR-034 addendum. Legal pages stay static. English notice/nav labels
   and unconditional mobile drawer assertions are fixed; completed legal copies match #272.
-- Still changes requested: build-once production-artifact feedback regression (empty/https/mailto/unsafe, both
-  shells), real ten-run and Playwright outputs/screenshots. New BETA1 screenshots are conditional on a hardcoded
-  agent-machine path; use portable output paths and always capture required evidence. Update stale PR body.
-- A further local web test attempt did not reach test execution because dependency installation was incomplete;
-  no additional local pass or runtime smoke result is claimed. CI evidence above is independently inspected.
-
-LT2 harness #263 head `21b54a31a7b9047f5723dd0e097fcfe340ed14e1`: NOT APPROVED; do not run production.
-- Root CI remains red with the same 10 no-undef errors. Independent offline cleanup tests pass 5/5, but accept
+- The new production test starts one existing .next artifact under empty/https/mailto/unsafe values and checks
+  HTTP plus both shells. PR includes run outputs and seven portable screenshots; 375px hero image inspected and
+  all three buttons fit on one row. Completed legal copies remain correct.
+- Still changes requested in the new regression harness: killPort kills arbitrary PIDs matching port 3055,
+  including clients; stop only the spawned child and fail if port is occupied. Production mobile scenario does
+  not open the drawer; its screenshot shows the article, not the feedback footer. Open drawer, assert the link
+  is in viewport and recapture. Reconcile reported 1.2m scenario with configured 60s timeout and correct PR text.
+LT2 harness #263 head `f7d926217a115a445f03462e45b3f578cd2216cc`: NOT APPROVED; do not run production.
+- Root CI remains red with the same 10 no-undef errors plus one unused opts error. The new diff changes only
+  hls-viewers.js and cleanup.test.mjs; critical cleanup/runner/token implementations remain unchanged.
+  Previous independent offline cleanup tests passed 5/5, but accepted
   deletion of an account after comment deletion fails. The new collector does not make cleanup safe yet.
 - Independent 401-login probe: failedAccounts=1, failedComments=0, comment journal removed, CLI exit 0. Retain
   unresolved comments and author metadata, fail nonzero, and coordinate k6 teardown with standalone cleanup so
   comments are confirmed purged before account deletion. Malformed journals must fail closed.
-- New HLS URL `/v1/videos/:id/manifest.m3u8` is absent from the contract: use `playback.hls_url`. Reject empty/invalid
+- HLS now reads `playback.hls_url`, but still falls back to `/v1/videos/:id/manifest.m3u8` (absent from contract).
+  Remove fallback and test the actual request sequence, not a copied helper. Reject empty/invalid
   playback and failed first segments. Gate on exact aggregate non-seek stall/(watch+stall); the rounded Rate
   approximation and p95 threshold do not satisfy the brief. Report the inclusive ratio separately.
 - Watchdog reads generator RAM instead of edge-1 RAM, omits sustained HTTP-error abort, leaves legacy checks
@@ -154,7 +157,9 @@ LT2 harness #263 head `21b54a31a7b9047f5723dd0e097fcfe340ed14e1`: NOT APPROVED; 
   metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
 - Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
   0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
-- No `[LT2] result` issue found. AG2 VM readiness/deletion-plan evidence has not been posted on #47; requested.
+- No `[LT2] result` issue found. AG2 posted readiness specifications and deletion plan on #47; actual non-secret
+  OCI/host/ACL outputs are still requested. Correct the report timezone: Oct 9 02:00-03:30 ICT is Oct 8
+  19:00-20:30 UTC. No production load until web deployed and harness accepted/merged.
   A failed harness review is not a production bottleneck measurement. Assign no performance fix without evidence.
 ## Beta gate order (ADR-034)
 SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (changes requested) → LT2 ⏳ (changes requested).
@@ -171,7 +176,8 @@ only after BETA1-web is deployed AND LT2 has passed.
 - No merged-not-deployed app change is currently accepted: #270 and #263 remain open and changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
-- For LT2 night: create the OCI VM and an ephemeral Tailscale key (Antigravity 2 gives the exact steps).
+- For LT2 night: AG2 reports the generator is ready; supply non-secret readiness proof before acceptance.
+  The user/AG2 must terminate the VM and boot volume the same night and post evidence.
 - Drop the `qoe_ro` ClickHouse user (if not done).
 - LEGAL review (blocks the public launch only).
 - Whether to resume Sonnet / Sonnet 2.
