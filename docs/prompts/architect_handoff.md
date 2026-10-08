@@ -141,17 +141,17 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `71102d153192eef71d000307d427fedaa6954a32`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37745503702/job 113205957941 format passes, zero lint errors. Review 5453421076.
+LT2 harness #263 head `c936389b3f29a7d18e154216251c6180eb24c05a`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37754093455/job 113234299536 format passes, zero lint errors. Review 5454276306.
   Independent snapshot tests: 14/14 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff adds ONLY two collector happy-path tests; all implementation unchanged from 5da305e. Existing
-  setup rejects fewer than five, attempts login on 401, and retries collector POST, but open findings remain.
-- Independent actual API-mix VM probe with mocked imports, zero network: accepts six accounts; creates one
-  comment, collector fails three times, workload does not abort. Require exact valid five-account input,
-  validated login/token/renewal failure, durable uncertain-write recovery and BOTH-workload abort on lost ACK.
-  New count and renewal tests copy logic rather than exercising setup/workload. Prior cleanup fixes remain closed.
+- Latest diff touches ONLY API-mix and count helper test. Accepted: exact five-account check and missing-token
+  rejection. Actual-source mock probe confirms six accounts / missing token both reject setup.
+- Actual-source five-account probe creates one comment, collector fails three ACKs, workload does not abort.
+  Renewal failure and uncertain-write recovery remain blocked; validate unique owned metadata and ACK,
+  preserve authors until reconciliation, stop BOTH workloads. Remaining runner/HLS/collector implementations
+  and README/Handoff Report unchanged; replace copied helper tests with real implementation regressions.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
   remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
 - k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
@@ -169,7 +169,7 @@ LT2 harness #263 head `71102d153192eef71d000307d427fedaa6954a32`: NOT APPROVED; 
 - Enforce ICT date/window before account creation, with cleanup reserve. Stop/wait both run-named containers,
   drain collector, then cleanup; preserve both exit statuses and terminate on INT/TERM. Do not stop unrelated
   containers or swallow cleanup failures.
-- API-mix attempts login on 401 but ignores renewal failure and accepts more than five accounts. Use five
+- API-mix enforces five and token presence, but still ignores renewal/ACK failure. Use five
   metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
 - Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
   0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
