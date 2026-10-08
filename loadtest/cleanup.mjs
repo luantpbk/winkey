@@ -105,6 +105,8 @@ export async function runCleanup(opts = {}) {
         const userComments = comments.filter(
           (c) => c.authorEmail === acc.email || c.authorHandle === acc.handle,
         );
+        let userCommentFailed = false;
+
         for (const c of userComments) {
           try {
             const cRes = await customFetch(`${targetUrl}/v1/comments/${c.id}`, {
@@ -117,16 +119,26 @@ export async function runCleanup(opts = {}) {
               console.warn(
                 `[cleanup] Comment ${c.id} deletion returned ${cRes.status}. Retaining for retry.`,
               );
+              userCommentFailed = true;
               if (!failedComments.some((fc) => fc.id === c.id)) {
                 failedComments.push(c);
               }
             }
           } catch (ce) {
             console.warn(`[cleanup] Error deleting comment ${c.id}: ${ce.message}. Retaining.`);
+            userCommentFailed = true;
             if (!failedComments.some((fc) => fc.id === c.id)) {
               failedComments.push(c);
             }
           }
+        }
+
+        if (userCommentFailed) {
+          console.warn(
+            `[cleanup] Account ${acc.handle} has unremoved comments. Retaining user account for retry recovery.`,
+          );
+          failedAccounts.push(acc);
+          continue;
         }
 
         // Step 3: Call DELETE /v1/auth/me with confirm_handle and password

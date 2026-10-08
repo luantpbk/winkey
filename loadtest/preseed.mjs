@@ -108,10 +108,9 @@ async function main() {
     await sleep(1200); // 1.2s pacing to respect rate limits
   }
 
-  // Write temporary tokens for k6 setup to use
-  const tokensFile = path.join(__dirname, 'lt2_tokens.json');
-  fs.writeFileSync(tokensFile, JSON.stringify(fullTokens, null, 2), 'utf8');
-  console.log(`[preseed] Successfully prepared ${fullTokens.length} accounts.`);
+  console.log(
+    `[preseed] Successfully prepared ${accountMeta.length} accounts (handles and emails persisted to lt2_accounts.json).`,
+  );
 }
 
 main().catch((err) => {

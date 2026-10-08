@@ -3,6 +3,7 @@ import http from 'k6/http';
 import { sleep, fail } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
+import { resolveUrl } from './utils.mjs';
 
 // Custom metrics as required by LT2 / QOE2 specification
 const aggregateRebufferRatio = new Rate('aggregate_rebuffer_ratio'); // Primary Gate Criterion (aggregate stall / total)
@@ -55,23 +56,6 @@ const seedVideos = new SharedArray('seed_videos', function () {
     return [];
   }
 });
-
-export function resolveUrl(relativeUrl, baseUrl) {
-  if (!relativeUrl) return baseUrl;
-  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
-    return relativeUrl;
-  }
-  if (relativeUrl.startsWith('/')) {
-    const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
-    const origin = match ? match[1] : '';
-    return origin + relativeUrl;
-  }
-  const lastSlash = baseUrl.lastIndexOf('/');
-  if (lastSlash !== -1) {
-    return baseUrl.substring(0, lastSlash + 1) + relativeUrl;
-  }
-  return baseUrl + '/' + relativeUrl;
-}
 
 function parseMasterPlaylist(body, baseUrl) {
   const lines = body.split(/\r?\n/);

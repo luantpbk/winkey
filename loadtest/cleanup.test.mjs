@@ -6,27 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCleanup } from './cleanup.mjs';
 import { createCollectorServer } from './comment-collector.mjs';
+import { resolveUrl } from './utils.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const accountsFile = path.join(__dirname, 'lt2_accounts.json');
 const commentsFile = path.join(__dirname, 'lt2_comments.json');
-
-function resolveUrl(relativeUrl, baseUrl) {
-  if (!relativeUrl) return baseUrl;
-  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
-    return relativeUrl;
-  }
-  if (relativeUrl.startsWith('/')) {
-    const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
-    const origin = match ? match[1] : '';
-    return origin + relativeUrl;
-  }
-  const lastSlash = baseUrl.lastIndexOf('/');
-  if (lastSlash !== -1) {
-    return baseUrl.substring(0, lastSlash + 1) + relativeUrl;
-  }
-  return baseUrl + '/' + relativeUrl;
-}
 
 describe('LT2 Data Cleanup, Retention and Order Tests', () => {
   beforeEach(() => {

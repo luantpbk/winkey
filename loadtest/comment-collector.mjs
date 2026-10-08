@@ -21,7 +21,10 @@ function readComments() {
 
 function writeComments(comments) {
   const tmpPath = `${commentsFilePath}.tmp.${Date.now()}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(comments, null, 2), 'utf8');
+  const fd = fs.openSync(tmpPath, 'w');
+  fs.writeFileSync(fd, JSON.stringify(comments, null, 2), 'utf8');
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
   fs.renameSync(tmpPath, commentsFilePath);
 }
 
