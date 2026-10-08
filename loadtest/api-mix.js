@@ -80,6 +80,46 @@ const preseededAccounts = new SharedArray('preseeded_lt2_accounts', function () 
   return Array.isArray(rawLt2Accounts) ? rawLt2Accounts : [];
 });
 
+function refreshInMemoryToken(user) {
+  if (!user || !user.email) return null;
+  const loginRes = http.post(
+    `${TARGET_URL}/v1/auth/login`,
+    JSON.stringify({ email: user.email, password: envPassword }),
+    { headers: { 'Content-Type': 'application/json' } },
+  );
+  if (loginRes.status === 200) {
+    try {
+      const body = JSON.parse(loginRes.body);
+      if (body && body.access_token) {
+        user.token = body.access_token;
+        console.log(`[workload] Refreshed in-memory token for user ${user.handle}`);
+        return body.access_token;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function sendCommentToCollector(commentPayload) {
+  const payloadStr = JSON.stringify(commentPayload);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const res = http.post(`${COLLECTOR_URL}/comment`, payloadStr, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: '2s',
+    });
+    if (res && res.status === 200) {
+      return true;
+    }
+    sleep(0.2 * attempt);
+  }
+  console.log(
+    `[collector] WARNING: Failed to record comment ${commentPayload.id} after 3 retries.`,
+  );
+  return false;
+}
+
 export function setup() {
   if (!envPassword) {
     throw new Error(
@@ -90,37 +130,41 @@ export function setup() {
   const lt2Accounts = [];
   const accountsToLogin = preseededAccounts.slice();
 
-  if (accountsToLogin.length > 0) {
-    console.log(
-      `[setup] Logging in ${accountsToLogin.length} preseeded lt2 accounts into memory for workload on target ${TARGET_URL}...`,
+  if (accountsToLogin.length < 5) {
+    fail(
+      `[setup] ERROR: lt2_accounts.json must contain EXACTLY 5 preseeded accounts (found ${accountsToLogin.length}). Fail-closed abort.`,
     );
-    for (let i = 0; i < accountsToLogin.length; i++) {
-      const acc = accountsToLogin[i];
-      const loginRes = http.post(
-        `${TARGET_URL}/v1/auth/login`,
-        JSON.stringify({ email: acc.email, password: envPassword }),
-        { headers: { 'Content-Type': 'application/json' } },
-      );
+  }
 
-      if (loginRes.status === 200) {
-        try {
-          const body = JSON.parse(loginRes.body);
-          lt2Accounts.push({
-            id: body.user ? body.user.id : acc.handle,
-            handle: acc.handle,
-            email: acc.email,
-            token: body.access_token,
-          });
-        } catch (err) {
-          fail(`[setup] Could not parse login response for ${acc.email}: ${err.message}`);
-        }
-      } else {
-        fail(
-          `[setup] ERROR: Memory login failed for preseeded account ${acc.email} (HTTP ${loginRes.status}). Fail-closed abort.`,
-        );
+  console.log(
+    `[setup] Logging in ${accountsToLogin.length} preseeded lt2 accounts into memory for workload on target ${TARGET_URL}...`,
+  );
+  for (let i = 0; i < accountsToLogin.length; i++) {
+    const acc = accountsToLogin[i];
+    const loginRes = http.post(
+      `${TARGET_URL}/v1/auth/login`,
+      JSON.stringify({ email: acc.email, password: envPassword }),
+      { headers: { 'Content-Type': 'application/json' } },
+    );
+
+    if (loginRes.status === 200) {
+      try {
+        const body = JSON.parse(loginRes.body);
+        lt2Accounts.push({
+          id: body.user ? body.user.id : acc.handle,
+          handle: acc.handle,
+          email: acc.email,
+          token: body.access_token,
+        });
+      } catch (err) {
+        fail(`[setup] Could not parse login response for ${acc.email}: ${err.message}`);
       }
-      sleep(0.5); // Pacing for login requests
+    } else {
+      fail(
+        `[setup] ERROR: Memory login failed for preseeded account ${acc.email} (HTTP ${loginRes.status}). Fail-closed abort.`,
+      );
     }
+    sleep(0.5); // Pacing for login requests
   }
 
   // Fetch public videos for browsing
@@ -137,8 +181,7 @@ export function setup() {
     }
   }
 
-  const finalUsers = lt2Accounts.length > 0 ? lt2Accounts : seedUsers;
-  return { users: finalUsers, videos: videoList };
+  return { users: lt2Accounts, videos: videoList };
 }
 
 export default function (data) {
@@ -213,16 +256,12 @@ export default function (data) {
           try {
             const body = JSON.parse(res.body);
             if (body && body.id) {
-              // Flush comment ID to collector for persistent data recovery tracking
-              http.post(
-                `${COLLECTOR_URL}/comment`,
-                JSON.stringify({
-                  id: body.id,
-                  authorEmail: selectedUser.email,
-                  authorHandle: selectedUser.handle,
-                }),
-                { headers: { 'Content-Type': 'application/json' }, timeout: '1s' },
-              );
+              // Flush comment ID to collector with retries on missing ACK
+              sendCommentToCollector({
+                id: body.id,
+                authorEmail: selectedUser.email,
+                authorHandle: selectedUser.handle,
+              });
             }
           } catch {
             // ignore
@@ -239,6 +278,14 @@ export default function (data) {
 
   apiDuration.add(Date.now() - t0);
   if (res) {
+    // Perform in-memory token renewal if request returned 401 Unauthorized
+    if (res.status === 401 && selectedUser) {
+      console.log(
+        `[workload] Received 401 for ${selectedUser.handle}. Performing token renewal...`,
+      );
+      refreshInMemoryToken(selectedUser);
+    }
+
     const isError = res.status < 200 || res.status >= 400;
     apiErrors.add(isError);
 

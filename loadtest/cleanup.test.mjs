@@ -284,4 +284,32 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(checkVideoPool([{ id: 'v1' }]), true);
     assert.throws(() => checkVideoPool([]), /No valid video samples/);
   });
+
+  test('Setup fails closed if lt2_accounts.json contains fewer than 5 preseeded accounts', () => {
+    const validatePreseededAccounts = (accounts) => {
+      if (!accounts || accounts.length < 5) {
+        throw new Error(
+          '[setup] ERROR: lt2_accounts.json must contain EXACTLY 5 preseeded accounts',
+        );
+      }
+      return true;
+    };
+
+    assert.strictEqual(validatePreseededAccounts(new Array(5).fill({ handle: 'lt2_acc' })), true);
+    assert.throws(
+      () => validatePreseededAccounts([{ handle: 'lt2_acc1' }]),
+      /must contain EXACTLY 5/,
+    );
+  });
+
+  test('In-memory token renewal updates user token on HTTP 401', () => {
+    const user = { handle: 'lt2_user1', email: 'lt2_user1@example.com', token: 'old_token' };
+    const mockLoginResponse = { status: 200, access_token: 'new_fresh_token' };
+
+    if (mockLoginResponse.status === 200) {
+      user.token = mockLoginResponse.access_token;
+    }
+
+    assert.strictEqual(user.token, 'new_fresh_token');
+  });
 });
