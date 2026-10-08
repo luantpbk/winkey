@@ -279,56 +279,10 @@ export default function (data) {
   sleep(1.5 + Math.random() * 1.5);
 }
 
-export function teardown(data) {
-  const users = data && Array.isArray(data.users) ? data.users : [];
-  const lt2Users = users.filter((u) => u.handle && u.handle.startsWith('lt2_'));
-
-  if (lt2Users.length > 0) {
-    console.log(`[teardown] Teardown starting for ${lt2Users.length} lt2 accounts...`);
-
-    for (let i = 0; i < lt2Users.length; i++) {
-      const u = lt2Users[i];
-      try {
-        // Step 1: Re-login immediately before deletion to obtain a fresh access token
-        console.log(`[teardown] Re-logging in user ${u.email} before deletion...`);
-        const loginRes = http.post(
-          `${TARGET_URL}/v1/auth/login`,
-          JSON.stringify({ email: u.email, password: envPassword }),
-          { headers: { 'Content-Type': 'application/json' } },
-        );
-
-        if (loginRes.status !== 200) {
-          console.log(`[teardown] Re-login failed for ${u.email} (status ${loginRes.status}).`);
-          continue;
-        }
-
-        const freshToken = JSON.parse(loginRes.body).access_token;
-
-        // Step 2: Call DELETE /v1/auth/me with confirm_handle and password
-        const delBody = JSON.stringify({
-          confirm_handle: u.handle,
-          password: envPassword,
-        });
-
-        const delRes = http.del(`${TARGET_URL}/v1/auth/me`, delBody, {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${freshToken}`,
-          },
-        });
-
-        if (delRes.status === 204) {
-          console.log(`[teardown] SUCCESS: Account ${u.handle} deleted (HTTP 204).`);
-        } else {
-          console.log(
-            `[teardown] FAILED: Account ${u.handle} deletion returned HTTP ${delRes.status} (expected 204).`,
-          );
-        }
-      } catch (err) {
-        console.log(`[teardown] Error during account teardown for ${u.handle}: ${err.message}`);
-      }
-      sleep(0.5);
-    }
-    console.log('[teardown] lt2 accounts teardown completed.');
-  }
+export function teardown() {
+  // Account and comment cleanup is managed reliably outside k6 by loadtest/cleanup.mjs
+  // to ensure strict deletion order (comments FIRST, then accounts) and recovery retention.
+  console.log(
+    '[teardown] k6 scenario finished. Cleanup execution delegated to loadtest/cleanup.mjs',
+  );
 }
