@@ -15,7 +15,14 @@ function handleRequest(method, url, body, params) {
   httpCalls.push(record);
   if (mockHttpHandler) {
     const res = mockHttpHandler(record);
-    if (res) return res;
+    if (res) {
+      return {
+        status: res.status || 200,
+        body: res.body !== undefined ? res.body : '',
+        headers: res.headers || {},
+        timings: res.timings || { duration: 50 },
+      };
+    }
   }
   return {
     status: 200,

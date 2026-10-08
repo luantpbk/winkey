@@ -1,6 +1,5 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -23,14 +22,12 @@ describe('[LT2 Regression] Actual API-Mix Workload Safety Verification', () => {
     }
   });
 
-  test('Finding 14: Failed token renewal must abort workload, not continue unauthenticated', async () => {
+  test('Finding 14: Failed token renewal must abort workload, not continue unauthenticated', () => {
     // When a preseeded user receives a 401 and token renewal fails,
     // the workload must abort / fail fast. It must NOT continue sending
     // subsequent requests with Authorization header omitted (null/unauthenticated continuation).
-    let loginAttempts = 0;
     setMockHttpHandler((req) => {
       if (req.url.includes('/v1/auth/login')) {
-        loginAttempts++;
         // Simulate renewal failure: returns 401 Unauthorized
         return { status: 401, body: JSON.stringify({ error: 'invalid credentials' }) };
       }
@@ -83,20 +80,66 @@ describe('[LT2 Regression] Actual API-Mix Workload Safety Verification', () => {
     );
   });
 
-  test('Finding 15: Ignored collector ACK false: caller must handle lost ACK rather than silently ignoring', () => {
-    const src = fs.readFileSync(apiMixModulePath, 'utf8');
+  test('Finding 15: Ignored collector ACK: workload must handle lost ACK rather than silently ignoring failure', () => {
+    // Deterministically force the comment-writing branch:
+    const originalRandom = Math.random;
+    let randomCallCount = 0;
+    Math.random = () => {
+      randomCallCount++;
+      if (randomCallCount === 1) return 0.98; // Action roll -> 5% write action
+      if (randomCallCount === 2) return 0.2; // Write choice -> POST comment
+      return 0.5;
+    };
 
-    // In current SHA, lines 274-278:
-    // sendCommentToCollector({ ... });
-    // is called as a bare statement without checking return value:
-    // const ackCheck = /if\s*\(\s*!sendCommentToCollector|const\s+\w+\s*=\s*sendCommentToCollector/.test(src);
-    const bareCall = /sendCommentToCollector\s*\(\s*\{[\s\S]*?\}\s*\)\s*;/m.test(src);
-    const checkedCall =
-      /if\s*\(\s*!sendCommentToCollector/.test(src) ||
-      /(const|let|var)\s+\w+\s*=\s*sendCommentToCollector/.test(src);
+    let collectorPostCount = 0;
+    setMockHttpHandler((req) => {
+      if (req.url.includes('/v1/videos') && req.url.includes('/comments')) {
+        return {
+          status: 201,
+          body: JSON.stringify({ id: '0192f5e4-7c1a-7b3e-9d2a-a00000000001' }),
+        };
+      }
+      if (req.url.includes('/comment')) {
+        collectorPostCount++;
+        // Collector fails (e.g. 500 error / offline): ACK is not returned
+        return { status: 500, body: '{"error":"collector error"}' };
+      }
+      return { status: 200, body: '{}' };
+    });
 
+    const mockData = {
+      users: [
+        {
+          id: 'user-1',
+          handle: 'lt2_user1',
+          email: 'lt2_user1@example.com',
+          token: 'valid-test-token',
+        },
+      ],
+      videos: [{ id: 'video-1' }],
+    };
+
+    let threwError = false;
+    try {
+      apiMixModule.default(mockData);
+    } catch {
+      threwError = true;
+    } finally {
+      Math.random = originalRandom;
+    }
+
+    // Verify sendCommentToCollector was actually invoked and retried 3 times
     assert.strictEqual(
-      checkedCall,
+      collectorPostCount >= 3,
+      true,
+      'sendCommentToCollector must attempt delivery with retries',
+    );
+
+    // In current SHA, the caller ignores the return value of sendCommentToCollector,
+    // so threwError is false and lastFailedMessage is null (lost ACK silently swallowed).
+    // The workload must abort / fail fast when comment ACK is lost to prevent data leaks.
+    assert.strictEqual(
+      threwError || lastFailedMessage !== null,
       true,
       'Workload safety finding: api-mix.js must check the return value of sendCommentToCollector and handle lost ACKs / failed writes',
     );

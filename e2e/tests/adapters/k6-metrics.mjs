@@ -30,10 +30,12 @@ export class Counter {
   constructor(name) {
     this.name = name;
     this.count = 0;
+    this.values = [];
     metricInstances.push(this);
   }
   add(val = 1) {
     this.count += Number(val);
+    this.values.push(Number(val));
   }
 }
 
@@ -49,5 +51,9 @@ export class Gauge {
 }
 
 export function resetMetricsState() {
-  metricInstances.length = 0;
+  for (const m of metricInstances) {
+    if (Array.isArray(m.values)) m.values.length = 0;
+    if (typeof m.count === 'number') m.count = 0;
+    if (typeof m.value === 'number') m.value = 0;
+  }
 }
