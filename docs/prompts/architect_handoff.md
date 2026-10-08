@@ -123,7 +123,24 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Antigravity 4 | Existing #263: sole loadtest/systest integrator, all open code findings and actual Handoff Report |
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
-Assignments are posted on GitHub and ready for the user to forward; outputs are pending, not claimed complete.
+Outputs reviewed 2026-10-08; no new merge or production go-ahead:
+- AG1 PR #280 head 774943804b88389f17ab2d923971d6f7ae0b72e6: review5456157995 requests changes;
+  no head checks. Actual runner tests can invoke production Node preseed/cleanup, and tests share/delete checkout
+  journals. Do NOT run the current suite. Isolate snapshots/commands/network, correct auth-delete fixtures and
+  replace source-regex assertions with actual behavior. Branch includes blocked #263; keep explicitly stacked.
+- AG2 PR #279 head a96242704d59e822546724124e6f088038f30ce9: review5456157540 requests changes.
+  Actual CI and independent watchdog tests17/17 pass; actual probes confirm missing RAM/error sources,
+  HTTP500 and invalid rates pass. CI misses AG1 nested test path/loader. Mandatory fresh telemetry, actual
+  rolling60s both-workload errors, total response deadlines,30s schedule and atomic run-owned abort pending.
+  Proposed watchdog interface is NOT accepted yet; no ADR design addendum or integration authorized.
+- AG3 #277 report6058730765 requires correction6059305681: deleteMe already exists in current contract/source;
+  reject removal/new-contract proposal, corrupt-journal-to-empty fallback, broad lt2_* recovery and renewal-failure
+  read-only degradation. Supplied full Comment fields status/can_edit/can_delete ARE valid; Astra corrected its
+  mistaken fixture-field sentence immediately in6059320320. Require actual executable module/backend evidence.
+- Codex #278 report received; claimed local evidence path absent on reviewer host. Portable sanitized sources,
+  fixtures and actual output requested6059306008 before acceptance; no Go/product-service fix assigned.
+- AG4 #263 remains59d81f3/red CI; notified6059306643 to integrate only corrected/reviewed outputs and finish
+  every remaining group plus actual Handoff Report. Team review table #47 comment6059307145.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
