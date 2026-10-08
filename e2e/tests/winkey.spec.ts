@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import type { PlaybackHeartbeatBatch } from '../../packages/api-client/src';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -1786,21 +1790,19 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
   test('BETA1-web: Legal pages (/dieu-khoan, /quyen-rieng-tu, /quy-tac-cong-dong) render with tables & footer links work on desktop and mobile', async ({
     page,
-  }) => {
+  }, testInfo) => {
+    const screenshotsDir = path.resolve(__dirname, '../screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
     // 1. Visit /dieu-khoan on desktop
     await page.goto('/dieu-khoan');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.locator('h1')).toContainText('Điều khoản sử dụng Winkey');
     await expect(page.locator('[data-testid="legal-article"]')).toBeVisible();
 
-    const artifactDir =
-      'C:/Users/Admin/.gemini/antigravity/brain/e5a1d785-628e-4928-82fd-05d52f2cfb0b';
-    if (fs.existsSync(artifactDir)) {
-      await page.screenshot({
-        path: path.join(artifactDir, 'beta1-legal-terms.png'),
-        fullPage: false,
-      });
-    }
+    const termsScreenshot = path.join(screenshotsDir, 'beta1-legal-terms.png');
+    await page.screenshot({ path: termsScreenshot, fullPage: false });
+    await testInfo.attach('beta1-legal-terms', { path: termsScreenshot, contentType: 'image/png' });
 
     // 2. Visit /quyen-rieng-tu on desktop (contains markdown table)
     await page.goto('/quyen-rieng-tu');
@@ -1827,10 +1829,14 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(cinemaFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
     await expect(cinemaFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
     await expect(cinemaFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
-    if (fs.existsSync(artifactDir)) {
-      await cinemaFooter.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: path.join(artifactDir, 'beta1-cinema-footer.png') });
-    }
+
+    const cinemaFooterScreenshot = path.join(screenshotsDir, 'beta1-cinema-footer.png');
+    await cinemaFooter.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: cinemaFooterScreenshot });
+    await testInfo.attach('beta1-cinema-footer', {
+      path: cinemaFooterScreenshot,
+      contentType: 'image/png',
+    });
 
     // 6. Mobile viewport test: Verify footer and table responsiveness
     await page.setViewportSize({ width: 375, height: 667 });
@@ -1850,10 +1856,14 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await expect(sidebarFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
     await expect(sidebarFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
     await expect(sidebarFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
-    if (fs.existsSync(artifactDir)) {
-      await sidebarFooter.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: path.join(artifactDir, 'beta1-mobile-drawer.png') });
-    }
+
+    const mobileDrawerScreenshot = path.join(screenshotsDir, 'beta1-mobile-drawer.png');
+    await sidebarFooter.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: mobileDrawerScreenshot });
+    await testInfo.attach('beta1-mobile-drawer', {
+      path: mobileDrawerScreenshot,
+      contentType: 'image/png',
+    });
 
     // 7. Mobile banner ⓘ button on 375px mobile is on the same row as Watch and Watch Later and fits inside 375px viewport
     await page.goto('/');
@@ -1883,8 +1893,11 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // Ensure all 3 buttons fit inside the 375px mobile viewport without overflow
     expect(infoBox!.x + infoBox!.width).toBeLessThanOrEqual(375);
 
-    if (fs.existsSync(artifactDir)) {
-      await page.screenshot({ path: path.join(artifactDir, 'beta1-mobile-hero-375px.png') });
-    }
+    const mobileHeroScreenshot = path.join(screenshotsDir, 'beta1-mobile-hero-375px.png');
+    await page.screenshot({ path: mobileHeroScreenshot });
+    await testInfo.attach('beta1-mobile-hero-375px', {
+      path: mobileHeroScreenshot,
+      contentType: 'image/png',
+    });
   });
 });

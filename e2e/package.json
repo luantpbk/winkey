@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:prod-feedback": "playwright test --config=playwright.prod.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.1"
