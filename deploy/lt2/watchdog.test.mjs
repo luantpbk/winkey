@@ -1,4 +1,4 @@
-import test, { describe, beforeEach, afterEach } from 'node:test';
+import test, { describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -136,8 +136,41 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
     let server;
     let serverPort;
 
-    beforeEach(async () => {
-      server = http.createServer();
+    before(async () => {
+      server = http.createServer((req, res) => {
+        const url = req.url || '/';
+        if (url === '/fast') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('Hello Watchdog');
+        } else if (url === '/hung') {
+          const t = setTimeout(() => {
+            try {
+              res.end();
+            } catch {
+              // ignore
+            }
+          }, 400);
+          t.unref();
+        } else if (url === '/trickle') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.write('part1');
+          const t = setTimeout(() => {
+            try {
+              res.end('part2');
+            } catch {
+              // ignore
+            }
+          }, 400);
+          t.unref();
+        } else if (url === '/overflow') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('A'.repeat(1000));
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
+      });
+
       await new Promise((resolve) => {
         server.listen(0, '127.0.0.1', () => {
           serverPort = server.address().port;
@@ -146,7 +179,7 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       });
     });
 
-    afterEach(async () => {
+    after(async () => {
       if (server) {
         if (typeof server.closeAllConnections === 'function') {
           server.closeAllConnections();
@@ -156,56 +189,28 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
     });
 
     test('completes fast normal request successfully', async () => {
-      server.on('request', (req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('Hello Watchdog');
-      });
-
-      const res = await fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}`, 1000);
+      const res = await fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}/fast`, 1000);
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(res.body, 'Hello Watchdog');
     });
 
     test('aborts when headers are hung beyond total wall-clock deadline', async () => {
-      server.on('request', () => {
-        // Deliberately never respond
-      });
-
       await assert.rejects(
-        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}`, 150),
+        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}/hung`, 100),
         /Total wall-clock deadline exceeded/,
       );
     });
 
     test('aborts when response body trickles slowly beyond wall-clock deadline', async () => {
-      server.on('request', (req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.write('part1');
-        // Trickle next chunk after 300ms (exceeding 150ms total deadline)
-        setTimeout(() => {
-          try {
-            res.end('part2');
-          } catch {
-            // Socket may already be destroyed
-          }
-        }, 300);
-      });
-
       await assert.rejects(
-        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}`, 150),
+        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}/trickle`, 100),
         /Total wall-clock deadline exceeded/,
       );
     });
 
     test('aborts when payload exceeds maxBytes limit (bounded buffering)', async () => {
-      server.on('request', (req, res) => {
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        // Send 1000 bytes with limit of 200 bytes
-        res.end('A'.repeat(1000));
-      });
-
       await assert.rejects(
-        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}`, 1000, 200),
+        fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}/overflow`, 1000, 200),
         /Response payload exceeded limit of 200 bytes/,
       );
     });
