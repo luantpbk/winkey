@@ -1,0 +1,71 @@
+[
+  {
+    "name": "unequal-duration aggregate PASS, session p95 FAIL",
+    "sessions": [
+      { "watch_ms": 990, "non_seek_stall_ms": 10, "seek_stall_ms": 0 },
+      { "watch_ms": 980, "non_seek_stall_ms": 20, "seek_stall_ms": 0 },
+      { "watch_ms": 970, "non_seek_stall_ms": 30, "seek_stall_ms": 0 },
+      { "watch_ms": 960, "non_seek_stall_ms": 40, "seek_stall_ms": 0 },
+      { "watch_ms": 999100, "non_seek_stall_ms": 900, "seek_stall_ms": 0 }
+    ],
+    "gate": "PASS",
+    "non_seek_fraction": "1/1004",
+    "inclusive_fraction": "1/1004"
+  },
+  {
+    "name": "just below one percent",
+    "sessions": [{ "watch_ms": 99001, "non_seek_stall_ms": 999, "seek_stall_ms": 0 }],
+    "gate": "PASS",
+    "non_seek_fraction": "999/100000",
+    "inclusive_fraction": "999/100000"
+  },
+  {
+    "name": "exactly one percent",
+    "sessions": [{ "watch_ms": 99000, "non_seek_stall_ms": 1000, "seek_stall_ms": 0 }],
+    "gate": "FAIL",
+    "non_seek_fraction": "1/100",
+    "inclusive_fraction": "1/100"
+  },
+  {
+    "name": "just above one percent",
+    "sessions": [{ "watch_ms": 98999, "non_seek_stall_ms": 1001, "seek_stall_ms": 0 }],
+    "gate": "FAIL",
+    "non_seek_fraction": "1001/100000",
+    "inclusive_fraction": "1001/100000"
+  },
+  {
+    "name": "inclusive differs; non-seek gate PASS",
+    "sessions": [{ "watch_ms": 99000, "non_seek_stall_ms": 100, "seek_stall_ms": 1900 }],
+    "gate": "PASS",
+    "non_seek_fraction": "1/991",
+    "inclusive_fraction": "2/101"
+  },
+  {
+    "name": "zero denominator",
+    "sessions": [{ "watch_ms": 0, "non_seek_stall_ms": 0, "seek_stall_ms": 0 }],
+    "gate": "INVALID",
+    "non_seek_fraction": null,
+    "inclusive_fraction": null
+  },
+  {
+    "name": "no valid playback",
+    "sessions": [],
+    "gate": "INVALID",
+    "non_seek_fraction": null,
+    "inclusive_fraction": null
+  },
+  {
+    "name": "sub-100ms rounding false PASS",
+    "sessions": [{ "watch_ms": 4800, "non_seek_stall_ms": 49, "seek_stall_ms": 0 }],
+    "gate": "FAIL",
+    "non_seek_fraction": "49/4849",
+    "inclusive_fraction": "49/4849"
+  },
+  {
+    "name": "sub-100ms rounding false FAIL",
+    "sessions": [{ "watch_ms": 5000, "non_seek_stall_ms": 50, "seek_stall_ms": 0 }],
+    "gate": "PASS",
+    "non_seek_fraction": "1/101",
+    "inclusive_fraction": "1/101"
+  }
+]
