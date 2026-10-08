@@ -63,7 +63,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Agent | Owns | Status |
 |---|---|---|
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
-| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; LT2-G1 playback/QoE audit #278 |
+| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; #278 audit complete (#281), idle |
 | Antigravity 1 | apps/web, e2e, packages/api-client | LT2-A1 offline regressions #275; BETA1-web complete |
 | Antigravity 2 | deploy/, workflows, root tooling; every production rollout | LT2-A2 watchdog/CI #276; generator standby / same-night deletion |
 | Antigravity 3 | auth, social, realtime, shared TS packages | LT2-A3 contract/recovery audit #277 |
@@ -123,24 +123,27 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Antigravity 4 | Existing #263: sole loadtest/systest integrator, all open code findings and actual Handoff Report |
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
-Outputs reviewed 2026-10-08; no new merge or production go-ahead:
-- AG1 PR #280 head 774943804b88389f17ab2d923971d6f7ae0b72e6: review5456157995 requests changes;
-  no head checks. Actual runner tests can invoke production Node preseed/cleanup, and tests share/delete checkout
-  journals. Do NOT run the current suite. Isolate snapshots/commands/network, correct auth-delete fixtures and
-  replace source-regex assertions with actual behavior. Branch includes blocked #263; keep explicitly stacked.
-- AG2 PR #279 head a96242704d59e822546724124e6f088038f30ce9: review5456157540 requests changes.
-  Actual CI and independent watchdog tests17/17 pass; actual probes confirm missing RAM/error sources,
-  HTTP500 and invalid rates pass. CI misses AG1 nested test path/loader. Mandatory fresh telemetry, actual
-  rolling60s both-workload errors, total response deadlines,30s schedule and atomic run-owned abort pending.
-  Proposed watchdog interface is NOT accepted yet; no ADR design addendum or integration authorized.
-- AG3 #277 report6058730765 requires correction6059305681: deleteMe already exists in current contract/source;
-  reject removal/new-contract proposal, corrupt-journal-to-empty fallback, broad lt2_* recovery and renewal-failure
-  read-only degradation. Supplied full Comment fields status/can_edit/can_delete ARE valid; Astra corrected its
-  mistaken fixture-field sentence immediately in6059320320. Require actual executable module/backend evidence.
-- Codex #278 report received; claimed local evidence path absent on reviewer host. Portable sanitized sources,
-  fixtures and actual output requested6059306008 before acceptance; no Go/product-service fix assigned.
-- AG4 #263 remains59d81f3/red CI; notified6059306643 to integrate only corrected/reviewed outputs and finish
-  every remaining group plus actual Handoff Report. Team review table #47 comment6059307145.
+Outputs re-reviewed 2026-10-08; portable evidence merged, no production go-ahead:
+- AG1 #280 cb9c0f2640f5fe556ecfb6a698d29367db9086f7: review5459033998 requests changes; no checks.
+  TEMP journal isolation, auth-delete mock and real adapters accepted. Runner still overwrites/deletes global
+  /tmp/node/bin; DO NOT RUN suite. Fix production-gate fixtures, full schemas, zero-playback and seek cases.
+  Branch still includes blocked #263; keep stacked, no indirect loadtest merge. Safe subset15 tests7pass/8fail
+  is against OLD59d81f3 dependency, not current715349a; do not reopen accepted current cursor fix.
+- AG2 #279 f0033feb271d5b2e0f4ab0ea8011db483adee597: review5459033696 requests changes.
+  Actual CI/offline38/38; deadlines/concurrency/missing-source abort and E2E adapter path accepted. Actual
+  imported probes accept wrong/missing/future/stale metric identity/timestamps and invalid rolling-window/both-
+  workload aggregates. Delayed cycle starts legacy probes35s apart. Fix exact telemetry, cadence, run-owned
+  atomic abort and dependency CI triggers. Platform interface NOT accepted for integration/production yet.
+- AG3 #277: corrected report still absent. deleteMe EXISTS; reject endpoint removal/new-contract proposal,
+  corrupt-journal-to-empty fallback, prefix-wide recovery and renewal-failure read degradation. Supplied full
+  Comment status/can_edit/can_delete fields ARE valid; Astra self-correction6059320320 stands.
+- Codex #281 audit APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
+  squash-merged4390957298633bec84204b32dd833adaeb30ecea. Evidence portable/hash-checked; independent
+  9actual-module+9numeric+3runner observations. Pinned Docker evidence reviewed, not rerun on reviewer host.
+  Defect evidence only, no product/harness behavior change or deploy. #278 COMPLETE; Codex idle, no Go fix.
+- AG4 #263 now715349a CIgreen/22cleanup tests; review5459010398 still blocked. Integrate accepted evidence,
+  not unsafe AG3 proposals/unaccepted platform helper. Finish all groups plus actual PR Handoff.
+- #47 re-review table6063285965 records these decisions; exact PR review IDs above carry evidence.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
@@ -174,45 +177,34 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `59d81f3c63fd4b81ab9c760b956618f7b4828ccd`: NOT APPROVED; do not run production.
-- CI RED: root run 37764164070/job 113267645087 format passes,5 no-undef errors (AbortSignal/test timer). Review5455268331.
-  Independent snapshot tests: 20/20 pass. Accepted: API-mix uses metadata login and removes token-file reads
-  and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
-  journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff ONLY cleanup/one README bullet. Actual loopback HTTP server probes confirm request/body
-  AbortSignal timeouts retain authors; delayed empty-page post-discovery deadline now retains author. These
-  deadline findings are closed. CI still red:4 AbortSignal globals + test setTimeout no-undef errors.
-- Missing required next_cursor probe still deletes author and returns zero failures. Complete required schemas,
-  cursor cycles/page limits, valid run-owned targets/metadata and atomic0600 recovered journal persistence.
-- API-mix, runner/HLS/watchdog/collector remain unchanged; finish ALL open groups and actual regressions.
-  PR Handoff Report still unchanged (target VM/5m/p95/inline-secret); README still invents profile email
-  and claims behavior not implemented. Complete actual PR body/runbook and finding-to-implementation checklist.
-- Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
-  remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
-- k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
-  remote URLs containing localhost to bypass. HHMM octal errors, missing ICT start date/cleanup reserve and
-  timezone fallback remain. Parse exact hostname and use tested decimal preflight with no production bypass.
-- Collector preflight remains unbounded/accepts HTTP 500 or unowned listener and starts before cleanup trap.
-  Abort still kills collector before writers, swallows cleanup failure and can resume after signals. Stop/wait
-  run-owned containers first; drain/close/wait collector then cleanup, fail nonzero, and exit on INT/TERM.
-- HLS now reads `playback.hls_url`, but still falls back to `/v1/videos/:id/manifest.m3u8` (absent from contract).
-  Remove fallback and test the actual request sequence, not a copied helper. Reject empty/invalid
-  playback and failed first segments. Gate on exact aggregate non-seek stall/(watch+stall); the rounded Rate
-  approximation and p95 threshold do not satisfy the brief. Report the inclusive ratio separately.
-- Watchdog reads generator RAM instead of edge-1 RAM, omits sustained HTTP-error abort, leaves legacy checks
-  optional and accepts HTTP 500. Enforce all four HTTP 200 checks, edge available RAM and >5% errors for 60s.
-- Enforce ICT date/window before account creation, with cleanup reserve. Stop/wait both run-named containers,
-  drain collector, then cleanup; preserve both exit statuses and terminate on INT/TERM. Do not stop unrelated
-  containers or swallow cleanup failures.
-- API-mix enforces five and token presence, but still ignores renewal/ACK failure. Use five
-  metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
-- Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
-  0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
-- No `[LT2] result` issue found. AG2 posted non-secret host/Docker/Tailscale/isolation outputs and corrected
-  schedule on #47; generator is on standby. Oct 9 02:00-03:30 ICT is Oct 8 19:00-20:30 UTC.
-  No production load until web deployed and harness accepted/merged. VM and boot volume deletion evidence
-  is mandatory the same night after the run; user/AG2 terminate the resources.
-  A failed harness review is not a production bottleneck measurement. Assign no performance fix without evidence.
+LT2 harness #263 head `715349a8cace7459b409b765677183fee552c321`: NOT APPROVED; do not run production.
+- Exact-head root CI37794223112/job113369403623 GREEN (format/lint0errors); independent22/22cleanup tests.
+  Review5459010398 closes required next_cursor, cursor cycles/page caps, removal of invented profile email and
+  partial recovered-journal temp/fsync/rename0600. Preserve earlier real request/body deadlines, delayed empty-
+  page deadline, corrupt/non-array journal failure, comment-failure/login-failure author retention fixes.
+- Required full page/record/journal/account schemas and exact current-run account/target ownership remain.
+  Prefix lt2_ and noncontract profile fallbacks still broad; mostly id-only validation. Account DELETE404 still
+  treated as success despite contract204. Prove authoritative zero-leftover scan before deleting author.
+- Proactive cached expiry is PER VU, not cross-VU/five-account coordination; login storm remains possible.
+  Renewal failure degrades writes to reads, explicitly rejected. Fail workload/test instead of changing mix.
+  Missing collector ACK/uncertain create response reconciliation still unimplemented; emails still logged.
+- Runner/HLS unchanged. Unsafe substring host gate, HHMM octal/date/TZ/window cleanup-reserve, unbounded/
+  unowned collector preflight, collector-before-writers stop order, Docker CLI PID cleanup and swallowed cleanup
+  status/signal continuation remain. Stop/wait only owned containers, then drain/wait collector, cleanup and exit.
+- HLS still accepts PRIVATE/invalid playback, invents manifest fallback, ignores EXT-X-MAP init, earns false watch
+  on failed media, uses rounded Rate and p95 gate instead of exact weighted non-seek stall/(watch+stall).
+  Enforce valid PUBLIC READY detail/URLs/init/segments, test-wide failure, no-playback nonzero, exact aggregate
+  and separate inclusive report with both workload summaries/final runner status. Accepted #281 reproduces these
+  unchanged-source defects; these observations are not repaired-harness acceptance.
+- Collector0600 open improved, but wildcard/unbounded body/invalid input/corrupt prior journal -> [] and
+  persistence/ACK uncertainty remain. Validate and preserve run-owned durable recovery without silent loss.
+- #279 platform/helper and #280 tests remain changes requested as above; no unaccepted interface integration.
+  Actual #263 PR Handoff body still old5m/targetVM/p95/inline-password sample; replace with full truthful
+  finding -> changed code -> actual regression/output checklist and correct README claims.
+- No accepted `[LT2] result`; VM standby. No performance fix before production evidence identifies first
+  bottleneck. Only run after harness accepted/merged and explicit architect go-ahead inside02:00-03:30 ICT
+  from2026-10-09, enough cleanup reserve. Oct9 window = Oct8 19:00-20:30 UTC. AG2/user delete VM AND
+  boot volume same night and post linked non-secret proof. Invitations remain gated on PASS and legal date.
 ## Beta gate order (ADR-034)
 SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ✅ (deployed / accepted #274) → LT2 ⏳ (changes requested).
 
@@ -225,7 +217,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is red and review remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at715349a, but review remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
