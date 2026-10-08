@@ -60,9 +60,9 @@ const rawSeedData = (function () {
   }
 })();
 
-const rawLt2Tokens = (function () {
+const rawLt2Accounts = (function () {
   try {
-    return JSON.parse(open('./lt2_tokens.json'));
+    return JSON.parse(open('./lt2_accounts.json'));
   } catch {
     return [];
   }
@@ -76,8 +76,8 @@ const seedUsers = new SharedArray('seed_users_api', function () {
   return Array.isArray(rawSeedData.users) ? rawSeedData.users : [];
 });
 
-const preseededTokens = new SharedArray('preseeded_lt2_tokens', function () {
-  return Array.isArray(rawLt2Tokens) ? rawLt2Tokens : [];
+const preseededAccounts = new SharedArray('preseeded_lt2_accounts', function () {
+  return Array.isArray(rawLt2Accounts) ? rawLt2Accounts : [];
 });
 
 export function setup() {
@@ -87,66 +87,39 @@ export function setup() {
     );
   }
 
-  const lt2Accounts = preseededTokens.slice();
-  const inviteCode = __ENV.LT2_INVITE_CODE || '';
+  const lt2Accounts = [];
+  const accountsToLogin = preseededAccounts.slice();
 
-  // Limit to max 5 lt2 temporary accounts for production mode
-  const targetCount = isLocalhost && seedUsers.length > 0 ? 0 : 5;
-
-  if (targetCount > 0 && lt2Accounts.length === 0) {
+  if (accountsToLogin.length > 0) {
     console.log(
-      `[setup] Registering ${targetCount} temporary lt2 accounts on target ${TARGET_URL}...`,
+      `[setup] Logging in ${accountsToLogin.length} preseeded lt2 accounts into memory for workload on target ${TARGET_URL}...`,
     );
-    for (let i = 0; i < targetCount; i++) {
-      const randStr = Math.random().toString(36).substring(2, 8);
-      const handle = `lt2_user${i + 1}_${randStr}`;
-      const email = `${handle}@example.com`;
+    for (let i = 0; i < accountsToLogin.length; i++) {
+      const acc = accountsToLogin[i];
+      const loginRes = http.post(
+        `${TARGET_URL}/v1/auth/login`,
+        JSON.stringify({ email: acc.email, password: envPassword }),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
 
-      const regBody = JSON.stringify({
-        email,
-        password: envPassword,
-        handle,
-        display_name: `LT2 User ${i + 1}`,
-        ...(inviteCode ? { invite_code: inviteCode } : {}),
-      });
-
-      const res = http.post(`${TARGET_URL}/v1/auth/register`, regBody, {
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (res.status === 201) {
+      if (loginRes.status === 200) {
         try {
-          const body = JSON.parse(res.body);
+          const body = JSON.parse(loginRes.body);
           lt2Accounts.push({
-            id: body.user.id,
-            handle: body.user.handle,
-            email,
+            id: body.user ? body.user.id : acc.handle,
+            handle: acc.handle,
+            email: acc.email,
             token: body.access_token,
           });
-        } catch {
-          // ignore
+        } catch (err) {
+          fail(`[setup] Could not parse login response for ${acc.email}: ${err.message}`);
         }
-      } else if (res.status === 409) {
-        const loginRes = http.post(
-          `${TARGET_URL}/v1/auth/login`,
-          JSON.stringify({ email, password: envPassword }),
-          { headers: { 'Content-Type': 'application/json' } },
+      } else {
+        fail(
+          `[setup] ERROR: Memory login failed for preseeded account ${acc.email} (HTTP ${loginRes.status}). Fail-closed abort.`,
         );
-        if (loginRes.status === 200) {
-          try {
-            const body = JSON.parse(loginRes.body);
-            lt2Accounts.push({
-              id: body.user.id,
-              handle: body.user.handle,
-              email,
-              token: body.access_token,
-            });
-          } catch {
-            // ignore
-          }
-        }
       }
-      sleep(1.2); // Respect auth rate limits
+      sleep(0.5); // Pacing for login requests
     }
   }
 

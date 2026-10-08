@@ -33,8 +33,12 @@ export async function runCleanup(opts = {}) {
       const raw = fs.readFileSync(commentsPath, 'utf8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) comments = parsed;
+      else throw new Error('lt2_comments.json content is not an array');
     } catch (e) {
-      console.warn(`[cleanup] Could not parse lt2_comments.json: ${e.message}`);
+      console.error(
+        `[cleanup] ERROR: Failed to parse lt2_comments.json: ${e.message}. Fail-closed abort to prevent data loss.`,
+      );
+      throw new Error(`Corrupt lt2_comments.json: ${e.message}`);
     }
   }
 
@@ -46,8 +50,12 @@ export async function runCleanup(opts = {}) {
       const raw = fs.readFileSync(lt2AccountsPath, 'utf8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) accounts = parsed;
+      else throw new Error('lt2_accounts.json content is not an array');
     } catch (e) {
-      console.warn(`[cleanup] Could not parse lt2_accounts.json: ${e.message}`);
+      console.error(
+        `[cleanup] ERROR: Failed to parse lt2_accounts.json: ${e.message}. Fail-closed abort to prevent data loss.`,
+      );
+      throw new Error(`Corrupt lt2_accounts.json: ${e.message}`);
     }
   }
 
@@ -82,7 +90,7 @@ export async function runCleanup(opts = {}) {
 
           if (!loginRes.ok) {
             console.warn(
-              `[cleanup] Re-login failed for ${acc.email} (HTTP ${loginRes.status}). Account retained for retry.`,
+              `[cleanup] Re-login failed for ${acc.email} (HTTP ${loginRes.status}). Account and comments retained for retry.`,
             );
             loginFailed = true;
           } else {
@@ -91,13 +99,21 @@ export async function runCleanup(opts = {}) {
           }
         } catch (err) {
           console.warn(
-            `[cleanup] Login request error for ${acc.email}: ${err.message}. Account retained for retry.`,
+            `[cleanup] Login request error for ${acc.email}: ${err.message}. Account and comments retained for retry.`,
           );
           loginFailed = true;
         }
 
         if (loginFailed || !freshToken) {
           failedAccounts.push(acc);
+          const userComments = comments.filter(
+            (c) => c.authorEmail === acc.email || c.authorHandle === acc.handle,
+          );
+          for (const c of userComments) {
+            if (!failedComments.some((fc) => fc.id === c.id)) {
+              failedComments.push(c);
+            }
+          }
           continue;
         }
 

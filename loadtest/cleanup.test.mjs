@@ -168,6 +168,44 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
     assert.strictEqual(retainedComments.length, 1);
     assert.strictEqual(retainedComments[0].id, 'comm_fail');
   });
+
+  test('Login failure during cleanup retains BOTH account and comments for retry recovery', async () => {
+    const sampleAccounts = [{ handle: 'lt2_login_fail', email: 'lt2_login_fail@example.com' }];
+    const sampleComments = [{ id: 'comm_login_fail', authorEmail: 'lt2_login_fail@example.com' }];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+    fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
+
+    const mockFetch = async (url) => {
+      if (url.endsWith('/v1/auth/login')) {
+        return { ok: false, status: 401 }; // Simulates login failure (e.g. invalid password or server error)
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(res.failedComments.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+    assert.strictEqual(fs.existsSync(commentsFile), true);
+
+    const retainedAccounts = JSON.parse(fs.readFileSync(accountsFile, 'utf8'));
+    const retainedComments = JSON.parse(fs.readFileSync(commentsFile, 'utf8'));
+    assert.strictEqual(retainedAccounts.length, 1);
+    assert.strictEqual(retainedComments.length, 1);
+  });
+
+  test('Corrupt lt2_comments.json fails closed to prevent data loss', async () => {
+    fs.writeFileSync(commentsFile, '{ invalid_json... ', 'utf8');
+
+    await assert.rejects(async () => {
+      await runCleanup({ targetUrl: 'http://localhost:8080', password: 'Pass123!' });
+    }, /Corrupt lt2_comments.json/);
+  });
 });
 
 describe('HLS URL and Contract Resolution Tests', () => {
