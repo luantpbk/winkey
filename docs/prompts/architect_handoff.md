@@ -141,16 +141,17 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `e3cb3016e1489041d9dbd32dcec7d2b724a2e79b`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37760731702/job 113256274703 format passes, zero lint errors. Review 5454930617.
-  Independent snapshot tests: 18/18 pass. Accepted: API-mix uses metadata login and removes token-file reads
+LT2 harness #263 head `2c8dddcd746cbb0919eecd9903b96ab0af97381d`: NOT APPROVED; do not run production.
+- CI RED: root run 37762887514/job 113263497909 format passes, lint no-undef setTimeout at test578. Review 5455145064.
+  Independent snapshot tests: 20/20 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff ONLY cleanup/tests. Accepted via actual probes: list404 and malformed items payload retain
-  author; second video page now fetched and comment purged before account. Prior corrected findings stay closed.
-- Actual comment items:[{}] probe still skips invalid record and deletes author, zero comments/zero failures.
-  Validate complete record/cursor schemas, reject missing/invalid fields, bound requests/pages/cursor cycles;
-  reconcile recorded run-owned targets, safely handle nullable authors and persist recovered metadata atomically0600.
+- Latest diff ONLY cleanup/tests. Accepted via real probe: missing-id comment retains author; numeric cursor
+  rejection added. Earlier corrected findings stay closed. CI timer error must be fixed without weakening lint.
+- Date.now guards between awaits do not abort request/body: hung-fetch probe remains pending after80ms
+  with deadline5ms, no AbortSignal. Delayed20ms empty-page/deadline1ms and missing next_cursor both
+  delete author and return zero failures. Use abortable request/body and overall deadline checked before deletion
+  on every path; full required schemas, bounded pages/cursor cycles, safe run-owned recovery/persistence.
 - API-mix, runner/HLS/watchdog/collector remain unchanged. Renewal null/ACK failures still continue; finish
   ALL remaining implementation groups, actual regressions and complete README/Handoff checklist.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
@@ -191,7 +192,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 is green but still changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is red and review remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
