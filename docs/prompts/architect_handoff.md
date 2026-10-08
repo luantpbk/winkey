@@ -141,13 +141,13 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `5da305e6432d30347fb4d0963eb3f843a51e645a`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37737089237/job 113179036843 format passes, zero lint errors. Review 5452457016.
-  Independent snapshot tests: 12/12 pass. Accepted: API-mix uses metadata login and removes token-file reads
+LT2 harness #263 head `71102d153192eef71d000307d427fedaa6954a32`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37745503702/job 113205957941 format passes, zero lint errors. Review 5453421076.
+  Independent snapshot tests: 14/14 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff changes only api-mix.js and cleanup.test.mjs: setup rejects fewer than five accounts, attempts
-  in-memory login on 401, and retries collector POST three times. Runner/HLS/collector findings remain unchanged.
+- Latest diff adds ONLY two collector happy-path tests; all implementation unchanged from 5da305e. Existing
+  setup rejects fewer than five, attempts login on 401, and retries collector POST, but open findings remain.
 - Independent actual API-mix VM probe with mocked imports, zero network: accepts six accounts; creates one
   comment, collector fails three times, workload does not abort. Require exact valid five-account input,
   validated login/token/renewal failure, durable uncertain-write recovery and BOTH-workload abort on lost ACK.
