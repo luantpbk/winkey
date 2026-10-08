@@ -63,10 +63,10 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Agent | Owns | Status |
 |---|---|---|
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
-| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; idle |
-| Antigravity 1 | apps/web, e2e, packages/api-client | idle; BETA1-web accepted and merged #270 |
-| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | rollout complete; LT2 generator standby / same-night deletion |
-| Antigravity 3 | auth, social, realtime, shared TS packages | idle |
+| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; LT2-G1 playback/QoE audit #278 |
+| Antigravity 1 | apps/web, e2e, packages/api-client | LT2-A1 offline regressions #275; BETA1-web complete |
+| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | LT2-A2 watchdog/CI #276; generator standby / same-night deletion |
+| Antigravity 3 | auth, social, realtime, shared TS packages | LT2-A3 contract/recovery audit #277 |
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
 
@@ -108,8 +108,24 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 ## In progress
 | Agent | Task | Brief | What to check |
 |---|---|---|---|
-| Antigravity 2 | LT2 generator standby / same-night destruction | BETA-ops D | rollout complete; standby until harness accepted; delete VM and boot volume same night with evidence |
-| Antigravity 4 | LT2 harness, PR #263 | `antigravity-4_LT2_production-1000-viewers.md` | see the LT2 items below; **must not run until merged** |
+| Antigravity 2 | LT2 platform watchdog/CI + standby/destruction #276 | BETA-ops D | rollout complete; standby until harness accepted; delete VM and boot volume same night with evidence |
+| Antigravity 4 | LT2 harness, PR #263 | `antigravity-4_LT2_production-1000-viewers.md` | integrate specialist outputs + all remaining findings; **must not run until merged** |
+
+Parallel work authorized explicitly by the user on 2026-10-08; prior idle preference is overridden only for these
+LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs/prompts/astra_LT2_parallel.md`.
+
+| Member | Scoped task / delivery |
+|---|---|
+| Antigravity 1 | #275: actual offline runner/workload regressions; e2e-only draft PR, failing-to-passing outputs |
+| Antigravity 2 | #276: platform watchdog + offline CI; extends current generator prep, keeps destruction ownership |
+| Antigravity 3 | #277: auth/social contract-valid fixtures and recovery audit; report to AG4, no service fix assigned |
+| Codex | #278: playback/exact QoE audit and numerical fixtures; report to AG4, no Go service fix assigned |
+| Antigravity 4 | Existing #263: sole loadtest/systest integrator, all open code findings and actual Handoff Report |
+| Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
+
+Assignments are posted on GitHub and ready for the user to forward; outputs are pending, not claimed complete.
+One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
+architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
 BETA1-web must:
 - add the invite field, `?invite=` prefill, `?error=` messages and the Google `invite_code`;
@@ -139,7 +155,7 @@ Astra acceptance (2026-10-08):
   feedback API null. Browser verifies Vietnamese register invite field, unchecked checkbox and disabled
   Create Account / Google; no account created. All FOUR canonical legacy sites 200, including kidzlab.edu.vn.
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
-  verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
+  verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
 LT2 harness #263 head `59d81f3c63fd4b81ab9c760b956618f7b4828ccd`: NOT APPROVED; do not run production.
 - CI RED: root run 37764164070/job 113267645087 format passes,5 no-undef errors (AbortSignal/test timer). Review5455268331.
