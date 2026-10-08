@@ -291,8 +291,11 @@ jobs:
       - name: E2E / AG1 offline regressions
         if: github.event_name == 'push' || needs.changes.outputs.e2e == 'true'
         run: |
-          if compgen -G "e2e/*.test.mjs" > /dev/null; then
+          if [ -d "e2e/tests/lt2-regressions" ] && [ -f "e2e/tests/adapters/k6-register.mjs" ]; then
+            echo "Running E2E LT2 regressions with k6 adapter..."
+            node --import ./e2e/tests/adapters/k6-register.mjs --test e2e/tests/lt2-regressions/*.regression.test.mjs
+          elif compgen -G "e2e/*.test.mjs" > /dev/null; then
             node --test e2e/*.test.mjs
           else
-            echo "No offline e2e/*.test.mjs present yet."
+            echo "skip: no e2e regressions present on this branch yet."
           fi
