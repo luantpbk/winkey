@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import type { PlaybackHeartbeatBatch } from '../../packages/api-client/src';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('Winkey E2E User Flows & Visual Verification', () => {
   test.beforeEach(async ({ page }) => {
@@ -246,6 +250,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.locator('main input[placeholder*="nguyenvana"]').fill(uniqueHandle);
     await page.locator('main input[type="email"]').fill(`${uniqueHandle}@winkey.vn`);
     await page.locator('main input[type="password"]').fill('password1234');
+
+    // Check terms agreement checkbox
+    await page.locator('[data-testid="terms-agreement-checkbox"]').check();
 
     // Click register submit inside main
     await page.locator('main button[type="submit"]').click();
@@ -1711,5 +1718,186 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     });
     await page.waitForTimeout(500);
     await saveScreenshot('cinema-mobile-dark.png');
+  });
+
+  test('BETA1-web: Register with invite (201 path) and without invite (403 INVITE_REQUIRED)', async ({
+    page,
+  }) => {
+    // 1. Visit /vi/register?invite=wk-beta1-valid
+    await page.goto('/vi/register?invite=wk-beta1-valid');
+    await page.waitForLoadState('domcontentloaded');
+
+    const inviteInput = page.locator('#invite-code-input');
+    await expect(inviteInput).toHaveValue('wk-beta1-valid');
+
+    // Attempt register without checking agreement checkbox
+    const submitBtn = page.locator('[data-testid="register-submit-btn"]');
+    await expect(submitBtn).toBeDisabled();
+
+    // Fill form
+    const validHandle = `beta_user_${Date.now().toString(36)}`;
+    await page
+      .locator('main input[placeholder*="Nguyễn Văn A"], main input[placeholder*="John Doe"]')
+      .first()
+      .fill('Beta User Valid');
+    await page
+      .locator('main input[placeholder*="nguyenvana"], main input[placeholder*="johndoe"]')
+      .first()
+      .fill(validHandle);
+    await page.locator('main input[type="email"]').fill(`${validHandle}@winkey.vn`);
+    await page.locator('main input[type="password"]').fill('password1234');
+
+    // Check agreement
+    await page.locator('[data-testid="terms-agreement-checkbox"]').check();
+    await expect(submitBtn).toBeEnabled();
+
+    // Submit with valid invite code
+    await submitBtn.click();
+    await page.waitForURL(
+      (url) => url.pathname === '/' || url.pathname === '/vi' || url.pathname === '/en',
+      { timeout: 15000 },
+    );
+
+    // 2. Test 403 INVITE_REQUIRED: Clear cookies and register with need-invite@winkey.vn without invite code
+    await page.context().clearCookies();
+    await page.goto('/vi/register');
+    await page.waitForLoadState('domcontentloaded');
+
+    const inviteEmpty = page.locator('#invite-code-input');
+    await inviteEmpty.fill('');
+
+    const noInviteHandle = `no_invite_${Date.now().toString(36)}`;
+    await page
+      .locator('main input[placeholder*="Nguyễn Văn A"], main input[placeholder*="John Doe"]')
+      .first()
+      .fill('No Invite User');
+    await page
+      .locator('main input[placeholder*="nguyenvana"], main input[placeholder*="johndoe"]')
+      .first()
+      .fill(noInviteHandle);
+    await page.locator('main input[type="email"]').fill('need-invite@winkey.vn');
+    await page.locator('main input[type="password"]').fill('password1234');
+
+    await page.locator('[data-testid="terms-agreement-checkbox"]').check();
+    await page.locator('[data-testid="register-submit-btn"]').click();
+
+    // Verify 403 error message is displayed on the invite field and field gets focus
+    const inviteError = page.locator('[data-testid="invite-error-msg"]');
+    await expect(inviteError).toBeVisible({ timeout: 10000 });
+    await expect(inviteError).toContainText(/Winkey đang thử nghiệm kín|Winkey is in closed beta/);
+    await expect(inviteEmpty).toBeFocused();
+  });
+
+  test('BETA1-web: Legal pages (/dieu-khoan, /quyen-rieng-tu, /quy-tac-cong-dong) render with tables & footer links work on desktop and mobile', async ({
+    page,
+  }, testInfo) => {
+    const screenshotsDir = path.resolve(__dirname, '../screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    // 1. Visit /dieu-khoan on desktop
+    await page.goto('/dieu-khoan');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toContainText('Điều khoản sử dụng Winkey');
+    await expect(page.locator('[data-testid="legal-article"]')).toBeVisible();
+
+    const termsScreenshot = path.join(screenshotsDir, 'beta1-legal-terms.png');
+    await page.screenshot({ path: termsScreenshot, fullPage: false });
+    await testInfo.attach('beta1-legal-terms', { path: termsScreenshot, contentType: 'image/png' });
+
+    // 2. Visit /quyen-rieng-tu on desktop (contains markdown table)
+    await page.goto('/quyen-rieng-tu');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toContainText('Chính sách quyền riêng tư Winkey');
+    const table = page.locator('[data-testid="legal-article"] table');
+    await expect(table).toBeVisible();
+
+    // 3. Visit /quy-tac-cong-dong on desktop
+    await page.goto('/quy-tac-cong-dong');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1')).toContainText('Quy tắc cộng đồng Winkey');
+
+    // 4. English legal page shows notice banner
+    await page.goto('/en/dieu-khoan');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('[data-testid="legal-english-notice"]')).toBeVisible();
+
+    // 5. Cinema footer links work
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    const cinemaFooter = page.locator('[data-testid="cinema-footer"]');
+    await expect(cinemaFooter).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
+    await expect(cinemaFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
+
+    const cinemaFooterScreenshot = path.join(screenshotsDir, 'beta1-cinema-footer.png');
+    await cinemaFooter.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: cinemaFooterScreenshot });
+    await testInfo.attach('beta1-cinema-footer', {
+      path: cinemaFooterScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 6. Mobile viewport test: Verify footer and table responsiveness
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/quyen-rieng-tu');
+    await page.waitForLoadState('domcontentloaded');
+    const scrollContainer = page.locator('.overflow-x-auto');
+    await expect(scrollContainer).toBeVisible();
+
+    // Visit /kham-pha on mobile and unconditionally check sidebar footer in drawer
+    await page.goto('/kham-pha');
+    await page.waitForLoadState('domcontentloaded');
+    const menuBtn = page.locator('[data-testid="sidebar-toggle-btn"]');
+    await expect(menuBtn).toBeVisible({ timeout: 10000 });
+    await menuBtn.click();
+    const sidebarFooter = page.locator('[data-testid="sidebar-footer"]');
+    await expect(sidebarFooter).toBeVisible({ timeout: 5000 });
+    await expect(sidebarFooter.locator('a[href*="/dieu-khoan"]')).toBeVisible();
+    await expect(sidebarFooter.locator('a[href*="/quyen-rieng-tu"]')).toBeVisible();
+    await expect(sidebarFooter.locator('a[href*="/quy-tac-cong-dong"]')).toBeVisible();
+
+    const mobileDrawerScreenshot = path.join(screenshotsDir, 'beta1-mobile-drawer.png');
+    await sidebarFooter.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: mobileDrawerScreenshot });
+    await testInfo.attach('beta1-mobile-drawer', {
+      path: mobileDrawerScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 7. Mobile banner ⓘ button on 375px mobile is on the same row as Watch and Watch Later and fits inside 375px viewport
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    const watchBtn = page.locator('[data-testid="cinema-hero-watch-btn"]');
+    const watchLaterBtn = page.locator('[data-testid="cinema-hero-watch-later-btn"]');
+    const infoBtn = page.locator('[data-testid="cinema-hero-details-btn"]');
+
+    await expect(watchBtn).toBeVisible({ timeout: 10000 });
+    await expect(watchLaterBtn).toBeVisible();
+    await expect(infoBtn).toBeVisible();
+
+    const watchBox = await watchBtn.boundingBox();
+    const watchLaterBox = await watchLaterBtn.boundingBox();
+    const infoBox = await infoBtn.boundingBox();
+
+    expect(watchBox).not.toBeNull();
+    expect(watchLaterBox).not.toBeNull();
+    expect(infoBox).not.toBeNull();
+
+    // Verify all 3 buttons are laid out horizontally: info button is to the right of watch later button
+    expect(infoBox!.x).toBeGreaterThan(watchLaterBox!.x);
+    // Vertical alignment: center Y coordinates within 4px (same line, not wrapped below)
+    const watchCenterY = watchBox!.y + watchBox!.height / 2;
+    const infoCenterY = infoBox!.y + infoBox!.height / 2;
+    expect(Math.abs(watchCenterY - infoCenterY)).toBeLessThanOrEqual(4);
+    // Ensure all 3 buttons fit inside the 375px mobile viewport without overflow
+    expect(infoBox!.x + infoBox!.width).toBeLessThanOrEqual(375);
+
+    const mobileHeroScreenshot = path.join(screenshotsDir, 'beta1-mobile-hero-375px.png');
+    await page.screenshot({ path: mobileHeroScreenshot });
+    await testInfo.attach('beta1-mobile-hero-375px', {
+      path: mobileHeroScreenshot,
+      contentType: 'image/png',
+    });
   });
 });

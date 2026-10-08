@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth/auth-context';
 import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { beVietnamPro } from '../../lib/fonts';
+import { useFeedbackUrl } from '../../lib/feedback';
 import {
   Search,
   Upload,
@@ -24,11 +25,14 @@ import {
 
 interface CinemaShellProps {
   children: ReactNode;
+  feedbackUrl?: string | null;
 }
 
-export function CinemaShell({ children }: CinemaShellProps) {
+export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaShellProps) {
   const tNav = useTranslations('nav');
   const tCin = useTranslations('cinema');
+  const tLegal = useTranslations('legal');
+  const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, logout, canAccessAdmin } = useAuth();
@@ -65,8 +69,6 @@ export function CinemaShell({ children }: CinemaShellProps) {
   };
 
   const isHomeActive = pathname === '/' || pathname === '';
-
-  const feedbackUrl = process.env.NEXT_PUBLIC_FEEDBACK_URL || '#feedback';
 
   return (
     <div
@@ -382,7 +384,7 @@ export function CinemaShell({ children }: CinemaShellProps) {
         className="border-t border-white/[0.08] px-6 sm:px-12 py-8 pb-24 md:pb-12 flex flex-wrap items-center gap-6 text-sm"
       >
         <span className="text-[#8E8E99]">{tCin('copyright')}</span>
-        <nav aria-label="Chân trang" className="flex flex-wrap gap-5 text-[#8E8E99]">
+        <nav aria-label={tLegal('legalNav')} className="flex flex-wrap gap-5 text-[#8E8E99]">
           <Link href="/dieu-khoan" className="hover:text-white transition hover:underline">
             {tCin('terms')}
           </Link>
@@ -392,14 +394,16 @@ export function CinemaShell({ children }: CinemaShellProps) {
           <Link href="/quy-tac-cong-dong" className="hover:text-white transition hover:underline">
             {tCin('communityRules')}
           </Link>
-          <a
-            href={feedbackUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-white transition hover:underline"
-          >
-            {tCin('betaFeedback')}
-          </a>
+          {feedbackUrl && (
+            <a
+              href={feedbackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition hover:underline"
+            >
+              {tCin('betaFeedback')}
+            </a>
+          )}
         </nav>
       </footer>
 

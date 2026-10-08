@@ -249,6 +249,14 @@ export function getMockSubscriptionEmpty(): boolean {
   return mockSubscriptionEmpty;
 }
 
+let mockRegistrationMode: 'open' | 'invite' = 'open';
+export function setMockRegistrationMode(val: 'open' | 'invite') {
+  mockRegistrationMode = val;
+}
+export function getMockRegistrationMode(): 'open' | 'invite' {
+  return mockRegistrationMode;
+}
+
 let mockSubscriptionVideosOverride: VideoSummary[] | null = null;
 export function setMockSubscriptionVideosOverride(videos: VideoSummary[] | null) {
   mockSubscriptionVideosOverride = videos;
@@ -678,6 +686,31 @@ export const handlers = [
   // --- AUTH ENDPOINTS ---
   http.post('*/v1/auth/register', async ({ request }) => {
     const body = (await request.json()) as any;
+
+    // Closed beta (task BETA1, ADR-034):
+    if (mockRegistrationMode === 'invite' || body.email === 'need-invite@winkey.vn') {
+      if (!body.invite_code) {
+        const problem: Problem = {
+          type: '/problems/forbidden',
+          title: 'Invite Code Required',
+          status: 403,
+          code: 'INVITE_REQUIRED',
+          detail: 'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
+        };
+        return HttpResponse.json(problem, { status: 403 });
+      }
+      if (body.invite_code === 'invalid-code' || body.invite_code === 'EXPIRED') {
+        const problem: Problem = {
+          type: '/problems/forbidden',
+          title: 'Invalid Invite Code',
+          status: 403,
+          code: 'INVITE_INVALID',
+          detail: 'Mã mời không đúng hoặc đã hết hạn.',
+        };
+        return HttpResponse.json(problem, { status: 403 });
+      }
+    }
+
     const errors: { field: string; message: string }[] = [];
 
     if (!body.email) errors.push({ field: 'email', message: 'Email is required' });

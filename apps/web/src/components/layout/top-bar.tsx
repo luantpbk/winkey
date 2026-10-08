@@ -45,6 +45,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
         <button
           onClick={onToggleSidebar}
           aria-label="Toggle navigation menu"
+          data-testid="sidebar-toggle-btn"
           className="rounded-full p-2 text-gray-400 hover:bg-[#272727] hover:text-white dark:hover:bg-[#272727] hover:bg-gray-100 transition"
         >
           <Menu className="h-5 w-5" />

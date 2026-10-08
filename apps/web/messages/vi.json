@@ -102,7 +102,15 @@
     "emailVerified": "Đã xác minh",
     "emailUnverified": "Chưa xác minh",
     "oauthUnavailable": "Đăng nhập Google tạm thời chưa khả dụng",
-    "accountSuspended": "Tài khoản của bạn đã bị tạm khóa."
+    "accountSuspended": "Tài khoản của bạn đã bị tạm khóa.",
+    "inviteCode": "Mã mời",
+    "invitePlaceholder": "Mã mời thử nghiệm",
+    "inviteRequired": "Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.",
+    "inviteInvalid": "Mã mời không đúng hoặc đã hết hạn.",
+    "agreeTermsPrefix": "Tôi đồng ý với ",
+    "agreeTermsOfService": "Điều khoản sử dụng",
+    "agreeAnd": " và ",
+    "agreePrivacyPolicy": "Chính sách quyền riêng tư"
   },
   "upload": {
     "title": "Tải video lên Winkey",
@@ -578,5 +586,13 @@
     "betaFeedback": "Góp ý beta",
     "copyright": "© 2026 Winkey · Bản beta",
     "curatedBy": "Tuyển chọn bởi Winkey"
+  },
+  "legal": {
+    "englishNoticeNote": "Lưu ý:",
+    "englishNotice": "Văn bản pháp lý này hiện chỉ có bản tiếng Việt do Winkey chủ yếu hoạt động tại Việt Nam trong giai đoạn thử nghiệm kín.",
+    "legalNav": "Thông tin pháp lý",
+    "termsTitle": "Điều khoản sử dụng – Winkey",
+    "privacyTitle": "Chính sách quyền riêng tư – Winkey",
+    "communityTitle": "Quy tắc cộng đồng – Winkey"
   }
 }
