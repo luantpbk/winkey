@@ -1,4 +1,4 @@
-/* global fetch */
+/* global fetch, setTimeout */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
@@ -50,7 +50,7 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
 
     const mockFetch = async (url, _opts = {}) => {
       if (url.includes('/v1/videos?sort=newest')) {
-        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+        return { ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) };
       }
       if (url.endsWith('/v1/auth/login')) {
         callsOrder.push('LOGIN');
@@ -97,7 +97,7 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
 
     const mockFetch = async (url, opts = {}) => {
       if (url.includes('/v1/videos?sort=newest')) {
-        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+        return { ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) };
       }
       if (url.endsWith('/v1/auth/login')) {
         return {
@@ -142,7 +142,7 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
 
     const mockFetch = async (url) => {
       if (url.includes('/v1/videos?sort=newest')) {
-        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+        return { ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) };
       }
       if (url.endsWith('/v1/auth/login')) {
         return {
@@ -186,7 +186,7 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
 
     const mockFetch = async (url) => {
       if (url.includes('/v1/videos?sort=newest')) {
-        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+        return { ok: true, status: 200, json: async () => ({ items: [], next_cursor: null }) };
       }
       if (url.endsWith('/v1/auth/login')) {
         return { ok: false, status: 401 }; // Simulates login failure (e.g. invalid password or server error)
@@ -255,7 +255,6 @@ describe('Comment Collector Server Tests', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: 'comm_collector_test_1',
-        authorEmail: 'lt2_collector@example.com',
         authorHandle: 'lt2_collector',
       }),
     });
@@ -266,7 +265,7 @@ describe('Comment Collector Server Tests', () => {
     const comments = JSON.parse(fs.readFileSync(commentsFile, 'utf8'));
     assert.strictEqual(comments.length, 1);
     assert.strictEqual(comments[0].id, 'comm_collector_test_1');
-    assert.strictEqual(comments[0].authorEmail, 'lt2_collector@example.com');
+    assert.strictEqual(comments[0].authorHandle, 'lt2_collector');
   });
 
   test('Collector healthz endpoint responds 200 OK', async () => {
@@ -279,7 +278,6 @@ describe('Comment Collector Server Tests', () => {
   test('Collector handles duplicate comment POST gracefully without duplication', async () => {
     const payload = JSON.stringify({
       id: 'comm_duplicate_test',
-      authorEmail: 'lt2_dup@example.com',
       authorHandle: 'lt2_dup',
     });
 
@@ -391,7 +389,7 @@ describe('Fail-Closed and Execution Safety Tests', () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ items: [{ id: 'vid_100' }] }),
+          json: async () => ({ items: [{ id: 'vid_100' }], next_cursor: null }),
         };
       }
       if (url.includes('/v1/videos/vid_100/comments?cursor=cursor_page2')) {
@@ -402,7 +400,12 @@ describe('Fail-Closed and Execution Safety Tests', () => {
             items: [
               {
                 id: 'comm_discovered_p2',
-                author: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
+                author: {
+                  id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d',
+                  handle: 'lt2_disc_user',
+                  display_name: 'LT2 Disc User',
+                  avatar_url: null,
+                },
               },
             ],
             next_cursor: null,
@@ -417,7 +420,12 @@ describe('Fail-Closed and Execution Safety Tests', () => {
             items: [
               {
                 id: 'comm_discovered_p1',
-                author: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
+                author: {
+                  id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d',
+                  handle: 'lt2_disc_user',
+                  display_name: 'LT2 Disc User',
+                  avatar_url: null,
+                },
               },
             ],
             next_cursor: 'cursor_page2',
@@ -600,6 +608,88 @@ describe('Fail-Closed and Execution Safety Tests', () => {
       deleteAccountCalled,
       false,
       'User account MUST NOT be deleted when discovery scan times out',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+  });
+
+  test('Discovery rejects omitted next_cursor (missing required field) and retains all accounts and comments', async () => {
+    const sampleAccounts = [
+      { handle: 'lt2_user_missing_cursor', email: 'lt2_user_missing_cursor@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [{ id: 'v1' }],
+            // next_cursor is omitted/undefined -> schema violation per contract!
+          }),
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted when required next_cursor field is missing',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+  });
+
+  test('Discovery rejects cycle in next_cursor and retains all accounts and comments', async () => {
+    const sampleAccounts = [
+      { handle: 'lt2_user_cursor_cycle', email: 'lt2_user_cursor_cycle@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [{ id: 'v1' }],
+            next_cursor: 'repeating_cursor_cycle',
+          }),
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted when next_cursor has a cycle',
     );
     assert.strictEqual(res.failedAccounts.length, 1);
     assert.strictEqual(fs.existsSync(accountsFile), true);

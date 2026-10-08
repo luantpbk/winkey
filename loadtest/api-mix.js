@@ -80,6 +80,15 @@ const preseededAccounts = new SharedArray('preseeded_lt2_accounts', function () 
   return Array.isArray(rawLt2Accounts) ? rawLt2Accounts : [];
 });
 
+function ensureUserToken(user) {
+  if (!user || !user.email) return null;
+  const now = Date.now();
+  if (user.token && user.tokenExpiresAt && now < user.tokenExpiresAt - 60000) {
+    return user.token;
+  }
+  return refreshInMemoryToken(user);
+}
+
 function refreshInMemoryToken(user) {
   if (!user || !user.email) return null;
   const loginRes = http.post(
@@ -92,6 +101,7 @@ function refreshInMemoryToken(user) {
       const body = JSON.parse(loginRes.body);
       if (body && body.access_token) {
         user.token = body.access_token;
+        user.tokenExpiresAt = Date.now() + (body.expires_in || 900) * 1000;
         console.log(`[workload] Refreshed in-memory token for user ${user.handle}`);
         return body.access_token;
       }
@@ -103,6 +113,7 @@ function refreshInMemoryToken(user) {
     `[workload] WARNING: In-memory token renewal failed for user ${user.handle} (HTTP ${loginRes.status}). Clearing stale token.`,
   );
   user.token = null;
+  user.tokenExpiresAt = null;
   return null;
 }
 
@@ -162,6 +173,7 @@ export function setup() {
           handle: acc.handle,
           email: acc.email,
           token: body.access_token,
+          tokenExpiresAt: Date.now() + (body.expires_in || 900) * 1000,
         });
       } catch (err) {
         fail(`[setup] Could not parse login response for ${acc.email}: ${err.message}`);
@@ -203,8 +215,8 @@ export default function (data) {
   const selectedVideo = videoPool.length > 0 ? videoPool[(__VU + __ITER) % videoPool.length] : null;
   const selectedUser = userPool.length > 0 ? userPool[(__VU - 1) % userPool.length] : null;
 
-  if (selectedUser && !selectedUser.token) {
-    refreshInMemoryToken(selectedUser);
+  if (selectedUser) {
+    ensureUserToken(selectedUser);
   }
 
   const authHeaders =
@@ -254,6 +266,10 @@ export default function (data) {
     if (!selectedUser || !selectedVideo) {
       endpointName = 'GET /v1/videos';
       res = http.get(`${TARGET_URL}/v1/videos`, { headers: authHeaders });
+    } else if (!selectedUser.token) {
+      // Degrade to public read when token is missing/renewal failed to prevent 401 storms
+      endpointName = 'GET /v1/videos';
+      res = http.get(`${TARGET_URL}/v1/videos`);
     } else {
       const writeChoice = Math.random();
       if (writeChoice < 0.5) {
@@ -273,7 +289,6 @@ export default function (data) {
               // Flush comment ID to collector with retries on missing ACK
               sendCommentToCollector({
                 id: commentId,
-                authorEmail: selectedUser.email,
                 authorHandle: selectedUser.handle,
               });
             }

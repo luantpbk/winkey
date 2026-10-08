@@ -1,4 +1,4 @@
-/* global fetch, console, process */
+/* global fetch, console, process, AbortSignal */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,15 @@ const envPassword = process.env.LOADTEST_USER_PASSWORD || defaultPassword;
 
 async function sleep(ms) {
   await sleepMs(ms);
+}
+
+function atomicWriteJson(filePath, data) {
+  const tmpPath = `${filePath}.tmp.${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const fd = fs.openSync(tmpPath, 'w', 0o600);
+  fs.writeFileSync(fd, JSON.stringify(data, null, 2), 'utf8');
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tmpPath, filePath);
 }
 
 export async function runCleanup(opts = {}) {
@@ -68,6 +77,9 @@ export async function runCleanup(opts = {}) {
   try {
     const allDiscoveredVideos = [];
     let videoCursor = null;
+    const seenVideoCursors = new Set();
+    let videoPages = 0;
+    const MAX_VIDEO_PAGES = 50;
 
     do {
       const elapsed = Date.now() - discoveryStartTime;
@@ -112,17 +124,31 @@ export async function runCleanup(opts = {}) {
         break;
       }
 
-      // Validate cursor type
+      // Validate required next_cursor field and type per contract
       if (
-        vData.next_cursor !== undefined &&
-        vData.next_cursor !== null &&
-        typeof vData.next_cursor !== 'string'
+        vData.next_cursor === undefined ||
+        (vData.next_cursor !== null && typeof vData.next_cursor !== 'string')
       ) {
         discoveryIncomplete = true;
         console.warn(
-          '[cleanup] WARNING: Invalid next_cursor type in video listing (expected string or null).',
+          '[cleanup] WARNING: Missing or invalid next_cursor in video listing (expected string or null).',
         );
         break;
+      }
+
+      videoPages++;
+      if (videoPages > MAX_VIDEO_PAGES) {
+        discoveryIncomplete = true;
+        console.warn('[cleanup] WARNING: Video listing exceeded max page limit.');
+        break;
+      }
+      if (vData.next_cursor) {
+        if (seenVideoCursors.has(vData.next_cursor)) {
+          discoveryIncomplete = true;
+          console.warn('[cleanup] WARNING: Detected cycle in video next_cursor.');
+          break;
+        }
+        seenVideoCursors.add(vData.next_cursor);
       }
 
       // Validate record structures
@@ -155,6 +181,9 @@ export async function runCleanup(opts = {}) {
 
         if (!vid || !vid.id) continue;
         let commentCursor = null;
+        const seenCommentCursors = new Set();
+        let commentPages = 0;
+        const MAX_COMMENT_PAGES = 50;
 
         do {
           const cElapsed = Date.now() - discoveryStartTime;
@@ -201,17 +230,35 @@ export async function runCleanup(opts = {}) {
             break;
           }
 
-          // Validate comment cursor type
+          // Validate required next_cursor field and type per contract
           if (
-            cData.next_cursor !== undefined &&
-            cData.next_cursor !== null &&
-            typeof cData.next_cursor !== 'string'
+            cData.next_cursor === undefined ||
+            (cData.next_cursor !== null && typeof cData.next_cursor !== 'string')
           ) {
             discoveryIncomplete = true;
             console.warn(
-              `[cleanup] WARNING: Invalid next_cursor type in comment response for video ${vid.id}.`,
+              `[cleanup] WARNING: Missing or invalid next_cursor in comment response for video ${vid.id}.`,
             );
             break;
+          }
+
+          commentPages++;
+          if (commentPages > MAX_COMMENT_PAGES) {
+            discoveryIncomplete = true;
+            console.warn(
+              `[cleanup] WARNING: Comment listing for video ${vid.id} exceeded max page limit.`,
+            );
+            break;
+          }
+          if (cData.next_cursor) {
+            if (seenCommentCursors.has(cData.next_cursor)) {
+              discoveryIncomplete = true;
+              console.warn(
+                `[cleanup] WARNING: Detected cycle in comment next_cursor for video ${vid.id}.`,
+              );
+              break;
+            }
+            seenCommentCursors.add(cData.next_cursor);
           }
 
           for (const item of cData.items) {
@@ -225,10 +272,10 @@ export async function runCleanup(opts = {}) {
 
             const authorObj = item.author || item.user || {};
             const authorHandle = authorObj.handle || item.authorHandle || '';
-            const authorEmail = authorObj.email || item.authorEmail || '';
+            const authorId = authorObj.id || item.authorId || '';
             if (
               authorHandle.startsWith('lt2_') ||
-              accounts.some((a) => a.handle === authorHandle || a.email === authorEmail)
+              accounts.some((a) => a.handle === authorHandle || (a.id && a.id === authorId))
             ) {
               if (!comments.some((existing) => existing.id === item.id)) {
                 console.log(
@@ -236,7 +283,6 @@ export async function runCleanup(opts = {}) {
                 );
                 comments.push({
                   id: item.id,
-                  authorEmail,
                   authorHandle,
                   createdAt: item.created_at || new Date().toISOString(),
                 });
@@ -312,7 +358,7 @@ export async function runCleanup(opts = {}) {
         if (loginFailed || !freshToken) {
           failedAccounts.push(acc);
           const userComments = comments.filter(
-            (c) => c.authorEmail === acc.email || c.authorHandle === acc.handle,
+            (c) => c.authorHandle === acc.handle || (c.authorEmail && c.authorEmail === acc.email),
           );
           for (const c of userComments) {
             if (!failedComments.some((fc) => fc.id === c.id)) {
@@ -324,7 +370,7 @@ export async function runCleanup(opts = {}) {
 
         // Step 2: Delete comments authored by this user
         const userComments = comments.filter(
-          (c) => c.authorEmail === acc.email || c.authorHandle === acc.handle,
+          (c) => c.authorHandle === acc.handle || (c.authorEmail && c.authorEmail === acc.email),
         );
         let userCommentFailed = false;
 
@@ -401,8 +447,9 @@ export async function runCleanup(opts = {}) {
   // Handle any orphaned comments not associated with known accounts
   const unhandledComments = comments.filter(
     (c) =>
-      !accounts.some((a) => a.email === c.authorEmail || a.handle === c.authorHandle) &&
-      !failedComments.some((fc) => fc.id === c.id),
+      !accounts.some(
+        (a) => a.handle === c.authorHandle || (c.authorEmail && a.email === c.authorEmail),
+      ) && !failedComments.some((fc) => fc.id === c.id),
   );
   if (unhandledComments.length > 0) {
     failedComments.push(...unhandledComments);
@@ -410,7 +457,7 @@ export async function runCleanup(opts = {}) {
 
   // 3. Persist remaining failed items for recovery retries, or unlink if clean
   if (failedComments.length > 0) {
-    fs.writeFileSync(commentsPath, JSON.stringify(failedComments, null, 2), 'utf8');
+    atomicWriteJson(commentsPath, failedComments);
     console.warn(
       `[cleanup] Retained ${failedComments.length} unremoved comments in ${commentsPath} for recovery retry.`,
     );
@@ -420,7 +467,7 @@ export async function runCleanup(opts = {}) {
   }
 
   if (failedAccounts.length > 0) {
-    fs.writeFileSync(lt2AccountsPath, JSON.stringify(failedAccounts, null, 2), 'utf8');
+    atomicWriteJson(lt2AccountsPath, failedAccounts);
     console.warn(
       `[cleanup] Retained ${failedAccounts.length} unremoved accounts in ${lt2AccountsPath} for recovery retry.`,
     );

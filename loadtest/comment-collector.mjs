@@ -21,7 +21,7 @@ function readComments() {
 
 function writeComments(comments) {
   const tmpPath = `${commentsFilePath}.tmp.${Date.now()}`;
-  const fd = fs.openSync(tmpPath, 'w');
+  const fd = fs.openSync(tmpPath, 'w', 0o600);
   fs.writeFileSync(fd, JSON.stringify(comments, null, 2), 'utf8');
   fs.fsyncSync(fd);
   fs.closeSync(fd);
@@ -43,7 +43,6 @@ export function createCollectorServer() {
             if (!comments.some((c) => c.id === data.id)) {
               comments.push({
                 id: data.id,
-                authorEmail: data.authorEmail || '',
                 authorHandle: data.authorHandle || '',
                 createdAt: new Date().toISOString(),
               });
