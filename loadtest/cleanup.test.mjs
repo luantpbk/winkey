@@ -318,9 +318,9 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.throws(() => checkVideoPool([]), /No valid video samples/);
   });
 
-  test('Setup fails closed if lt2_accounts.json contains fewer than 5 preseeded accounts', () => {
+  test('Setup fails closed if lt2_accounts.json does not contain EXACTLY 5 preseeded accounts', () => {
     const validatePreseededAccounts = (accounts) => {
-      if (!accounts || accounts.length < 5) {
+      if (!accounts || accounts.length !== 5) {
         throw new Error(
           '[setup] ERROR: lt2_accounts.json must contain EXACTLY 5 preseeded accounts',
         );
@@ -331,6 +331,10 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(validatePreseededAccounts(new Array(5).fill({ handle: 'lt2_acc' })), true);
     assert.throws(
       () => validatePreseededAccounts([{ handle: 'lt2_acc1' }]),
+      /must contain EXACTLY 5/,
+    );
+    assert.throws(
+      () => validatePreseededAccounts(new Array(6).fill({ handle: 'lt2_acc' })),
       /must contain EXACTLY 5/,
     );
   });

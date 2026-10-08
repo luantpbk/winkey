@@ -130,7 +130,7 @@ export function setup() {
   const lt2Accounts = [];
   const accountsToLogin = preseededAccounts.slice();
 
-  if (accountsToLogin.length < 5) {
+  if (accountsToLogin.length !== 5) {
     fail(
       `[setup] ERROR: lt2_accounts.json must contain EXACTLY 5 preseeded accounts (found ${accountsToLogin.length}). Fail-closed abort.`,
     );
@@ -150,6 +150,9 @@ export function setup() {
     if (loginRes.status === 200) {
       try {
         const body = JSON.parse(loginRes.body);
+        if (!body || !body.access_token) {
+          fail(`[setup] Login response for ${acc.email} missing access_token. Fail-closed abort.`);
+        }
         lt2Accounts.push({
           id: body.user ? body.user.id : acc.handle,
           handle: acc.handle,
@@ -255,10 +258,11 @@ export default function (data) {
         if (res.status === 201) {
           try {
             const body = JSON.parse(res.body);
-            if (body && body.id) {
+            const commentId = body ? body.id || (body.comment && body.comment.id) : null;
+            if (commentId) {
               // Flush comment ID to collector with retries on missing ACK
               sendCommentToCollector({
-                id: body.id,
+                id: commentId,
                 authorEmail: selectedUser.email,
                 authorHandle: selectedUser.handle,
               });
