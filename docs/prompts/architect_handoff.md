@@ -64,8 +64,8 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 |---|---|---|
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
 | ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; idle |
-| Antigravity 1 | apps/web, e2e, packages/api-client | BETA1-web |
-| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | BETA-ops D generator preparation |
+| Antigravity 1 | apps/web, e2e, packages/api-client | idle; BETA1-web accepted and merged #270 |
+| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | BETA1-web rollout; LT2 generator ready |
 | Antigravity 3 | auth, social, realtime, shared TS packages | idle |
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
@@ -109,8 +109,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 ## In progress
 | Agent | Task | Brief | What to check |
 |---|---|---|---|
-| Antigravity 2 | LT2 temporary generator preparation | BETA-ops D | give the user exact OCI/Tailscale steps; ap-singapore-1, A1 arm64 2 OCPU/12 GB; same-night VM and boot-volume deletion; no load before gates pass |
-| Antigravity 1 | BETA1-web, PR #270 | `antigravity-1_BETA1web_invite-legal.md` | see the next 4 items |
+| Antigravity 2 | BETA1-web rollout; LT2 generator standby | BETA-ops | pin main f6cd243 web CI digest; production evidence; same-night VM and boot-volume deletion after accepted LT2 |
 | Antigravity 4 | LT2 harness, PR #263 | `antigravity-4_LT2_production-1000-viewers.md` | see the LT2 items below; **must not run until merged** |
 
 BETA1-web must:
@@ -122,20 +121,21 @@ BETA1-web must:
     hidden when empty, https or mailto only;
   - on mobile, the hero ⓘ button stays on the same row as the other buttons.
 
-Astra re-review observations (2026-10-08):
-- Main CI run 37656127763 at #272 merge initially failed in web realtime.test.tsx:189 (subscribe frame missing).
-  Failed jobs rerun once now SUCCESS; no test was weakened and no root-cause claim is made.
-- #270 head `97b20983c06d070f41a38632c44b661d1ce28050`: CI green; actual CI log has 30 web files / 396 tests
-  passed. New `/api/feedback-url` is force-dynamic and returns only a sanitized public URL; both shells fetch it.
-  This brief adjustment is accepted in the ADR-034 addendum. Legal pages stay static. English notice/nav labels
-  and unconditional mobile drawer assertions are fixed; completed legal copies match #272.
-- The new production test starts one existing .next artifact under empty/https/mailto/unsafe values and checks
-  HTTP plus both shells. PR includes run outputs and seven portable screenshots; 375px hero image inspected and
-  all three buttons fit on one row. Completed legal copies remain correct.
-- Still changes requested in the new regression harness: killPort kills arbitrary PIDs matching port 3055,
-  including clients; stop only the spawned child and fail if port is occupied. Production mobile scenario does
-  not open the drawer; its screenshot shows the article, not the feedback footer. Open drawer, assert the link
-  is in viewport and recapture. Reconcile reported 1.2m scenario with configured 60s timeout and correct PR text.
+Astra acceptance (2026-10-08):
+- Main CI run 37656127763 at #272 merge initially failed in web realtime.test.tsx:189; failed jobs rerun once
+  now SUCCESS. No test weakened; no root-cause claim.
+- #270 accepted and squash-merged as `f6cd24330bc8a04fa1b42b7a7fd88a5d22451d97` using exact green head
+  `21a7c9bc17fae8b78d8de9545472eaf5fda1227b`; APPROVED review 5450978496. Actual head CI log: 30 files / 396 web
+  tests pass; all checks success or normal path-skip, both image architectures green.
+- Dynamic feedback API and both shell hooks resolve runtime FEEDBACK_URL while legal pages stay static (ADR-034
+  addendum). Same-artifact four-value regression source and outputs reviewed; portable screenshot evidence
+  independently inspected. Mobile drawer now opens and link is in viewport; hero three buttons fit 375px.
+- All three legal copies independently hash-match completed canonical sources. English labels fixed; no agent
+  machine path added; process cleanup now stops only the owned child. A non-blocking local-test startup-failure
+  child cleanup nit remains recorded on the approval; no follow-up feature/task assigned.
+- **MERGED, NOT DEPLOYED**: AG2 assigned rollout from successful main CI/images at the above merge commit,
+  using that job's containerimage.digest. Main runs 37722582654 (ci) and 37722582611 (images) started; result
+  pending at this STATE update. AG1 is idle. Do not claim web deploy or beta readiness until production evidence.
 LT2 harness #263 head `f7d926217a115a445f03462e45b3f578cd2216cc`: NOT APPROVED; do not run production.
 - Root CI remains red with the same 10 no-undef errors plus one unused opts error. The new diff changes only
   hls-viewers.js and cleanup.test.mjs; critical cleanup/runner/token implementations remain unchanged.
@@ -157,12 +157,13 @@ LT2 harness #263 head `f7d926217a115a445f03462e45b3f578cd2216cc`: NOT APPROVED; 
   metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
 - Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
   0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
-- No `[LT2] result` issue found. AG2 posted readiness specifications and deletion plan on #47; actual non-secret
-  OCI/host/ACL outputs are still requested. Correct the report timezone: Oct 9 02:00-03:30 ICT is Oct 8
-  19:00-20:30 UTC. No production load until web deployed and harness accepted/merged.
+- No `[LT2] result` issue found. AG2 posted non-secret host/Docker/Tailscale/isolation outputs and corrected
+  schedule on #47; generator is on standby. Oct 9 02:00-03:30 ICT is Oct 8 19:00-20:30 UTC.
+  No production load until web deployed and harness accepted/merged. VM and boot volume deletion evidence
+  is mandatory the same night after the run; user/AG2 terminate the resources.
   A failed harness review is not a production bottleneck measurement. Assign no performance fix without evidence.
 ## Beta gate order (ADR-034)
-SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (changes requested) → LT2 ⏳ (changes requested).
+SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (merged, rollout assigned) → LT2 ⏳ (changes requested).
 
 Then the user sends the first wave of invites, using the link `https://winkey.vn/register?invite=<code>`. This happens
 only after BETA1-web is deployed AND LT2 has passed.
@@ -173,10 +174,10 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- No merged-not-deployed app change is currently accepted: #270 and #263 remain open and changes requested.
+- #270 is accepted/merged and awaiting AG2 rollout; #263 remains open and changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
-- For LT2 night: AG2 reports the generator is ready; supply non-secret readiness proof before acceptance.
+- For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
   The user/AG2 must terminate the VM and boot volume the same night and post evidence.
 - Drop the `qoe_ro` ClickHouse user (if not done).
 - LEGAL review (blocks the public launch only).
