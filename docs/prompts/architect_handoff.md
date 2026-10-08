@@ -65,7 +65,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
 | ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; idle |
 | Antigravity 1 | apps/web, e2e, packages/api-client | idle; BETA1-web accepted and merged #270 |
-| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | BETA1-web rollout; LT2 generator ready |
+| Antigravity 2 | deploy/, workflows, root tooling; every production rollout | rollout complete; LT2 generator standby / same-night deletion |
 | Antigravity 3 | auth, social, realtime, shared TS packages | idle |
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
@@ -103,13 +103,12 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
   web job 112675397392, for main `ba5795cca24e8dd2160f8c249c07dd9a308daa1b`.
 - Independent production check: home 200 with cinema hero/title; both redirects 308; kendrickheller.com,
   cuuhohanam.com, kidzlab.edu.vn and sblaichau.vn all 200. rs.kendrickheller.com also 200.
-- CINEMA_CURATOR_HANDLE and FEEDBACK_URL are empty. Remove the redundant NEXT_PUBLIC_FEEDBACK_URL in the later
-  BETA1-web rollout.
+- CINEMA_CURATOR_HANDLE and FEEDBACK_URL are empty. Redundant NEXT_PUBLIC_FEEDBACK_URL removed in #274.
 
 ## In progress
 | Agent | Task | Brief | What to check |
 |---|---|---|---|
-| Antigravity 2 | BETA1-web rollout; LT2 generator standby | BETA-ops | pin main f6cd243 web CI digest; production evidence; same-night VM and boot-volume deletion after accepted LT2 |
+| Antigravity 2 | LT2 generator standby / same-night destruction | BETA-ops D | rollout complete; standby until harness accepted; delete VM and boot volume same night with evidence |
 | Antigravity 4 | LT2 harness, PR #263 | `antigravity-4_LT2_production-1000-viewers.md` | see the LT2 items below; **must not run until merged** |
 
 BETA1-web must:
@@ -133,14 +132,21 @@ Astra acceptance (2026-10-08):
 - All three legal copies independently hash-match completed canonical sources. English labels fixed; no agent
   machine path added; process cleanup now stops only the owned child. A non-blocking local-test startup-failure
   child cleanup nit remains recorded on the approval; no follow-up feature/task assigned.
-- **MERGED, NOT DEPLOYED**: AG2 assigned rollout from successful main CI/images at the above merge commit,
-  using that job's containerimage.digest. Main runs 37722582654 (ci) and 37722582611 (images) started; result
-  pending at this STATE update. AG1 is idle. Do not claim web deploy or beta readiness until production evidence.
-LT2 harness #263 head `f7d926217a115a445f03462e45b3f578cd2216cc`: NOT APPROVED; do not run production.
-- Root CI remains red with the same 10 no-undef errors plus one unused opts error. The new diff changes only
-  hls-viewers.js and cleanup.test.mjs; critical cleanup/runner/token implementations remain unchanged.
-  Previous independent offline cleanup tests passed 5/5, but accepted
-  deletion of an account after comment deletion fails. The new collector does not make cleanup safe yet.
+- **LIVE / ACCEPTED**: rollout #274 squash-merged as `181fb1c69f17ae9bfbc8ef8c003db3caf9ee3941` using exact
+  green head `81235656b971592a14426b171368256b7e21f82f`, APPROVED review 5451213630. Digest matches actual
+  main f6cd243 CI containerimage.digest (images run 37722582611 / web job 113133442972). Matching main
+  CI 37722582654 SUCCESS. Production HTTP independently verifies cinema, redirects, three legal pages and
+  feedback API null. Browser verifies Vietnamese register invite field, unchecked checkbox and disabled
+  Create Account / Google; no account created. All FOUR canonical legacy sites 200, including kidzlab.edu.vn.
+- AG2 report again substituted rs.kendrickheller.com for kidzlab; correct the evidence list. Independent kidzlab
+  verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
+
+LT2 harness #263 head `2b030444a065878e79288250a7274becde24d0fd`: NOT APPROVED; do not run production.
+- CI now GREEN: actual root run 37723289362/job 113135656002 has format pass and zero lint errors. New diff
+  changes ONLY four lint lines (globals and unused opts), not the critical implementation. Latest changes-requested
+  review 5451214183 requires every blocker mapped to implementation lines and meaningful offline failure tests.
+- Previous independent offline cleanup tests passed 5/5 but accepted author deletion after comment failure;
+  successful ordering tests and copied URL helpers do not prove failure recovery or the actual playback path.
 - Independent 401-login probe: failedAccounts=1, failedComments=0, comment journal removed, CLI exit 0. Retain
   unresolved comments and author metadata, fail nonzero, and coordinate k6 teardown with standalone cleanup so
   comments are confirmed purged before account deletion. Malformed journals must fail closed.
@@ -163,18 +169,18 @@ LT2 harness #263 head `f7d926217a115a445f03462e45b3f578cd2216cc`: NOT APPROVED; 
   is mandatory the same night after the run; user/AG2 terminate the resources.
   A failed harness review is not a production bottleneck measurement. Assign no performance fix without evidence.
 ## Beta gate order (ADR-034)
-SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (merged, rollout assigned) → LT2 ⏳ (changes requested).
+SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ✅ (deployed / accepted #274) → LT2 ⏳ (changes requested).
 
 Then the user sends the first wave of invites, using the link `https://winkey.vn/register?invite=<code>`. This happens
 only after BETA1-web is deployed AND LT2 has passed.
 - LT2 window: 02:00–03:30 Asia/Ho_Chi_Minh, from the night of 2026-10-09.
 - Generator: a temporary OCI A1 VM (BETA-ops D), deleted the same night.
 
-## Legal merged; BETA1-web deploy pending
+## Legal merged; BETA1-web deployed and accepted
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 is accepted/merged and awaiting AG2 rollout; #263 remains open and changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 is green but still changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
