@@ -141,21 +141,23 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `75d3ea825957fc240f50119f43825f376c5065ba`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37729075459/job 113153867303 format passes, zero lint errors. Review 5451592914.
-  Accepted: early k6 account deletion removed; CLI exits nonzero for failed-item arrays; additional preseed
-  failure paths exit. These changes do not make standalone cleanup/runner/token/metrics safe.
-- Independent snapshot tests: 8/8 pass, but the actual passing 403 test still deletes the author and removes its
-  account journal. Two new tests exercise copied helpers, not the Bash runner or k6 workload.
-- Login failure still drops matching comments; malformed journals become empty and can be removed. Retain
-  every unresolved comment AND author; never delete authors before all comments are confirmed purged.
-  CLI nonzero on failed arrays is fixed; journal corruption/recovery integrity remains blocked.
-- k6 fail() aborts only an iteration, so new empty-pool branches do not implement a test-wide abort/nonzero.
-  ALLOW_OUTSIDE_WINDOW bypass still permits production. Isolated exact Bash conditional produces octal
-  errors at 0259 and 0329. Enforce decimal ICT time/date, cleanup reserve, exact localhost hostname and
-  no production bypass; timezone failure must not fall back to unknown local time.
-- Collector preflight has no timeout, accepts HTTP 500/unowned listeners, and starts before cleanup trap.
-  Validate owned process/200 with bounded requests and install cleanup before children start.
+LT2 harness #263 head `4ad384cd2559f33f4a080ca5f49aeedfc201dab0`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37730645420/job 113158772803 format passes, zero lint errors. Review 5452056515.
+  Accepted: failed comment deletion retains author; two run-named containers; normal completion preserves
+  both workload/cleanup statuses; shared URL helper; collector temp-file fsync. Early k6 deletion stays removed.
+- Independent snapshot tests: 8/8 pass. Actual 403 path now retains author, but assertions do not check this;
+  window and empty-pool tests still exercise copied functions, not the Bash runner or k6 workload.
+- Independent runCleanup mock probes: login 401 retains one account but loses its comment journal;
+  corrupt comment JSON deletes author, removes both journals and returns zero failed items. Retain unresolved
+  comments AND authors, reject malformed journals without modification and add real CLI/retry regressions.
+- Preseed removed token-file output, but API-mix still reads only that file then registers extra unjournaled
+  accounts. Wire exactly five confirmed metadata accounts to in-memory login/refresh; no fallback registration.
+- k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
+  remote URLs containing localhost to bypass. HHMM octal errors, missing ICT start date/cleanup reserve and
+  timezone fallback remain. Parse exact hostname and use tested decimal preflight with no production bypass.
+- Collector preflight remains unbounded/accepts HTTP 500 or unowned listener and starts before cleanup trap.
+  Abort still kills collector before writers, swallows cleanup failure and can resume after signals. Stop/wait
+  run-owned containers first; drain/close/wait collector then cleanup, fail nonzero, and exit on INT/TERM.
 - HLS now reads `playback.hls_url`, but still falls back to `/v1/videos/:id/manifest.m3u8` (absent from contract).
   Remove fallback and test the actual request sequence, not a copied helper. Reject empty/invalid
   playback and failed first segments. Gate on exact aggregate non-seek stall/(watch+stall); the rounded Rate
@@ -165,7 +167,7 @@ LT2 harness #263 head `75d3ea825957fc240f50119f43825f376c5065ba`: NOT APPROVED; 
 - Enforce ICT date/window before account creation, with cleanup reserve. Stop/wait both run-named containers,
   drain collector, then cleanup; preserve both exit statuses and terminate on INT/TERM. Do not stop unrelated
   containers or swallow cleanup failures.
-- Tokens remain on disk, workload does not renew them, and fallback registrations remain unjournaled. Use five
+- API-mix still expects disk tokens, does not renew them, and registers unjournaled fallbacks. Use five
   metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
 - Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
   0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
