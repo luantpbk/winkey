@@ -64,7 +64,7 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
 
     const callsOrder = [];
 
-    const mockFetch = async (url, opts = {}) => {
+    const mockFetch = async (url, _opts = {}) => {
       if (url.endsWith('/v1/auth/login')) {
         callsOrder.push('LOGIN');
         return {
