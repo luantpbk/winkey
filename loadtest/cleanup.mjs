@@ -59,6 +59,53 @@ export async function runCleanup(opts = {}) {
     }
   }
 
+  // 2b. Comment Discovery: Scan target videos to recover un-journaled lt2_* comments if collector ACK was lost
+  try {
+    const vRes = await customFetch(`${targetUrl}/v1/videos?sort=newest&limit=50`);
+    if (vRes && vRes.ok) {
+      const vData = await vRes.json();
+      const videoItems = Array.isArray(vData.items)
+        ? vData.items
+        : Array.isArray(vData)
+          ? vData
+          : [];
+      for (const vid of videoItems) {
+        if (!vid || !vid.id) continue;
+        const cRes = await customFetch(`${targetUrl}/v1/videos/${vid.id}/comments`);
+        if (cRes && cRes.ok) {
+          const cData = await cRes.json();
+          const commentList = Array.isArray(cData.items)
+            ? cData.items
+            : Array.isArray(cData)
+              ? cData
+              : [];
+          for (const item of commentList) {
+            const authorHandle = item.user ? item.user.handle : item.authorHandle || '';
+            const authorEmail = item.user ? item.user.email : item.authorEmail || '';
+            if (
+              authorHandle.startsWith('lt2_') ||
+              accounts.some((a) => a.handle === authorHandle || a.email === authorEmail)
+            ) {
+              if (!comments.some((existing) => existing.id === item.id)) {
+                console.log(
+                  `[cleanup] Discovered un-journaled comment ${item.id} by ${authorHandle}. Adding to cleanup list.`,
+                );
+                comments.push({
+                  id: item.id,
+                  authorEmail,
+                  authorHandle,
+                  createdAt: item.created_at || new Date().toISOString(),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[cleanup] Comment discovery scan warning: ${err.message}`);
+  }
+
   const failedComments = [];
   const failedAccounts = [];
 

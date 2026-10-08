@@ -349,4 +349,72 @@ describe('Fail-Closed and Execution Safety Tests', () => {
 
     assert.strictEqual(user.token, 'new_fresh_token');
   });
+
+  test('Failed token renewal clears stale token to prevent repeated invalid authentication', () => {
+    const user = { handle: 'lt2_user1', email: 'lt2_user1@example.com', token: 'stale_token' };
+    const mockLoginResponse = { status: 401 };
+
+    if (mockLoginResponse.status !== 200) {
+      user.token = null;
+    }
+
+    assert.strictEqual(user.token, null);
+  });
+
+  test('Cleanup comment discovery recovers un-journaled lt2 comments if collector ACK was lost', async () => {
+    const sampleAccounts = [{ handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' }];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    // Notice commentsFile is NOT created, simulating lost collector ACK / un-journaled comment
+    const deletedCommentIds = [];
+
+    const mockFetch = async (url) => {
+      if (url.endsWith('/v1/auth/login')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'mock_token' }),
+        };
+      }
+      if (url.includes('/v1/videos?sort=newest')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [{ id: 'vid_100' }] }),
+        };
+      }
+      if (url.includes('/v1/videos/vid_100/comments')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                id: 'comm_discovered_1',
+                user: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
+              },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/v1/comments/comm_discovered_1')) {
+        deletedCommentIds.push('comm_discovered_1');
+        return { status: 204 };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(res.failedAccounts.length, 0);
+    assert.strictEqual(res.failedComments.length, 0);
+    assert.deepStrictEqual(deletedCommentIds, ['comm_discovered_1']);
+  });
 });

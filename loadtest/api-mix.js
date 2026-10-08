@@ -99,6 +99,10 @@ function refreshInMemoryToken(user) {
       // ignore
     }
   }
+  console.log(
+    `[workload] WARNING: In-memory token renewal failed for user ${user.handle} (HTTP ${loginRes.status}). Clearing stale token.`,
+  );
+  user.token = null;
   return null;
 }
 
@@ -199,13 +203,19 @@ export default function (data) {
   const selectedVideo = videoPool.length > 0 ? videoPool[(__VU + __ITER) % videoPool.length] : null;
   const selectedUser = userPool.length > 0 ? userPool[(__VU - 1) % userPool.length] : null;
 
-  const authHeaders = selectedUser ? { Authorization: `Bearer ${selectedUser.token}` } : {};
-  const jsonAuthHeaders = selectedUser
-    ? {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${selectedUser.token}`,
-      }
-    : { 'Content-Type': 'application/json' };
+  if (selectedUser && !selectedUser.token) {
+    refreshInMemoryToken(selectedUser);
+  }
+
+  const authHeaders =
+    selectedUser && selectedUser.token ? { Authorization: `Bearer ${selectedUser.token}` } : {};
+  const jsonAuthHeaders =
+    selectedUser && selectedUser.token
+      ? {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${selectedUser.token}`,
+        }
+      : { 'Content-Type': 'application/json' };
 
   let res;
   let endpointName = '';
