@@ -49,8 +49,6 @@ spec:
               value: ''
             - name: FEEDBACK_URL
               value: ''
-            - name: NEXT_PUBLIC_FEEDBACK_URL
-              value: ''
           resources:
             requests:
               cpu: 50m
