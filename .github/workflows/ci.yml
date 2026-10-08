@@ -270,7 +270,6 @@ jobs:
           node-version: 22
 
       - name: Platform watchdog offline tests
-        if: github.event_name == 'push' || needs.changes.outputs.deploy_lt2 == 'true'
         run: |
           if compgen -G "deploy/lt2/*.test.mjs" > /dev/null; then
             node --test deploy/lt2/*.test.mjs
@@ -280,7 +279,6 @@ jobs:
           fi
 
       - name: Loadtest offline unit tests
-        if: github.event_name == 'push' || needs.changes.outputs.loadtest == 'true'
         run: |
           if compgen -G "loadtest/*.test.mjs" > /dev/null; then
             node --test loadtest/*.test.mjs
@@ -289,7 +287,6 @@ jobs:
           fi
 
       - name: E2E / AG1 offline regressions
-        if: github.event_name == 'push' || needs.changes.outputs.e2e == 'true'
         run: |
           if [ -d "e2e/tests/lt2-regressions" ] && [ -f "e2e/tests/adapters/k6-register.mjs" ]; then
             echo "Running E2E LT2 regressions with k6 adapter..."

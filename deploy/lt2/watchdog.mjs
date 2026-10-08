@@ -21,6 +21,7 @@ import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -34,18 +35,29 @@ export const DEFAULT_LEGACY_SITES = [
 
 export const ONE_GIB_BYTES = 1073741824; // 1 GiB in bytes
 export const MAX_PAYLOAD_BYTES = 131072; // 128 KiB buffer limit
+export const TRUSTED_EDGE_NODE = 'edge-1';
+export const TRUSTED_EDGE_INSTANCE = '100.113.240.3:9100';
+export const EXPECTED_RAM_METRIC = 'node_memory_MemAvailable_bytes';
 
 /**
  * Parses MemAvailable bytes from Prometheus text exposition or VictoriaMetrics/Prometheus JSON.
- * Validates edge-1 node ownership, freshness timestamp, and finite non-negative values.
+ * Validates edge-1 node ownership, exact instance, metric name, freshness timestamp, and finite non-negative values.
  */
 export function parseMemAvailable(body, options = {}) {
-  const { expectedNode = 'edge-1', maxAgeSec = 120, nowSec = Date.now() / 1000 } = options;
+  const {
+    expectedNode = TRUSTED_EDGE_NODE,
+    expectedInstance = TRUSTED_EDGE_INSTANCE,
+    maxAgeSec = 120,
+    maxClockSkewSec = 15,
+    nowSec = Date.now() / 1000,
+    sourceUrl = '',
+  } = options;
+
   if (!body) return null;
   const text = typeof body === 'string' ? body : JSON.stringify(body);
 
   // 1. Try VictoriaMetrics / Prometheus JSON format:
-  // {"status":"success","data":{"result":[{"metric":{"instance":"100.113.240.3:9100","node":"edge-1"},"value":[1791457887,"7481970688"]}]}}
+  // {"status":"success","data":{"result":[{"metric":{"__name__":"node_memory_MemAvailable_bytes","instance":"100.113.240.3:9100","node":"edge-1"},"value":[1791457887,"7481970688"]}]}}
   if (text.startsWith('{')) {
     try {
       const data = JSON.parse(text);
@@ -58,54 +70,103 @@ export function parseMemAvailable(body, options = {}) {
         }
 
         for (const res of data.data.result) {
+          const metricName = res?.metric?.__name__;
+          if (metricName && metricName !== EXPECTED_RAM_METRIC) {
+            return {
+              error: 'WRONG_METRIC',
+              reason: `Metric name '${metricName}' does not match expected '${EXPECTED_RAM_METRIC}'`,
+            };
+          }
+
           const metricNode = res?.metric?.node;
           const metricInstance = res?.metric?.instance;
 
-          // Validate node ownership
-          if (expectedNode) {
-            const matchesNode = metricNode === expectedNode;
-            const matchesInstance =
-              metricInstance &&
-              (metricInstance.includes('100.113.240.3') || metricInstance.includes(expectedNode));
-            if (!matchesNode && !matchesInstance) {
-              continue; // Check other entries if any
-            }
-          }
-
-          const timestamp = res?.value?.[0];
-          const valStr = res?.value?.[1];
-          if (valStr !== undefined && valStr !== null) {
-            const num = Number(valStr);
-            if (!Number.isFinite(num) || num < 0) {
-              return {
-                error: 'INVALID_METRIC_VALUE',
-                reason: `Metric value '${valStr}' is not a valid non-negative finite number`,
-              };
-            }
-
-            // Freshness verification
-            if (timestamp && Number.isFinite(Number(timestamp))) {
-              const age = nowSec - Number(timestamp);
-              if (age > maxAgeSec) {
-                return {
-                  error: 'STALE_METRIC',
-                  reason: `Telemetry metric is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
-                };
-              }
-            }
-
+          // Validate node ownership: exact match, reject wrong nodes
+          if (metricNode && metricNode !== expectedNode) {
             return {
-              bytes: Math.round(num),
-              timestamp: Number(timestamp) || null,
-              node: metricNode || expectedNode,
+              error: 'WRONG_NODE',
+              reason: `Telemetry node '${metricNode}' does not match expected '${expectedNode}'`,
             };
           }
-        }
 
-        if (expectedNode) {
+          // Validate instance: exact match, reject substring matches (e.g. 100.113.240.30:9100)
+          if (
+            metricInstance &&
+            metricInstance !== expectedInstance &&
+            metricInstance !== `${expectedNode}:9100`
+          ) {
+            return {
+              error: 'WRONG_INSTANCE',
+              reason: `Telemetry instance '${metricInstance}' does not match expected '${expectedInstance}'`,
+            };
+          }
+
+          // Unambiguous series: must identify expectedNode or exact expectedInstance
+          const nodeMatches = metricNode === expectedNode;
+          const instanceMatches =
+            metricInstance === expectedInstance || metricInstance === `${expectedNode}:9100`;
+          if (!nodeMatches && !instanceMatches) {
+            return {
+              error: 'UNVERIFIED_NODE',
+              reason: `Telemetry series does not identify expected node '${expectedNode}'`,
+            };
+          }
+
+          // In VictoriaMetrics query result, timestamp is MANDATORY
+          const rawTimestamp = res?.value?.[0];
+          if (rawTimestamp === undefined || rawTimestamp === null || rawTimestamp === '') {
+            return {
+              error: 'MISSING_TIMESTAMP',
+              reason: 'VictoriaMetrics telemetry result is missing timestamp',
+            };
+          }
+
+          const timestamp = Number(rawTimestamp);
+          if (!Number.isFinite(timestamp)) {
+            return {
+              error: 'INVALID_TIMESTAMP',
+              reason: `Telemetry timestamp '${rawTimestamp}' is not a finite number`,
+            };
+          }
+
+          // Future timestamp check
+          if (timestamp > nowSec + maxClockSkewSec) {
+            return {
+              error: 'FUTURE_TIMESTAMP',
+              reason: `Telemetry timestamp ${timestamp} is in the future (${(timestamp - nowSec).toFixed(1)}s ahead)`,
+            };
+          }
+
+          // Stale timestamp check
+          const age = nowSec - timestamp;
+          if (age > maxAgeSec) {
+            return {
+              error: 'STALE_METRIC',
+              reason: `Telemetry metric is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
+            };
+          }
+
+          const valStr = res?.value?.[1];
+          if (valStr === undefined || valStr === null) {
+            return {
+              error: 'MISSING_METRIC_VALUE',
+              reason: 'VictoriaMetrics result is missing metric value',
+            };
+          }
+
+          const num = Number(valStr);
+          if (!Number.isFinite(num) || num < 0) {
+            return {
+              error: 'INVALID_METRIC_VALUE',
+              reason: `Metric value '${valStr}' is not a valid non-negative finite number`,
+            };
+          }
+
           return {
-            error: 'WRONG_NODE',
-            reason: `Telemetry does not match expected node '${expectedNode}'`,
+            bytes: Math.round(num),
+            timestamp,
+            node: metricNode || expectedNode,
+            instance: metricInstance || expectedInstance,
           };
         }
       }
@@ -114,46 +175,114 @@ export function parseMemAvailable(body, options = {}) {
     }
   }
 
-  // 2. Try Prometheus text exposition format:
+  // 2. Direct Node-Exporter Prometheus text exposition format:
   // node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 7.49856768e+09 1791457887000
   // or node_memory_MemAvailable_bytes 7498567680
-  if (expectedNode && text.includes('node=')) {
-    const nodeMatch = text.match(/node="([^"]+)"/);
-    if (nodeMatch && nodeMatch[1] !== expectedNode && !text.includes(`node="${expectedNode}"`)) {
-      return {
-        error: 'WRONG_NODE',
-        reason: `Metric text contains node='${nodeMatch[1]}' instead of expected '${expectedNode}'`,
-      };
-    }
-  }
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
 
-  const match = text.match(
-    /node_memory_MemAvailable_bytes(?:\{[^}]*\})?\s+([0-9.eE+-]+)(?:\s+(\d+))?/,
-  );
-  if (match && match[1]) {
-    const num = Number(match[1]);
-    if (!Number.isFinite(num) || num < 0) {
-      return {
-        error: 'INVALID_METRIC_VALUE',
-        reason: `Parsed metric value '${match[1]}' is not a valid non-negative finite number`,
-      };
-    }
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 2) continue;
 
-    const timestampMs = match[2] ? Number(match[2]) : null;
-    if (timestampMs && Number.isFinite(timestampMs)) {
-      const age = nowSec - timestampMs / 1000;
-      if (age > maxAgeSec) {
+    const token = parts[0];
+    const metricNameMatch = token.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)/);
+    const metricName = metricNameMatch ? metricNameMatch[1] : '';
+
+    if (metricName !== EXPECTED_RAM_METRIC) {
+      if (metricName.startsWith('node_memory_') && !text.includes(EXPECTED_RAM_METRIC)) {
         return {
-          error: 'STALE_METRIC',
-          reason: `Telemetry metric is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
+          error: 'WRONG_METRIC',
+          reason: `Metric text contains '${metricName}' instead of expected '${EXPECTED_RAM_METRIC}'`,
+        };
+      }
+      continue;
+    }
+
+    // Check labels if present in token: {instance="...",node="..."}
+    const labelMatch = token.match(/\{([^}]*)\}/);
+    if (labelMatch) {
+      const labels = labelMatch[1];
+      const nodeMatch = labels.match(/node="([^"]+)"/);
+      if (nodeMatch && nodeMatch[1] !== expectedNode) {
+        return {
+          error: 'WRONG_NODE',
+          reason: `Metric labels contain node='${nodeMatch[1]}' instead of expected '${expectedNode}'`,
+        };
+      }
+      const instanceMatch = labels.match(/instance="([^"]+)"/);
+      if (
+        instanceMatch &&
+        instanceMatch[1] !== expectedInstance &&
+        instanceMatch[1] !== `${expectedNode}:9100`
+      ) {
+        return {
+          error: 'WRONG_INSTANCE',
+          reason: `Metric labels contain instance='${instanceMatch[1]}' instead of expected '${expectedInstance}'`,
+        };
+      }
+    } else {
+      // Unlabeled text metric: validate trusted exact direct exporter endpoint
+      const isTrustedEndpoint =
+        (sourceUrl &&
+          (sourceUrl.includes(`://${expectedInstance}`) ||
+            sourceUrl.includes(`://${expectedNode}:9100`) ||
+            sourceUrl.includes('100.113.240.3:9100'))) ||
+        options.isDirectExporter;
+
+      if (!isTrustedEndpoint) {
+        return {
+          error: 'UNVERIFIED_SOURCE',
+          reason:
+            'Unlabeled Prometheus text metric requires trusted exact endpoint (e.g. 100.113.240.3:9100)',
         };
       }
     }
 
+    const valStr = parts[1];
+    const num = Number(valStr);
+    if (!Number.isFinite(num) || num < 0) {
+      return {
+        error: 'INVALID_METRIC_VALUE',
+        reason: `Parsed metric value '${valStr}' is not a valid non-negative finite number`,
+      };
+    }
+
+    // Text exposition optional timestamp (parts[2] if present)
+    let timestamp = null;
+    if (parts.length >= 3 && parts[2]) {
+      const tsRaw = Number(parts[2]);
+      if (Number.isFinite(tsRaw)) {
+        const tsSec =
+          tsRaw > 1e11 || Math.abs(tsRaw / 1000 - nowSec) < Math.abs(tsRaw - nowSec)
+            ? tsRaw / 1000
+            : tsRaw;
+        if (tsSec > nowSec + maxClockSkewSec) {
+          return {
+            error: 'FUTURE_TIMESTAMP',
+            reason: `Text metric timestamp is in the future (${(tsSec - nowSec).toFixed(1)}s ahead)`,
+          };
+        }
+        const age = nowSec - tsSec;
+        if (age > maxAgeSec) {
+          return {
+            error: 'STALE_METRIC',
+            reason: `Telemetry metric is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
+          };
+        }
+        timestamp = tsSec;
+      }
+    } else {
+      // Current fresh observation from direct scrape
+      timestamp = nowSec;
+    }
+
     return {
       bytes: Math.round(num),
-      timestamp: timestampMs ? timestampMs / 1000 : null,
+      timestamp,
       node: expectedNode,
+      instance: expectedInstance,
     };
   }
 
@@ -372,33 +501,62 @@ export async function checkLegacySites(
 }
 
 /**
- * Parses HTTP error rate telemetry across both workloads (api-mix and hls-viewers).
- * Validates rolling 60s structure, numerator/denominator, freshness, and finite non-negative values.
+ * Producer interface for schema-valid rolling 60-second error rate samples across both workloads.
+ */
+export function createRolling60sSample({
+  timestampSec = Math.floor(Date.now() / 1000),
+  windowSec = 60,
+  workloads = {},
+} = {}) {
+  return {
+    version: '1.0',
+    windowSec,
+    timestamp: timestampSec,
+    workloads: {
+      api_mix: {
+        requests: workloads.api_mix?.requests ?? 0,
+        failed: workloads.api_mix?.failed ?? 0,
+      },
+      hls_viewers: {
+        requests: workloads.hls_viewers?.requests ?? 0,
+        failed: workloads.hls_viewers?.failed ?? 0,
+      },
+    },
+  };
+}
+
+/**
+ * Parses HTTP error rate telemetry across BOTH workloads (api_mix and hls_viewers).
+ * Validates schema, timestamps, window duration (>=60s), per-workload counts, and non-zero requests.
+ * Rejects bare rates, missing workloads, negative counts, and stale telemetry.
  */
 export function parseHttpErrorRate(bodyOrData, options = {}) {
-  const { maxAgeSec = 120, nowSec = Date.now() / 1000 } = options;
+  const { maxAgeSec = 120, maxClockSkewSec = 15, nowSec = Date.now() / 1000 } = options;
   if (bodyOrData === null || bodyOrData === undefined || bodyOrData === '') {
     return { error: 'EMPTY_TELEMETRY', reason: 'Error rate telemetry data is empty' };
+  }
+
+  // Reject bare numbers (e.g. 0.05)
+  if (typeof bodyOrData === 'number') {
+    return {
+      error: 'BARE_RATE_DISALLOWED',
+      reason: 'Bare rate values without schema, timestamp, and workloads are disallowed',
+    };
   }
 
   let data = bodyOrData;
   if (typeof bodyOrData === 'string') {
     const trimmed = bodyOrData.trim();
-    if (trimmed.startsWith('{')) {
-      try {
-        data = JSON.parse(trimmed);
-      } catch (err) {
-        return { error: 'MALFORMED_JSON', reason: `Malformed JSON telemetry: ${err.message}` };
-      }
-    } else {
-      const num = Number(trimmed);
-      if (!Number.isFinite(num) || num < 0 || num > 1) {
-        return {
-          error: 'INVALID_RATE',
-          reason: `Raw rate string '${trimmed}' is not a finite number in [0, 1]`,
-        };
-      }
-      return { rate: num };
+    if (!trimmed.startsWith('{')) {
+      return {
+        error: 'BARE_RATE_DISALLOWED',
+        reason: 'Bare rate string without JSON schema, timestamp, and workloads is disallowed',
+      };
+    }
+    try {
+      data = JSON.parse(trimmed);
+    } catch (err) {
+      return { error: 'MALFORMED_JSON', reason: `Malformed JSON telemetry: ${err.message}` };
     }
   }
 
@@ -412,91 +570,175 @@ export function parseHttpErrorRate(bodyOrData, options = {}) {
       };
     }
     const res = data.data.result[0];
-    const timestamp = res?.value?.[0];
+    const rawTimestamp = res?.value?.[0];
+    if (rawTimestamp === undefined || rawTimestamp === null || rawTimestamp === '') {
+      return {
+        error: 'MISSING_TIMESTAMP',
+        reason: 'VictoriaMetrics error rate vector is missing timestamp',
+      };
+    }
+
+    const timestamp = Number(rawTimestamp);
+    if (!Number.isFinite(timestamp)) {
+      return {
+        error: 'INVALID_TIMESTAMP',
+        reason: `VictoriaMetrics error rate timestamp '${rawTimestamp}' is not finite`,
+      };
+    }
+
+    if (timestamp > nowSec + maxClockSkewSec) {
+      return {
+        error: 'FUTURE_TIMESTAMP',
+        reason: `VictoriaMetrics error rate timestamp is in the future (${(timestamp - nowSec).toFixed(1)}s ahead)`,
+      };
+    }
+
+    const age = nowSec - timestamp;
+    if (age > maxAgeSec) {
+      return {
+        error: 'STALE_METRIC',
+        reason: `Error rate telemetry is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
+      };
+    }
+
     const valStr = res?.value?.[1];
-    if (valStr !== undefined) {
-      const num = Number(valStr);
-      if (!Number.isFinite(num) || num < 0 || num > 1) {
-        return {
-          error: 'INVALID_RATE',
-          reason: `PromQL error rate value '${valStr}' is not finite in [0, 1]`,
-        };
-      }
-      if (timestamp && Number.isFinite(Number(timestamp))) {
-        const age = nowSec - Number(timestamp);
-        if (age > maxAgeSec) {
-          return {
-            error: 'STALE_METRIC',
-            reason: `Error rate telemetry is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
-          };
-        }
-      }
-      return { rate: num, timestamp: Number(timestamp) || null };
-    }
-  }
-
-  // 2. Structured JSON with rolling 60s numerator/denominator across workloads:
-  // { "windowSec": 60, "totalRequests": 1000, "failedRequests": 30, "workloads": { "api_mix": {...}, "hls_viewers": {...} } }
-  let totalRequests = data?.totalRequests;
-  let failedRequests = data?.failedRequests;
-
-  // Aggregate workloads if structured by workload
-  if (data?.workloads && typeof data.workloads === 'object') {
-    let aggTotal = 0;
-    let aggFailed = 0;
-    let hasWorkloadData = false;
-    for (const [, w] of Object.entries(data.workloads)) {
-      if (w && typeof w === 'object') {
-        const reqs = Number(w.requests ?? w.total ?? 0);
-        const fails = Number(w.failed ?? w.errors ?? 0);
-        if (Number.isFinite(reqs) && Number.isFinite(fails)) {
-          aggTotal += reqs;
-          aggFailed += fails;
-          hasWorkloadData = true;
-        }
-      }
-    }
-    if (hasWorkloadData && (totalRequests === undefined || totalRequests === null)) {
-      totalRequests = aggTotal;
-      failedRequests = aggFailed;
-    }
-  }
-
-  if (totalRequests !== undefined && totalRequests !== null) {
-    const total = Number(totalRequests);
-    const failed = Number(failedRequests ?? 0);
-    if (!Number.isFinite(total) || total < 0 || !Number.isFinite(failed) || failed < 0) {
+    if (valStr === undefined || valStr === null) {
       return {
-        error: 'INVALID_COUNTS',
-        reason: `Request counts (total=${totalRequests}, failed=${failedRequests}) must be non-negative finite numbers`,
+        error: 'MISSING_METRIC_VALUE',
+        reason: 'VictoriaMetrics result missing error rate value',
       };
     }
-    if (failed > total) {
-      return {
-        error: 'INVALID_COUNTS',
-        reason: `Failed requests (${failed}) cannot exceed total requests (${total})`,
-      };
-    }
-    const calculatedRate = total === 0 ? 0.0 : failed / total;
-    return { rate: calculatedRate, totalRequests: total, failedRequests: failed };
-  }
 
-  // 3. Direct rate field in JSON
-  const directRate = data?.rate ?? data?.http_req_failed ?? data?.value;
-  if (directRate !== undefined && directRate !== null) {
-    const num = Number(directRate);
+    const num = Number(valStr);
     if (!Number.isFinite(num) || num < 0 || num > 1) {
       return {
         error: 'INVALID_RATE',
-        reason: `Direct rate value '${directRate}' is not a finite number in [0, 1]`,
+        reason: `PromQL error rate value '${valStr}' is not finite in [0, 1]`,
       };
     }
-    return { rate: num };
+
+    return { rate: num, timestamp, format: 'vector' };
   }
 
+  // 2. Structured JSON schema: rolling 60s across BOTH workloads
+  if (!data || typeof data !== 'object') {
+    return {
+      error: 'INVALID_SCHEMA',
+      reason: 'Telemetry must be a valid JSON object',
+    };
+  }
+
+  // Timestamp validation
+  if (data.timestamp === undefined || data.timestamp === null || data.timestamp === '') {
+    return {
+      error: 'MISSING_TIMESTAMP',
+      reason: 'Rolling 60s telemetry is missing timestamp',
+    };
+  }
+
+  const timestamp = Number(data.timestamp);
+  if (!Number.isFinite(timestamp)) {
+    return {
+      error: 'INVALID_TIMESTAMP',
+      reason: `Telemetry timestamp '${data.timestamp}' is not a finite number`,
+    };
+  }
+
+  if (timestamp > nowSec + maxClockSkewSec) {
+    return {
+      error: 'FUTURE_TIMESTAMP',
+      reason: `Telemetry timestamp ${timestamp} is in the future (${(timestamp - nowSec).toFixed(1)}s ahead)`,
+    };
+  }
+
+  const age = nowSec - timestamp;
+  if (age > maxAgeSec) {
+    return {
+      error: 'STALE_METRIC',
+      reason: `Telemetry sample is stale (${age.toFixed(0)}s old, limit: ${maxAgeSec}s)`,
+    };
+  }
+
+  // WindowSec validation: must be at least 60 seconds
+  const windowSec = Number(data.windowSec);
+  if (!Number.isFinite(windowSec) || windowSec < 60) {
+    return {
+      error: 'INVALID_WINDOW',
+      reason: `Telemetry windowSec (${data.windowSec}) must be >= 60 seconds`,
+    };
+  }
+
+  // Mandatory workloads: BOTH api_mix AND hls_viewers required
+  if (!data.workloads || typeof data.workloads !== 'object') {
+    return {
+      error: 'MISSING_WORKLOADS',
+      reason: 'Telemetry must contain workloads object with both api_mix and hls_viewers',
+    };
+  }
+
+  const REQUIRED_WORKLOADS = ['api_mix', 'hls_viewers'];
+  for (const wl of REQUIRED_WORKLOADS) {
+    if (!data.workloads[wl] || typeof data.workloads[wl] !== 'object') {
+      return {
+        error: 'MISSING_WORKLOAD',
+        reason: `Telemetry is missing required workload '${wl}'`,
+      };
+    }
+  }
+
+  // Validate each workload counts BEFORE summing (prevent negatives cancelling out)
+  let totalRequests = 0;
+  let failedRequests = 0;
+
+  for (const wl of REQUIRED_WORKLOADS) {
+    const w = data.workloads[wl];
+    const reqs = Number(w.requests);
+    const fails = Number(w.failed);
+
+    if (!Number.isFinite(reqs) || reqs < 0 || !Number.isInteger(reqs)) {
+      return {
+        error: 'INVALID_WORKLOAD_COUNTS',
+        reason: `Workload '${wl}' requests (${w.requests}) must be a non-negative integer`,
+      };
+    }
+
+    if (!Number.isFinite(fails) || fails < 0 || !Number.isInteger(fails)) {
+      return {
+        error: 'INVALID_WORKLOAD_COUNTS',
+        reason: `Workload '${wl}' failed (${w.failed}) must be a non-negative integer`,
+      };
+    }
+
+    if (fails > reqs) {
+      return {
+        error: 'INVALID_WORKLOAD_COUNTS',
+        reason: `Workload '${wl}' failed (${fails}) exceeds requests (${reqs})`,
+      };
+    }
+
+    totalRequests += reqs;
+    failedRequests += fails;
+  }
+
+  // Zero requests check: prevent rate 0 from hiding lack of traffic/samples
+  if (totalRequests === 0) {
+    return {
+      error: 'ZERO_REQUESTS',
+      reason: 'Rolling 60s window has zero total requests across workloads',
+    };
+  }
+
+  const rate = failedRequests / totalRequests;
   return {
-    error: 'UNRECOGNIZED_FORMAT',
-    reason: 'Telemetry JSON does not contain recognized rate or request counts',
+    rate,
+    totalRequests,
+    failedRequests,
+    timestamp,
+    windowSec,
+    workloads: {
+      api_mix: { ...data.workloads.api_mix },
+      hls_viewers: { ...data.workloads.hls_viewers },
+    },
   };
 }
 
@@ -594,12 +836,23 @@ export async function checkHttpErrorRate(
 /**
  * PlatformWatchdog runner class
  */
+export const RUN_ID_REGEX = /^[a-zA-Z0-9_\-\.]{4,64}$/;
+
+/**
+ * PlatformWatchdog runner class
+ */
 export class PlatformWatchdog {
   constructor(config = {}) {
-    this.runId =
-      config.runId ||
-      process.env.RUN_ID ||
-      `run_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const rawRunId = config.runId || process.env.RUN_ID;
+    if (rawRunId) {
+      if (!RUN_ID_REGEX.test(rawRunId)) {
+        throw new Error(`Invalid runId '${rawRunId}'. Must match /^[a-zA-Z0-9_\\-\\.]{4,64}$/`);
+      }
+      this.runId = rawRunId;
+    } else {
+      this.runId = `run_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    }
+
     this.edgeMetricsUrl = config.edgeMetricsUrl || process.env.EDGE_METRICS_URL || '';
     this.minMemBytes =
       config.minMemBytes || Number(process.env.MIN_MEM_AVAILABLE_BYTES) || ONE_GIB_BYTES;
@@ -617,20 +870,31 @@ export class PlatformWatchdog {
     this.checkIntervalMs = config.checkIntervalMs || Number(process.env.CHECK_INTERVAL_MS) || 5000;
     this.targetPid =
       config.targetPid || (process.env.TARGET_PID ? Number(process.env.TARGET_PID) : null);
-    this.abortSignalFile =
-      config.abortSignalFile || process.env.ABORT_SIGNAL_FILE || '/tmp/lt2_abort.signal';
+
+    // Require run-owned abort sentinel file path: default is scoped by runId
+    if (config.abortSignalFile || process.env.ABORT_SIGNAL_FILE) {
+      this.abortSignalFile = path.resolve(config.abortSignalFile || process.env.ABORT_SIGNAL_FILE);
+    } else {
+      const runDir = path.join(os.tmpdir(), `winkey_lt2_${this.runId}`);
+      this.abortSignalFile = path.join(runDir, 'abort.signal');
+    }
+
     this.fetchFn = config.fetchFn || fetchWithWallClockDeadline;
-    this.expectedNode = config.expectedNode || process.env.EXPECTED_NODE || 'edge-1';
+    this.expectedNode = config.expectedNode || process.env.EXPECTED_NODE || TRUSTED_EDGE_NODE;
+    this.expectedInstance =
+      config.expectedInstance || process.env.EXPECTED_INSTANCE || TRUSTED_EDGE_INSTANCE;
 
     this.running = false;
     this.errorRateState = { firstExceededAt: null };
-    this.lastLegacyCheckAt = 0;
+    this.nextLegacyCheckAt = 0;
+    this.legacyRequestStarts = [];
     this.timer = null;
   }
 
   /**
    * Triggers auto-abort:
-   * - Atomically persists abort payload using mode 0600 private replacement
+   * - Atomically persists abort payload using exclusive mode 0600 private replacement
+   * - Prevents overwriting another run's sentinel
    * - Sends SIGINT to runner PID (if configured)
    * - Stops the watchdog loop
    */
@@ -652,7 +916,7 @@ export class PlatformWatchdog {
     let signalSent = false;
     const errors = [];
 
-    // 1. Atomic private replacement of abort signal file (mode 0600)
+    // 1. Atomic private replacement of abort signal file (mode 0600, exclusive creation)
     try {
       const payloadStr = JSON.stringify(abortPayload, null, 2);
       const targetPath = path.resolve(this.abortSignalFile);
@@ -662,23 +926,30 @@ export class PlatformWatchdog {
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
 
-      // Write to unique temp file in same directory for atomic rename
+      // Do not overwrite another run's sentinel
+      if (fs.existsSync(targetPath)) {
+        try {
+          const existing = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+          if (existing?.runId && existing.runId !== this.runId) {
+            throw new Error(`Target abort file belongs to another run '${existing.runId}'`);
+          }
+        } catch (err) {
+          if (err.message.includes('belongs to another run')) throw err;
+        }
+      }
+
+      // Exclusive temp file (flag 'wx' prevents collisions/symlink following)
       const tmpFile = path.join(
         dir,
-        `.${path.basename(targetPath)}.${this.runId}.${Date.now()}.tmp`,
+        `.${path.basename(targetPath)}.${this.runId}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`,
       );
-      fs.writeFileSync(tmpFile, payloadStr, {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
 
-      // Explicit fsync
+      const fd = fs.openSync(tmpFile, 'wx', 0o600);
       try {
-        const fd = fs.openSync(tmpFile, 'r+');
+        fs.writeSync(fd, payloadStr, 0, 'utf8');
         fs.fsyncSync(fd);
+      } finally {
         fs.closeSync(fd);
-      } catch {
-        // fsync best effort
       }
 
       // Atomic rename
@@ -715,12 +986,14 @@ export class PlatformWatchdog {
    * Preflight verification before load begins.
    * Confirms reachability and freshness of all mandatory telemetry sources.
    */
-  async preflight() {
+  async preflight(now = Date.now()) {
     console.log(`[WATCHDOG] Running preflight telemetry and site verification...`);
 
     // 1. Mandatory edge-1 RAM telemetry source check
     const ramCheck = await checkEdgeRam(this.edgeMetricsUrl, this.minMemBytes, this.fetchFn, {
       expectedNode: this.expectedNode,
+      expectedInstance: this.expectedInstance,
+      nowSec: now / 1000,
     });
     if (ramCheck.abort) {
       this.triggerAbort(`Preflight failed: ${ramCheck.reason}`, {
@@ -740,6 +1013,9 @@ export class PlatformWatchdog {
       return false;
     }
 
+    this.nextLegacyCheckAt = now + this.legacyCheckIntervalMs;
+    this.legacyRequestStarts.push(now);
+
     // 3. Mandatory error rate telemetry source check
     const errCheck = await checkHttpErrorRate(
       this.errorRateSource,
@@ -747,6 +1023,7 @@ export class PlatformWatchdog {
       this.errorSustainedSec,
       this.errorRateState,
       this.fetchFn,
+      { nowSec: now / 1000 },
     );
     if (errCheck.abort) {
       this.triggerAbort(`Preflight failed: ${errCheck.reason}`, {
@@ -764,48 +1041,77 @@ export class PlatformWatchdog {
 
   /**
    * Executes one watchdog monitoring cycle.
+   * Fixed monotonic legacy schedule: probe starts are locked to monotonic schedule ticks.
+   * Probes run concurrently so delayed RAM or error probes never drift legacy probe starts.
    * FAIL-CLOSED: Returns false if ANY check fails or if any telemetry source is missing.
    */
-  async runCycle() {
-    const now = Date.now();
+  async runCycle(now = Date.now()) {
+    const tasks = [];
 
     // 1. Mandatory Edge-1 RAM check (fail-closed)
-    const ramCheck = await checkEdgeRam(this.edgeMetricsUrl, this.minMemBytes, this.fetchFn, {
-      expectedNode: this.expectedNode,
-    });
-    if (ramCheck.abort) {
-      this.triggerAbort(ramCheck.reason, { type: 'EDGE_RAM_EXHAUSTION', metric: ramCheck });
-      return false;
-    }
+    tasks.push(
+      checkEdgeRam(this.edgeMetricsUrl, this.minMemBytes, this.fetchFn, {
+        expectedNode: this.expectedNode,
+        expectedInstance: this.expectedInstance,
+        nowSec: now / 1000,
+      }).then((ramCheck) => {
+        if (ramCheck.abort) {
+          this.triggerAbort(ramCheck.reason, { type: 'EDGE_RAM_EXHAUSTION', metric: ramCheck });
+          return false;
+        }
+        return true;
+      }),
+    );
 
-    // 2. Mandatory Legacy sites check on explicit 30s schedule (concurrent)
-    if (now - this.lastLegacyCheckAt >= this.legacyCheckIntervalMs) {
-      this.lastLegacyCheckAt = now;
-      const legacyCheck = await checkLegacySites(this.legacySites, 5000, this.fetchFn);
-      if (legacyCheck.abort) {
-        this.triggerAbort(legacyCheck.reason, {
-          type: 'LEGACY_SITE_FAILURE',
-          site: legacyCheck.failedSite,
-        });
-        return false;
+    // 2. Mandatory Legacy sites check on fixed monotonic schedule (concurrent)
+    const isDue = this.nextLegacyCheckAt === 0 || now >= this.nextLegacyCheckAt;
+    if (isDue) {
+      if (this.nextLegacyCheckAt === 0) {
+        this.nextLegacyCheckAt = now + this.legacyCheckIntervalMs;
+      } else {
+        while (this.nextLegacyCheckAt <= now) {
+          this.nextLegacyCheckAt += this.legacyCheckIntervalMs;
+        }
       }
-      console.log(`[WATCHDOG] Legacy sites check: 4/4 PASS (HTTP 200)`);
+      this.legacyRequestStarts.push(now);
+      tasks.push(
+        checkLegacySites(this.legacySites, 5000, this.fetchFn).then((legacyCheck) => {
+          if (legacyCheck.abort) {
+            this.triggerAbort(legacyCheck.reason, {
+              type: 'LEGACY_SITE_FAILURE',
+              site: legacyCheck.failedSite,
+            });
+            return false;
+          }
+          console.log(`[WATCHDOG] Legacy sites check: 4/4 PASS (HTTP 200)`);
+          return true;
+        }),
+      );
     }
 
     // 3. Mandatory Sustained HTTP error rate check (fail-closed)
-    const errCheck = await checkHttpErrorRate(
-      this.errorRateSource,
-      this.maxErrorRate,
-      this.errorSustainedSec,
-      this.errorRateState,
-      this.fetchFn,
+    tasks.push(
+      checkHttpErrorRate(
+        this.errorRateSource,
+        this.maxErrorRate,
+        this.errorSustainedSec,
+        this.errorRateState,
+        this.fetchFn,
+        { nowSec: now / 1000 },
+      ).then((errCheck) => {
+        if (errCheck.abort) {
+          this.triggerAbort(errCheck.reason, {
+            type: 'SUSTAINED_HTTP_ERRORS',
+            rate: errCheck.rate,
+          });
+          return false;
+        }
+        return true;
+      }),
     );
-    if (errCheck.abort) {
-      this.triggerAbort(errCheck.reason, { type: 'SUSTAINED_HTTP_ERRORS', rate: errCheck.rate });
-      return false;
-    }
 
-    return true;
+    const results = await Promise.all(tasks);
+    return results.every(Boolean);
   }
 
   async start() {
