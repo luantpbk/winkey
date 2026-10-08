@@ -524,4 +524,84 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(res.failedAccounts.length, 1);
     assert.strictEqual(fs.existsSync(accountsFile), true);
   });
+
+  test('Discovery rejects invalid next_cursor type and retains all accounts and comments', async () => {
+    const sampleAccounts = [
+      { handle: 'lt2_user_bad_cursor', email: 'lt2_user_bad_cursor@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [{ id: 'v1' }],
+            next_cursor: 12345, // Invalid next_cursor type (expected string or null)
+          }),
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted when next_cursor is invalid',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+  });
+
+  test('Discovery scan respects discoveryTimeoutMs and retains accounts on timeout', async () => {
+    const sampleAccounts = [{ handle: 'lt2_user_timeout', email: 'lt2_user_timeout@example.com' }];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        // Sleep to exceed 1ms timeout limit
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [{ id: 'v1' }] }),
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+      discoveryTimeoutMs: 1, // 1 ms hard timeout
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted when discovery scan times out',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+  });
 });

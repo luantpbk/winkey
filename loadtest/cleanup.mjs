@@ -61,11 +61,22 @@ export async function runCleanup(opts = {}) {
 
   // 2b. Comment Discovery: Scan target videos to recover un-journaled lt2_* comments if collector ACK was lost
   let discoveryIncomplete = false;
+  const discoveryTimeoutMs = opts.discoveryTimeoutMs || 30000;
+  const discoveryStartTime = Date.now();
+
   try {
     const allDiscoveredVideos = [];
     let videoCursor = null;
 
     do {
+      if (Date.now() - discoveryStartTime > discoveryTimeoutMs) {
+        discoveryIncomplete = true;
+        console.warn(
+          '[cleanup] WARNING: Video discovery scan exceeded timeout limit. Marking discovery incomplete.',
+        );
+        break;
+      }
+
       const vUrl = videoCursor
         ? `${targetUrl}/v1/videos?sort=newest&limit=50&cursor=${encodeURIComponent(videoCursor)}`
         : `${targetUrl}/v1/videos?sort=newest&limit=50`;
@@ -96,16 +107,59 @@ export async function runCleanup(opts = {}) {
         break;
       }
 
+      // Validate cursor type
+      if (
+        vData.next_cursor !== undefined &&
+        vData.next_cursor !== null &&
+        typeof vData.next_cursor !== 'string'
+      ) {
+        discoveryIncomplete = true;
+        console.warn(
+          '[cleanup] WARNING: Invalid next_cursor type in video listing (expected string or null).',
+        );
+        break;
+      }
+
+      // Validate record structures
+      let validItems = true;
+      for (const item of vData.items) {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string') {
+          validItems = false;
+          break;
+        }
+      }
+      if (!validItems) {
+        discoveryIncomplete = true;
+        console.warn('[cleanup] WARNING: Malformed video item record in video listing.');
+        break;
+      }
+
       allDiscoveredVideos.push(...vData.items);
       videoCursor = vData.next_cursor || null;
     } while (videoCursor);
 
     if (!discoveryIncomplete) {
       for (const vid of allDiscoveredVideos) {
+        if (Date.now() - discoveryStartTime > discoveryTimeoutMs) {
+          discoveryIncomplete = true;
+          console.warn(
+            '[cleanup] WARNING: Comment discovery scan exceeded timeout limit. Marking discovery incomplete.',
+          );
+          break;
+        }
+
         if (!vid || !vid.id) continue;
         let commentCursor = null;
 
         do {
+          if (Date.now() - discoveryStartTime > discoveryTimeoutMs) {
+            discoveryIncomplete = true;
+            console.warn(
+              '[cleanup] WARNING: Comment discovery scan exceeded timeout limit during pagination. Marking discovery incomplete.',
+            );
+            break;
+          }
+
           const cUrl = commentCursor
             ? `${targetUrl}/v1/videos/${vid.id}/comments?cursor=${encodeURIComponent(commentCursor)}`
             : `${targetUrl}/v1/videos/${vid.id}/comments`;
@@ -138,8 +192,28 @@ export async function runCleanup(opts = {}) {
             break;
           }
 
+          // Validate comment cursor type
+          if (
+            cData.next_cursor !== undefined &&
+            cData.next_cursor !== null &&
+            typeof cData.next_cursor !== 'string'
+          ) {
+            discoveryIncomplete = true;
+            console.warn(
+              `[cleanup] WARNING: Invalid next_cursor type in comment response for video ${vid.id}.`,
+            );
+            break;
+          }
+
           for (const item of cData.items) {
-            if (!item || typeof item !== 'object' || !item.id) continue;
+            if (!item || typeof item !== 'object' || typeof item.id !== 'string') {
+              discoveryIncomplete = true;
+              console.warn(
+                `[cleanup] WARNING: Malformed comment record in comment list for video ${vid.id}.`,
+              );
+              break;
+            }
+
             const authorObj = item.author || item.user || {};
             const authorHandle = authorObj.handle || item.authorHandle || '';
             const authorEmail = authorObj.email || item.authorEmail || '';
@@ -160,6 +234,8 @@ export async function runCleanup(opts = {}) {
               }
             }
           }
+
+          if (discoveryIncomplete) break;
           commentCursor = cData.next_cursor || null;
         } while (commentCursor);
 
