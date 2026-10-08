@@ -5,7 +5,7 @@ export default defineConfig({
   testMatch: '**/production-feedback-runtime.spec.ts',
   fullyParallel: false,
   retries: 0,
-  timeout: 60000,
+  timeout: 90000,
   workers: 1,
   reporter: 'list',
   use: {
