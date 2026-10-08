@@ -148,6 +148,9 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
 
     afterEach(async () => {
       if (server) {
+        if (typeof server.closeAllConnections === 'function') {
+          server.closeAllConnections();
+        }
         await new Promise((resolve) => server.close(resolve));
       }
     });
@@ -495,9 +498,14 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       const okNoSources = await watchdogNoSources.runCycle();
       assert.strictEqual(okNoSources, false);
 
+      const mockRamFetch = async () => ({
+        statusCode: 200,
+        body: 'node_memory_MemAvailable_bytes 8000000000\n',
+      });
       const watchdogOnlyRam = new PlatformWatchdog({
         edgeMetricsUrl: 'http://mock/metrics',
         abortSignalFile: abortFile,
+        fetchFn: mockRamFetch,
       });
       const okOnlyRam = await watchdogOnlyRam.runCycle();
       assert.strictEqual(okOnlyRam, false);
