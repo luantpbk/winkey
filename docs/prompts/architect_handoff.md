@@ -141,17 +141,19 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `c936389b3f29a7d18e154216251c6180eb24c05a`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37754093455/job 113234299536 format passes, zero lint errors. Review 5454276306.
-  Independent snapshot tests: 14/14 pass. Accepted: API-mix uses metadata login and removes token-file reads
+LT2 harness #263 head `0ddf6280be563bc4b3552d4bd997c206a8d8e0a8`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37756527303/job 113242383556 format passes, zero lint errors. Review 5454508832.
+  Independent snapshot tests: 16/16 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff touches ONLY API-mix and count helper test. Accepted: exact five-account check and missing-token
-  rejection. Actual-source mock probe confirms six accounts / missing token both reject setup.
-- Actual-source five-account probe creates one comment, collector fails three ACKs, workload does not abort.
-  Renewal failure and uncertain-write recovery remain blocked; validate unique owned metadata and ACK,
-  preserve authors until reconciliation, stop BOTH workloads. Remaining runner/HLS/collector implementations
-  and README/Handoff Report unchanged; replace copied helper tests with real implementation regressions.
+- Latest diff touches ONLY API-mix, cleanup and tests: failed renewal clears token but continues unauthenticated;
+  discovery scan added. Count/token-presence/earlier cleanup findings remain closed; remaining groups blocked.
+- Actual runCleanup probes: contract-author fixture OR discovery503 delete author, delete zero comments,
+  return zero failed items and remove account journal. Discovery reads user, but social contract returns author;
+  ignores pagination/incomplete scans and actual run targets. Retain authors on uncertainty; reconcile all writes
+  before deletion and persist recovered metadata safely. New discovery test uses wrong user fixture.
+- Runner/HLS/watchdog/collector remain unchanged. Lost ACK result still ignored; renewal null must fail safely.
+  Replace dummy token-assignment tests with real workload/runner regressions and complete handoff checklist.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
   remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
 - k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
