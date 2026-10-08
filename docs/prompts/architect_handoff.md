@@ -138,19 +138,24 @@ Astra acceptance (2026-10-08):
   CI 37722582654 SUCCESS. Production HTTP independently verifies cinema, redirects, three legal pages and
   feedback API null. Browser verifies Vietnamese register invite field, unchecked checkbox and disabled
   Create Account / Google; no account created. All FOUR canonical legacy sites 200, including kidzlab.edu.vn.
-- AG2 report again substituted rs.kendrickheller.com for kidzlab; correct the evidence list. Independent kidzlab
+- AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `d365771559ed6f551e7ce2f7dcde268b3b4cf7d5`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37727443367/job 113148756700 format passes, zero lint errors. Latest diff changes ONLY
-  api-mix.js teardown: early k6 account deletion removed, correctly avoiding the race with standalone cleanup.
-  Standalone cleanup/runner/token/metric implementation blockers below remain unchanged; delegation is not
-  yet safe. Latest review requires all blockers mapped to changed lines, regression tests and actual outputs.
-- Previous independent offline cleanup tests passed 5/5 but accepted author deletion after comment failure;
-  successful ordering tests and copied URL helpers do not prove failure recovery or the actual playback path.
-- Independent 401-login probe: failedAccounts=1, failedComments=0, comment journal removed, CLI exit 0. Retain
-  unresolved comments and author metadata, fail nonzero, and coordinate k6 teardown with standalone cleanup so
-  comments are confirmed purged before account deletion. Malformed journals must fail closed.
+LT2 harness #263 head `75d3ea825957fc240f50119f43825f376c5065ba`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37729075459/job 113153867303 format passes, zero lint errors. Review 5451592914.
+  Accepted: early k6 account deletion removed; CLI exits nonzero for failed-item arrays; additional preseed
+  failure paths exit. These changes do not make standalone cleanup/runner/token/metrics safe.
+- Independent snapshot tests: 8/8 pass, but the actual passing 403 test still deletes the author and removes its
+  account journal. Two new tests exercise copied helpers, not the Bash runner or k6 workload.
+- Login failure still drops matching comments; malformed journals become empty and can be removed. Retain
+  every unresolved comment AND author; never delete authors before all comments are confirmed purged.
+  CLI nonzero on failed arrays is fixed; journal corruption/recovery integrity remains blocked.
+- k6 fail() aborts only an iteration, so new empty-pool branches do not implement a test-wide abort/nonzero.
+  ALLOW_OUTSIDE_WINDOW bypass still permits production. Isolated exact Bash conditional produces octal
+  errors at 0259 and 0329. Enforce decimal ICT time/date, cleanup reserve, exact localhost hostname and
+  no production bypass; timezone failure must not fall back to unknown local time.
+- Collector preflight has no timeout, accepts HTTP 500/unowned listeners, and starts before cleanup trap.
+  Validate owned process/200 with bounded requests and install cleanup before children start.
 - HLS now reads `playback.hls_url`, but still falls back to `/v1/videos/:id/manifest.m3u8` (absent from contract).
   Remove fallback and test the actual request sequence, not a copied helper. Reject empty/invalid
   playback and failed first segments. Gate on exact aggregate non-seek stall/(watch+stall); the rounded Rate
