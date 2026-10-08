@@ -60,10 +60,11 @@ export async function runCleanup(opts = {}) {
   }
 
   // 2b. Comment Discovery: Scan target videos to recover un-journaled lt2_* comments if collector ACK was lost
+  let discoveryIncomplete = false;
   try {
     const vRes = await customFetch(`${targetUrl}/v1/videos?sort=newest&limit=50`);
-    if (vRes && vRes.ok) {
-      const vData = await vRes.json();
+    if (vRes && (vRes.ok || vRes.status === 404)) {
+      const vData = vRes.ok ? await vRes.json() : { items: [] };
       const videoItems = Array.isArray(vData.items)
         ? vData.items
         : Array.isArray(vData)
@@ -71,8 +72,19 @@ export async function runCleanup(opts = {}) {
           : [];
       for (const vid of videoItems) {
         if (!vid || !vid.id) continue;
-        const cRes = await customFetch(`${targetUrl}/v1/videos/${vid.id}/comments`);
-        if (cRes && cRes.ok) {
+        let cursor = null;
+        do {
+          const url = cursor
+            ? `${targetUrl}/v1/videos/${vid.id}/comments?cursor=${encodeURIComponent(cursor)}`
+            : `${targetUrl}/v1/videos/${vid.id}/comments`;
+          const cRes = await customFetch(url);
+          if (!cRes || !cRes.ok) {
+            discoveryIncomplete = true;
+            console.warn(
+              `[cleanup] WARNING: Comment discovery failed for video ${vid.id} (HTTP ${cRes ? cRes.status : 'network error'}). Marking discovery incomplete.`,
+            );
+            break;
+          }
           const cData = await cRes.json();
           const commentList = Array.isArray(cData.items)
             ? cData.items
@@ -80,8 +92,9 @@ export async function runCleanup(opts = {}) {
               ? cData
               : [];
           for (const item of commentList) {
-            const authorHandle = item.user ? item.user.handle : item.authorHandle || '';
-            const authorEmail = item.user ? item.user.email : item.authorEmail || '';
+            const authorObj = item.author || item.user || {};
+            const authorHandle = authorObj.handle || item.authorHandle || '';
+            const authorEmail = authorObj.email || item.authorEmail || '';
             if (
               authorHandle.startsWith('lt2_') ||
               accounts.some((a) => a.handle === authorHandle || a.email === authorEmail)
@@ -99,17 +112,32 @@ export async function runCleanup(opts = {}) {
               }
             }
           }
-        }
+          cursor = cData.next_cursor || null;
+        } while (cursor);
+
+        if (discoveryIncomplete) break;
       }
+    } else {
+      discoveryIncomplete = true;
+      console.warn(
+        `[cleanup] WARNING: Video listing failed for comment discovery (HTTP ${vRes ? vRes.status : 'network error'}). Marking discovery incomplete.`,
+      );
     }
   } catch (err) {
+    discoveryIncomplete = true;
     console.warn(`[cleanup] Comment discovery scan warning: ${err.message}`);
   }
 
   const failedComments = [];
   const failedAccounts = [];
 
-  if (accounts.length > 0) {
+  if (discoveryIncomplete) {
+    console.error(
+      '[cleanup] ERROR: Comment discovery scan failed or was incomplete. Retaining all accounts and comments for retry recovery without deleting accounts.',
+    );
+    failedAccounts.push(...accounts);
+    failedComments.push(...comments);
+  } else if (accounts.length > 0) {
     console.log(`[cleanup] Processing ${accounts.length} lt2_* accounts from lt2_accounts.json...`);
 
     if (!password) {

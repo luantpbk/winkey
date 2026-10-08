@@ -102,6 +102,8 @@ TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_COD
 
 - **Fail-Closed Preseed & Collector**: `preseed.mjs` and `comment-collector.mjs` fail closed (`process.exit(1)`) if account creation or collector health verification fails.
 - **Fail-Closed Video Pool**: If no valid video samples exist in `seed.json` or `/v1/videos`, k6 scenarios fail closed immediately.
+- **Paginated Comment Discovery**: `cleanup.mjs` performs automatic comment discovery across target videos using OpenAPI contract author metadata (`author: { id, handle, email }`) and cursor pagination (`next_cursor`). If discovery fails or is incomplete (HTTP $\neq 200$), all accounts and comments are retained for retry recovery without deleting user accounts.
+- **Token Renewal Error Handling**: If in-memory token renewal fails in `api-mix.js`, the stale token is cleared (`user.token = null`) to prevent repeated invalid requests and retried safely on subsequent VU iterations.
 - **Retention Recovery**: When `cleanup.mjs` encounters deletion errors (HTTP $\neq 204$), unremoved accounts (`lt2_accounts.json`) and comments (`lt2_comments.json`) are retained for retry recovery. `cleanup.mjs` exits with non-zero exit code (`1`) on any failure.
 - **Dual Generator Abortion**: `lt2-run.sh` traps `EXIT`, `SIGINT`, `SIGTERM` signals and terminates both `PID_HLS` and `PID_API` containers immediately.
 

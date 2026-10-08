@@ -361,11 +361,10 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(user.token, null);
   });
 
-  test('Cleanup comment discovery recovers un-journaled lt2 comments if collector ACK was lost', async () => {
+  test('Cleanup comment discovery handles next_cursor pagination and author contract', async () => {
     const sampleAccounts = [{ handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' }];
     fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
 
-    // Notice commentsFile is NOT created, simulating lost collector ACK / un-journaled comment
     const deletedCommentIds = [];
 
     const mockFetch = async (url) => {
@@ -383,6 +382,21 @@ describe('Fail-Closed and Execution Safety Tests', () => {
           json: async () => ({ items: [{ id: 'vid_100' }] }),
         };
       }
+      if (url.includes('/v1/videos/vid_100/comments?cursor=cursor_page2')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                id: 'comm_discovered_p2',
+                author: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
+              },
+            ],
+            next_cursor: null,
+          }),
+        };
+      }
       if (url.includes('/v1/videos/vid_100/comments')) {
         return {
           ok: true,
@@ -390,15 +404,20 @@ describe('Fail-Closed and Execution Safety Tests', () => {
           json: async () => ({
             items: [
               {
-                id: 'comm_discovered_1',
-                user: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
+                id: 'comm_discovered_p1',
+                author: { handle: 'lt2_disc_user', email: 'lt2_disc_user@example.com' },
               },
             ],
+            next_cursor: 'cursor_page2',
           }),
         };
       }
-      if (url.includes('/v1/comments/comm_discovered_1')) {
-        deletedCommentIds.push('comm_discovered_1');
+      if (
+        url.includes('/v1/comments/comm_discovered_p1') ||
+        url.includes('/v1/comments/comm_discovered_p2')
+      ) {
+        const parts = url.split('/');
+        deletedCommentIds.push(parts[parts.length - 1]);
         return { status: 204 };
       }
       if (url.endsWith('/v1/auth/me')) {
@@ -415,6 +434,46 @@ describe('Fail-Closed and Execution Safety Tests', () => {
 
     assert.strictEqual(res.failedAccounts.length, 0);
     assert.strictEqual(res.failedComments.length, 0);
-    assert.deepStrictEqual(deletedCommentIds, ['comm_discovered_1']);
+    assert.deepStrictEqual(deletedCommentIds.sort(), ['comm_discovered_p1', 'comm_discovered_p2']);
+  });
+
+  test('Discovery failure retains all accounts and comments without deleting user accounts', async () => {
+    const sampleAccounts = [
+      { handle: 'lt2_user_disc_fail', email: 'lt2_user_disc_fail@example.com' },
+    ];
+    const sampleComments = [
+      { id: 'comm_disc_fail', authorEmail: 'lt2_user_disc_fail@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+    fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return { ok: false, status: 500 }; // Simulates comment discovery failure
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted if discovery fails',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(res.failedComments.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+    assert.strictEqual(fs.existsSync(commentsFile), true);
   });
 });
