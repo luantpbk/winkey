@@ -141,19 +141,19 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `2c8dddcd746cbb0919eecd9903b96ab0af97381d`: NOT APPROVED; do not run production.
-- CI RED: root run 37762887514/job 113263497909 format passes, lint no-undef setTimeout at test578. Review 5455145064.
+LT2 harness #263 head `59d81f3c63fd4b81ab9c760b956618f7b4828ccd`: NOT APPROVED; do not run production.
+- CI RED: root run 37764164070/job 113267645087 format passes,5 no-undef errors (AbortSignal/test timer). Review5455268331.
   Independent snapshot tests: 20/20 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff ONLY cleanup/tests. Accepted via real probe: missing-id comment retains author; numeric cursor
-  rejection added. Earlier corrected findings stay closed. CI timer error must be fixed without weakening lint.
-- Date.now guards between awaits do not abort request/body: hung-fetch probe remains pending after80ms
-  with deadline5ms, no AbortSignal. Delayed20ms empty-page/deadline1ms and missing next_cursor both
-  delete author and return zero failures. Use abortable request/body and overall deadline checked before deletion
-  on every path; full required schemas, bounded pages/cursor cycles, safe run-owned recovery/persistence.
-- API-mix, runner/HLS/watchdog/collector remain unchanged. Renewal null/ACK failures still continue; finish
-  ALL remaining implementation groups, actual regressions and complete README/Handoff checklist.
+- Latest diff ONLY cleanup/one README bullet. Actual loopback HTTP server probes confirm request/body
+  AbortSignal timeouts retain authors; delayed empty-page post-discovery deadline now retains author. These
+  deadline findings are closed. CI still red:4 AbortSignal globals + test setTimeout no-undef errors.
+- Missing required next_cursor probe still deletes author and returns zero failures. Complete required schemas,
+  cursor cycles/page limits, valid run-owned targets/metadata and atomic0600 recovered journal persistence.
+- API-mix, runner/HLS/watchdog/collector remain unchanged; finish ALL open groups and actual regressions.
+  PR Handoff Report still unchanged (target VM/5m/p95/inline-secret); README still invents profile email
+  and claims behavior not implemented. Complete actual PR body/runbook and finding-to-implementation checklist.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
   remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
 - k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
