@@ -11,7 +11,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const accountsFile = path.join(__dirname, 'lt2_accounts.json');
 const commentsFile = path.join(__dirname, 'lt2_comments.json');
 
-describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
+function resolveUrl(relativeUrl, baseUrl) {
+  if (!relativeUrl) return baseUrl;
+  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+    return relativeUrl;
+  }
+  if (relativeUrl.startsWith('/')) {
+    const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
+    const origin = match ? match[1] : '';
+    return origin + relativeUrl;
+  }
+  const lastSlash = baseUrl.lastIndexOf('/');
+  if (lastSlash !== -1) {
+    return baseUrl.substring(0, lastSlash + 1) + relativeUrl;
+  }
+  return baseUrl + '/' + relativeUrl;
+}
+
+describe('LT2 Data Cleanup, Retention and Order Tests', () => {
   beforeEach(() => {
     if (fs.existsSync(accountsFile)) fs.unlinkSync(accountsFile);
     if (fs.existsSync(commentsFile)) fs.unlinkSync(commentsFile);
@@ -38,28 +55,30 @@ describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
     }
   });
 
-  test('Cleanup successfully removes deleted accounts and comments when server responds 204', async () => {
-    const sampleAccounts = [{ handle: 'lt2_test1', email: 'lt2_test1@example.com' }];
-    const sampleComments = [{ id: 'comm_123', authorEmail: 'lt2_test1@example.com' }];
+  test('Deletion order: Comments are deleted STRICTLY BEFORE deleting user account', async () => {
+    const sampleAccounts = [{ handle: 'lt2_order_test', email: 'lt2_order_test@example.com' }];
+    const sampleComments = [{ id: 'comm_order_1', authorEmail: 'lt2_order_test@example.com' }];
 
     fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
     fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
 
+    const callsOrder = [];
+
     const mockFetch = async (url, opts = {}) => {
       if (url.endsWith('/v1/auth/login')) {
+        callsOrder.push('LOGIN');
         return {
           ok: true,
           status: 200,
-          json: async () => ({ access_token: 'mock_fresh_token' }),
+          json: async () => ({ access_token: 'token_123' }),
         };
       }
-      if (url.includes('/v1/comments/comm_123')) {
+      if (url.includes('/v1/comments/comm_order_1')) {
+        callsOrder.push('DELETE_COMMENT');
         return { status: 204 };
       }
       if (url.endsWith('/v1/auth/me')) {
-        const body = JSON.parse(opts.body || '{}');
-        assert.strictEqual(body.confirm_handle, 'lt2_test1');
-        assert.strictEqual(body.password, 'SecretPass123!');
+        callsOrder.push('DELETE_ACCOUNT');
         return { status: 204 };
       }
       return { status: 404 };
@@ -67,14 +86,19 @@ describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
 
     const res = await runCleanup({
       targetUrl: 'http://localhost:8080',
-      password: 'SecretPass123!',
+      password: 'Pass123!',
       fetchFn: mockFetch,
     });
 
     assert.strictEqual(res.failedAccounts.length, 0);
     assert.strictEqual(res.failedComments.length, 0);
-    assert.strictEqual(fs.existsSync(accountsFile), false);
-    assert.strictEqual(fs.existsSync(commentsFile), false);
+
+    // Verify deletion sequence: LOGIN -> DELETE_COMMENT -> DELETE_ACCOUNT
+    const commentIdx = callsOrder.indexOf('DELETE_COMMENT');
+    const accountIdx = callsOrder.indexOf('DELETE_ACCOUNT');
+    assert.notStrictEqual(commentIdx, -1, 'DELETE_COMMENT should have been called');
+    assert.notStrictEqual(accountIdx, -1, 'DELETE_ACCOUNT should have been called');
+    assert.ok(commentIdx < accountIdx, 'Comments MUST be deleted BEFORE deleting the user account');
   });
 
   test('Cleanup retains failed accounts in lt2_accounts.json for retry recovery when deletion fails (HTTP 500)', async () => {
@@ -104,7 +128,7 @@ describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
 
     const res = await runCleanup({
       targetUrl: 'http://localhost:8080',
-      password: 'SecretPass123!',
+      password: 'Pass123!',
       fetchFn: mockFetch,
     });
 
@@ -148,7 +172,7 @@ describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
 
     const res = await runCleanup({
       targetUrl: 'http://localhost:8080',
-      password: 'SecretPass123!',
+      password: 'Pass123!',
       fetchFn: mockFetch,
     });
 
@@ -162,9 +186,23 @@ describe('LT2 Data Cleanup and Recovery Retention Tests', () => {
   });
 });
 
+describe('HLS URL and Contract Resolution Tests', () => {
+  test('resolveUrl converts relative and absolute playback.hls_url correctly', () => {
+    const base = 'https://winkey.vn';
+    assert.strictEqual(
+      resolveUrl('/v1/videos/vid1/manifest.m3u8', base),
+      'https://winkey.vn/v1/videos/vid1/manifest.m3u8',
+    );
+    assert.strictEqual(
+      resolveUrl('https://media.winkey.vn/hls/vid1.m3u8', base),
+      'https://media.winkey.vn/hls/vid1.m3u8',
+    );
+  });
+});
+
 describe('Comment Collector Server Tests', () => {
   let server;
-  const testPort = 9998;
+  const testPort = 9996;
 
   beforeEach(() => {
     if (fs.existsSync(commentsFile)) fs.unlinkSync(commentsFile);

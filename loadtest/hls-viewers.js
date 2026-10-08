@@ -56,7 +56,8 @@ const seedVideos = new SharedArray('seed_videos', function () {
   }
 });
 
-function resolveUrl(relativeUrl, baseUrl) {
+export function resolveUrl(relativeUrl, baseUrl) {
+  if (!relativeUrl) return baseUrl;
   if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
     return relativeUrl;
   }
@@ -145,7 +146,34 @@ export default function (data) {
     targetVideo = videoPool[Math.floor(Math.random() * videoPool.length)];
   }
 
-  const masterUrl = `${TARGET_URL}/v1/videos/${targetVideo.id}/manifest.m3u8`;
+  // Resolve HLS manifest URL via playback.hls_url per OpenAPI contract
+  let masterUrl = null;
+  if (targetVideo && targetVideo.playback && targetVideo.playback.hls_url) {
+    masterUrl = resolveUrl(targetVideo.playback.hls_url, TARGET_URL);
+  } else if (targetVideo && targetVideo.id) {
+    const detailRes = http.get(`${TARGET_URL}/v1/videos/${targetVideo.id}`);
+    if (detailRes.status === 200) {
+      try {
+        const vData = JSON.parse(detailRes.body);
+        const v = vData.video || vData;
+        if (v && v.playback && v.playback.hls_url) {
+          masterUrl = resolveUrl(v.playback.hls_url, TARGET_URL);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!masterUrl && targetVideo && targetVideo.id) {
+    masterUrl = `${TARGET_URL}/v1/videos/${targetVideo.id}/manifest.m3u8`;
+  }
+
+  if (!masterUrl) {
+    sleep(1);
+    return;
+  }
+
   const t0 = Date.now();
   const masterRes = http.get(masterUrl);
   httpReqFailed.add(masterRes.status !== 200);
