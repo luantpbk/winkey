@@ -21,12 +21,24 @@ jobs:
       go_video: ${{ steps.filter.outputs.go_video }}
       go_analytics: ${{ steps.filter.outputs.go_analytics }}
       deploy_k8s: ${{ steps.filter.outputs.deploy_k8s }}
+      deploy_lt2: ${{ steps.filter.outputs.deploy_lt2 }}
+      loadtest: ${{ steps.filter.outputs.loadtest }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
+            deploy_lt2:
+              - 'deploy/lt2/**'
+              - '.github/workflows/ci.yml'
+            loadtest:
+              - 'loadtest/**'
+              - '.github/workflows/ci.yml'
+            e2e:
+              - 'e2e/**'
+              - '.github/workflows/ci.yml'
             deploy_k8s:
               - 'deploy/k8s/**'
               - '.github/workflows/ci.yml'
@@ -244,3 +256,48 @@ jobs:
             echo "$output" | grep -q "limits:" || { echo "ERROR: $app missing resource limits"; exit 1; }
           done
           echo "All apps deployments meet DoD specifications."
+
+  lt2-ci:
+    name: lt2 offline regression & watchdog tests
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.deploy_lt2 == 'true' || needs.changes.outputs.loadtest == 'true' || needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Platform watchdog offline tests
+        if: github.event_name == 'push' || needs.changes.outputs.deploy_lt2 == 'true'
+        run: |
+          if compgen -G "deploy/lt2/*.test.mjs" > /dev/null; then
+            node --test deploy/lt2/*.test.mjs
+          else
+            echo "ERROR: deploy/lt2/*.test.mjs expected but not found!"
+            exit 1
+          fi
+
+      - name: Loadtest offline unit tests
+        if: github.event_name == 'push' || needs.changes.outputs.loadtest == 'true'
+        env:
+          IS_PUSH: ${{ github.event_name == 'push' }}
+        run: |
+          if compgen -G "loadtest/*.test.mjs" > /dev/null; then
+            node --test loadtest/*.test.mjs
+          elif [ "$IS_PUSH" = "true" ]; then
+            echo "No loadtest/*.test.mjs present on branch yet."
+          else
+            echo "ERROR: loadtest was modified but no loadtest/*.test.mjs test files were found!"
+            exit 1
+          fi
+
+      - name: E2E / AG1 offline regressions
+        if: github.event_name == 'push' || needs.changes.outputs.e2e == 'true'
+        run: |
+          if compgen -G "e2e/*.test.mjs" > /dev/null; then
+            node --test e2e/*.test.mjs
+          else
+            echo "No offline e2e/*.test.mjs present yet."
+          fi

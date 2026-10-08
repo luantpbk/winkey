@@ -13,7 +13,8 @@
     "lint:root": "eslint .",
     "lint:all": "pnpm format:check && pnpm lint:root && pnpm lint",
     "generate": "pnpm --filter @winkey/api-client run generate",
-    "check:generated": "pnpm --filter @winkey/api-client run check:generated"
+    "check:generated": "pnpm --filter @winkey/api-client run check:generated",
+    "test:watchdog": "node --test deploy/lt2/*.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
