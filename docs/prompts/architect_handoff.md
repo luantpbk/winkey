@@ -141,19 +141,20 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `0ddf6280be563bc4b3552d4bd997c206a8d8e0a8`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37756527303/job 113242383556 format passes, zero lint errors. Review 5454508832.
-  Independent snapshot tests: 16/16 pass. Accepted: API-mix uses metadata login and removes token-file reads
+LT2 harness #263 head `aa60cc7168ac856d3646cfc6e4b6d727359e2b63`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37758211734/job 113247991621 format passes, zero lint errors. Review 5454780534.
+  Independent snapshot tests: 17/17 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff touches ONLY API-mix, cleanup and tests: failed renewal clears token but continues unauthenticated;
-  discovery scan added. Count/token-presence/earlier cleanup findings remain closed; remaining groups blocked.
-- Actual runCleanup probes: contract-author fixture OR discovery503 delete author, delete zero comments,
-  return zero failed items and remove account journal. Discovery reads user, but social contract returns author;
-  ignores pagination/incomplete scans and actual run targets. Retain authors on uncertainty; reconcile all writes
-  before deletion and persist recovered metadata safely. New discovery test uses wrong user fixture.
-- Runner/HLS/watchdog/collector remain unchanged. Lost ACK result still ignored; renewal null must fail safely.
-  Replace dummy token-assignment tests with real workload/runner regressions and complete handoff checklist.
+- Latest diff touches ONLY cleanup/tests/two README lines. Accepted and independently probed: contract author
+  now purges before account; comment cursor pagination regression passes; video scan503 retains account.
+- Actual runCleanup probes: video list404, malformed200 items:string, OR items:[] with video next_cursor each
+  delete author, zero comments and return zero failures; video second page never fetched. Require validated
+  exhaustive recorded run targets/video+comment cursors, safe nullable authors, bounded requests/repeated-cursor
+  checks. Incomplete scan must retain authors/recovery and fail; persist recovered metadata atomically0600.
+- Renewal null/failed ACK still continue; API-mix/runner/HLS/watchdog/collector unchanged. Complete remaining
+  implementation groups and real regressions. README wrongly adds PublicProfile.email and promises all non200
+  scans retain recovery despite404 bypass. Fix old mocks to contract-valid200, not special-case404 for tests.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
   remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
 - k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
