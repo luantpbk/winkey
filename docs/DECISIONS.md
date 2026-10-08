@@ -774,3 +774,15 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Beta có cổng vào kiểm soát được mà không cần bảng hay migration. Đổi lại, mã có thể bị chia sẻ lại, nên giữ mỗi đợt nhỏ và thay mã khi cần.
 - Smoke test và load test tạo tài khoản trên production phải dùng một mã mời riêng, chỉ để trên host (`read -rs`).
 - Mở công khai về sau chỉ cần đặt `REGISTRATION_MODE=open`, sau khi LEGAL xong.
+
+#### ADR-034 addendum — Runtime feedback với trang pháp lý tĩnh (2026-10-08, Astra)
+
+Để giữ các trang pháp lý được dựng tĩnh mà `FEEDBACK_URL` vẫn đổi được khi restart cùng image, web được phép dùng
+route nội bộ `GET /api/feedback-url`, `force-dynamic`, đọc biến ở server và chỉ trả URL công khai đã lọc `https:` hoặc
+`mailto:`; rỗng hoặc không an toàn trả `null`. Cinema footer và sidebar dùng cùng cách lấy URL này, ẩn link cho đến
+khi có URL hợp lệ. Đây là điều chỉnh của brief BETA1-web vốn yêu cầu server component truyền prop; không thêm
+contract dịch vụ hay dữ liệu bí mật. Không cache kết quả giữa các lần đổi cấu hình runtime.
+
+Trước khi chấp nhận BETA1-web, kiểm chứng trên một bản build production duy nhất với biến rỗng, `https:`, `mailto:`
+và giá trị không an toàn, không build lại; kiểm tra cả hai shell bằng HTTP và trình duyệt. Test gọi handler nguồn
+trực tiếp hoặc mock fetch chỉ bổ sung, không thay thế kiểm chứng artifact đã build.

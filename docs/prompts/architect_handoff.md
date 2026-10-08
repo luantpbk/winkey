@@ -70,7 +70,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
 
-# STATE (updated 2026-10-07, by ChatGPT Astra, acting architect)
+# STATE (updated 2026-10-08, by ChatGPT Astra, acting architect)
 ## Live in production
 - R2 recommendations (ADR-028) and the R2-ab experiment (ADR-030). Decide no earlier than 2026-10-19, and only with
   ≥ 200 active viewers per arm.
@@ -122,31 +122,40 @@ BETA1-web must:
     hidden when empty, https or mailto only;
   - on mobile, the hero ⓘ button stays on the same row as the other buttons.
 
-Astra review observations (2026-10-07):
-- #270 head `f4528b05c9d54133a66910c60cace783060e87dd`: CI green; independent register/legal unit tests 23/23
-  and production build pass. FEEDBACK_URL is read in the layout without request-time opt-in; the build confirms
-  /register is prerendered without revalidation. HTTP runtime smoke on this Windows host was inconclusive
-  (redirect/timeout). Require a build-once/runtime-change regression test, including a sidebar route.
-- The hero mobile row has the requested nowrap/sizing changes; require the brief's actual Playwright outputs,
-  mobile evidence and 10 consecutive new-test passes before acceptance.
+Astra re-review observations (2026-10-08):
+- Main CI run 37656127763 at #272 merge failed in web realtime.test.tsx:189 (subscribe frame missing).
+  Astra inspected the log and reran failed jobs once; result pending. #270 full web suite is green; do not assume
+  this is a flake or weaken the assertion. Investigate with AG1 if the rerun fails again.
+- #270 head `9f214dbf0cfd04cbe2716916fdc93831e568a17d`: CI green; actual CI log has 30 web files / 396 tests
+  passed. New `/api/feedback-url` is force-dynamic and returns only a sanitized public URL; both shells fetch it.
+  This brief adjustment is accepted in the ADR-034 addendum. Legal pages stay static. English notice/nav labels
+  and unconditional mobile drawer assertions are fixed; completed legal copies match #272.
+- Still changes requested: build-once production-artifact feedback regression (empty/https/mailto/unsafe, both
+  shells), real ten-run and Playwright outputs/screenshots. New BETA1 screenshots are conditional on a hardcoded
+  agent-machine path; use portable output paths and always capture required evidence. Update stale PR body.
+- A further local web test attempt did not reach test execution because dependency installation was incomplete;
+  no additional local pass or runtime smoke result is claimed. CI evidence above is independently inspected.
 
-LT2 harness #263 head `60ed525b47866cff452a0729412ea4e90a2f25f0`: NOT APPROVED; do not run production.
-- Fixed in the diff: deleteMe path /v1/auth/me, 204 success branch, fresh login before deletion, max 5 preseed
-  accounts and metadata journal written before registrations.
-- Still blocking: cleanup swallows failures and deletes recovery journals. Astra reproduced a 401 login on a local
-  fake server: no deletion, exit 0, metadata journal removed. Retain unresolved records and return nonzero.
-- Comment IDs are appended to per-VU setup-data copies; teardown never receives those mutations, and the comments
-  file stays empty. Persist/recover comment IDs and confirm deletion before deleting accounts.
-- Aggregate non-seek ratio is not computed/enforced; p95 still controls the threshold. Use sum(stall)/(sum(watch)
-  + sum(stall)), report both ratios and propagate the aggregate result to the runner's exit status.
-- Watchdog is optional, treats HTTP 500 as curl success, and does not reliably stop both Docker generators.
-  Require all four sites, check HTTP 200, handle INT/TERM, stop/wait both containers, then cleanup.
-- HTTP >5% for one minute and edge available RAM <1 GiB need operational abort enforcement/explicit monitoring.
-  Preserve each generator's result: `wait PID_HLS PID_API` only returns the last status.
-- Tokens are written to disk; login/refresh in memory using the metadata journal. Refresh during the 35-minute
-  workload too (15-minute token lifetime). Do not fall back to unjournaled registrations after preseed failure.
-- Root lint & format CI remains red; add deterministic offline tests for the failure and abort paths.
-
+LT2 harness #263 head `21b54a31a7b9047f5723dd0e097fcfe340ed14e1`: NOT APPROVED; do not run production.
+- Root CI remains red with the same 10 no-undef errors. Independent offline cleanup tests pass 5/5, but accept
+  deletion of an account after comment deletion fails. The new collector does not make cleanup safe yet.
+- Independent 401-login probe: failedAccounts=1, failedComments=0, comment journal removed, CLI exit 0. Retain
+  unresolved comments and author metadata, fail nonzero, and coordinate k6 teardown with standalone cleanup so
+  comments are confirmed purged before account deletion. Malformed journals must fail closed.
+- New HLS URL `/v1/videos/:id/manifest.m3u8` is absent from the contract: use `playback.hls_url`. Reject empty/invalid
+  playback and failed first segments. Gate on exact aggregate non-seek stall/(watch+stall); the rounded Rate
+  approximation and p95 threshold do not satisfy the brief. Report the inclusive ratio separately.
+- Watchdog reads generator RAM instead of edge-1 RAM, omits sustained HTTP-error abort, leaves legacy checks
+  optional and accepts HTTP 500. Enforce all four HTTP 200 checks, edge available RAM and >5% errors for 60s.
+- Enforce ICT date/window before account creation, with cleanup reserve. Stop/wait both run-named containers,
+  drain collector, then cleanup; preserve both exit statuses and terminate on INT/TERM. Do not stop unrelated
+  containers or swallow cleanup failures.
+- Tokens remain on disk, workload does not renew them, and fallback registrations remain unjournaled. Use five
+  metadata-only accounts (0600), in-memory login/refresh and fail-closed preseed; do not log emails.
+- Collector ignores durability failures and binds all interfaces; use loopback, validated atomic recovery records,
+  0600 and a recovery path for lost create responses/acknowledgements. Add meaningful offline regressions.
+- No `[LT2] result` issue found. AG2 VM readiness/deletion-plan evidence has not been posted on #47; requested.
+  A failed harness review is not a production bottleneck measurement. Assign no performance fix without evidence.
 ## Beta gate order (ADR-034)
 SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ⏳ (changes requested) → LT2 ⏳ (changes requested).
 
@@ -155,12 +164,11 @@ only after BETA1-web is deployed AND LT2 has passed.
 - LT2 window: 02:00–03:30 Asia/Ho_Chi_Minh, from the night of 2026-10-09.
 - Generator: a temporary OCI A1 VM (BETA-ops D), deleted the same night.
 
-## Legal text filled; BETA1-web deploy pending
-- User supplied the legal details on 2026-10-07. Astra filled docs/legal and matching web copies; effective date
-  is 10/10/2026 and backup retention is 14 days. These source documents and matching web copies are committed
-  together in the Astra continuity docs PR; include these exact copies before
-  BETA1-web deploys. Do not announce invitations ready before the chosen effective date.
-
+## Legal merged; BETA1-web deploy pending
+- User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
+  copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
+  ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
+- No merged-not-deployed app change is currently accepted: #270 and #263 remain open and changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: create the OCI VM and an ephemeral Tailscale key (Antigravity 2 gives the exact steps).
