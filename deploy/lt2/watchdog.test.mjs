@@ -184,7 +184,22 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         if (typeof server.closeAllConnections === 'function') {
           server.closeAllConnections();
         }
-        await new Promise((resolve) => server.close(resolve));
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            try {
+              server.unref();
+            } catch {
+              // ignore
+            }
+            resolve();
+          }, 500);
+          timeout.unref();
+
+          server.close(() => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
       }
     });
 
@@ -545,7 +560,7 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       const invalidPath =
         process.platform === 'win32'
           ? 'Z:\\invalid\\path\\abort.signal'
-          : '/proc/invalid/path/abort.signal';
+          : '/dev/null/invalid/abort.signal';
       const watchdog = new PlatformWatchdog({
         runId: 'test_fail_persist',
         abortSignalFile: invalidPath,
