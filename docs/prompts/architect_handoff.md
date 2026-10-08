@@ -141,20 +141,18 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `aa60cc7168ac856d3646cfc6e4b6d727359e2b63`: NOT APPROVED; do not run production.
-- CI GREEN: root run 37758211734/job 113247991621 format passes, zero lint errors. Review 5454780534.
-  Independent snapshot tests: 17/17 pass. Accepted: API-mix uses metadata login and removes token-file reads
+LT2 harness #263 head `e3cb3016e1489041d9dbd32dcec7d2b724a2e79b`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37760731702/job 113256274703 format passes, zero lint errors. Review 5454930617.
+  Independent snapshot tests: 18/18 pass. Accepted: API-mix uses metadata login and removes token-file reads
   and fallback registrations; cleanup login failure retains matching comments and account; corrupt/non-array
   journals throw before deletion. Real cleanup regressions pass. Prior comment-failure author retention stands.
-- Latest diff touches ONLY cleanup/tests/two README lines. Accepted and independently probed: contract author
-  now purges before account; comment cursor pagination regression passes; video scan503 retains account.
-- Actual runCleanup probes: video list404, malformed200 items:string, OR items:[] with video next_cursor each
-  delete author, zero comments and return zero failures; video second page never fetched. Require validated
-  exhaustive recorded run targets/video+comment cursors, safe nullable authors, bounded requests/repeated-cursor
-  checks. Incomplete scan must retain authors/recovery and fail; persist recovered metadata atomically0600.
-- Renewal null/failed ACK still continue; API-mix/runner/HLS/watchdog/collector unchanged. Complete remaining
-  implementation groups and real regressions. README wrongly adds PublicProfile.email and promises all non200
-  scans retain recovery despite404 bypass. Fix old mocks to contract-valid200, not special-case404 for tests.
+- Latest diff ONLY cleanup/tests. Accepted via actual probes: list404 and malformed items payload retain
+  author; second video page now fetched and comment purged before account. Prior corrected findings stay closed.
+- Actual comment items:[{}] probe still skips invalid record and deletes author, zero comments/zero failures.
+  Validate complete record/cursor schemas, reject missing/invalid fields, bound requests/pages/cursor cycles;
+  reconcile recorded run-owned targets, safely handle nullable authors and persist recovered metadata atomically0600.
+- API-mix, runner/HLS/watchdog/collector remain unchanged. Renewal null/ACK failures still continue; finish
+  ALL remaining implementation groups, actual regressions and complete README/Handoff checklist.
 - Cleanup JSON parsing is fixed, but record-array validation/contract success and atomic 0600 persistence
   remain; collector still turns corrupt prior journals into empty arrays and can overwrite recovery records.
 - k6 fail() still aborts only an iteration. Window bypass is limited by unsafe substring-host checks, allowing
