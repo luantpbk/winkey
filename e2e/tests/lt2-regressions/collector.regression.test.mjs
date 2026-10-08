@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +56,22 @@ function getNonLoopbackIp() {
   return null;
 }
 
+function getListeningAddress(port) {
+  try {
+    const cmd =
+      process.platform === 'win32' ? 'netstat -ano' : 'ss -tlpn || netstat -tlpn || lsof -i -n -P';
+    const output = execSync(cmd, { encoding: 'utf8' });
+    const line = output
+      .split('\n')
+      .find((l) => l.includes(`:${port}`) && (l.includes('LISTEN') || l.includes('LISTENING')));
+    if (!line) return null;
+    const match = line.match(/(127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::|localhost):[0-9]+/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 describe('[LT2 Regression] Actual Comment Collector Validation & Security', () => {
   let tmpDir;
   let isolatedCollectorScript;
@@ -64,7 +80,21 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
   let serverPort;
   let serverUrl;
 
+  let capturedOpenMode = null;
+  const originalOpenSync = fs.openSync;
+
   beforeEach(async () => {
+    capturedOpenMode = null;
+    fs.openSync = function (...args) {
+      if (
+        typeof args[0] === 'string' &&
+        (args[0].includes('lt2_comments.json') || args[0].includes('.tmp.'))
+      ) {
+        capturedOpenMode = args[2];
+      }
+      return originalOpenSync.apply(this, args);
+    };
+
     // Isolated snapshot directory: zero shared checkout changes
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-collector-'));
     commentsFile = path.join(tmpDir, 'lt2_comments.json');
@@ -84,6 +114,7 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
   });
 
   afterEach(async () => {
+    fs.openSync = originalOpenSync;
     if (server) {
       await new Promise((resolve) => server.close(resolve));
       server = null;
@@ -169,22 +200,35 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
     const raw = fs.readFileSync(commentsFile, 'utf8');
     const savedComments = JSON.parse(raw);
 
-    // In current SHA, writeComments() lacks serialization/locks and collides on Date.now() tmpPath,
-    // causing concurrent writes to drop comments!
+    // Verify all comments persisted without concurrency drop
     assert.strictEqual(
       savedComments.length,
       commentCount,
       `Atomicity finding: collector must persist all ${commentCount} concurrent comments without data loss (saved ${savedComments.length})`,
     );
 
-    // If on POSIX, also verify mode 0600
-    if (process.platform !== 'win32') {
+    // Verify no temporary files were leaked during atomic rename
+    const tmpFiles = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp.'));
+    assert.strictEqual(
+      tmpFiles.length,
+      0,
+      'No temporary write files must remain after atomic write operations',
+    );
+
+    // Verify file permission mode 0600: on POSIX verify filesystem mode bits; on Windows verify requested openSync mode
+    if (process.platform === 'win32') {
+      assert.strictEqual(
+        capturedOpenMode,
+        0o600,
+        `comments file openSync must specify mode 0600 for data privacy (got ${capturedOpenMode !== undefined ? '0' + capturedOpenMode.toString(8) : 'undefined'})`,
+      );
+    } else {
       const stat = fs.statSync(commentsFile);
       const mode = stat.mode & 0o777;
       assert.strictEqual(
         mode,
         0o600,
-        `comments file must have 0600 permissions for data privacy (got ${mode.toString(8)})`,
+        `comments file must have 0600 permissions for data privacy (got 0${mode.toString(8)})`,
       );
     }
   });
@@ -192,12 +236,6 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
   test('Finding 7: Standalone collector must bind to 127.0.0.1 (loopback), never 0.0.0.0', async () => {
     // Start the actual standalone collector script as an owned child process
     const freePort = 19999 + Math.floor(Math.random() * 1000);
-    const nonLoopbackIp = getNonLoopbackIp();
-
-    if (!nonLoopbackIp) {
-      // Fallback if no non-loopback network interface available
-      return;
-    }
 
     const child = spawn(process.execPath, [isolatedCollectorScript], {
       cwd: tmpDir,
@@ -232,31 +270,40 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
 
       assert.ok(booted, 'Standalone collector failed to boot on loopback healthz');
 
-      // Now attempt connection via the machine's external/LAN non-loopback IP
-      let canConnectNonLoopback = false;
-      try {
-        const nonLoopbackRes = await new Promise((resolve, reject) => {
-          const req = http.get(`http://${nonLoopbackIp}:${freePort}/healthz`, (r) => {
-            resolve(r.statusCode);
-          });
-          req.on('error', reject);
-          req.setTimeout(500, () => req.destroy(new Error('timeout')));
-        });
-        if (nonLoopbackRes === 200) {
-          canConnectNonLoopback = true;
-        }
-      } catch {
-        canConnectNonLoopback = false;
-      }
-
-      // If the collector binds to 0.0.0.0 (as in current SHA line 73),
-      // it accepts connections on the external IP (canConnectNonLoopback is true).
-      // Security requires binding strictly to 127.0.0.1 (canConnectNonLoopback must be false).
+      // 1. Inspect the listening address directly from the OS socket table
+      const boundAddress = getListeningAddress(freePort);
+      // Current SHA line 73: server.listen(PORT, '0.0.0.0') binds to '0.0.0.0'
       assert.strictEqual(
-        canConnectNonLoopback,
-        false,
-        `Security finding: standalone collector must NOT be accessible on non-loopback IP ${nonLoopbackIp} (must bind to 127.0.0.1, not 0.0.0.0)`,
+        boundAddress,
+        '127.0.0.1',
+        `Security finding: standalone collector bound socket to public '${boundAddress}', not loopback '127.0.0.1'`,
       );
+
+      // 2. Also verify non-loopback connection rejection if host IP is present
+      const nonLoopbackIp = getNonLoopbackIp();
+      if (nonLoopbackIp) {
+        let canConnectNonLoopback = false;
+        try {
+          const nonLoopbackRes = await new Promise((resolve, reject) => {
+            const req = http.get(`http://${nonLoopbackIp}:${freePort}/healthz`, (r) => {
+              resolve(r.statusCode);
+            });
+            req.on('error', reject);
+            req.setTimeout(500, () => req.destroy(new Error('timeout')));
+          });
+          if (nonLoopbackRes === 200) {
+            canConnectNonLoopback = true;
+          }
+        } catch {
+          canConnectNonLoopback = false;
+        }
+
+        assert.strictEqual(
+          canConnectNonLoopback,
+          false,
+          `Security finding: standalone collector must NOT be accessible on non-loopback IP ${nonLoopbackIp}`,
+        );
+      }
     } finally {
       child.kill('SIGKILL');
     }

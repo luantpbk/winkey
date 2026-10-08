@@ -17,134 +17,106 @@ const bashBin =
 
 describe('[LT2 Regression] Actual Runner & Lifecycle Safety Verification', () => {
   let tmpDir;
-  let fakeBinDir;
   let traceLog;
-  let scriptCopyPath;
+  let wrapperScriptPath;
 
   beforeEach(() => {
+    // Confine all writes exclusively to owned temporary directory; NEVER mutate /tmp/node/bin
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-runner-'));
-    fakeBinDir = path.join(tmpDir, 'bin');
-    fs.mkdirSync(fakeBinDir, { recursive: true });
     traceLog = path.join(tmpDir, 'trace.log');
     fs.writeFileSync(traceLog, '', 'utf8');
 
-    // Create hermetic fake binaries
-    // 1. Fake curl: Hard denial of non-loopback requests, 200/OK on healthz
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'curl'),
-      `#!/bin/sh
-for arg in "$@"; do
-  case "$arg" in
-    http://127.0.0.1*|http://localhost*|http://\\[::1\\]*)
+    // Create an in-process bash wrapper script defining scoped exported functions
+    // Functions take precedence over any directory in PATH (including /tmp/node/bin)
+    wrapperScriptPath = path.join(tmpDir, 'wrapper.sh');
+    const normalizedScriptPath = originalScriptPath.replace(/\\/g, '/');
+    const normalizedTraceLog = traceLog.replace(/\\/g, '/');
+
+    const wrapperContent = `#!/usr/bin/env bash
+set -e
+
+# Scoped interceptor for curl: strictly validates exact loopback origins, hard denial for non-loopback
+curl() {
+  for arg in "$@"; do
+    if [[ "$arg" =~ ^https?:// ]]; then
+      # Extract host: protocol://host[:port]/path -> host
+      host=$(echo "$arg" | sed -E 's|^https?://([^/:]+).*|\\1|')
+      if [[ "$host" != "127.0.0.1" && "$host" != "localhost" && "$host" != "[::1]" ]]; then
+        echo "CURL HARD DENIAL: Non-loopback request blocked: $arg" >&2
+        return 42
+      fi
+    fi
+  done
+  echo "OK"
+  return 0
+}
+export -f curl
+
+node() {
+  echo "node $@" >> "${normalizedTraceLog}"
+  if [ "\${SIMULATE_PRESEED_FAIL:-0}" = "1" ] && echo "$@" | grep -q preseed; then
+    return 1
+  fi
+  return 0
+}
+export -f node
+
+docker() {
+  echo "docker $@" >> "${normalizedTraceLog}"
+  return 0
+}
+export -f docker
+
+k6() {
+  echo "k6 $@" >> "${normalizedTraceLog}"
+  return 0
+}
+export -f k6
+
+sleep() {
+  return 0
+}
+export -f sleep
+
+kill() {
+  echo "kill $@" >> "${normalizedTraceLog}"
+  return 0
+}
+export -f kill
+
+date() {
+  if [ "\${FAIL_TZ:-0}" = "1" ]; then
+    case "$TZ" in
+      *Asia/Ho_Chi_Minh*)
+        echo "date: timezone lookup failed for Asia/Ho_Chi_Minh" >&2
+        return 1
+        ;;
+    esac
+  fi
+  case "$*" in
+    *%H%M*)
+      echo "\${FAKE_TIME:-0230}"
       ;;
-    http*|https*)
-      echo "CURL HARD DENIAL: Non-loopback request blocked: $arg" >&2
-      exit 42
+    *%Y*|*%m*|*%d*|*date*)
+      echo "\${FAKE_DATE:-2026-10-08}"
       ;;
-  esac
-done
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 2. Fake node: Never run real node commands against network or disk; log to trace
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'node'),
-      `#!/bin/sh
-echo "node $@" >> "\${TRACE_LOG}"
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 3. Fake docker: Log container commands to trace
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'docker'),
-      `#!/bin/sh
-echo "docker $@" >> "\${TRACE_LOG}"
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 4. Fake k6: Log invocations
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'k6'),
-      `#!/bin/sh
-echo "k6 $@" >> "\${TRACE_LOG}"
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 5. Fake sleep: No delay in tests
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'sleep'),
-      `#!/bin/sh
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 6. Fake kill: Log signals to trace
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'kill'),
-      `#!/bin/sh
-echo "kill $@" >> "\${TRACE_LOG}"
-exit 0
-`,
-      { mode: 0o755 },
-    );
-
-    // 7. Fake date: Configurable via FAKE_DATE, FAKE_TIME, FAIL_TZ
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'date'),
-      `#!/bin/sh
-if [ "\${FAIL_TZ}" = "1" ]; then
-  case "$TZ" in
-    *Asia/Ho_Chi_Minh*)
-      echo "date: timezone lookup failed for Asia/Ho_Chi_Minh" >&2
-      exit 1
+    *)
+      echo "\${FAKE_DATE:-2026-10-08} \${FAKE_TIME:-02:30:00}"
       ;;
   esac
-fi
-case "$*" in
-  *%H%M*)
-    echo "\${FAKE_TIME:-0230}"
-    ;;
-  *%Y*|*%m*|*%d*|*date*)
-    echo "\${FAKE_DATE:-2026-10-08}"
-    ;;
-  *)
-    echo "\${FAKE_DATE:-2026-10-08} \${FAKE_TIME:-02:30:00}"
-    ;;
-esac
-`,
-      { mode: 0o755 },
-    );
+}
+export -f date
 
-    // Also populate /tmp/node/bin to intercept lt2-run.sh's explicit PATH override
-    try {
-      spawnSync(bashBin, [
-        '-c',
-        `mkdir -p /tmp/node/bin && cp "${fakeBinDir.replace(/\\/g, '/')}"/* /tmp/node/bin/`,
-      ]);
-    } catch {
-      // ignore
-    }
+enable -n kill 2>/dev/null || true
 
-    // Copy script into isolated temp directory
-    scriptCopyPath = path.join(tmpDir, 'lt2-run.sh');
-    fs.copyFileSync(originalScriptPath, scriptCopyPath);
+# Execute the real unmodified runner script
+source "${normalizedScriptPath}"
+`;
+    fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
   afterEach(() => {
-    try {
-      spawnSync(bashBin, ['-c', 'rm -rf /tmp/node/bin']);
-    } catch {
-      // ignore
-    }
+    // Only remove owned temporary directory; zero global mutations
     if (tmpDir && fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -152,9 +124,9 @@ esac
 
   function executeRunner(customEnv = {}) {
     const pathSeparator = process.platform === 'win32' ? ';' : ':';
-    // Sanitized, hermetic environment: NO inherited credentials or tokens
+    // Sanitized minimal environment: NO inherited credentials, tokens, or sensitive variables
     const hermeticEnv = {
-      PATH: `${fakeBinDir}${pathSeparator}/usr/bin${pathSeparator}/bin${pathSeparator}${process.env.PATH || ''}`,
+      PATH: `/usr/bin${pathSeparator}/bin${pathSeparator}${process.env.PATH || ''}`,
       SYSTEMROOT: process.env.SYSTEMROOT || '',
       TEMP: tmpDir,
       TMP: tmpDir,
@@ -166,16 +138,12 @@ esac
       ...customEnv,
     };
 
-    return spawnSync(
-      bashBin,
-      ['-c', `enable -n kill 2>/dev/null || true; source "${scriptCopyPath.replace(/\\/g, '/')}"`],
-      {
-        cwd: tmpDir,
-        env: hermeticEnv,
-        encoding: 'utf8',
-        timeout: 10000,
-      },
-    );
+    return spawnSync(bashBin, [wrapperScriptPath.replace(/\\/g, '/')], {
+      cwd: tmpDir,
+      env: hermeticEnv,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
   }
 
   test('Finding 8: Exact-host validation: http://localhost.attacker.invalid must not be treated as loopback', () => {
@@ -190,7 +158,7 @@ esac
     const output = (res.stdout || '') + (res.stderr || '');
     // In current SHA, line 32 checks [[ "${TARGET_URL}" != *"localhost"* ... ]],
     // which matches "localhost.attacker.invalid", leaving is_production=0!
-    // The test asserts that localhost.attacker.invalid must be rejected as an invalid or unauthenticated production target.
+    // The test asserts that localhost.attacker.invalid must be rejected as an unauthenticated production target.
     const rejected = res.status !== 0 && output.includes('LOADTEST_USER_PASSWORD');
     assert.strictEqual(
       rejected,
@@ -199,15 +167,17 @@ esac
     );
   });
 
-  test('Finding 9: ICT date cutoff: execution before 2026-10-09 must be rejected', () => {
+  test('Finding 9: ICT date cutoff: execution before 2026-10-09 must be rejected on production target', () => {
     // Approved execution window begins starting October 9, 2026 (02:00 - 03:30 AM ICT).
-    // Execution on October 8, 2026 within the hour window must be rejected by date validation.
+    // Using a controlled non-loopback .invalid target exercises the production-only gate.
     const res = executeRunner({
-      TARGET_URL: 'http://127.0.0.1:9999',
+      TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAKE_DATE: '2026-10-08',
       FAKE_TIME: '0230',
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
     });
+
+    const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
 
     // Current SHA ignores the date completely and only checks %H%M ("0230").
     const errOutput = res.stderr || '';
@@ -216,38 +186,51 @@ esac
       true,
       'Safety finding: Runner must validate date and reject execution before approved date 2026-10-09 with clear stderr error',
     );
+    assert.strictEqual(
+      trace.includes('preseed') || trace.includes('docker run'),
+      false,
+      'Preseed and k6 workloads must NOT be launched when date gate is rejected',
+    );
   });
 
-  test('Finding 10: Timezone fallback prohibition: fail-closed if Asia/Ho_Chi_Minh TZ fails', () => {
+  test('Finding 10: Timezone fallback prohibition: fail-closed if Asia/Ho_Chi_Minh TZ fails on production target', () => {
     // Current SHA line 37: TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M"
     // When Asia/Ho_Chi_Minh fails, falling back to machine local time can mistakenly execute outside window.
-    // Runner must fail-closed if Asia/Ho_Chi_Minh calculation fails.
+    // Exercising production gate with non-loopback .invalid target:
     const res = executeRunner({
-      TARGET_URL: 'http://127.0.0.1:9999',
+      TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAIL_TZ: '1',
       FAKE_TIME: '0230',
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
     });
 
+    const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
+
     // In current SHA, the runner swallows the error (|| date +"%H%M") and continues running!
-    const failedClosed = res.status !== 0;
     assert.strictEqual(
-      failedClosed,
+      res.status !== 0,
       true,
       'Safety finding: lt2-run.sh must fail-closed when Asia/Ho_Chi_Minh timezone evaluation fails, not fall back to local date',
     );
+    assert.strictEqual(
+      trace.includes('preseed') || trace.includes('docker run'),
+      false,
+      'Preseed and k6 workloads must NOT be launched when timezone calculation fails',
+    );
   });
 
-  test('Finding 11: Cleanup reserve: starting at 03:20 AM with 35m duration must be rejected', () => {
+  test('Finding 11: Cleanup reserve: starting at 03:20 AM with 35m duration must be rejected on production target', () => {
     // Window ends at 03:30 AM ICT. Starting at 03:20 with a 35m run would overshoot to 03:55 AM.
-    // Script must enforce remaining window >= test duration + cleanup reserve.
+    // Exercising production gate with non-loopback .invalid target:
     const res = executeRunner({
-      TARGET_URL: 'http://127.0.0.1:9999',
+      TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAKE_DATE: '2026-10-09',
       FAKE_TIME: '0320',
       DURATION: '35m',
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
     });
+
+    const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
 
     const output = (res.stdout || '') + (res.stderr || '');
     assert.strictEqual(
@@ -255,36 +238,23 @@ esac
       true,
       'Safety finding: Runner must enforce cleanup reserve before 03:30 AM window cutoff',
     );
+    assert.strictEqual(
+      trace.includes('preseed') || trace.includes('docker run'),
+      false,
+      'Preseed and k6 workloads must NOT be launched when cleanup reserve is violated',
+    );
   });
 
   test('Finding 12: Abort shutdown order: containers must be stopped before collector drain/kill', () => {
-    // In abort_all(): collector is killed with kill -9 BEFORE docker stop!
-    // Trigger abort during execution and inspect the recorded lifecycle trace.
-    // Configure fake node to fail during preseed, triggering the abort_all() trap:
-    fs.writeFileSync(
-      path.join(fakeBinDir, 'node'),
-      `#!/bin/sh
-echo "node $@" >> "\${TRACE_LOG}"
-if echo "$@" | grep -q preseed; then exit 1; fi
-exit 0
-`,
-      { mode: 0o755 },
-    );
-    try {
-      spawnSync(bashBin, ['-c', `cp "${fakeBinDir.replace(/\\/g, '/')}/node" /tmp/node/bin/node`]);
-    } catch {
-      // ignore
-    }
-
+    // Trigger abort trap by simulating preseed failure in the wrapper
     executeRunner({
       TARGET_URL: 'http://127.0.0.1:9999',
       FAKE_DATE: '2026-10-09',
       FAKE_TIME: '0230',
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
+      SIMULATE_PRESEED_FAIL: '1',
     });
 
-    // The script catches preseed failure and runs abort_all trap.
-    // Inspect trace.log for order of docker stop vs collector kill:
     const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
     const lines = trace.split('\n');
 

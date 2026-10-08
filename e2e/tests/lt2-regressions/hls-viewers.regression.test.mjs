@@ -230,12 +230,22 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  test('Finding 18: Zero-playback handling: empty variants list does not record NaN or crash', () => {
+  test('Finding 18: Zero-playback handling: variant failure must trigger nonzero error gate and record zero valid playback', () => {
+    // When playback fails to start (e.g. variant returns HTTP 500 error),
+    // the run must record zero valid watch time, breach the http_req_failed threshold gate,
+    // and record no valid playback ratio metrics without NaN or crashes.
     setMockHttpHandler((req) => {
       if (req.url.includes('master.m3u8')) {
         return {
           status: 200,
-          body: `#EXTM3U\n# No variants\n`,
+          body: `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8\n`,
+          timings: { duration: 10 },
+        };
+      }
+      if (req.url.includes('variant.m3u8')) {
+        return {
+          status: 500,
+          body: 'Internal Server Error',
           timings: { duration: 10 },
         };
       }
@@ -246,28 +256,60 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       videos: [{ id: 'vid-1', playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' } }],
     };
 
-    // Zero playback must exit cleanly without division by zero NaN in metrics
     hlsModule.default(mockData);
 
+    const watchTrend = metricInstances.find((m) => m.name === 'total_watch_time_ms');
+    const httpReqFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
     const ratioTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio');
-    for (const val of ratioTrend?.values || []) {
-      assert.strictEqual(Number.isNaN(val), false, 'Recorded ratio must never be NaN');
-      assert.strictEqual(Number.isFinite(val), true, 'Recorded ratio must be finite');
-    }
+
+    // 1. Zero valid playback: watch time must be strictly zero
+    assert.strictEqual(watchTrend?.count || 0, 0, 'Zero valid playback must record 0 watch time');
+
+    // 2. Nonzero final gate failure: http_req_failed must record failure samples and rate > 0
+    assert.ok(
+      httpReqFailedMetric && httpReqFailedMetric.values.length > 0,
+      'http_req_failed must have samples',
+    );
+    assert.strictEqual(
+      httpReqFailedMetric.rate() > 0,
+      true,
+      `Failure gate must record nonzero error rate (got ${httpReqFailedMetric.rate()})`,
+    );
+
+    // 3. No valid playback ratio recorded
+    assert.strictEqual(
+      ratioTrend?.values.length || 0,
+      0,
+      'No valid playback ratio should be recorded on zero playback',
+    );
   });
 
   test('Finding 18: Seek vs No-Seek separation: rebufferRatioInclSeekTrend includes seek stall', () => {
-    // When a seek occurs, stallTimeSeekOnly is accumulated into ratioInclSeek but NOT ratioNoSeek
+    // When a seek occurs, stallTimeSeekOnly is accumulated into ratioInclSeek but NOT ratioNoSeek.
+    // Sequence Math.random deterministically:
+    // Call 1: Hot video selection check (0.5 >= 0.2 -> uniform)
+    // Call 2: Video pool selection index 0
+    // Call 3: playDuration (30.0s)
+    // Call 4: Iteration 1 isSeekPoint (0.05 < 0.1 -> seek event triggers!)
+    // Call 5: Iteration 1 seek destination segIdx (index 0)
+    // Call 6+: Subsequent iterations isSeekPoint (0.5 >= 0.1 -> no further seeks)
+    let randomCallCount = 0;
+    let seekEventsTriggered = 0;
     const originalRandom = Math.random;
-    let seekDone = false;
     Math.random = () => {
-      if (!seekDone) {
-        seekDone = true;
-        return 0.05; // Trigger seek once
+      randomCallCount++;
+      if (randomCallCount === 1) return 0.5;
+      if (randomCallCount === 2) return 0.0;
+      if (randomCallCount === 3) return 0.5;
+      if (randomCallCount === 4) {
+        seekEventsTriggered++;
+        return 0.05;
       }
-      return 0.5; // Do not seek again, avoid infinite seek loop
+      if (randomCallCount === 5) return 0.0;
+      return 0.5;
     };
 
+    let seg0Calls = 0;
     setMockHttpHandler((req) => {
       if (req.url.includes('master.m3u8')) {
         return {
@@ -279,11 +321,18 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       if (req.url.includes('variant.m3u8')) {
         return {
           status: 200,
-          body: `#EXTM3U\n#EXTINF:2.0\nseg0.ts\n#EXTINF:2.0\nseg1.ts\n`,
+          body: `#EXTM3U\n#EXTINF:2.0\nseg0.ts\n`,
           timings: { duration: 10 },
         };
       }
-      return { status: 200, body: 'data', timings: { duration: 500 } };
+      if (req.url.includes('seg0.ts')) {
+        seg0Calls++;
+        // First call is startup firstSegRes (10ms). Second call is post-seek download (500ms -> 0.5s stall).
+        // Subsequent loop calls are 10ms (no stall).
+        const duration = seg0Calls === 2 ? 500 : 10;
+        return { status: 200, body: 'data', timings: { duration } };
+      }
+      return { status: 200, body: '', timings: { duration: 10 } };
     });
 
     const mockData = {
@@ -298,13 +347,37 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
     const ratioNoSeekTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio');
     const ratioInclSeekTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio_incl_seek');
+    const watchTrend = metricInstances.find((m) => m.name === 'total_watch_time_ms');
 
+    // 1. Assert seek event occurred exactly once
+    assert.strictEqual(seekEventsTriggered, 1, 'Seek event must occur exactly once');
+
+    // 2. Assert exact sample counts (no missing or skipped samples)
     assert.ok(ratioNoSeekTrend && ratioInclSeekTrend, 'Both ratio trends must be defined');
-    if (ratioInclSeekTrend.values.length > 0 && ratioNoSeekTrend.values.length > 0) {
-      assert.ok(
-        ratioInclSeekTrend.values[0] >= ratioNoSeekTrend.values[0],
-        'Ratio including seek must be >= ratio without seek',
-      );
-    }
+    assert.strictEqual(ratioNoSeekTrend.values.length, 1, 'Exact 1 sample for rebuffer_ratio');
+    assert.strictEqual(
+      ratioInclSeekTrend.values.length,
+      1,
+      'Exact 1 sample for rebuffer_ratio_incl_seek',
+    );
+
+    // 3. Assert no-seek ratio is exactly 0
+    assert.strictEqual(ratioNoSeekTrend.values[0], 0, 'No-seek rebuffer ratio must be 0');
+
+    // 4. Assert inclusive ratio is strictly greater than no-seek ratio
+    assert.strictEqual(
+      ratioInclSeekTrend.values[0] > ratioNoSeekTrend.values[0],
+      true,
+      'Inclusive ratio must be strictly greater than no-seek ratio',
+    );
+
+    // 5. Assert exact expected numeric values
+    const expectedWatchSec = (watchTrend?.count || 0) / 1000.0;
+    const expectedInclSeek = 0.5 / expectedWatchSec;
+    assert.strictEqual(
+      Math.abs(ratioInclSeekTrend.values[0] - expectedInclSeek) < 1e-6,
+      true,
+      `Inclusive ratio must match exact expected numeric value ${expectedInclSeek} (got ${ratioInclSeekTrend.values[0]})`,
+    );
   });
 });
