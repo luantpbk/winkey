@@ -62,36 +62,84 @@ export async function runCleanup(opts = {}) {
   // 2b. Comment Discovery: Scan target videos to recover un-journaled lt2_* comments if collector ACK was lost
   let discoveryIncomplete = false;
   try {
-    const vRes = await customFetch(`${targetUrl}/v1/videos?sort=newest&limit=50`);
-    if (vRes && (vRes.ok || vRes.status === 404)) {
-      const vData = vRes.ok ? await vRes.json() : { items: [] };
-      const videoItems = Array.isArray(vData.items)
-        ? vData.items
-        : Array.isArray(vData)
-          ? vData
-          : [];
-      for (const vid of videoItems) {
+    const allDiscoveredVideos = [];
+    let videoCursor = null;
+
+    do {
+      const vUrl = videoCursor
+        ? `${targetUrl}/v1/videos?sort=newest&limit=50&cursor=${encodeURIComponent(videoCursor)}`
+        : `${targetUrl}/v1/videos?sort=newest&limit=50`;
+      const vRes = await customFetch(vUrl);
+
+      if (!vRes || vRes.status !== 200 || !vRes.ok) {
+        discoveryIncomplete = true;
+        console.warn(
+          `[cleanup] WARNING: Video listing returned status ${vRes ? vRes.status : 'network error'}. Rejecting non-200 discovery response.`,
+        );
+        break;
+      }
+
+      let vData;
+      try {
+        vData = await vRes.json();
+      } catch (err) {
+        discoveryIncomplete = true;
+        console.warn(`[cleanup] WARNING: Invalid JSON payload in video listing: ${err.message}`);
+        break;
+      }
+
+      if (!vData || typeof vData !== 'object' || !Array.isArray(vData.items)) {
+        discoveryIncomplete = true;
+        console.warn(
+          '[cleanup] WARNING: Invalid payload structure in video listing (items is not an array).',
+        );
+        break;
+      }
+
+      allDiscoveredVideos.push(...vData.items);
+      videoCursor = vData.next_cursor || null;
+    } while (videoCursor);
+
+    if (!discoveryIncomplete) {
+      for (const vid of allDiscoveredVideos) {
         if (!vid || !vid.id) continue;
-        let cursor = null;
+        let commentCursor = null;
+
         do {
-          const url = cursor
-            ? `${targetUrl}/v1/videos/${vid.id}/comments?cursor=${encodeURIComponent(cursor)}`
+          const cUrl = commentCursor
+            ? `${targetUrl}/v1/videos/${vid.id}/comments?cursor=${encodeURIComponent(commentCursor)}`
             : `${targetUrl}/v1/videos/${vid.id}/comments`;
-          const cRes = await customFetch(url);
-          if (!cRes || !cRes.ok) {
+          const cRes = await customFetch(cUrl);
+
+          if (!cRes || cRes.status !== 200 || !cRes.ok) {
             discoveryIncomplete = true;
             console.warn(
-              `[cleanup] WARNING: Comment discovery failed for video ${vid.id} (HTTP ${cRes ? cRes.status : 'network error'}). Marking discovery incomplete.`,
+              `[cleanup] WARNING: Comment discovery failed for video ${vid.id} (status ${cRes ? cRes.status : 'network error'}). Rejecting non-200 response.`,
             );
             break;
           }
-          const cData = await cRes.json();
-          const commentList = Array.isArray(cData.items)
-            ? cData.items
-            : Array.isArray(cData)
-              ? cData
-              : [];
-          for (const item of commentList) {
+
+          let cData;
+          try {
+            cData = await cRes.json();
+          } catch (err) {
+            discoveryIncomplete = true;
+            console.warn(
+              `[cleanup] WARNING: Invalid JSON in comment response for video ${vid.id}: ${err.message}`,
+            );
+            break;
+          }
+
+          if (!cData || typeof cData !== 'object' || !Array.isArray(cData.items)) {
+            discoveryIncomplete = true;
+            console.warn(
+              `[cleanup] WARNING: Invalid comment payload structure for video ${vid.id} (items is not an array).`,
+            );
+            break;
+          }
+
+          for (const item of cData.items) {
+            if (!item || typeof item !== 'object' || !item.id) continue;
             const authorObj = item.author || item.user || {};
             const authorHandle = authorObj.handle || item.authorHandle || '';
             const authorEmail = authorObj.email || item.authorEmail || '';
@@ -112,16 +160,11 @@ export async function runCleanup(opts = {}) {
               }
             }
           }
-          cursor = cData.next_cursor || null;
-        } while (cursor);
+          commentCursor = cData.next_cursor || null;
+        } while (commentCursor);
 
         if (discoveryIncomplete) break;
       }
-    } else {
-      discoveryIncomplete = true;
-      console.warn(
-        `[cleanup] WARNING: Video listing failed for comment discovery (HTTP ${vRes ? vRes.status : 'network error'}). Marking discovery incomplete.`,
-      );
     }
   } catch (err) {
     discoveryIncomplete = true;
@@ -133,7 +176,7 @@ export async function runCleanup(opts = {}) {
 
   if (discoveryIncomplete) {
     console.error(
-      '[cleanup] ERROR: Comment discovery scan failed or was incomplete. Retaining all accounts and comments for retry recovery without deleting accounts.',
+      '[cleanup] ERROR: Comment discovery scan failed, rejected non-200/invalid payload, or was incomplete. Retaining all accounts and comments for retry recovery without deleting accounts.',
     );
     failedAccounts.push(...accounts);
     failedComments.push(...comments);

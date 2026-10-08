@@ -49,6 +49,9 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
     const callsOrder = [];
 
     const mockFetch = async (url, _opts = {}) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      }
       if (url.endsWith('/v1/auth/login')) {
         callsOrder.push('LOGIN');
         return {
@@ -93,6 +96,9 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
     fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
 
     const mockFetch = async (url, opts = {}) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      }
       if (url.endsWith('/v1/auth/login')) {
         return {
           ok: true,
@@ -135,6 +141,9 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
     fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
 
     const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      }
       if (url.endsWith('/v1/auth/login')) {
         return {
           ok: true,
@@ -176,6 +185,9 @@ describe('LT2 Data Cleanup, Retention and Order Tests', () => {
     fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
 
     const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      }
       if (url.endsWith('/v1/auth/login')) {
         return { ok: false, status: 401 }; // Simulates login failure (e.g. invalid password or server error)
       }
@@ -437,13 +449,11 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.deepStrictEqual(deletedCommentIds.sort(), ['comm_discovered_p1', 'comm_discovered_p2']);
   });
 
-  test('Discovery failure retains all accounts and comments without deleting user accounts', async () => {
+  test('Discovery rejects HTTP 404 on video listing and retains all accounts and comments', async () => {
     const sampleAccounts = [
-      { handle: 'lt2_user_disc_fail', email: 'lt2_user_disc_fail@example.com' },
+      { handle: 'lt2_user_404_test', email: 'lt2_user_404_test@example.com' },
     ];
-    const sampleComments = [
-      { id: 'comm_disc_fail', authorEmail: 'lt2_user_disc_fail@example.com' },
-    ];
+    const sampleComments = [{ id: 'comm_404_test', authorEmail: 'lt2_user_404_test@example.com' }];
     fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
     fs.writeFileSync(commentsFile, JSON.stringify(sampleComments, null, 2));
 
@@ -451,7 +461,7 @@ describe('Fail-Closed and Execution Safety Tests', () => {
 
     const mockFetch = async (url) => {
       if (url.includes('/v1/videos?sort=newest')) {
-        return { ok: false, status: 500 }; // Simulates comment discovery failure
+        return { ok: false, status: 404 }; // HTTP 404 must be rejected by discovery
       }
       if (url.endsWith('/v1/auth/me')) {
         deleteAccountCalled = true;
@@ -469,11 +479,49 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(
       deleteAccountCalled,
       false,
-      'User account MUST NOT be deleted if discovery fails',
+      'User account MUST NOT be deleted when video listing returns 404',
     );
     assert.strictEqual(res.failedAccounts.length, 1);
     assert.strictEqual(res.failedComments.length, 1);
     assert.strictEqual(fs.existsSync(accountsFile), true);
     assert.strictEqual(fs.existsSync(commentsFile), true);
+  });
+
+  test('Discovery rejects invalid payload structure and retains all accounts and comments', async () => {
+    const sampleAccounts = [
+      { handle: 'lt2_user_bad_payload', email: 'lt2_user_bad_payload@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: 'invalid_non_array_value' }), // Invalid payload
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted on invalid payload',
+    );
+    assert.strictEqual(res.failedAccounts.length, 1);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
   });
 });
