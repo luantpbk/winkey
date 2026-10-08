@@ -256,6 +256,39 @@ describe('Comment Collector Server Tests', () => {
     assert.strictEqual(comments[0].id, 'comm_collector_test_1');
     assert.strictEqual(comments[0].authorEmail, 'lt2_collector@example.com');
   });
+
+  test('Collector healthz endpoint responds 200 OK', async () => {
+    const res = await fetch(`http://127.0.0.1:${testPort}/healthz`);
+    assert.strictEqual(res.status, 200);
+    const text = await res.text();
+    assert.strictEqual(text, 'OK');
+  });
+
+  test('Collector handles duplicate comment POST gracefully without duplication', async () => {
+    const payload = JSON.stringify({
+      id: 'comm_duplicate_test',
+      authorEmail: 'lt2_dup@example.com',
+      authorHandle: 'lt2_dup',
+    });
+
+    const res1 = await fetch(`http://127.0.0.1:${testPort}/comment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    assert.strictEqual(res1.status, 200);
+
+    const res2 = await fetch(`http://127.0.0.1:${testPort}/comment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    assert.strictEqual(res2.status, 200);
+
+    const comments = JSON.parse(fs.readFileSync(commentsFile, 'utf8'));
+    assert.strictEqual(comments.length, 1);
+    assert.strictEqual(comments[0].id, 'comm_duplicate_test');
+  });
 });
 
 describe('Fail-Closed and Execution Safety Tests', () => {
