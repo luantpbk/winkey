@@ -141,10 +141,11 @@ Astra acceptance (2026-10-08):
 - AG2 report again substituted rs.kendrickheller.com for kidzlab; correct the evidence list. Independent kidzlab
   verification satisfies the gate. AG1 idle; AG2 rollout complete, standby for LT2 same-night deletion.
 
-LT2 harness #263 head `2b030444a065878e79288250a7274becde24d0fd`: NOT APPROVED; do not run production.
-- CI now GREEN: actual root run 37723289362/job 113135656002 has format pass and zero lint errors. New diff
-  changes ONLY four lint lines (globals and unused opts), not the critical implementation. Latest changes-requested
-  review 5451214183 requires every blocker mapped to implementation lines and meaningful offline failure tests.
+LT2 harness #263 head `d365771559ed6f551e7ce2f7dcde268b3b4cf7d5`: NOT APPROVED; do not run production.
+- CI GREEN: root run 37727443367/job 113148756700 format passes, zero lint errors. Latest diff changes ONLY
+  api-mix.js teardown: early k6 account deletion removed, correctly avoiding the race with standalone cleanup.
+  Standalone cleanup/runner/token/metric implementation blockers below remain unchanged; delegation is not
+  yet safe. Latest review requires all blockers mapped to changed lines, regression tests and actual outputs.
 - Previous independent offline cleanup tests passed 5/5 but accepted author deletion after comment failure;
   successful ordering tests and copied URL helpers do not prove failure recovery or the actual playback path.
 - Independent 401-login probe: failedAccounts=1, failedComments=0, comment journal removed, CLI exit 0. Retain
