@@ -1,7 +1,8 @@
-/* global fetch, console, process, setTimeout */
+/* global fetch, console, process */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as sleepMs } from 'node:timers/promises';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_URL = process.env.GATEWAY_URL || process.env.TARGET_URL || 'https://winkey.vn';
@@ -15,7 +16,7 @@ const defaultPassword = isLocalhost ? 'Password123!' : undefined;
 const envPassword = process.env.LOADTEST_USER_PASSWORD || defaultPassword;
 
 async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  await sleepMs(ms);
 }
 
 export async function runCleanup(opts = {}) {
@@ -69,18 +70,22 @@ export async function runCleanup(opts = {}) {
     let videoCursor = null;
 
     do {
-      if (Date.now() - discoveryStartTime > discoveryTimeoutMs) {
+      const elapsed = Date.now() - discoveryStartTime;
+      if (elapsed > discoveryTimeoutMs) {
         discoveryIncomplete = true;
         console.warn(
           '[cleanup] WARNING: Video discovery scan exceeded timeout limit. Marking discovery incomplete.',
         );
         break;
       }
+      const remainingMs = Math.max(1, discoveryTimeoutMs - elapsed);
+      const reqSignal = AbortSignal.timeout ? AbortSignal.timeout(remainingMs) : undefined;
+      const fetchOpts = reqSignal ? { signal: reqSignal } : {};
 
       const vUrl = videoCursor
         ? `${targetUrl}/v1/videos?sort=newest&limit=50&cursor=${encodeURIComponent(videoCursor)}`
         : `${targetUrl}/v1/videos?sort=newest&limit=50`;
-      const vRes = await customFetch(vUrl);
+      const vRes = await customFetch(vUrl, fetchOpts);
 
       if (!vRes || vRes.status !== 200 || !vRes.ok) {
         discoveryIncomplete = true;
@@ -152,18 +157,22 @@ export async function runCleanup(opts = {}) {
         let commentCursor = null;
 
         do {
-          if (Date.now() - discoveryStartTime > discoveryTimeoutMs) {
+          const cElapsed = Date.now() - discoveryStartTime;
+          if (cElapsed > discoveryTimeoutMs) {
             discoveryIncomplete = true;
             console.warn(
               '[cleanup] WARNING: Comment discovery scan exceeded timeout limit during pagination. Marking discovery incomplete.',
             );
             break;
           }
+          const cRemainingMs = Math.max(1, discoveryTimeoutMs - cElapsed);
+          const cReqSignal = AbortSignal.timeout ? AbortSignal.timeout(cRemainingMs) : undefined;
+          const cFetchOpts = cReqSignal ? { signal: cReqSignal } : {};
 
           const cUrl = commentCursor
             ? `${targetUrl}/v1/videos/${vid.id}/comments?cursor=${encodeURIComponent(commentCursor)}`
             : `${targetUrl}/v1/videos/${vid.id}/comments`;
-          const cRes = await customFetch(cUrl);
+          const cRes = await customFetch(cUrl, cFetchOpts);
 
           if (!cRes || cRes.status !== 200 || !cRes.ok) {
             discoveryIncomplete = true;
@@ -250,9 +259,11 @@ export async function runCleanup(opts = {}) {
   const failedComments = [];
   const failedAccounts = [];
 
-  if (discoveryIncomplete) {
+  const discoveryTotalElapsed = Date.now() - discoveryStartTime;
+  if (discoveryIncomplete || discoveryTotalElapsed > discoveryTimeoutMs) {
+    discoveryIncomplete = true;
     console.error(
-      '[cleanup] ERROR: Comment discovery scan failed, rejected non-200/invalid payload, or was incomplete. Retaining all accounts and comments for retry recovery without deleting accounts.',
+      `[cleanup] ERROR: Comment discovery scan failed, rejected non-200/invalid payload, or exceeded deadline (${discoveryTotalElapsed}ms / ${discoveryTimeoutMs}ms). Retaining all accounts and comments for retry recovery without deleting accounts.`,
     );
     failedAccounts.push(...accounts);
     failedComments.push(...comments);
