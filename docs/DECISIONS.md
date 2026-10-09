@@ -786,3 +786,21 @@ contract dịch vụ hay dữ liệu bí mật. Không cache kết quả giữa 
 Trước khi chấp nhận BETA1-web, kiểm chứng trên một bản build production duy nhất với biến rỗng, `https:`, `mailto:`
 và giá trị không an toàn, không build lại; kiểm tra cả hai shell bằng HTTP và trình duyệt. Test gọi handler nguồn
 trực tiếp hoặc mock fetch chỉ bổ sung, không thay thế kiểm chứng artifact đã build.
+
+#### ADR-034 addendum — Giao diện watchdog LT2 được chấp nhận (2026-10-09, Astra)
+
+PR #279 được chấp nhận cho helper độc lập trong `deploy/lt2/`, test offline và CI; merge `710ca88d648408dfff727289a15d5c1d2b71abb6`
+trên exact head xanh `7885baf4752937b75d503108e379d1f8473ff6bf`. Việc này chưa chấp nhận harness #263 hoặc cho phép tạo tải production.
+
+- Watchdog đọc MemAvailable đã xác minh của edge-1, kiểm tra bốn site cũ mỗi 30 giây và đọc snapshot HTTP rolling 60 giây
+  với `timestamp`, `windowSec: 60`, hai workload `api_mix`/`hls_viewers`, mỗi workload có số nguyên `requests`/`failed`.
+  `RollingErrorRateProducer` là helper gom quan sát; AG4 phải nối các HTTP request thực của cả hai workload, không tự điền số mẫu.
+- Preflight cho phép snapshot không có traffic để kiểm tra nguồn và schema. Khi chạy tải, mỗi workload phải có traffic;
+  telemetry thiếu, cũ, sai nguồn/schema hoặc điều kiện abort đều phải dừng. Lịch probe giữ anchor qua preflight.
+- Abort dùng sentinel JSON riêng cho run với `runId`, `abort`, `reason`, `timestamp`, `details`, ghi nguyên tử quyền 0600,
+  và SIGINT tới runner đã chỉ định. Runner xác minh đúng run, theo dõi watchdog chết và giữ trạng thái thất bại.
+- AG4 sở hữu phần tích hợp: xác nhận preflight thành công trước tạo tải; dừng và chờ container thuộc run, sau đó drain/chờ collector,
+  cleanup và giữ exit khác 0 khi workload/watchdog/cleanup thất bại. Phải có bằng chứng tích hợp từ mã thật và CI xanh trước merge #263.
+- Coordinator token do AG3 đề xuất vẫn chưa được chấp nhận. Không thêm endpoint dịch vụ hoặc tích hợp đề xuất đó theo addendum này.
+
+AG2 tiếp tục chuẩn bị generator và xóa VM cùng boot volume trong đêm chạy được duyệt; quy định giờ và gate beta của ADR-034 giữ nguyên.

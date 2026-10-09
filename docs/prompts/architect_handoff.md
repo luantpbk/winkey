@@ -130,21 +130,20 @@ Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
   error; require the intended diagnostic and healthy control. Zero-playback must assert native final gate/exit,
   not any adapter exception. Await owned child/socket teardown and timeout termination. Old59d dependency
   failures do not reopen accepted715349a cursor fixes. Keep draft until regression evidence and CI are truthful.
-- AG2 #279 head f1a2ccd4ed2b96d80c043d78048a4880109758e5, changes requested5465160906.
-  Actual CI37875195865/job113642111997:67/67 pass; independently reproduced with an extra network guard.
-  Exporter/source identity, strict JSON/window/workload counts, rolling producer, large200-body handling and
-  independent timers improved. Three findings remain: preflight omits isPreflight:true and rejects valid zero-load
-  startup; network guard misses normalized [options,callback] connect arguments; transition from preflight to
-  active probes resets legacy anchor (scaled80ms cadence observed33/162/242ms). Fix only these open findings.
-  Platform interface remains NOT accepted for integration/production; no design addendum approved.
-- AG3 #282 head160dcee33a4af25faee4c6b9028671035026ad67 publishes #277 probe/fixtures; blocking COMMENT
-  review5465166055 (same authenticated PR author cannot request changes or self-merge). CI37874260272 RED:
-  root formatting and auth lint. Sources use handwritten HTTP/Worker/model functions, not actual715349a or
-  pinned-k6 execution; correct the claims and provide actual-module failure-gate evidence. Validate complete
-  schemas and bound requests/workers with finally cleanup. Earlier contract corrections remain accepted.
-  Automatic approval review blocked direct execution in the unrestricted inherited environment; Astra reviewed
-  source and actual CI logs, did not execute this probe or accept its model output. Proposed token coordinator
-  remains unapproved; no service fix or new endpoint assigned. Independent review/merge required.
+- AG2 #279 APPROVED5465388984, exact green7885baf4752937b75d503108e379d1f8473ff6bf
+  squash-merged710ca88d648408dfff727289a15d5c1d2b71abb6. Actual CI37877545985/job113649520811 and independent
+  offline75/75 PASS with extra network-deny guard. All three prior findings5465160906 closed: preflight flag,
+  normalized socket guard and preflight-active cadence. Standalone helper/offline CI accepted; no production
+  deployment needed. AG4 integration remains gated on actual dual-workload telemetry, readiness, owned lifecycle
+  and final status. Interface recorded in ADR034 addendum below; AG2 standby/destruction ownership unchanged.
+- AG3 #282 head54f32a4c97306eecb1019c841e5a0e924e535056: blocking COMMENT5465396453
+  (same authenticated PR author; independent review/merge required). Actual CI37877658792 GREEN; previous
+  root formatting/auth lint closed. Explicit unapproved-RFC coordinator labeling accepted. Worker/HTTP limiter,
+  deletion/deadline/journal/ownership functions remain handwritten models rather than actual715349a/pinned-k6
+  execution. Correct actual/REAL/proven claims; provide hash-pinned actual-module evidence and real failure gate.
+  Field-presence/enum checks are not complete schema; account404 still wrongly accepted. Bound worker/request/
+  total deadlines and finally teardown; missing fixtures must fail. Astra reviewed source/CI, did not execute
+  this probe. Proposed token coordinator remains unapproved; no service fix/new endpoint assigned.
 - Codex #281 audit APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
   squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
   independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
@@ -154,7 +153,7 @@ Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
   in cleanup. Canonical UUID/full schema/exact-run identity and conflicting handle/id validation remain open;
   runner/HLS/other safety code and old Handoff unchanged. No new regression source/behavioral acceptance.
   Prior22 cleanup tests/fixes stay accepted; remaining5459010398 groups below still active. No production run.
-- #47 Oct9 review table6073255166 records all four current decisions. Docs PR#273 remains pending independent
+- #47 Oct9 review/merge table6073647622 records latest AG2/AG3 decisions. Docs PR#273 remains pending independent
   review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
   explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
   Invitations remain gated on LT2 PASS and the legal effective date10/10/2026.
@@ -212,7 +211,7 @@ LT2 harness #263 head `97aff847a2e886f7a8274aa051882266d1080ec3`: NOT APPROVED; 
   unchanged-source defects; these observations are not repaired-harness acceptance.
 - Collector0600 open improved, but wildcard/unbounded body/invalid input/corrupt prior journal -> [] and
   persistence/ACK uncertainty remain. Validate and preserve run-owned durable recovery without silent loss.
-- #279 platform/helper and #280 tests remain changes requested as above; no unaccepted interface integration.
+- #279 standalone platform helper accepted/merged as above; #280 tests/#282 audit still blocked. No unaccepted coordinator integration.
   Actual #263 PR Handoff body still old5m/targetVM/p95/inline-password sample; replace with full truthful
   finding -> changed code -> actual regression/output checklist and correct README claims.
 - No accepted `[LT2] result`; VM standby. No performance fix before production evidence identifies first
