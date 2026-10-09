@@ -1,8 +1,12 @@
 {
-  "schema_description": "Authoritative contract fixtures for Issue #277 audit against contracts/openapi/auth.v1.yaml and social.v1.yaml",
+  "schema_description": "Authoritative contract fixtures for Issue #277 audit against contracts/openapi/auth.v1.yaml, social.v1.yaml, and common.yaml",
   "reviewed_main_sha": "181fb1c69f17ae9bfbc8ef8c003db3caf9ee3941",
   "reviewed_harness_sha": "715349a8cace7459b409b765677183fee552c321",
   "integration_status": "The Sidecar Coordinator is an unapproved RFC proposal and is NOT ACCEPTED for integration. AG4 harness must not integrate it without formal architect sign-off.",
+  "recorded_build_hashes": {
+    "valkey_limiter_dist_sha256": "35ea828fc133f3e78a78ae758574d6bdb947677a8c4e4c7ae54b1f2cf18967bd",
+    "problem_dist_sha256": "9a1ad77fa41c7893651692d572a75963257a13977c204b2a6a0c5099dd84c0b0"
+  },
   "sample_run_accounts": [
     {
       "handle": "lt2_run101_user1",
@@ -84,8 +88,32 @@
     ],
     "next_cursor": "cur_0192f5e4_next_page"
   },
+  "valid_token_response": {
+    "access_token": "wk_tok_0192f5e47c1a7b3e9d2a5f6e7a8b9c01",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11",
+      "email": "lt2_run101_u1@winkey.test",
+      "email_verified": true,
+      "handle": "lt2_run101_user1",
+      "display_name": "LT2 Tester 1",
+      "avatar_url": null,
+      "roles": ["viewer"],
+      "has_password": true,
+      "created_at": "2026-10-08T12:00:00.000Z"
+    }
+  },
   "valid_delete_me_request": {
     "confirm_handle": "lt2_run101_user1",
     "password": "Pass123!Secure"
+  },
+  "valid_problem_document": {
+    "type": "https://winkey.vn/problems/rate-limit-exceeded",
+    "title": "Too Many Requests",
+    "status": 429,
+    "detail": "Rate limit exceeded",
+    "code": "RATE_LIMIT_EXCEEDED",
+    "instance": "/v1/auth/login"
   }
 }
