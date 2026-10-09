@@ -36,7 +36,7 @@ export async function runCleanup(opts = {}) {
   console.log(`[cleanup] Starting data cleanup for target ${targetUrl}...`);
 
   // 1. Process lt2_comments.json
-  const commentsPath = path.join(__dirname, 'lt2_comments.json');
+  const commentsPath = opts.commentsPath || path.join(__dirname, 'lt2_comments.json');
   let comments = [];
   if (fs.existsSync(commentsPath)) {
     try {
@@ -53,7 +53,7 @@ export async function runCleanup(opts = {}) {
   }
 
   // 2. Process lt2_accounts.json
-  const lt2AccountsPath = path.join(__dirname, 'lt2_accounts.json');
+  const lt2AccountsPath = opts.accountsPath || path.join(__dirname, 'lt2_accounts.json');
   let accounts = [];
   if (fs.existsSync(lt2AccountsPath)) {
     try {
