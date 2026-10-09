@@ -33,20 +33,8 @@ if [[ "${TARGET_URL}" != *"localhost"* && "${TARGET_URL}" != *"127.0.0.1"* && "$
   is_production=1
 fi
 
-# Check for production password requirement
-if [[ "${is_production}" -eq 1 && -z "${LOADTEST_USER_PASSWORD}" ]]; then
-  echo "ERROR: LOADTEST_USER_PASSWORD environment variable is required for production targets." >&2
-  exit 1
-fi
-
-# Check for production edge metrics URL requirement
-if [[ "${is_production}" -eq 1 && -z "${EDGE_METRICS_URL:-}" ]]; then
-  echo "ERROR: EDGE_METRICS_URL environment variable is required for production targets." >&2
-  exit 1
-fi
-
-# Check execution window (02:00 - 03:30 AM Vietnam time, UTC+7) starting Oct 9, 2026
-current_vn_time="${SYSTEM_VN_TIME:-$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")}"
+# Check execution window (02:00 - 03:30 AM Vietnam time, UTC+7) starting Oct 9, 2026 FIRST
+current_vn_time=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")
 if [[ "${is_production}" -eq 1 ]]; then
   if [[ "${current_vn_time}" -lt "0200" || "${current_vn_time}" -gt "0330" ]]; then
     echo "ERROR: Production load test requested outside approved window (02:00 - 03:30 AM VN). Bypassing is PROHIBITED on production." >&2
@@ -58,6 +46,18 @@ elif [[ "${ALLOW_OUTSIDE_WINDOW:-false}" != "true" ]]; then
     echo "Set ALLOW_OUTSIDE_WINDOW=true to bypass window enforcement for dry runs." >&2
     exit 1
   fi
+fi
+
+# Check for production password requirement
+if [[ "${is_production}" -eq 1 && -z "${LOADTEST_USER_PASSWORD}" ]]; then
+  echo "ERROR: LOADTEST_USER_PASSWORD environment variable is required for production targets." >&2
+  exit 1
+fi
+
+# Check for production edge metrics URL requirement
+if [[ "${is_production}" -eq 1 && -z "${EDGE_METRICS_URL:-}" ]]; then
+  echo "ERROR: EDGE_METRICS_URL environment variable is required for production targets." >&2
+  exit 1
 fi
 
 # 1. Start Comment Collector service in background to log posted comment IDs in real-time

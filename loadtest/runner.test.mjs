@@ -13,17 +13,34 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runScriptPath = path.join(__dirname, 'lt2-run.sh');
 
+function createMockDateDir(timeStr) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mock-date-'));
+  const dateScriptPath = path.join(tmpDir, 'date');
+  const scriptContent = `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = "+%H%M" ]; then
+    echo "${timeStr}"
+    exit 0
+  fi
+done
+exec /bin/date "$@"
+`;
+  fs.writeFileSync(dateScriptPath, scriptContent, { mode: 0o755 });
+  return tmpDir;
+}
+
 describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => {
   test('lt2-run.sh strictly enforces production window (02:00 - 03:30 AM VN) when execution is outside approved hours', async () => {
+    const mockDir = createMockDateDir('1200'); // 12:00 PM VN (outside approved window)
     try {
       await execFileAsync('bash', [runScriptPath], {
         env: {
           ...process.env,
+          PATH: `${mockDir}:${process.env.PATH}`,
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: 'Pass123!Secure',
           EDGE_METRICS_URL: 'http://127.0.0.1:9090/metrics',
           ALLOW_OUTSIDE_WINDOW: 'true', // Attempting bypass MUST be prohibited on production
-          SYSTEM_VN_TIME: '1200', // Mock clock: 12:00 PM VN (outside approved window)
         },
       });
       assert.fail('lt2-run.sh should have failed due to production window gate violation');
@@ -33,17 +50,20 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         err.stderr || err.stdout,
         /Production load test requested outside approved window/,
       );
+    } finally {
+      if (fs.existsSync(mockDir)) fs.rmSync(mockDir, { recursive: true, force: true });
     }
   });
 
-  test('lt2-run.sh permits production target execution when time is inside approved window (02:00 - 03:30 AM VN)', async () => {
+  test('lt2-run.sh permits production target execution past time window gate when inside approved hours (02:00 - 03:30 AM VN)', async () => {
+    const mockDir = createMockDateDir('0230'); // 02:30 AM VN (inside approved window)
     try {
       await execFileAsync('bash', [runScriptPath], {
         env: {
           ...process.env,
+          PATH: `${mockDir}:${process.env.PATH}`,
           TARGET_URL: 'https://winkey.vn',
-          LOADTEST_USER_PASSWORD: '', // Omit password so it fails at parameter check, proving it passed window gate
-          SYSTEM_VN_TIME: '0230', // Mock clock: 02:30 AM VN (inside approved window)
+          LOADTEST_USER_PASSWORD: '', // Omit password so it passes time gate (Check 1) and fails at password requirement (Check 2)
         },
       });
       assert.fail('lt2-run.sh should have failed at parameter check');
@@ -53,17 +73,20 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         err.stderr || err.stdout,
         /LOADTEST_USER_PASSWORD environment variable is required/,
       );
+    } finally {
+      if (fs.existsSync(mockDir)) fs.rmSync(mockDir, { recursive: true, force: true });
     }
   });
 
   test('lt2-run.sh enforces production password requirement when targeting production URL', async () => {
+    const mockDir = createMockDateDir('0230');
     try {
       await execFileAsync('bash', [runScriptPath], {
         env: {
           ...process.env,
+          PATH: `${mockDir}:${process.env.PATH}`,
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: '', // Missing password
-          SYSTEM_VN_TIME: '0230',
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing LOADTEST_USER_PASSWORD');
@@ -73,24 +96,29 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         err.stderr || err.stdout,
         /LOADTEST_USER_PASSWORD environment variable is required/,
       );
+    } finally {
+      if (fs.existsSync(mockDir)) fs.rmSync(mockDir, { recursive: true, force: true });
     }
   });
 
   test('lt2-run.sh enforces production EDGE_METRICS_URL requirement when targeting production URL', async () => {
+    const mockDir = createMockDateDir('0230');
     try {
       await execFileAsync('bash', [runScriptPath], {
         env: {
           ...process.env,
+          PATH: `${mockDir}:${process.env.PATH}`,
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: 'Pass123!Secure',
           EDGE_METRICS_URL: '', // Missing edge metrics URL
-          SYSTEM_VN_TIME: '0230',
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing EDGE_METRICS_URL');
     } catch (err) {
       assert.strictEqual(err.code, 1);
       assert.match(err.stderr || err.stdout, /EDGE_METRICS_URL environment variable is required/);
+    } finally {
+      if (fs.existsSync(mockDir)) fs.rmSync(mockDir, { recursive: true, force: true });
     }
   });
 
