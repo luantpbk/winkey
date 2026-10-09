@@ -4,8 +4,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import http from 'node:http';
 import { Buffer } from 'node:buffer';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { setTimeout, clearTimeout } from 'node:timers';
 
 // Use controlled module adapter for k6 imports
 import { setMockHttpHandler, resetHttpState, httpCalls } from '../adapters/k6-http.mjs';
@@ -246,12 +247,17 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
   function getNativeK6Binary() {
     try {
-      const bin = process.platform === 'win32' ? 'k6.exe' : 'k6';
-      const res = spawnSync(bin, ['version'], {
-        stdio: 'ignore',
-        timeout: 1500,
-      });
-      if (res.status === 0) return bin;
+      const candidates = [
+        process.env.K6_BIN,
+        process.platform === 'win32' ? 'k6.exe' : 'k6',
+      ].filter(Boolean);
+      for (const bin of candidates) {
+        const res = spawnSync(bin, ['version'], {
+          stdio: 'ignore',
+          timeout: 1500,
+        });
+        if (res.status === 0) return bin;
+      }
     } catch {
       // not in PATH
     }
@@ -259,7 +265,9 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
   }
 
   // Executes a controlled offline native k6 workload against loopback mock HTTP server.
-  // Captures actual native process exit code (99 for threshold breach, 107/etc for crash, 0 for clean pass).
+  // Uses asynchronous child_process.spawn so the Node.js event loop is not blocked from serving mock requests.
+  // Tracks and explicitly tears down open client sockets on completion.
+  // Captures actual native process exit code (99 for threshold breach, non-zero for crash/init error, 0 for clean pass).
   // Does NOT fabricate exit codes or invent summary status.
   async function runControlledNativeK6Gate({ scenario }) {
     const k6Bin = getNativeK6Binary();
@@ -270,12 +278,18 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       };
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const requestTrace = [];
+      const openSockets = new Set();
+      let port = 0;
+
       const server = http.createServer((req, res) => {
+        requestTrace.push(req.url);
+
         if (req.url.startsWith('/v1/videos?')) {
           if (scenario === 'empty-pool') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ items: [] }));
+            res.end(JSON.stringify({ items: [], next_cursor: null }));
             return;
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -284,9 +298,49 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
               items: [
                 {
                   id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
-                  playback: { hls_url: '/master.m3u8' },
+                  title: 'Sample Video',
+                  owner: {
+                    id: '0192f5e4-7c1a-7b3e-9d2a-b00000000002',
+                    handle: 'test_user',
+                    display_name: 'Test User',
+                    avatar_url: null,
+                  },
+                  duration_ms: 60000,
+                  view_count: 0,
+                  published_at: '2026-10-09T00:00:00Z',
+                  thumbnail_url: `http://127.0.0.1:${port}/thumb.jpg`,
+                  playback: { hls_url: `http://127.0.0.1:${port}/master.m3u8` },
                 },
               ],
+              next_cursor: null,
+            }),
+          );
+          return;
+        }
+
+        if (req.url.startsWith('/v1/videos/0192f5e4-7c1a-7b3e-9d2a-b00000000001')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+              title: 'Sample Video',
+              description: 'Sample Description',
+              owner: {
+                id: '0192f5e4-7c1a-7b3e-9d2a-b00000000002',
+                handle: 'test_user',
+                display_name: 'Test User',
+                avatar_url: null,
+              },
+              visibility: 'PUBLIC',
+              status: 'READY',
+              duration_ms: 60000,
+              width: 1920,
+              height: 1080,
+              view_count: 0,
+              like_count: 0,
+              published_at: '2026-10-09T00:00:00Z',
+              created_at: '2026-10-09T00:00:00Z',
+              playback: { hls_url: `http://127.0.0.1:${port}/master.m3u8` },
             }),
           );
           return;
@@ -299,7 +353,9 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
             return;
           }
           res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
-          res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\n/variant.m3u8\n');
+          res.end(
+            `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nhttp://127.0.0.1:${port}/variant.m3u8\n`,
+          );
           return;
         }
 
@@ -310,7 +366,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
             return;
           }
           res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
-          res.end('#EXTM3U\n#EXTINF:2.0\n/seg0.ts\n');
+          res.end(`#EXTM3U\n#EXTINF:2.0\nhttp://127.0.0.1:${port}/seg0.ts\n`);
           return;
         }
 
@@ -324,11 +380,35 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
         res.end();
       });
 
+      server.on('connection', (socket) => {
+        openSockets.add(socket);
+        socket.on('close', () => {
+          openSockets.delete(socket);
+        });
+      });
+
+      server.on('error', (err) => {
+        reject(err);
+      });
+
       server.listen(0, '127.0.0.1', () => {
-        const port = server.address().port;
+        port = server.address().port;
         const targetUrl = `http://127.0.0.1:${port}`;
 
-        const res = spawnSync(
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+
+        const minimalChildEnv = {
+          PATH: process.env.PATH || '',
+          SYSTEMROOT: process.env.SYSTEMROOT || '',
+          TEMP: process.env.TEMP || '/tmp',
+          TMP: process.env.TMP || '/tmp',
+          HOME: process.env.HOME || '',
+          USERPROFILE: process.env.USERPROFILE || '',
+        };
+
+        const child = spawn(
           k6Bin,
           [
             'run',
@@ -346,23 +426,134 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
             hlsModulePath,
           ],
           {
-            timeout: 8000,
             stdio: ['ignore', 'pipe', 'pipe'],
+            env: minimalChildEnv,
           },
         );
 
-        server.close(() => {
-          resolve({
-            available: true,
-            exitCode: res.status,
-            stdout: res.stdout ? res.stdout.toString() : '',
-            stderr: res.stderr ? res.stderr.toString() : '',
-            isThresholdBreach: res.status === 99,
-            isCleanPass: res.status === 0,
-            isCrash: res.status !== 0 && res.status !== 99,
+        child.stdout.on('data', (d) => {
+          stdout += d.toString();
+        });
+        child.stderr.on('data', (d) => {
+          stderr += d.toString();
+        });
+
+        const timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            void 0;
+          }
+        }, 5000);
+
+        const teardown = () => {
+          clearTimeout(timer);
+          for (const s of openSockets) {
+            try {
+              s.destroy();
+            } catch {
+              void 0;
+            }
+          }
+          openSockets.clear();
+        };
+
+        child.on('close', (code, signal) => {
+          teardown();
+          server.close(() => {
+            resolve({
+              available: true,
+              exitCode: code,
+              signal,
+              timedOut,
+              requestTrace,
+              stdout,
+              stderr,
+              isThresholdBreach: code === 99,
+              isCleanPass: code === 0,
+              isCrash: code !== 0 && code !== 99,
+            });
+          });
+        });
+
+        child.on('error', (err) => {
+          teardown();
+          server.close(() => {
+            reject(err);
           });
         });
       });
+    });
+  }
+
+  // Runs arbitrary native k6 script content over stdin with bounded timeout and minimal env
+  function runNativeK6Script(scriptContent, timeoutMs = 5000) {
+    const k6Bin = getNativeK6Binary();
+    if (!k6Bin) return Promise.resolve({ available: false });
+
+    return new Promise((resolve) => {
+      const minimalChildEnv = {
+        PATH: process.env.PATH || '',
+        SYSTEMROOT: process.env.SYSTEMROOT || '',
+        TEMP: process.env.TEMP || '/tmp',
+        TMP: process.env.TMP || '/tmp',
+        HOME: process.env.HOME || '',
+        USERPROFILE: process.env.USERPROFILE || '',
+      };
+
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+
+      const child = spawn(k6Bin, ['run', '--quiet', '--no-summary', '--no-usage-report', '-'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: minimalChildEnv,
+      });
+
+      child.stdout.on('data', (d) => {
+        stdout += d.toString();
+      });
+      child.stderr.on('data', (d) => {
+        stderr += d.toString();
+      });
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          void 0;
+        }
+      }, timeoutMs);
+
+      child.on('close', (code, signal) => {
+        clearTimeout(timer);
+        resolve({
+          available: true,
+          status: code,
+          signal,
+          timedOut,
+          stdout,
+          stderr,
+          error: undefined,
+        });
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({
+          available: true,
+          status: null,
+          signal: null,
+          timedOut: false,
+          stdout,
+          stderr,
+          error: err,
+        });
+      });
+
+      child.stdin.end(scriptContent);
     });
   }
 
@@ -466,10 +657,16 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     }
     const nativeRun = await runControlledNativeK6Gate({ scenario: 'empty-pool' });
     if (nativeRun.available) {
+      assert.strictEqual(nativeRun.timedOut, false, 'Native k6 run must not time out');
+      assert.strictEqual(nativeRun.signal, null, 'Native k6 run must not exit via signal');
       assert.strictEqual(
         nativeRun.exitCode,
         99,
         `Native k6 run with empty video pool must exit with code 99 (threshold breach), got exitCode=${nativeRun.exitCode}`,
+      );
+      assert.ok(
+        nativeRun.requestTrace.some((url) => url.startsWith('/v1/videos')),
+        'Request trace must reach /v1/videos endpoint',
       );
     } else {
       const result = evaluateSupplementaryThresholdGate();
@@ -507,10 +704,16 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
     const nativeRun = await runControlledNativeK6Gate({ scenario: 'empty-master' });
     if (nativeRun.available) {
+      assert.strictEqual(nativeRun.timedOut, false, 'Native k6 run must not time out');
+      assert.strictEqual(nativeRun.signal, null, 'Native k6 run must not exit via signal');
       assert.strictEqual(
         nativeRun.exitCode,
         99,
         `Native k6 run with empty master playlist must exit with code 99 (threshold breach), got exitCode=${nativeRun.exitCode}`,
+      );
+      assert.ok(
+        nativeRun.requestTrace.some((url) => url.includes('/master.m3u8')),
+        'Request trace must reach /master.m3u8 endpoint',
       );
     } else {
       const result = evaluateSupplementaryThresholdGate();
@@ -551,10 +754,16 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
     const nativeRun = await runControlledNativeK6Gate({ scenario: 'empty-variant' });
     if (nativeRun.available) {
+      assert.strictEqual(nativeRun.timedOut, false, 'Native k6 run must not time out');
+      assert.strictEqual(nativeRun.signal, null, 'Native k6 run must not exit via signal');
       assert.strictEqual(
         nativeRun.exitCode,
         99,
         `Native k6 run with empty variant playlist must exit with code 99 (threshold breach), got exitCode=${nativeRun.exitCode}`,
+      );
+      assert.ok(
+        nativeRun.requestTrace.some((url) => url.includes('/variant.m3u8')),
+        'Request trace must reach /variant.m3u8 endpoint',
       );
     } else {
       const result = evaluateSupplementaryThresholdGate();
@@ -679,38 +888,31 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  test('Finding 18 (Native k6 gate evidence): offline execution harness detects presence and distinguishes gate exit 99 from crash exit', () => {
-    const k6Bin = getNativeK6Binary();
-    if (k6Bin) {
-      // Native k6 is available: verify crash distinction
-      // When a script has a crash or syntax error, native k6 exits with code != 99 and != 0 (e.g. 107)
-      const res = spawnSync(k6Bin, ['run', '--quiet', '-'], {
-        input: 'export default function() { throw new Error("intentional test crash"); }',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+  test(
+    'Finding 18 (Crash distinction control): top-level init error exits non-zero non-99 without timeout or signal',
+    { skip: !getNativeK6Binary() ? 'Native k6 binary not found in PATH on current host' : false },
+    async () => {
+      const res = await runNativeK6Script(
+        'throw new Error("intentional controlled top-level init crash");\n',
+        5000,
+      );
+
+      assert.strictEqual(res.available, true, 'Native k6 must be available');
+      assert.strictEqual(res.timedOut, false, 'Native k6 crash must not time out');
+      assert.strictEqual(res.error, undefined, 'Native k6 spawn must not produce an error');
+      assert.strictEqual(res.signal, null, 'Native k6 crash must not be killed by signal');
       assert.strictEqual(
-        res.status !== 99 && res.status !== 0,
+        typeof res.status === 'number' && Number.isInteger(res.status),
         true,
-        `Native k6 crash must produce non-threshold exit code (got ${res.status}), strictly distinguishing crashes from threshold gate rejections (code 99)`,
+        `Exit code must be an integer, got ${res.status}`,
       );
-    } else {
-      // Native k6 is absent in current offline environment: verify supplementary model strictly models threshold semantics
       assert.strictEqual(
-        k6Bin,
-        null,
-        'Native k6 CLI binary not found in PATH on current offline host',
-      );
-      const sampleBreached = evaluateSupplementaryThresholdGate({
-        thresholds: { total_watch_time_ms: ['count>0'] },
-      });
-      assert.strictEqual(
-        sampleBreached.hasBreachedThreshold,
+        res.status > 0 && res.status !== 99,
         true,
-        'Supplementary threshold model accurately models threshold breach on zero watch time',
+        `Native k6 top-level init crash must produce non-zero non-99 exit code (got ${res.status}), strictly distinguishing crashes from threshold gate rejections (code 99)`,
       );
-    }
-  });
+    },
+  );
 
   test('Finding 18: Seek vs No-Seek separation: rebufferRatioInclSeekTrend includes seek stall', () => {
     // When a seek occurs, stallTimeSeekOnly is accumulated into ratioInclSeek but NOT ratioNoSeek.
