@@ -1,5 +1,5 @@
 {
-  "schema_description": "Authoritative contract fixtures for Issue #277 audit against contracts/openapi/auth.v1.yaml, social.v1.yaml, and common.yaml",
+  "schema_description": "Selected synthetic fixtures for Issue #277 audit probe manual sanity checks",
   "reviewed_main_sha": "181fb1c69f17ae9bfbc8ef8c003db3caf9ee3941",
   "reviewed_harness_sha": "715349a8cace7459b409b765677183fee552c321",
   "integration_status": "The Sidecar Coordinator is an unapproved RFC proposal and is NOT ACCEPTED for integration. AG4 harness must not integrate it without formal architect sign-off.",

@@ -17,7 +17,7 @@
  *    (DISCLAIMER: Simulation model in Node.js, NOT a native k6 execution or status_429 metric proof)
  * 3. RETENTION ON NON-204 DELETE: Retain accounts on 400, 401, 403, 404, 500 (only 204 deletes; 404 retained)
  * 4. ATOMIC RETENTION & BOUNDED LIFECYCLE: Atomic durable writeback & bounded server/socket teardown
- * 5. TARGETED CANONICAL CONTRACT SCHEMAS: Exact RFC 3339, strict email/role/avatar validation, no invented bounds
+ * 5. MANUAL FIXTURE/MODEL CHECKS: Manual sanity checks for selected synthetic fixtures, with narrower fixture-only policies
  * 6. PURGE-BEFORE-DELETE ORDER, CORRUPT JOURNAL & EXACT RUN-ACCOUNT SCOPING
  */
 
@@ -284,7 +284,7 @@ if (!isMainThread) {
       assert.strictEqual(doc401.status, 401);
       assert.strictEqual(doc401.code, 'UNAUTHORIZED');
 
-      console.log('- Real ProblemError generated canonical RFC 9457 problem documents.\n');
+      console.log('- Real ProblemError generated RFC 9457 problem documents.\n');
 
       // -------------------------------------------------------------------------
       // SETUP HTTP AUTH BACKEND FOR CONCURRENCY MODEL
@@ -329,7 +329,7 @@ if (!isMainThread) {
               return;
             }
 
-            // Canonical TokenResponse conforming to auth.v1.yaml:891-906
+            // Synthetic TokenResponse fixture conforming to auth.v1.yaml
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(
               JSON.stringify({
@@ -548,9 +548,12 @@ if (!isMainThread) {
       );
 
       // =========================================================================
-      // SECTION 5: TARGETED CANONICAL CONTRACT SCHEMAS & RIGOROUS NEGATIVE TESTS
+      // SECTION 5: MANUAL SANITY CHECKS FOR SELECTED SYNTHETIC FIXTURES
       // =========================================================================
-      console.log('>>> [PART 5/6] Targeted Canonical Contract Schemas & Negative Case Validation');
+      console.log('>>> [PART 5/6] Manual Sanity Checks for Selected Synthetic Fixtures');
+      console.log(
+        'NOTE: These checks are manual sanity checks with narrower fixture-only policies, NOT an OpenAPI schema validator.',
+      );
 
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const handleRegex = /^[A-Za-z0-9_.]{3,30}$/;
@@ -789,7 +792,7 @@ if (!isMainThread) {
         return true;
       }
 
-      // Validate positive cases against canonical OpenAPI schemas
+      // Run manual sanity checks on selected synthetic fixtures
       assert.ok(validateComment(fixtures.valid_comment_active_author));
       assert.ok(validateComment(fixtures.valid_comment_tombstone));
       assert.ok(validateCommentPage(fixtures.valid_comment_page));
@@ -798,7 +801,7 @@ if (!isMainThread) {
       assert.ok(validateDeleteMeRequest(fixtures.valid_delete_me_request));
       assert.ok(validateProblemDetails(fixtures.valid_problem_document));
       console.log(
-        '- Positive contract schemas validated successfully against canonical contracts.',
+        '- Selected synthetic fixtures passed manual sanity checks (narrower fixture-only policies).',
       );
 
       // Rigorous Negative Cases
@@ -950,11 +953,10 @@ if (!isMainThread) {
       );
 
       console.log('======================================================================');
-      console.log('PROBE EXECUTION COMPLETED: CANONICAL CONTRACT & MODEL INVARIANTS VERIFIED');
-      console.log('CLAIM BOUNDS: Scope is strictly limited to targeted OpenAPI contracts');
-      console.log('(Comment, CommentPage, TokenResponse, DeleteMeRequest, ProblemDetails) and');
-      console.log('demonstrated recovery models. Does NOT claim universal schema coverage or');
-      console.log('native k6 harness execution.');
+      console.log('PROBE EXECUTION COMPLETED: MANUAL FIXTURE & MODEL CHECKS');
+      console.log(
+        'Manual sanity checks for selected synthetic fixtures, with narrower fixture-only policies. These checks are not an OpenAPI schema validator and do not establish canonical contract conformance. Evidence is limited to hash-bound auth modules using the in-memory limiter fallback and explicitly labeled recovery/concurrency models. No native k6 or production harness execution is demonstrated.',
+      );
       console.log('======================================================================');
     } finally {
       // -------------------------------------------------------------------------
