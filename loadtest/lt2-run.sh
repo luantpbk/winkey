@@ -102,7 +102,10 @@ trap abort_all EXIT SIGINT SIGTERM
 
 # 2. Launch background Watchdog FIRST (active before preseed data creation)
 ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE:-${SCRIPT_DIR}/abort.signal}"
-rm -f "${ABORT_SIGNAL_FILE}"
+if [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+  echo "ERROR: Existing abort signal file detected (${ABORT_SIGNAL_FILE}). Fail-closed abort before preseed." >&2
+  exit 1
+fi
 
 watchdog_loop() {
   echo "[watchdog] Watchdog active (RUN_ID: ${RUN_ID}, TARGET_PID: $$)..."
@@ -163,7 +166,28 @@ else
   WATCHDOG_PID=$!
 fi
 
-# 3. Pre-seed 5 temporary lt2 accounts and create lt2_accounts.json (no passwords or tokens inside)
+# 3. Preflight Readiness & Watchdog Health Gate BEFORE account creation
+echo "[lt2] Verifying Watchdog status and target preflight readiness..."
+sleep 1
+
+if ! kill -0 "${WATCHDOG_PID}" 2>/dev/null || [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+  echo "ERROR: Watchdog is dead or emitted abort signal before preseed data creation. Fail-closed abort." >&2
+  exit 1
+fi
+
+if ! curl -sS --max-time 5 "${TARGET_URL}/v1/videos?sort=newest" > /dev/null 2>&1 && ! curl -sS --max-time 5 "${TARGET_URL}" > /dev/null 2>&1; then
+  echo "ERROR: Target preflight check failed for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  exit 1
+fi
+
+if ! kill -0 "${WATCHDOG_PID}" 2>/dev/null || [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+  echo "ERROR: Watchdog died or emitted abort signal during preflight check. Fail-closed abort before account creation." >&2
+  exit 1
+fi
+
+echo "[lt2] Preflight check passed cleanly & Watchdog confirmed alive."
+
+# 4. Pre-seed 5 temporary lt2 accounts and create lt2_accounts.json (no passwords or tokens inside)
 echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."
 TARGET_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" LT2_INVITE_CODE="${LT2_INVITE_CODE}" node "${SCRIPT_DIR}/preseed.mjs"
 

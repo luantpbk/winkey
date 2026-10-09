@@ -222,4 +222,89 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
       }
     }
   });
+
+  test('Preflight failure or unreachable target prevents preseed account creation and produces 0 state files', async () => {
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-preflight-fail-'));
+    const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
+
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: 'http://127.0.0.1:59999', // Connection refused / unreachable target
+          LOADTEST_USER_PASSWORD: 'Pass123!Preflight',
+          ALLOW_OUTSIDE_WINDOW: 'true',
+          LT2_STATE_DIR: testTmpDir,
+        },
+      });
+      assert.fail('lt2-run.sh should have failed due to preflight target error');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(err.stderr || err.stdout, /Target preflight check failed/);
+      assert.strictEqual(
+        fs.existsSync(accountsFile),
+        false,
+        'lt2_accounts.json MUST NOT be written when preflight fails',
+      );
+    } finally {
+      if (fs.existsSync(testTmpDir)) {
+        fs.rmSync(testTmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Watchdog abort signal before preseed prevents account creation and produces 0 state files', async () => {
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-watchdog-dead-'));
+    const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
+    const abortSignalFile = path.join(testTmpDir, 'abort.signal');
+
+    // Pre-create abort signal file to simulate watchdog auto-abort signal before preseed
+    fs.writeFileSync(abortSignalFile, 'WATCHDOG_TELEMETRY_FAILURE', 'utf8');
+
+    let registerCount = 0;
+    const testPort = 8089;
+    const mockServer = http.createServer((req, res) => {
+      if (req.url.includes('/v1/auth/register')) {
+        registerCount++;
+      }
+      res.writeHead(200);
+      res.end();
+    });
+    await new Promise((resolve) => mockServer.listen(testPort, '127.0.0.1', resolve));
+
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: `http://127.0.0.1:${testPort}`,
+          LOADTEST_USER_PASSWORD: 'Pass123!WatchdogDead',
+          ALLOW_OUTSIDE_WINDOW: 'true',
+          ABORT_SIGNAL_FILE: abortSignalFile,
+          LT2_STATE_DIR: testTmpDir,
+        },
+      });
+      assert.fail('lt2-run.sh should have failed due to watchdog abort signal');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(
+        err.stderr || err.stdout,
+        /Watchdog is dead or emitted abort signal|Watchdog died or emitted abort signal|Existing abort signal file detected/,
+      );
+      assert.strictEqual(
+        registerCount,
+        0,
+        'ZERO registration requests MUST be sent when watchdog fails',
+      );
+      assert.strictEqual(
+        fs.existsSync(accountsFile),
+        false,
+        'lt2_accounts.json MUST NOT be written when watchdog fails',
+      );
+    } finally {
+      await new Promise((resolve) => mockServer.close(resolve));
+      if (fs.existsSync(testTmpDir)) {
+        fs.rmSync(testTmpDir, { recursive: true, force: true });
+      }
+    }
+  });
 });
