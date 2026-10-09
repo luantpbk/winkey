@@ -149,9 +149,11 @@ Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
   squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
   independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
   #278 COMPLETE; Codex idle, no Go fix. Sonnet/Sonnet2 remain paused.
-- AG4 #263 unchanged715349a8cace7459b409b765677183fee552c321/green CI; prior22 cleanup tests accepted;
-  review5459010398 still active. Reminder6073254956 requests actual remaining code fixes, new full SHA and
-  truthful Handoff checklist. Specialist completion does not repair the unchanged harness. No production run.
+- AG4 #263 new97aff847a2e886f7a8274aa051882266d1080ec3: changes requested5465257197.
+  Actual CI37877273660 SUCCESS/root113648668086 lint0errors. Only3files/+15/-3 propagate authorId and match it
+  in cleanup. Canonical UUID/full schema/exact-run identity and conflicting handle/id validation remain open;
+  runner/HLS/other safety code and old Handoff unchanged. No new regression source/behavioral acceptance.
+  Prior22 cleanup tests/fixes stay accepted; remaining5459010398 groups below still active. No production run.
 - #47 Oct9 review table6073255166 records all four current decisions. Docs PR#273 remains pending independent
   review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
   explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
@@ -189,15 +191,15 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `715349a8cace7459b409b765677183fee552c321`: NOT APPROVED; do not run production.
-- Exact-head root CI37794223112/job113369403623 GREEN (format/lint0errors); independent22/22cleanup tests.
+LT2 harness #263 head `97aff847a2e886f7a8274aa051882266d1080ec3`: NOT APPROVED; do not run production.
+- Exact-head CI37877273660/root113648668086 GREEN (format/lint0errors); prior715349a independent22/22cleanup tests.
   Review5459010398 closes required next_cursor, cursor cycles/page caps, removal of invented profile email and
   partial recovered-journal temp/fsync/rename0600. Preserve earlier real request/body deadlines, delayed empty-
   page deadline, corrupt/non-array journal failure, comment-failure/login-failure author retention fixes.
 - Required full page/record/journal/account schemas and exact current-run account/target ownership remain.
   Prefix lt2_ and noncontract profile fallbacks still broad; mostly id-only validation. Account DELETE404 still
   treated as success despite contract204. Prove authoritative zero-leftover scan before deleting author.
-- Proactive cached expiry is PER VU, not cross-VU/five-account coordination; login storm remains possible.
+- Review5465257197: authorId plumbing only; remaining identity/ownership groups stay open. Proactive cached expiry is PER VU, not cross-VU/five-account coordination; login storm remains possible.
   Renewal failure degrades writes to reads, explicitly rejected. Fail workload/test instead of changing mix.
   Missing collector ACK/uncertain create response reconciliation still unimplemented; emails still logged.
 - Runner/HLS unchanged. Unsafe substring host gate, HHMM octal/date/TZ/window cleanup-reserve, unbounded/
@@ -229,7 +231,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at715349a, but review remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at97aff84, but review remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
