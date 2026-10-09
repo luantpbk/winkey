@@ -150,16 +150,19 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head182f6ebfc95f2dc4ec05f9b63a86c2faf61a2337: changes requested5472849584 despite GREEN CI37959998082.
-  Offline113920170956 helper75/75 and loadtest28/28PASS, zero skips; root113920171002GREEN.
+- AG4 #263 head13f119cce1c6f3aeddf75ae63d520cabc1f69c91: changes requested5472942700 despite GREEN CI37961846298.
+  Offline113926433953 helper75/75 and loadtest28/28PASS, zero skips; root113926433897GREEN.
   CLOSED: SYSTEM_VN_TIME runtime override removed; test-only fake date executable; window now before password,
   so positive control actually crosses time gate. Do not rework these closed clock findings. Prior journal conflict,
   silent-skip/unrelated-error assertion/token-file/lint/cleanup closures retained.
-  Two-file delta does not implement existing exact production window/host/cutoff-reserve or required readiness,
-  dual telemetry/helper death/abort/lifecycle/HLS/auth/durable recovery groups. Complete existing consolidated
+  Latest single-file delta moves background helper spawn before preseed but has no readiness acknowledgement
+  or live-child check; accounts may be created before asynchronous preflight fails. Existing readiness finding open.
+  Require successful run-scoped readiness/liveness before writes and actual failure/death -> zero-write regression.
+  Existing production window/host/cutoff-reserve/readiness and
+  dual telemetry/helper death/abort/lifecycle/HLS/auth/durable recovery groups remain open. Complete consolidated
   checklist with actual changed code/regressions/output; blocked items explicit. No whole-PR acceptance from
   green clock tests/mock log claims. Shared sentinel/fixed ports/inherited env/deadline limitations remain.
-- #47 table6085187016 records current decision; #280 unchangedc3c9abc, scoped guard correction remains accepted
+- #47 table6085337387 records current decision; #280 unchangedc3c9abc, scoped guard correction remains accepted
   pending native/dependency/final green; #277 complete, #288 remains merged. STATE #273 independent review/merge pending.
   No accepted LT2 result or production go-ahead. Beta invites require LT2 PASS and legal effective10/10/2026.
   AG1/AG3 cinema implementation queued after current acceptance and architect/backend gates.
@@ -196,8 +199,10 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `182f6ebfc95f2dc4ec05f9b63a86c2faf61a2337`: NOT APPROVED despite CI GREEN; do not run production.
-- Review5472849584: SYSTEM_VN_TIME runtime override and false positive time control CLOSED.
+LT2 harness #263 head `13f119cce1c6f3aeddf75ae63d520cabc1f69c91`: NOT APPROVED despite CI GREEN; do not run production.
+- Review5472942700: background helper spawn now before preseed; no readiness/liveness acknowledgement.
+  Existing failure-before-write gate remains open; preserve accepted helper interface and require real regression.
+  SYSTEM_VN_TIME runtime override and false positive time control remain CLOSED.
   Test-only date CLI added; window before password means actual gate transition now tested. Preserve closures.
   Existing exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded test requirements remain.
   Prior token-file/unrelated-error/real-clock silent skip closures retained; tokens stay memory-only.
@@ -253,7 +258,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at182f6eb but review5472849584 remains changes requested for existing integration groups.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at13f119c but review5472942700 remains changes requested for existing integration groups.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
