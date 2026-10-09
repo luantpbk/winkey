@@ -92,6 +92,8 @@ TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_COD
 | `TARGET_URL` | Base URL of the Winkey gateway | Default: `https://winkey.vn` |
 | `LOADTEST_USER_PASSWORD` | Password used for `lt2_*` temporary accounts | Required for production / non-localhost |
 | `LT2_INVITE_CODE` | Registration invite code (if required) | Optional |
+| `EDGE_METRICS_URL` | Telemetry URL for edge-1 node exporter (`node_memory_MemAvailable_bytes`) | Required for production |
+| `ERROR_RATE_SOURCE` | Telemetry URL or JSON file for HTTP req failure rate monitoring | Optional |
 | `LEGACY_SITES` | Space-separated URLs of legacy sites monitored by watchdog | Optional |
 | `COLLECTOR_PORT` | Port for real-time comment journal collector | Default: `9999` |
 | `ALLOW_OUTSIDE_WINDOW` | Set `true` to bypass 02:00–03:30 AM VN window check for local tests | Default: `false` |
@@ -102,7 +104,7 @@ TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_COD
 
 - **Fail-Closed Preseed & Collector**: `preseed.mjs` and `comment-collector.mjs` fail closed (`process.exit(1)`) if account creation or collector health verification fails.
 - **Fail-Closed Video Pool & Preflight**: Preflight checks verify target health (`GET /healthz`), 02:00 - 03:30 AM VN window, and valid video samples in `/v1/videos`. Scenarios fail closed if preconditions are not met.
-- **Platform Watchdog & Telemetry Helper (#279)**: `lt2-run.sh` integrates helper #279 (`deploy/lt2/watchdog.mjs`) when available. Monitors edge-1 MemAvailable (>= 1 GiB), HTTP error rates (< 5%), and canonical legacy site health concurrently. If watchdog detects failure or process dies, triggers immediate `SIGINT` auto-abort.
+- **Platform Watchdog & Telemetry Helper (#279)**: `lt2-run.sh` integrates helper #279 (`deploy/lt2/watchdog.mjs`) when available, tracking `RUN_ID`, `TARGET_PID`, and `ABORT_SIGNAL_FILE`. Monitors edge-1 MemAvailable (>= 1 GiB via `EDGE_METRICS_URL`; local generator `/proc/meminfo` fallback removed), HTTP error rates (< 5% via `ERROR_RATE_SOURCE`), and canonical legacy site health concurrently. If watchdog detects failure or process dies, triggers immediate `SIGINT` auto-abort.
 - **Dual Workload Telemetry**: Telemetry metrics across both workloads (`hls-viewers.js` for ABR playback, rebuffer ratio, startup time; `api-mix.js` for API request success, comment collector ACK) are reported continuously.
 - **Paginated Comment Discovery with Real Request Timeouts**: `cleanup.mjs` performs automatic comment discovery across target videos using OpenAPI contract `PublicProfile` author metadata (`author: { id, handle }` or `null`) matching strictly on author handle and id, and keyset cursor pagination (`next_cursor`). Every fetch call during discovery uses `AbortSignal.timeout` linked to the remaining discovery budget. If discovery fails, returns non-200 (including 404), has an invalid payload, missing/invalid `next_cursor`, detected cursor cycles, or exceeds deadline before deletion starts, all accounts and comments are retained for retry recovery without deleting user accounts.
 - **Token Renewal Error Handling & Write Guards**: Tokens are renewed proactively before expiration with expiration caching (`expires_in: 900`). If in-memory token renewal fails in `api-mix.js`, the stale token is cleared (`user.token = null`) and write operations are degraded to public read requests to prevent 401 write storms, while retrying renewal safely on subsequent VU iterations.

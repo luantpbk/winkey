@@ -98,11 +98,21 @@ trap abort_all EXIT SIGINT SIGTERM
 echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."
 TARGET_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" LT2_INVITE_CODE="${LT2_INVITE_CODE}" node "${SCRIPT_DIR}/preseed.mjs"
 
-# 3. Launch background Watchdog for legacy sites, edge RAM, and error rate telemetry (#279 helper integration)
+# 3. Launch background Watchdog for real telemetry sources (Edge-1 RAM, HTTP error rate, Legacy sites)
+ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE:-${SCRIPT_DIR}/abort.signal}"
+rm -f "${ABORT_SIGNAL_FILE}"
+
 watchdog_loop() {
-  echo "[watchdog] Watchdog active (polling legacy sites and host RAM every 30s)..."
+  echo "[watchdog] Watchdog active (RUN_ID: ${RUN_ID}, TARGET_PID: $$)..."
   while true; do
-    sleep 30
+    sleep 5
+
+    # Check for external abort signal file written by watchdog helper or metrics probe
+    if [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+      echo "[watchdog] ALERT: Abort signal file detected (${ABORT_SIGNAL_FILE})! Immediate auto-abort." >&2
+      kill -INT $$ 2>/dev/null || true
+      exit 1
+    fi
 
     # Legacy sites health check (must verify all 4 legacy sites if provided)
     if [[ -n "${LEGACY_SITES}" ]]; then
@@ -113,24 +123,38 @@ watchdog_loop() {
           exit 1
         fi
       done
-      echo "[watchdog] Legacy sites health check: PASS"
     fi
 
-    # Host RAM check (available memory >= 1 GiB)
-    if [[ -f /proc/meminfo ]]; then
-      avail_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-      if [[ -n "${avail_kb}" && "${avail_kb}" -lt 1048576 ]]; then
-        echo "[watchdog] ALERT: Available RAM fell below 1 GiB (${avail_kb} kB)! Immediate auto-abort." >&2
+    # Edge-1 MemAvailable check via EDGE_METRICS_URL (No local generator /proc/meminfo fallback!)
+    if [[ -n "${EDGE_METRICS_URL:-}" ]]; then
+      metrics_body=$(curl -sS --max-time 5 "${EDGE_METRICS_URL}" 2>/dev/null || echo "")
+      if [[ -z "${metrics_body}" ]]; then
+        echo "[watchdog] ALERT: Failed to probe edge-1 metrics from ${EDGE_METRICS_URL}! Telemetry loss auto-abort." >&2
         kill -INT $$ 2>/dev/null || true
         exit 1
       fi
+      # Parse node_memory_MemAvailable_bytes
+      avail_bytes=$(echo "${metrics_body}" | grep 'node_memory_MemAvailable_bytes' | awk '{print $2}' | head -n1 || echo "")
+      if [[ -n "${avail_bytes}" ]]; then
+        # Convert to integer
+        avail_bytes_int=$(printf "%.0f" "${avail_bytes}" 2>/dev/null || echo "0")
+        if [[ "${avail_bytes_int}" -lt 1073741824 && "${avail_bytes_int}" -gt 0 ]]; then
+          echo "[watchdog] ALERT: Edge-1 MemAvailable fell below 1 GiB threshold (${avail_bytes_int} bytes)! Immediate auto-abort." >&2
+          kill -INT $$ 2>/dev/null || true
+          exit 1
+        fi
+      fi
+    elif [[ "${is_production}" -eq 1 ]]; then
+      echo "[watchdog] ERROR: EDGE_METRICS_URL environment variable is required for production telemetry monitoring. Fail-closed abort." >&2
+      kill -INT $$ 2>/dev/null || true
+      exit 1
     fi
   done
 }
 
 if [[ -f "${REPO_ROOT}/deploy/lt2/watchdog.mjs" ]]; then
   echo "[lt2] Launching platform watchdog helper (#279) from deploy/lt2/watchdog.mjs..."
-  LEGACY_SITES="${LEGACY_SITES}" TARGET_URL="${TARGET_URL}" node "${REPO_ROOT}/deploy/lt2/watchdog.mjs" &
+  RUN_ID="${RUN_ID}" TARGET_PID="$$" ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE}" LEGACY_SITES="${LEGACY_SITES}" TARGET_URL="${TARGET_URL}" EDGE_METRICS_URL="${EDGE_METRICS_URL:-}" ERROR_RATE_SOURCE="${ERROR_RATE_SOURCE:-}" node "${REPO_ROOT}/deploy/lt2/watchdog.mjs" &
   WATCHDOG_PID=$!
 else
   watchdog_loop &
