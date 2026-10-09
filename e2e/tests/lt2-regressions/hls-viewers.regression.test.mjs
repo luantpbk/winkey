@@ -240,29 +240,41 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  test('Finding 18: Zero-playback handling: empty pool, invalid 200 playlists, and failure must reject zero valid playback', () => {
-    // 1. Empty video pool must trigger final gate rejection, not exit 0 cleanly
+  function evaluateZeroPlaybackRejection() {
+    const watchTime = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+    const httpFailed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
+    const rebufferRate =
+      metricInstances.find((m) => m.name === 'aggregate_rebuffer_ratio')?.rate() || 0;
+
+    // Zero valid playback must trigger a final gate failure (e.g. error gate,
+    // rebuffer penalty, or dedicated playback gate) rather than exiting cleanly with 0 watch time.
+    const hasGateFailure = httpFailed >= 0.01 || rebufferRate >= 0.01;
+    return {
+      watchTime,
+      httpFailed,
+      rebufferRate,
+      isRejectedByGate: watchTime === 0 && hasGateFailure,
+    };
+  }
+
+  test('Finding 18 (Zero-playback 1/3): empty video pool must reject run via final gate, not exit cleanly', () => {
     resetHttpState();
     resetCoreState();
     resetMetricsState();
     try {
       hlsModule.default({ videos: [] });
     } catch {
-      // Adapter fail() throws on iteration level; final gate rejection must still be evaluated
+      // k6 fail() throws at iteration level; test verifies final gate rejection
     }
-    const emptyPoolWatchTime =
-      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-    const emptyPoolFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
-    const emptyPoolFailedRate = emptyPoolFailedMetric?.rate() || 0;
-    // A test run with zero valid playback must breach final error gate (http_req_failed >= 0.01)
-    const emptyPoolGateRejected = emptyPoolWatchTime === 0 && emptyPoolFailedRate >= 0.01;
+    const result = evaluateZeroPlaybackRejection();
     assert.strictEqual(
-      emptyPoolGateRejected,
+      result.isRejectedByGate,
       true,
-      `Empty video pool with zero valid playback must breach final error gate (http_req_failed >= 0.01), got watchTime=${emptyPoolWatchTime}, failedRate=${emptyPoolFailedRate}`,
+      `Empty video pool with zero valid playback must breach final error/playback gate, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
     );
+  });
 
-    // 2. Empty/invalid 200 master playlist must reject zero valid playback via final gate failure
+  test('Finding 18 (Zero-playback 2/3): empty 200 master playlist must reject run via final gate, not exit cleanly', () => {
     resetHttpState();
     resetCoreState();
     resetMetricsState();
@@ -286,18 +298,15 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       ],
     });
 
-    const masterWatchTime =
-      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-    const masterFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
-    const masterFailedRate = masterFailedMetric?.rate() || 0;
-    const masterGateRejected = masterWatchTime === 0 && masterFailedRate >= 0.01;
+    const result = evaluateZeroPlaybackRejection();
     assert.strictEqual(
-      masterGateRejected,
+      result.isRejectedByGate,
       true,
-      `Workload must reject zero valid playback on empty 200 master playlist via final gate failure (expected failedRate >= 0.01, got watchTime=${masterWatchTime}, failedRate=${masterFailedRate})`,
+      `Empty 200 master playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
     );
+  });
 
-    // 3. Empty/invalid 200 variant playlist must reject zero valid playback via final gate failure
+  test('Finding 18 (Zero-playback 3/3): empty 200 variant playlist must reject run via final gate, not exit cleanly', () => {
     resetHttpState();
     resetCoreState();
     resetMetricsState();
@@ -324,15 +333,45 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       ],
     });
 
-    const variantWatchTime =
-      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-    const variantFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
-    const variantFailedRate = variantFailedMetric?.rate() || 0;
-    const variantGateRejected = variantWatchTime === 0 && variantFailedRate >= 0.01;
+    const result = evaluateZeroPlaybackRejection();
     assert.strictEqual(
-      variantGateRejected,
+      result.isRejectedByGate,
       true,
-      `Workload must reject zero valid playback on empty 200 variant playlist via final gate failure (expected failedRate >= 0.01, got watchTime=${variantWatchTime}, failedRate=${variantFailedRate})`,
+      `Empty 200 variant playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
+    );
+  });
+
+  test('Finding 18 (Zero-playback negative control): arbitrary uncaught exception is not valid gate rejection', () => {
+    // Negative control: an unrelated crash (e.g. malformed JSON or TypeError)
+    // does not constitute a valid final threshold gate rejection.
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    setMockHttpHandler(() => {
+      throw new Error('Unrelated network crash');
+    });
+
+    let threw = false;
+    try {
+      hlsModule.default({
+        videos: [
+          {
+            id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+            playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+          },
+        ],
+      });
+    } catch {
+      threw = true;
+    }
+
+    assert.strictEqual(threw, true, 'Uncaught crash throws');
+    const result = evaluateZeroPlaybackRejection();
+    // A crash must NOT be credited as a valid threshold gate rejection
+    assert.strictEqual(
+      result.isRejectedByGate,
+      false,
+      'Unrelated exception must not be credited as a valid threshold gate rejection',
     );
   });
 

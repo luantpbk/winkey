@@ -19,6 +19,20 @@ function assertValidUuid(uuid, field) {
   );
 }
 
+const RFC3339_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+function assertValidRfc3339(ts, field) {
+  assert.ok(
+    typeof ts === 'string' && RFC3339_REGEX.test(ts),
+    `${field} must be a valid RFC 3339 timestamp string, got: ${ts}`,
+  );
+  const time = Date.parse(ts);
+  assert.strictEqual(
+    Number.isNaN(time),
+    false,
+    `${field} must be parseable as a valid date timestamp, got: ${ts}`,
+  );
+}
+
 // Contract-compliant schema builders per contracts/openapi/common.yaml, video.v1.yaml, social.v1.yaml
 function makeValidProfile(opts = {}) {
   return {
@@ -126,6 +140,8 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     const profile = makeValidProfile();
     assertValidUuid(profile.id, 'profile.id');
     assert.strictEqual(/^[A-Za-z0-9_.]{3,30}$/.test(profile.handle), true);
+    assert.strictEqual(typeof profile.display_name, 'string');
+    assert.strictEqual(typeof profile.avatar_url, 'string');
 
     const video = makeValidVideoSummary();
     assertValidUuid(video.id, 'video.id');
@@ -133,8 +149,9 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     assert.strictEqual(typeof video.title, 'string');
     assert.strictEqual(typeof video.duration_ms, 'number');
     assert.strictEqual(typeof video.thumbnail_url, 'string');
-    assert.strictEqual(new Date(video.created_at).toISOString(), video.created_at);
-    assert.strictEqual(new Date(video.updated_at).toISOString(), video.updated_at);
+    assert.strictEqual(typeof video.view_count, 'number');
+    // VideoSummary per OpenAPI video.v1.yaml specifies published_at (not created_at/updated_at)
+    assertValidRfc3339(video.published_at, 'video.published_at');
 
     const comment = makeValidComment();
     assertValidUuid(comment.id, 'comment.id');
@@ -142,7 +159,8 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     assertValidUuid(comment.author.id, 'comment.author.id');
     assert.strictEqual(comment.video_id, video.id);
     assert.strictEqual(typeof comment.body, 'string');
-    assert.strictEqual(new Date(comment.created_at).toISOString(), comment.created_at);
+    // Comment per OpenAPI social.v1.yaml specifies RFC 3339 created_at
+    assertValidRfc3339(comment.created_at, 'comment.created_at');
   });
 
   test('Finding 1: Missing required next_cursor in video listing response must retain author accounts', async () => {

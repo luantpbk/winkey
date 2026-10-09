@@ -96,10 +96,16 @@ date() {
   if [ "\${FAIL_TZ:-0}" = "1" ]; then
     case "\${TZ:-}" in
       *Asia/Ho_Chi_Minh*)
-        echo "date: timezone lookup failed for Asia/Ho_Chi_Minh" >&2
+        echo "date_fail_tz: timezone lookup failed for Asia/Ho_Chi_Minh (TZ=\${TZ:-})" >&2
+        echo "date_fail_tz: timezone lookup failed for Asia/Ho_Chi_Minh (TZ=\${TZ:-})" >> "${normalizedTraceLog}"
         return 1
         ;;
     esac
+  fi
+  if [ -n "\${TZ:-}" ]; then
+    echo "date_call: TZ=\${TZ} args=$*" >> "${normalizedTraceLog}"
+  else
+    echo "date_call: TZ=none args=$*" >> "${normalizedTraceLog}"
   fi
   case "$*" in
     *%s*)
@@ -126,45 +132,68 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
-  async function terminateChildTree(child) {
-    if (!child || child.killed || child.exitCode !== null) return;
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (!done) {
-          done = true;
-          resolve();
-        }
-      };
-      child.once('close', finish);
-      child.once('exit', finish);
-      try {
-        if (process.platform === 'win32') {
-          execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
-        } else {
-          try {
-            process.kill(-child.pid, 'SIGKILL');
-          } catch {
-            void 0;
-          }
-          try {
-            process.kill(child.pid, 'SIGKILL');
-          } catch {
-            void 0;
-          }
-        }
-      } catch {
-        void 0;
+  const activeChildPids = [];
+
+  function isProcessAlive(pid) {
+    if (!pid) return false;
+    try {
+      if (process.platform === 'win32') {
+        const out = execSync(`tasklist /fi "PID eq ${pid}" /fo csv /nh`, {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        return out.includes(`"${pid}"`);
       }
-      setTimeout(finish, 2000);
-    });
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function terminateProcessTree(pid) {
+    if (!pid) return;
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /pid ${pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
+      } else {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          void 0;
+        }
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          void 0;
+        }
+      }
+    } catch {
+      void 0;
+    }
+  }
+
+  async function waitForProcessDisappearance(pid, timeoutMs = 2000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (!isProcessAlive(pid)) return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return !isProcessAlive(pid);
   }
 
   afterEach(async () => {
-    // Bounded process-tree teardown: kill and await all spawned descendants
-    for (const child of activeChildren) {
-      await terminateChildTree(child);
+    // Bounded process-tree teardown: kill and await all spawned descendants even if parent exited
+    for (const pid of activeChildPids) {
+      terminateProcessTree(pid);
+      const gone = await waitForProcessDisappearance(pid, 2000);
+      assert.strictEqual(
+        gone,
+        true,
+        `Process tree for PID ${pid} must be completely terminated with no surviving descendants`,
+      );
     }
+    activeChildPids.length = 0;
     activeChildren.length = 0;
 
     // Only remove owned temporary directory; zero global mutations
@@ -197,6 +226,9 @@ source "${normalizedScriptPath}"
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       activeChildren.push(child);
+      if (child.pid) {
+        activeChildPids.push(child.pid);
+      }
 
       let stdout = '';
       let stderr = '';
@@ -209,7 +241,11 @@ source "${normalizedScriptPath}"
       });
 
       const timer = setTimeout(async () => {
-        await terminateChildTree(child);
+        terminateProcessTree(child.pid);
+        const gone = await waitForProcessDisappearance(child.pid, 2000);
+        if (!gone) {
+          throw new Error(`Runner process ${child.pid} failed to terminate on timeout`);
+        }
         resolve({ status: -1, stdout, stderr, timedOut: true });
       }, 10000);
 
@@ -281,6 +317,20 @@ source "${normalizedScriptPath}"
 
     const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
 
+    // Prove the ICT timezone lookup failed via trace logging
+    assert.strictEqual(
+      trace.includes('date_fail_tz'),
+      true,
+      'Trace must prove Asia/Ho_Chi_Minh timezone evaluation failed as intended',
+    );
+
+    // Assert that unzoned/local date fallback was NOT attempted
+    assert.strictEqual(
+      trace.includes('date_call: TZ=none args=+%H%M'),
+      false,
+      'Runner must not fall back to local/unzoned date when Asia/Ho_Chi_Minh evaluation fails',
+    );
+
     // Safety specification: lt2-run.sh must fail-closed on timezone failure and must NOT fall back to local date.
     // In current buggy SHA, it swallows the error (|| date +"%H%M") and proceeds to preseed!
     assert.strictEqual(
@@ -304,13 +354,29 @@ source "${normalizedScriptPath}"
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
     });
 
+    const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
+    const output = (res.stdout || '') + (res.stderr || '');
+
+    // Prove valid Asia/Ho_Chi_Minh was evaluated
+    assert.strictEqual(
+      trace.includes('date_call: TZ=Asia/Ho_Chi_Minh args=+%H%M'),
+      true,
+      'Trace must record successful date invocation under Asia/Ho_Chi_Minh',
+    );
+
     // In a healthy environment with valid timezone, date and time checks succeed.
     // The runner proceeds past the window check without time/date window rejection.
-    const output = (res.stdout || '') + (res.stderr || '');
     assert.strictEqual(
       output.includes('outside approved window') || output.includes('cannot be executed before'),
       false,
       'Positive control: valid timezone within approved window must not trigger time/date window error',
+    );
+
+    // Assert reaching the post-time-gate marker
+    assert.strictEqual(
+      output.includes('[lt2] Pre-seeding 5 temporary lt2 accounts...'),
+      true,
+      'Positive control: runner must advance past time gates to pre-seeding accounts',
     );
   });
 
