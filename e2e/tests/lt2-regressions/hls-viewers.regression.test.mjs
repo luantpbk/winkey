@@ -240,19 +240,31 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  function evaluateZeroPlaybackRejection(options = hlsModule.options, module = hlsModule) {
+  // Supplementary in-memory threshold model (unit verification when native k6 CLI is absent).
+  // Strictly parses k6 threshold expressions (<agg><op><val>); explicitly rejects unsupported forms.
+  // Does NOT invent handleSummary exit semantics or fabricate process exit codes.
+  function evaluateSupplementaryThresholdGate(options = hlsModule.options) {
     const watchTime = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
     const thresholds = options?.thresholds || {};
     const thresholdEvaluations = [];
 
-    // Evaluate each threshold configured on the module's options.thresholds
     for (const [metricName, exprs] of Object.entries(thresholds)) {
       const metric = metricInstances.find((m) => m.name === metricName);
       const list = Array.isArray(exprs) ? exprs : [exprs];
 
       for (const expr of list) {
-        const match = String(expr).match(/^([a-zA-Z0-9_()]+)\s*(<=|>=|<|>|==|!=)\s*([0-9.]+)$/);
-        if (!match) continue;
+        if (typeof expr !== 'string') {
+          throw new Error(
+            `Unsupported threshold format for metric "${metricName}": object/extended threshold configuration requires native k6 execution`,
+          );
+        }
+
+        const match = expr.match(/^([a-zA-Z0-9_()]+)\s*(<=|>=|<|>|==|!=)\s*([0-9.]+)$/);
+        if (!match) {
+          throw new Error(
+            `Unsupported threshold expression format "${expr}" for metric "${metricName}": only standard <agg><op><val> expressions supported in supplementary model`,
+          );
+        }
 
         const [, agg, op, targetStr] = match;
         const target = parseFloat(targetStr);
@@ -276,6 +288,8 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
             const idx = Math.min(vals.length - 1, Math.floor((p / 100) * vals.length));
             actual = vals[idx];
           }
+        } else {
+          throw new Error(`Unsupported threshold aggregation "${agg}" in supplementary model`);
         }
 
         let passed = true;
@@ -306,43 +320,12 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
     const hasBreachedThreshold = thresholdEvaluations.some((e) => !e.passed);
 
-    // Evaluate handleSummary if custom final exit/summary is exported
-    let summaryFailed = false;
-    if (typeof module?.handleSummary === 'function') {
-      try {
-        const summaryData = {
-          metrics: Object.fromEntries(
-            metricInstances.map((m) => [
-              m.name,
-              {
-                values: {
-                  rate: typeof m.rate === 'function' ? m.rate() : 0,
-                  count: typeof m.count === 'number' ? m.count : m.values?.length || 0,
-                  value: typeof m.value === 'number' ? m.value : 0,
-                },
-              },
-            ]),
-          ),
-        };
-        const summaryResult = module.handleSummary(summaryData);
-        if (summaryResult?.status && summaryResult.status !== 0) {
-          summaryFailed = true;
-        }
-      } catch {
-        summaryFailed = true;
-      }
-    }
-
-    // Native final exit: non-zero exit if thresholds breached or summary rejected
-    const isRejectedByGate = hasBreachedThreshold || summaryFailed;
-
     return {
       watchTime,
       thresholdEvaluations,
       hasBreachedThreshold,
-      summaryFailed,
-      isRejectedByGate: watchTime === 0 && isRejectedByGate,
-      nativeExitCode: isRejectedByGate ? 99 : 0,
+      // Zero-playback gate rejection requires zero watch time AND a breached threshold
+      isRejectedByGate: watchTime === 0 && hasBreachedThreshold,
     };
   }
 
@@ -355,11 +338,11 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     } catch {
       // k6 fail() throws at iteration level; test verifies final gate rejection
     }
-    const result = evaluateZeroPlaybackRejection();
+    const result = evaluateSupplementaryThresholdGate();
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty video pool with zero valid playback must breach final error/playback gate, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
+      `Empty video pool with zero valid playback must breach final threshold gate, got watchTime=${result.watchTime}, hasBreachedThreshold=${result.hasBreachedThreshold}`,
     );
   });
 
@@ -387,11 +370,11 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       ],
     });
 
-    const result = evaluateZeroPlaybackRejection();
+    const result = evaluateSupplementaryThresholdGate();
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty 200 master playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
+      `Empty 200 master playlist must breach final threshold gate on zero valid playback, got watchTime=${result.watchTime}, hasBreachedThreshold=${result.hasBreachedThreshold}`,
     );
   });
 
@@ -422,11 +405,11 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       ],
     });
 
-    const result = evaluateZeroPlaybackRejection();
+    const result = evaluateSupplementaryThresholdGate();
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty 200 variant playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
+      `Empty 200 variant playlist must breach final threshold gate on zero valid playback, got watchTime=${result.watchTime}, hasBreachedThreshold=${result.hasBreachedThreshold}`,
     );
   });
 
@@ -435,7 +418,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     resetHttpState();
     resetCoreState();
     resetMetricsState();
-    const result = evaluateZeroPlaybackRejection({ thresholds: {} });
+    const result = evaluateSupplementaryThresholdGate({ thresholds: {} });
     assert.strictEqual(
       result.isRejectedByGate,
       false,
@@ -449,7 +432,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     resetHttpState();
     resetCoreState();
     resetMetricsState();
-    const result = evaluateZeroPlaybackRejection(hlsModule.options);
+    const result = evaluateSupplementaryThresholdGate(hlsModule.options);
     assert.strictEqual(
       result.hasBreachedThreshold,
       false,
@@ -473,7 +456,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
         total_watch_time_ms: ['count>0'],
       },
     };
-    const result = evaluateZeroPlaybackRejection(dedicatedOptions);
+    const result = evaluateSupplementaryThresholdGate(dedicatedOptions);
     assert.strictEqual(
       result.hasBreachedThreshold,
       true,
@@ -483,6 +466,24 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       result.isRejectedByGate,
       true,
       'Dedicated playback gate breach must be recognized as valid gate rejection',
+    );
+  });
+
+  test('Finding 18 (Zero-playback control): unsupported object threshold format is explicitly rejected', () => {
+    // Control: object/extended threshold configuration is not silently ignored;
+    // it explicitly throws an unsupported error in the supplementary model
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    const objectThresholdOptions = {
+      thresholds: {
+        http_req_failed: [{ threshold: 'rate<0.01', abortOnFail: true }],
+      },
+    };
+    assert.throws(
+      () => evaluateSupplementaryThresholdGate(objectThresholdOptions),
+      /Unsupported threshold format/,
+      'Object threshold configuration must be explicitly rejected in supplementary model',
     );
   });
 
@@ -511,8 +512,13 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     }
 
     assert.strictEqual(threw, true, 'Uncaught crash throws');
-    const result = evaluateZeroPlaybackRejection();
+    const result = evaluateSupplementaryThresholdGate();
     // A crash must NOT be credited as a valid threshold gate rejection
+    assert.strictEqual(
+      result.hasBreachedThreshold,
+      false,
+      'Unrelated exception must not breach threshold metrics',
+    );
     assert.strictEqual(
       result.isRejectedByGate,
       false,

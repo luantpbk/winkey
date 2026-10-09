@@ -42,12 +42,22 @@ describe('[LT2 Regression] Actual Runner & Lifecycle Safety Verification', () =>
     const wrapperContent = `#!/usr/bin/env bash
 set -e
 
-# Log the main shell PID and any background jobs
-echo "$$" >> "${normalizedPidLog}"
+# Log verified native OS PIDs: on Windows (MSYS bash), map MSYS PID to WINPID via /proc/<pid>/winpid
 log_pids() {
-  echo "$$" >> "${normalizedPidLog}" 2>/dev/null || true
-  jobs -p >> "${normalizedPidLog}" 2>/dev/null || true
+  if [ -f "/proc/$$/winpid" ]; then
+    cat "/proc/$$/winpid" >> "${normalizedPidLog}" 2>/dev/null || true
+  else
+    echo "$$" >> "${normalizedPidLog}" 2>/dev/null || true
+  fi
+  for j in $(jobs -p 2>/dev/null); do
+    if [ -f "/proc/$j/winpid" ]; then
+      cat "/proc/$j/winpid" >> "${normalizedPidLog}" 2>/dev/null || true
+    else
+      echo "$j" >> "${normalizedPidLog}" 2>/dev/null || true
+    fi
+  done
 }
+log_pids
 trap log_pids EXIT SIGINT SIGTERM
 
 # Scoped interceptor for curl: strictly validates exact loopback origins, hard denial for non-loopback
@@ -151,8 +161,9 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
-  const ownedPids = new Set();
-  const ownedPgids = new Set();
+  const verifiedOwnedPids = new Set();
+  let currentRunRootPid = null;
+  let currentRunStartTime = 0;
 
   function isProcessAlive(pid) {
     if (!pid) return false;
@@ -171,104 +182,135 @@ source "${normalizedScriptPath}"
     }
   }
 
-  function discoverOwnedDescendants() {
-    // 1. Read pids.log recorded by wrapper script
-    if (pidLog && fs.existsSync(pidLog)) {
-      try {
-        const content = fs.readFileSync(pidLog, 'utf8');
-        const lines = content.split(/\r?\n/);
-        for (const line of lines) {
-          const pid = parseInt(line.trim(), 10);
-          if (!isNaN(pid) && pid > 0) {
-            ownedPids.add(pid);
-          }
-        }
-      } catch {
-        void 0;
-      }
+  function getVerifiedOwnedProcesses() {
+    if (!currentRunRootPid) return [];
+    const owned = new Set();
+    if (isProcessAlive(currentRunRootPid)) {
+      owned.add(currentRunRootPid);
     }
 
-    // 2. Query OS process table for children/descendants of all currently known owned PIDs
-    const pidsToCheck = Array.from(ownedPids);
-    for (const p of pidsToCheck) {
-      try {
-        if (process.platform === 'win32') {
-          // On Windows, ParentProcessId persists even after the parent terminates
-          const out = execSync(
-            `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"ParentProcessId = ${p}\\" | Select-Object -ExpandProperty ProcessId"`,
-            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
-          );
-          const pids = out
-            .split(/\r?\n/)
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !isNaN(n) && n > 0);
-          for (const pid of pids) {
-            ownedPids.add(pid);
-          }
-        } else {
-          // POSIX: pgrep -P finds direct children
-          const out = execSync(`pgrep -P ${p} || true`, {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-            timeout: 2000,
-          });
-          const pids = out
-            .split(/\r?\n/)
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !isNaN(n) && n > 0);
-          for (const pid of pids) {
-            ownedPids.add(pid);
-          }
-        }
-      } catch {
-        void 0;
-      }
-    }
-
-    // 3. On POSIX, query all processes in owned PGIDs
-    if (process.platform !== 'win32') {
-      for (const pgid of ownedPgids) {
+    try {
+      if (process.platform === 'win32') {
+        // Query full process table via PowerShell CIM
+        const out = execSync(
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress"`,
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
+        );
+        let procs = [];
         try {
-          const out = execSync(`pgrep -g ${pgid} || true`, {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-            timeout: 2000,
-          });
-          const pids = out
-            .split(/\r?\n/)
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !isNaN(n) && n > 0);
-          for (const pid of pids) {
-            ownedPids.add(pid);
-          }
+          const parsed = JSON.parse(out.trim());
+          procs = Array.isArray(parsed) ? parsed : [parsed];
         } catch {
-          void 0;
+          procs = [];
+        }
+
+        const byPpid = new Map();
+        const procDetails = new Map();
+        for (const p of procs) {
+          if (!p || typeof p.ProcessId !== 'number') continue;
+          let epoch = 0;
+          if (typeof p.CreationDate === 'string') {
+            const m = p.CreationDate.match(/\d+/);
+            if (m) epoch = parseInt(m[0], 10);
+          }
+          procDetails.set(p.ProcessId, { ppid: p.ParentProcessId, epoch });
+          if (!byPpid.has(p.ParentProcessId)) {
+            byPpid.set(p.ParentProcessId, []);
+          }
+          byPpid.get(p.ParentProcessId).push(p.ProcessId);
+        }
+
+        // Breadth-first search from currentRunRootPid down the process tree
+        const queue = [currentRunRootPid];
+        while (queue.length > 0) {
+          const parent = queue.shift();
+          const children = byPpid.get(parent) || [];
+          for (const childId of children) {
+            const detail = procDetails.get(childId);
+            // Verify creation date was at or after test run start (allowing 2s skew) to prevent PID reuse collision
+            if (detail && (!detail.epoch || detail.epoch >= currentRunStartTime - 2000)) {
+              if (!owned.has(childId)) {
+                owned.add(childId);
+                queue.push(childId);
+              }
+            }
+          }
+        }
+
+        // Cross-verify WINPIDs recorded in pids.log
+        if (pidLog && fs.existsSync(pidLog)) {
+          const loggedLines = fs.readFileSync(pidLog, 'utf8').split(/\r?\n/);
+          for (const line of loggedLines) {
+            const candPid = parseInt(line.trim(), 10);
+            if (!isNaN(candPid) && candPid > 0 && procDetails.has(candPid)) {
+              const detail = procDetails.get(candPid);
+              // Walk ancestor chain to confirm currentRunRootPid is a true ancestor
+              let curr = detail.ppid;
+              let isAncestor = false;
+              let depth = 0;
+              while (curr && depth < 20) {
+                if (curr === currentRunRootPid) {
+                  isAncestor = true;
+                  break;
+                }
+                const next = procDetails.get(curr);
+                curr = next ? next.ppid : null;
+                depth++;
+              }
+              if (isAncestor && (!detail.epoch || detail.epoch >= currentRunStartTime - 2000)) {
+                owned.add(candPid);
+              }
+            }
+          }
+        }
+      } else {
+        // POSIX: Query processes by process group and PPID tree
+        const out = execSync(`ps -eo pid=,ppid=,pgid= || true`, {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 2000,
+        });
+        const lines = out.split(/\r?\n/);
+        for (const line of lines) {
+          const parts = line
+            .trim()
+            .split(/\s+/)
+            .map((n) => parseInt(n, 10));
+          if (parts.length >= 3) {
+            const [pid, ppid, pgid] = parts;
+            if (pgid === currentRunRootPid || ppid === currentRunRootPid) {
+              owned.add(pid);
+            }
+          }
         }
       }
+    } catch {
+      void 0;
     }
+
+    for (const pid of owned) {
+      verifiedOwnedPids.add(pid);
+    }
+    return Array.from(verifiedOwnedPids);
   }
 
-  function terminateAllOwnedProcesses() {
-    discoverOwnedDescendants();
+  function terminateVerifiedOwnedProcesses() {
+    const pids = getVerifiedOwnedProcesses();
 
-    // On POSIX: signal process groups first
-    if (process.platform !== 'win32') {
-      for (const pgid of ownedPgids) {
-        try {
-          process.kill(-pgid, 'SIGKILL');
-        } catch {
-          void 0;
-        }
+    // On POSIX: signal process group first
+    if (process.platform !== 'win32' && currentRunRootPid) {
+      try {
+        process.kill(-currentRunRootPid, 'SIGKILL');
+      } catch {
+        void 0;
       }
     }
 
-    // Terminate each owned PID individually (works even after parent died)
-    for (const pid of ownedPids) {
+    // Terminate each verified owned PID individually
+    for (const pid of pids) {
       try {
         if (process.platform === 'win32') {
-          execSync(`taskkill /pid ${pid} /T /F 2>nul || taskkill /pid ${pid} /F 2>nul || exit 0`, {
-            stdio: 'ignore',
-          });
+          execSync(`taskkill /pid ${pid} /F 2>nul || exit 0`, { stdio: 'ignore' });
         } else {
           try {
             process.kill(pid, 'SIGKILL');
@@ -282,32 +324,32 @@ source "${normalizedScriptPath}"
     }
   }
 
-  async function waitForAllOwnedProcesses(timeoutMs = 2000) {
+  async function waitForVerifiedOwnedProcesses(timeoutMs = 2000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      discoverOwnedDescendants();
-      const alive = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+      const pids = getVerifiedOwnedProcesses();
+      const alive = pids.filter((pid) => isProcessAlive(pid));
       if (alive.length === 0) return true;
       await new Promise((r) => setTimeout(r, 50));
     }
-    discoverOwnedDescendants();
-    const remaining = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+    const remaining = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
     return remaining.length === 0;
   }
 
   afterEach(async () => {
     // Bounded process-tree teardown: kill and await all spawned descendants even if parent exited
-    terminateAllOwnedProcesses();
-    const gone = await waitForAllOwnedProcesses(2000);
-    const surviving = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+    terminateVerifiedOwnedProcesses();
+    const gone = await waitForVerifiedOwnedProcesses(2000);
+    const surviving = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
     assert.strictEqual(
       gone,
       true,
-      `All owned processes and descendants must be completely terminated with no surviving descendants (surviving PIDs: ${surviving.join(', ')})`,
+      `All verified owned processes and descendants must be completely terminated with no surviving descendants (surviving PIDs: ${surviving.join(', ')})`,
     );
 
-    ownedPids.clear();
-    ownedPgids.clear();
+    verifiedOwnedPids.clear();
+    currentRunRootPid = null;
+    currentRunStartTime = 0;
     activeChildren.length = 0;
 
     // Only remove owned temporary directory; zero global mutations
@@ -340,11 +382,10 @@ source "${normalizedScriptPath}"
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       activeChildren.push(child);
+      currentRunRootPid = child.pid;
+      currentRunStartTime = Date.now();
       if (child.pid) {
-        ownedPids.add(child.pid);
-        if (process.platform !== 'win32') {
-          ownedPgids.add(child.pid);
-        }
+        verifiedOwnedPids.add(child.pid);
       }
 
       let stdout = '';
@@ -359,10 +400,10 @@ source "${normalizedScriptPath}"
 
       const timer = setTimeout(async () => {
         try {
-          terminateAllOwnedProcesses();
-          const gone = await waitForAllOwnedProcesses(2000);
+          terminateVerifiedOwnedProcesses();
+          const gone = await waitForVerifiedOwnedProcesses(2000);
           if (!gone) {
-            const alive = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+            const alive = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
             reject(
               new Error(
                 `Runner execution timed out and failed to clean up child processes (surviving PIDs: ${alive.join(', ')})`,
