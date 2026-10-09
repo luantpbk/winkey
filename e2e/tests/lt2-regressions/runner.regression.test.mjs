@@ -412,13 +412,18 @@ source "${normalizedScriptPath}"
     return Array.from(targetMap.values());
   }
 
-  function terminateVerifiedOwnedProcesses(simulatedTable = null, simulatedPlatform = null) {
-    if (!simulatedTable) {
+  function terminateVerifiedOwnedProcesses(tableQuerier = null, simulatedPlatform = null) {
+    if (!tableQuerier) {
       discoverAndTrackDescendants();
     }
 
     const plat = simulatedPlatform || process.platform;
-    const liveTable = simulatedTable || queryOsProcessTable();
+    const getLiveTable =
+      typeof tableQuerier === 'function'
+        ? tableQuerier
+        : tableQuerier instanceof Map
+          ? () => tableQuerier
+          : () => queryOsProcessTable();
 
     // On POSIX: ONLY signal process group if:
     // 1. currentRunRootIdentity exists and has verified non-null creationEpoch
@@ -432,7 +437,8 @@ source "${normalizedScriptPath}"
       activeChildren.some((c) => c && c.pid === currentRunRootIdentity.pid)
     ) {
       try {
-        if (isVerifiedOwnership(currentRunRootIdentity, liveTable)) {
+        const liveTableBeforeGroup = getLiveTable();
+        if (isVerifiedOwnership(currentRunRootIdentity, liveTableBeforeGroup)) {
           groupKiller(currentRunRootIdentity.pid, 'SIGKILL');
         }
       } catch {
@@ -441,10 +447,11 @@ source "${normalizedScriptPath}"
     }
 
     // Revalidate each tracked identity immediately before killing.
-    // Never kill a PID without re-verifying that the current process at that PID matches the recorded creationEpoch!
+    // Re-query the live OS table immediately before each individual signal to prevent killing a recycled PID!
     const identities = Array.from(verifiedDescendantIdentities.values());
     for (const identity of identities) {
-      // Re-verify against live table: require readable matching creation timestamp before killing
+      // Re-query live OS table immediately before each individual signal
+      const liveTable = getLiveTable();
       if (!isVerifiedOwnership(identity, liveTable)) {
         continue;
       }
@@ -930,6 +937,82 @@ source "${normalizedScriptPath}"
         'Injected killer must receive process signal when creation epoch matches and ownership is verified',
       );
       assert.strictEqual(killedProcesses[0].pid, 88882);
+
+      // Regression D: Injected query sequence where group kill causes child PID to be reused before individual kill:
+      // Query 1 (before group kill): root (88881) and child (88882) match captured identities.
+      // Group kill terminates the group.
+      // Query 2 (re-query immediately before child kill): child PID 88882 has already exited and been recycled by OS with new epoch!
+      // Strict immediate re-validation must refuse to signal the reused PID!
+      killedGroups.length = 0;
+      killedProcesses.length = 0;
+      let querySequenceCount = 0;
+      const groupKillReuseSequence = () => {
+        querySequenceCount++;
+        if (querySequenceCount === 1) {
+          // Table before group kill
+          return new Map([
+            [88881, { pid: 88881, creationEpoch: 1000000, ppid: 1 }],
+            [88882, { pid: 88882, creationEpoch: 1000500, ppid: 88881 }],
+          ]);
+        }
+        // Table immediately before individual child kill: PID 88882 recycled with new epoch
+        return new Map([
+          [88881, { pid: 88881, creationEpoch: 1000000, ppid: 1 }],
+          [88882, { pid: 88882, creationEpoch: 2000500, ppid: 1 }],
+        ]);
+      };
+      terminateVerifiedOwnedProcesses(groupKillReuseSequence, 'linux');
+      assert.strictEqual(
+        killedGroups.length,
+        1,
+        'Group kill should execute on verified root group',
+      );
+      assert.strictEqual(killedGroups[0].pgid, 88881);
+      assert.strictEqual(
+        killedProcesses.length,
+        0,
+        'No signal must be sent to child PID whose creation epoch changed after group kill',
+      );
+
+      // Regression E: Injected query sequence where first child kill causes later child PID to be reused:
+      // Track two children: 88882 (epoch 1000500) and 88883 (epoch 1000600).
+      // Root is null (only individual kills).
+      // Query 1 (before child 1 kill): both children match captured epochs.
+      // Query 2 (before child 2 kill, after child 1 kill ran): child 88883 was recycled with new epoch 3000600.
+      // Immediate re-query must allow child 1 kill but block signal to reused child 2!
+      killedGroups.length = 0;
+      killedProcesses.length = 0;
+      currentRunRootIdentity = null;
+      activeChildren.length = 0;
+      verifiedDescendantIdentities.clear();
+      verifiedDescendantIdentities.set(88882, { pid: 88882, creationEpoch: 1000500 });
+      verifiedDescendantIdentities.set(88883, { pid: 88883, creationEpoch: 1000600 });
+      let multiChildQueryCount = 0;
+      const multiChildReuseSequence = () => {
+        multiChildQueryCount++;
+        if (multiChildQueryCount === 1) {
+          return new Map([
+            [88882, { pid: 88882, creationEpoch: 1000500 }],
+            [88883, { pid: 88883, creationEpoch: 1000600 }],
+          ]);
+        }
+        return new Map([
+          [88882, { pid: 88882, creationEpoch: 1000500 }],
+          [88883, { pid: 88883, creationEpoch: 3000600 }], // Reused before its turn!
+        ]);
+      };
+      terminateVerifiedOwnedProcesses(multiChildReuseSequence, 'linux');
+      assert.strictEqual(
+        killedProcesses.length,
+        1,
+        'Only first matching child should receive kill signal',
+      );
+      assert.strictEqual(killedProcesses[0].pid, 88882);
+      assert.strictEqual(
+        killedProcesses.some((p) => p.pid === 88883),
+        false,
+        'No signal must be sent to later child whose PID was reused after earlier termination',
+      );
     } finally {
       verifiedDescendantIdentities.clear();
       currentRunRootIdentity = null;
