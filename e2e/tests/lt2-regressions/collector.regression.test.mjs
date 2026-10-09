@@ -56,7 +56,7 @@ function getNonLoopbackIp() {
   return null;
 }
 
-function getListeningAddress(port) {
+function getListeningSocketInfo(port) {
   try {
     const cmd =
       process.platform === 'win32' ? 'netstat -ano' : 'ss -tlpn || netstat -tlpn || lsof -i -n -P';
@@ -66,7 +66,12 @@ function getListeningAddress(port) {
       .find((l) => l.includes(`:${port}`) && (l.includes('LISTEN') || l.includes('LISTENING')));
     if (!line) return null;
     const match = line.match(/(127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::|localhost):[0-9]+/);
-    return match ? match[1] : null;
+    const pidMatch = line.trim().match(/\s+(\d+)\s*$/);
+    return {
+      address: match ? match[1] : null,
+      pid: pidMatch ? parseInt(pidMatch[1], 10) : null,
+      raw: line.trim(),
+    };
   } catch {
     return null;
   }
@@ -240,7 +245,10 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
     const child = spawn(process.execPath, [isolatedCollectorScript], {
       cwd: tmpDir,
       env: {
-        ...process.env,
+        PATH: process.env.PATH || '',
+        SYSTEMROOT: process.env.SYSTEMROOT || '',
+        TEMP: tmpDir,
+        TMP: tmpDir,
         COLLECTOR_PORT: String(freePort),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -270,13 +278,21 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
 
       assert.ok(booted, 'Standalone collector failed to boot on loopback healthz');
 
-      // 1. Inspect the listening address directly from the OS socket table
-      const boundAddress = getListeningAddress(freePort);
+      // 1. Inspect the listening socket directly from the OS socket table and verify port ownership
+      const socketInfo = getListeningSocketInfo(freePort);
+      assert.ok(socketInfo, `Socket info for port ${freePort} must be present in OS socket table`);
+      if (socketInfo.pid && child.pid) {
+        assert.strictEqual(
+          socketInfo.pid,
+          child.pid,
+          `Port ${freePort} must be owned by the spawned collector process (PID ${child.pid})`,
+        );
+      }
       // Current SHA line 73: server.listen(PORT, '0.0.0.0') binds to '0.0.0.0'
       assert.strictEqual(
-        boundAddress,
+        socketInfo.address,
         '127.0.0.1',
-        `Security finding: standalone collector bound socket to public '${boundAddress}', not loopback '127.0.0.1'`,
+        `Security finding: standalone collector bound socket to public '${socketInfo.address}', not loopback '127.0.0.1'`,
       );
 
       // 2. Also verify non-loopback connection rejection if host IP is present
@@ -305,7 +321,37 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
         );
       }
     } finally {
-      child.kill('SIGKILL');
+      // Bounded awaited teardown: terminate child and verify process exit
+      if (child && !child.killed && child.exitCode === null) {
+        await new Promise((resolve) => {
+          let finished = false;
+          const done = () => {
+            if (!finished) {
+              finished = true;
+              resolve();
+            }
+          };
+          child.once('exit', done);
+          child.once('close', done);
+
+          try {
+            child.kill('SIGTERM');
+          } catch {}
+
+          const killTimeout = setTimeout(() => {
+            try {
+              if (process.platform === 'win32') {
+                execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
+              } else {
+                child.kill('SIGKILL');
+              }
+            } catch {}
+            done();
+          }, 1000);
+
+          child.once('close', () => clearTimeout(killTimeout));
+        });
+      }
     }
   });
 });

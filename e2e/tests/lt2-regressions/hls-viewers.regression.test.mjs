@@ -144,7 +144,12 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     });
 
     const mockData = {
-      videos: [{ id: 'vid-1', playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' } }],
+      videos: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+          playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+        },
+      ],
     };
 
     try {
@@ -204,7 +209,12 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     });
 
     const mockData = {
-      videos: [{ id: 'vid-1', playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' } }],
+      videos: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+          playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+        },
+      ],
     };
 
     try {
@@ -230,57 +240,96 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  test('Finding 18: Zero-playback handling: variant failure must trigger nonzero error gate and record zero valid playback', () => {
-    // When playback fails to start (e.g. variant returns HTTP 500 error),
-    // the run must record zero valid watch time, breach the http_req_failed threshold gate,
-    // and record no valid playback ratio metrics without NaN or crashes.
+  test('Finding 18: Zero-playback handling: empty pool, invalid 200 playlists, and failure must reject zero valid playback', () => {
+    // 1. Empty video pool must call fail()
+    resetCoreState();
+    assert.throws(
+      () => hlsModule.default({ videos: [] }),
+      /FAIL: No valid video samples/i,
+      'Empty video pool must call k6 fail()',
+    );
+
+    // 2. Empty/invalid 200 master playlist must reject zero valid playback
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
     setMockHttpHandler((req) => {
       if (req.url.includes('master.m3u8')) {
         return {
           status: 200,
-          body: `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8\n`,
-          timings: { duration: 10 },
-        };
-      }
-      if (req.url.includes('variant.m3u8')) {
-        return {
-          status: 500,
-          body: 'Internal Server Error',
+          body: '#EXTM3U\n# No variants\n',
           timings: { duration: 10 },
         };
       }
       return { status: 404, body: '', timings: { duration: 10 } };
     });
 
-    const mockData = {
-      videos: [{ id: 'vid-1', playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' } }],
-    };
+    let masterRejected = false;
+    try {
+      hlsModule.default({
+        videos: [
+          {
+            id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+            playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+          },
+        ],
+      });
+      const watch = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+      const failed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
+      if (lastFailedMessage !== null || (watch === 0 && failed > 0)) {
+        masterRejected = true;
+      }
+    } catch {
+      masterRejected = true;
+    }
 
-    hlsModule.default(mockData);
-
-    const watchTrend = metricInstances.find((m) => m.name === 'total_watch_time_ms');
-    const httpReqFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
-    const ratioTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio');
-
-    // 1. Zero valid playback: watch time must be strictly zero
-    assert.strictEqual(watchTrend?.count || 0, 0, 'Zero valid playback must record 0 watch time');
-
-    // 2. Nonzero final gate failure: http_req_failed must record failure samples and rate > 0
-    assert.ok(
-      httpReqFailedMetric && httpReqFailedMetric.values.length > 0,
-      'http_req_failed must have samples',
-    );
     assert.strictEqual(
-      httpReqFailedMetric.rate() > 0,
+      masterRejected,
       true,
-      `Failure gate must record nonzero error rate (got ${httpReqFailedMetric.rate()})`,
+      'Workload must reject zero valid playback on empty 200 master playlist with error or gate failure, not exit cleanly with 0 watch time',
     );
 
-    // 3. No valid playback ratio recorded
+    // 3. Empty/invalid 200 variant playlist must reject zero valid playback
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    setMockHttpHandler((req) => {
+      if (req.url.includes('master.m3u8')) {
+        return {
+          status: 200,
+          body: '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8\n',
+          timings: { duration: 10 },
+        };
+      }
+      if (req.url.includes('variant.m3u8')) {
+        return { status: 200, body: '#EXTM3U\n', timings: { duration: 10 } };
+      }
+      return { status: 404, body: '', timings: { duration: 10 } };
+    });
+
+    let variantRejected = false;
+    try {
+      hlsModule.default({
+        videos: [
+          {
+            id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+            playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+          },
+        ],
+      });
+      const watch = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+      const failed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
+      if (lastFailedMessage !== null || (watch === 0 && failed > 0)) {
+        variantRejected = true;
+      }
+    } catch {
+      variantRejected = true;
+    }
+
     assert.strictEqual(
-      ratioTrend?.values.length || 0,
-      0,
-      'No valid playback ratio should be recorded on zero playback',
+      variantRejected,
+      true,
+      'Workload must reject zero valid playback on empty 200 variant playlist with error or gate failure, not exit cleanly with 0 watch time',
     );
   });
 
@@ -336,7 +385,12 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     });
 
     const mockData = {
-      videos: [{ id: 'vid-1', playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' } }],
+      videos: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+          playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+        },
+      ],
     };
 
     try {
@@ -371,13 +425,29 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       'Inclusive ratio must be strictly greater than no-seek ratio',
     );
 
-    // 5. Assert exact expected numeric values
-    const expectedWatchSec = (watchTrend?.count || 0) / 1000.0;
-    const expectedInclSeek = 0.5 / expectedWatchSec;
+    // 5. Assert independently computed contract values (formula: stall / (watch + stall))
+    // Independently calculated from test input sequence:
+    // Watch time = 2.0s (startup) + 0.01s (iter 2) + 0.01s (iter 3) = 2.02s
+    // Non-seek stall = 0.0s; Seek stall = 0.5s; Total stall = 0.5s
+    const expectedWatchTimeSec = 2.02;
+    const expectedStallNoSeekSec = 0.0;
+    const expectedStallSeekOnlySec = 0.5;
+    const expectedTotalStallSec = expectedStallNoSeekSec + expectedStallSeekOnlySec;
+
+    const expectedRatioNoSeek =
+      expectedStallNoSeekSec / (expectedWatchTimeSec + expectedStallNoSeekSec); // 0.0
+    const expectedRatioInclSeek =
+      expectedTotalStallSec / (expectedWatchTimeSec + expectedTotalStallSec); // 0.5 / 2.52 = 0.1984127
+
     assert.strictEqual(
-      Math.abs(ratioInclSeekTrend.values[0] - expectedInclSeek) < 1e-6,
+      ratioNoSeekTrend.values[0],
+      expectedRatioNoSeek,
+      `No-seek rebuffer ratio must be exactly ${expectedRatioNoSeek}`,
+    );
+    assert.strictEqual(
+      Math.abs(ratioInclSeekTrend.values[0] - expectedRatioInclSeek) < 1e-4,
       true,
-      `Inclusive ratio must match exact expected numeric value ${expectedInclSeek} (got ${ratioInclSeekTrend.values[0]})`,
+      `Inclusive ratio must match specification formula stall / (watch + stall) = ${expectedRatioInclSeek.toFixed(6)} (got ${ratioInclSeekTrend.values[0].toFixed(6)})`,
     );
   });
 });

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync, execSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -19,6 +19,7 @@ describe('[LT2 Regression] Actual Runner & Lifecycle Safety Verification', () =>
   let tmpDir;
   let traceLog;
   let wrapperScriptPath;
+  const activeChildren = [];
 
   beforeEach(() => {
     // Confine all writes exclusively to owned temporary directory; NEVER mutate /tmp/node/bin
@@ -38,10 +39,15 @@ set -e
 # Scoped interceptor for curl: strictly validates exact loopback origins, hard denial for non-loopback
 curl() {
   for arg in "$@"; do
-    if [[ "$arg" =~ ^https?:// ]]; then
-      # Extract host: protocol://host[:port]/path -> host
-      host=$(echo "$arg" | sed -E 's|^https?://([^/:]+).*|\\1|')
-      if [[ "$host" != "127.0.0.1" && "$host" != "localhost" && "$host" != "[::1]" ]]; then
+    if [[ "$arg" =~ ^https?://\\[([^\\]]+)\\](:[0-9]+)?(/.*)?$ ]]; then
+      host="\${BASH_REMATCH[1]}"
+      if [[ "$host" != "::1" ]]; then
+        echo "CURL HARD DENIAL: Non-loopback IPv6 blocked: $arg" >&2
+        return 42
+      fi
+    elif [[ "$arg" =~ ^https?://([^/:]+)(:[0-9]+)?(/.*)?$ ]]; then
+      host="\${BASH_REMATCH[1]}"
+      if [[ "$host" != "127.0.0.1" && "$host" != "localhost" ]]; then
         echo "CURL HARD DENIAL: Non-loopback request blocked: $arg" >&2
         return 42
       fi
@@ -74,13 +80,13 @@ k6() {
 export -f k6
 
 sleep() {
-  return 0
+  /bin/sleep 0.05 2>/dev/null || builtin sleep 0.05 2>/dev/null || true
 }
 export -f sleep
 
 kill() {
   echo "kill $@" >> "${normalizedTraceLog}"
-  return 0
+  builtin kill "$@" 2>/dev/null || /bin/kill "$@" 2>/dev/null || true
 }
 export -f kill
 
@@ -115,7 +121,26 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Bounded process-tree teardown: kill and await all spawned descendants
+    for (const child of activeChildren) {
+      if (child && !child.killed && child.exitCode === null) {
+        try {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
+          } else {
+            try {
+              process.kill(-child.pid, 'SIGKILL');
+            } catch {}
+            try {
+              process.kill(child.pid, 'SIGKILL');
+            } catch {}
+          }
+        } catch {}
+      }
+    }
+    activeChildren.length = 0;
+
     // Only remove owned temporary directory; zero global mutations
     if (tmpDir && fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -123,33 +148,62 @@ source "${normalizedScriptPath}"
   });
 
   function executeRunner(customEnv = {}) {
-    const pathSeparator = process.platform === 'win32' ? ';' : ':';
-    // Sanitized minimal environment: NO inherited credentials, tokens, or sensitive variables
-    const hermeticEnv = {
-      PATH: `/usr/bin${pathSeparator}/bin${pathSeparator}${process.env.PATH || ''}`,
-      SYSTEMROOT: process.env.SYSTEMROOT || '',
-      TEMP: tmpDir,
-      TMP: tmpDir,
-      TRACE_LOG: traceLog,
-      TARGET_URL: 'http://127.0.0.1:9999',
-      COLLECTOR_PORT: '9999',
-      LOADTEST_USER_PASSWORD: 'LocalPassword123!',
-      ALLOW_OUTSIDE_WINDOW: 'false',
-      ...customEnv,
-    };
+    return new Promise((resolve) => {
+      const pathSeparator = process.platform === 'win32' ? ';' : ':';
+      // Sanitized minimal environment: NO inherited credentials, tokens, or sensitive variables
+      const hermeticEnv = {
+        PATH: `/usr/bin${pathSeparator}/bin${pathSeparator}${process.env.PATH || ''}`,
+        SYSTEMROOT: process.env.SYSTEMROOT || '',
+        TEMP: tmpDir,
+        TMP: tmpDir,
+        TRACE_LOG: traceLog,
+        TARGET_URL: 'http://127.0.0.1:9999',
+        COLLECTOR_PORT: '9999',
+        LOADTEST_USER_PASSWORD: 'LocalPassword123!',
+        ALLOW_OUTSIDE_WINDOW: 'false',
+        ...customEnv,
+      };
 
-    return spawnSync(bashBin, [wrapperScriptPath.replace(/\\/g, '/')], {
-      cwd: tmpDir,
-      env: hermeticEnv,
-      encoding: 'utf8',
-      timeout: 10000,
+      const child = spawn(bashBin, [wrapperScriptPath.replace(/\\/g, '/')], {
+        cwd: tmpDir,
+        env: hermeticEnv,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      activeChildren.push(child);
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => (stdout += d));
+      child.stderr.on('data', (d) => (stderr += d));
+
+      const timer = setTimeout(() => {
+        try {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
+          } else {
+            try {
+              process.kill(-child.pid, 'SIGKILL');
+            } catch {}
+            try {
+              process.kill(child.pid, 'SIGKILL');
+            } catch {}
+          }
+        } catch {}
+        resolve({ status: -1, stdout, stderr, timedOut: true });
+      }, 10000);
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ status: code, stdout, stderr, timedOut: false });
+      });
     });
   }
 
-  test('Finding 8: Exact-host validation: http://localhost.attacker.invalid must not be treated as loopback', () => {
+  test('Finding 8: Exact-host validation: http://localhost.attacker.invalid must not be treated as loopback', async () => {
     // Non-loopback host using deceptive subdomain 'localhost.attacker.invalid'
     // must NOT match loopback via substring '*localhost*'.
-    const res = executeRunner({
+    const res = await executeRunner({
       TARGET_URL: 'http://localhost.attacker.invalid:8080',
       LOADTEST_USER_PASSWORD: '', // Empty password to trigger production requirement check
       ALLOW_OUTSIDE_WINDOW: 'true',
@@ -167,10 +221,10 @@ source "${normalizedScriptPath}"
     );
   });
 
-  test('Finding 9: ICT date cutoff: execution before 2026-10-09 must be rejected on production target', () => {
+  test('Finding 9: ICT date cutoff: execution before 2026-10-09 must be rejected on production target', async () => {
     // Approved execution window begins starting October 9, 2026 (02:00 - 03:30 AM ICT).
     // Using a controlled non-loopback .invalid target exercises the production-only gate.
-    const res = executeRunner({
+    const res = await executeRunner({
       TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAKE_DATE: '2026-10-08',
       FAKE_TIME: '0230',
@@ -193,11 +247,11 @@ source "${normalizedScriptPath}"
     );
   });
 
-  test('Finding 10: Timezone fallback prohibition: fail-closed if Asia/Ho_Chi_Minh TZ fails on production target', () => {
+  test('Finding 10: Timezone fallback prohibition: fail-closed if Asia/Ho_Chi_Minh TZ fails on production target', async () => {
     // Current SHA line 37: TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M"
     // When Asia/Ho_Chi_Minh fails, falling back to machine local time can mistakenly execute outside window.
     // Exercising production gate with non-loopback .invalid target:
-    const res = executeRunner({
+    const res = await executeRunner({
       TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAIL_TZ: '1',
       FAKE_TIME: '0230',
@@ -219,10 +273,10 @@ source "${normalizedScriptPath}"
     );
   });
 
-  test('Finding 11: Cleanup reserve: starting at 03:20 AM with 35m duration must be rejected on production target', () => {
+  test('Finding 11: Cleanup reserve: starting at 03:20 AM with 35m duration must be rejected on production target', async () => {
     // Window ends at 03:30 AM ICT. Starting at 03:20 with a 35m run would overshoot to 03:55 AM.
     // Exercising production gate with non-loopback .invalid target:
-    const res = executeRunner({
+    const res = await executeRunner({
       TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAKE_DATE: '2026-10-09',
       FAKE_TIME: '0320',
@@ -245,9 +299,9 @@ source "${normalizedScriptPath}"
     );
   });
 
-  test('Finding 12: Abort shutdown order: containers must be stopped before collector drain/kill', () => {
+  test('Finding 12: Abort shutdown order: containers must be stopped before collector drain/kill', async () => {
     // Trigger abort trap by simulating preseed failure in the wrapper
-    executeRunner({
+    await executeRunner({
       TARGET_URL: 'http://127.0.0.1:9999',
       FAKE_DATE: '2026-10-09',
       FAKE_TIME: '0230',

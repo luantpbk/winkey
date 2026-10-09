@@ -10,6 +10,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
 const originalCleanupPath = path.resolve(repoRoot, 'loadtest', 'cleanup.mjs');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function assertValidUuid(uuid, field) {
+  assert.ok(
+    typeof uuid === 'string' && UUID_REGEX.test(uuid),
+    `${field} must be a valid RFC 4122 UUID, got: ${uuid}`,
+  );
+}
+
 // Contract-compliant schema builders per contracts/openapi/common.yaml, video.v1.yaml, social.v1.yaml
 function makeValidProfile(opts = {}) {
   return {
@@ -22,7 +30,7 @@ function makeValidProfile(opts = {}) {
 
 function makeValidVideoSummary(opts = {}) {
   return {
-    id: opts.id || '0192f5e4-7c1a-7b3e-9d2a-v00000000001',
+    id: opts.id || '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
     title: opts.title || 'LT2 Test Video Title',
     owner: opts.owner || makeValidProfile(),
     duration_ms: opts.duration_ms || 120000,
@@ -36,7 +44,7 @@ function makeValidVideoSummary(opts = {}) {
 function makeValidComment(opts = {}) {
   return {
     id: opts.id || '0192f5e4-7c1a-7b3e-9d2a-c00000000001',
-    video_id: opts.video_id || '0192f5e4-7c1a-7b3e-9d2a-v00000000001',
+    video_id: opts.video_id || '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
     parent_id: null,
     author: opts.author || makeValidProfile(),
     body: opts.body || 'LT2 contract test comment body',
@@ -110,6 +118,23 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     if (tmpDir && fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  test('Contract Schema Validation: builder fixtures produce 100% valid OpenAPI records', () => {
+    const profile = makeValidProfile();
+    assertValidUuid(profile.id, 'profile.id');
+    assert.strictEqual(/^[A-Za-z0-9_.]{3,30}$/.test(profile.handle), true);
+
+    const video = makeValidVideoSummary();
+    assertValidUuid(video.id, 'video.id');
+    assertValidUuid(video.owner.id, 'video.owner.id');
+    assert.ok(video.title && video.duration_ms && video.thumbnail_url);
+
+    const comment = makeValidComment();
+    assertValidUuid(comment.id, 'comment.id');
+    assertValidUuid(comment.video_id, 'comment.video_id');
+    assertValidUuid(comment.author.id, 'comment.author.id');
+    assert.strictEqual(comment.video_id, video.id);
   });
 
   test('Finding 1: Missing required next_cursor in video listing response must retain author accounts', async () => {
