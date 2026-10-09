@@ -40,12 +40,13 @@ async function main() {
   }
 
   // 1. Write lt2_accounts.json IMMEDIATELY (no passwords or tokens in this file)
-  const accountsFile = path.join(__dirname, 'lt2_accounts.json');
+  const STATE_DIR = process.env.LT2_STATE_DIR || __dirname;
+  const accountsFile = path.join(STATE_DIR, 'lt2_accounts.json');
   fs.writeFileSync(accountsFile, JSON.stringify(accountMeta, null, 2), 'utf8');
   console.log(`[preseed] Pre-created ${accountsFile} (handles and emails only).`);
 
   // Initialize empty comments file if missing
-  const commentsFile = path.join(__dirname, 'lt2_comments.json');
+  const commentsFile = path.join(STATE_DIR, 'lt2_comments.json');
   if (!fs.existsSync(commentsFile)) {
     fs.writeFileSync(commentsFile, JSON.stringify([], null, 2), 'utf8');
   }

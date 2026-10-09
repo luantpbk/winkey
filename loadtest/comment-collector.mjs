@@ -6,9 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.COLLECTOR_PORT || '9999', 10);
-const commentsFilePath = path.join(__dirname, 'lt2_comments.json');
+
+function getCommentsFilePath() {
+  const stateDir = process.env.LT2_STATE_DIR || __dirname;
+  return path.join(stateDir, 'lt2_comments.json');
+}
 
 function readComments() {
+  const commentsFilePath = getCommentsFilePath();
   if (!fs.existsSync(commentsFilePath)) return [];
   try {
     const raw = fs.readFileSync(commentsFilePath, 'utf8');
@@ -20,6 +25,7 @@ function readComments() {
 }
 
 function writeComments(comments) {
+  const commentsFilePath = getCommentsFilePath();
   const tmpPath = `${commentsFilePath}.tmp.${Date.now()}`;
   const fd = fs.openSync(tmpPath, 'w', 0o600);
   fs.writeFileSync(fd, JSON.stringify(comments, null, 2), 'utf8');

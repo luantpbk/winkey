@@ -1,28 +1,32 @@
-/* global fetch, setTimeout */
+/* global fetch, setTimeout, process */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { runCleanup } from './cleanup.mjs';
 import { createCollectorServer } from './comment-collector.mjs';
 import { resolveUrl } from './utils.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const accountsFile = path.join(__dirname, 'lt2_accounts.json');
-const commentsFile = path.join(__dirname, 'lt2_comments.json');
+import os from 'node:os';
+
+let testTmpDir;
+let accountsFile;
+let commentsFile;
+
+beforeEach(() => {
+  testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-cleanup-test-'));
+  process.env.LT2_STATE_DIR = testTmpDir;
+  accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
+  commentsFile = path.join(testTmpDir, 'lt2_comments.json');
+});
+
+afterEach(() => {
+  if (testTmpDir && fs.existsSync(testTmpDir)) {
+    fs.rmSync(testTmpDir, { recursive: true, force: true });
+  }
+});
 
 describe('LT2 Data Cleanup, Retention and Order Tests', () => {
-  beforeEach(() => {
-    if (fs.existsSync(accountsFile)) fs.unlinkSync(accountsFile);
-    if (fs.existsSync(commentsFile)) fs.unlinkSync(commentsFile);
-  });
-
-  afterEach(() => {
-    if (fs.existsSync(accountsFile)) fs.unlinkSync(accountsFile);
-    if (fs.existsSync(commentsFile)) fs.unlinkSync(commentsFile);
-  });
-
   test('lt2_accounts.json contains ONLY public metadata (no passwords or tokens)', () => {
     const sampleAccounts = [
       { handle: 'lt2_user1_abc', email: 'lt2_user1_abc@example.com' },

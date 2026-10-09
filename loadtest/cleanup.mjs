@@ -35,8 +35,10 @@ export async function runCleanup(opts = {}) {
 
   console.log(`[cleanup] Starting data cleanup for target ${targetUrl}...`);
 
+  const STATE_DIR = process.env.LT2_STATE_DIR || __dirname;
+
   // 1. Process lt2_comments.json
-  const commentsPath = opts.commentsPath || path.join(__dirname, 'lt2_comments.json');
+  const commentsPath = opts.commentsPath || path.join(STATE_DIR, 'lt2_comments.json');
   let comments = [];
   if (fs.existsSync(commentsPath)) {
     try {
@@ -53,7 +55,7 @@ export async function runCleanup(opts = {}) {
   }
 
   // 2. Process lt2_accounts.json
-  const lt2AccountsPath = opts.accountsPath || path.join(__dirname, 'lt2_accounts.json');
+  const lt2AccountsPath = opts.accountsPath || path.join(STATE_DIR, 'lt2_accounts.json');
   let accounts = [];
   if (fs.existsSync(lt2AccountsPath)) {
     try {
@@ -506,7 +508,7 @@ export async function runCleanup(opts = {}) {
   // Remove temporary seed / token files
   const filesToRemove = ['seed.json', 'videos.json', 'users.json', 'lt2_tokens.json'];
   for (const file of filesToRemove) {
-    const fp = path.join(__dirname, file);
+    const fp = path.join(STATE_DIR, file);
     if (fs.existsSync(fp)) {
       fs.unlinkSync(fp);
       console.log(`[cleanup] Removed local file ${file}`);

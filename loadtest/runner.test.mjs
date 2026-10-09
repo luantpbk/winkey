@@ -4,6 +4,7 @@ import assert from 'node:assert';
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -13,38 +14,45 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runScriptPath = path.join(__dirname, 'lt2-run.sh');
 
 describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => {
-  test('lt2-run.sh strictly enforces production window (02:00 - 03:30 AM VN) without ALLOW_OUTSIDE_WINDOW bypass on production target', async () => {
-    const currentVnTime = parseInt(
-      new Date()
-        .toLocaleTimeString('en-US', {
-          timeZone: 'Asia/Ho_Chi_Minh',
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-        .replace(':', ''),
-      10,
-    );
+  test('lt2-run.sh strictly enforces production window (02:00 - 03:30 AM VN) when execution is outside approved hours', async () => {
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: 'https://winkey.vn',
+          LOADTEST_USER_PASSWORD: 'Pass123!Secure',
+          EDGE_METRICS_URL: 'http://127.0.0.1:9090/metrics',
+          ALLOW_OUTSIDE_WINDOW: 'true', // Attempting bypass MUST be prohibited on production
+          SYSTEM_VN_TIME: '1200', // Mock clock: 12:00 PM VN (outside approved window)
+        },
+      });
+      assert.fail('lt2-run.sh should have failed due to production window gate violation');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(
+        err.stderr || err.stdout,
+        /Production load test requested outside approved window/,
+      );
+    }
+  });
 
-    if (currentVnTime < 200 || currentVnTime > 330) {
-      try {
-        await execFileAsync('bash', [runScriptPath], {
-          env: {
-            ...process.env,
-            TARGET_URL: 'https://winkey.vn',
-            LOADTEST_USER_PASSWORD: 'Pass123!Secure',
-            EDGE_METRICS_URL: 'http://127.0.0.1:9090/metrics',
-            ALLOW_OUTSIDE_WINDOW: 'true', // Attempting bypass MUST be prohibited on production
-          },
-        });
-        assert.fail('lt2-run.sh should have failed due to production window gate violation');
-      } catch (err) {
-        assert.strictEqual(err.code, 1);
-        assert.match(
-          err.stderr || err.stdout,
-          /Production load test requested outside approved window/,
-        );
-      }
+  test('lt2-run.sh permits production target execution when time is inside approved window (02:00 - 03:30 AM VN)', async () => {
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: 'https://winkey.vn',
+          LOADTEST_USER_PASSWORD: '', // Omit password so it fails at parameter check, proving it passed window gate
+          SYSTEM_VN_TIME: '0230', // Mock clock: 02:30 AM VN (inside approved window)
+        },
+      });
+      assert.fail('lt2-run.sh should have failed at parameter check');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(
+        err.stderr || err.stdout,
+        /LOADTEST_USER_PASSWORD environment variable is required/,
+      );
     }
   });
 
@@ -55,7 +63,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           ...process.env,
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: '', // Missing password
-          ALLOW_OUTSIDE_WINDOW: 'true',
+          SYSTEM_VN_TIME: '0230',
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing LOADTEST_USER_PASSWORD');
@@ -76,7 +84,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: 'Pass123!Secure',
           EDGE_METRICS_URL: '', // Missing edge metrics URL
-          ALLOW_OUTSIDE_WINDOW: 'true',
+          SYSTEM_VN_TIME: '0230',
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing EDGE_METRICS_URL');
@@ -87,14 +95,8 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
   });
 
   test('lt2-run.sh executes full preflight, preseed, watchdog, and stop-wait-drain sequence cleanly against test HTTP server', async () => {
-    const commentsPath = path.join(__dirname, 'lt2_comments.json');
-    const accountsPath = path.join(__dirname, 'lt2_accounts.json');
-    const seedPath = path.join(__dirname, 'seed.json');
-
-    // Clean up any stale state files before test execution
-    [commentsPath, accountsPath, seedPath].forEach((p) => {
-      if (fs.existsSync(p)) fs.unlinkSync(p);
-    });
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-runner-test-'));
+    const seedPath = path.join(testTmpDir, 'seed.json');
 
     const mockSeedData = {
       videos: [{ id: 'mock_vid_1', playback: { hls_url: 'http://localhost/hls/master.m3u8' } }],
@@ -176,6 +178,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           DRY_RUN: 'true',
           PRESEED_PACING_MS: '10',
           COLLECTOR_PORT: '9998', // Use separate port for test isolation
+          LT2_STATE_DIR: testTmpDir,
         },
       });
 
@@ -186,9 +189,9 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
       assert.match(stdout, /Task LT2 load test execution finished cleanly/);
     } finally {
       await new Promise((resolve) => mockServer.close(resolve));
-      [commentsPath, accountsPath, seedPath].forEach((p) => {
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      });
+      if (fs.existsSync(testTmpDir)) {
+        fs.rmSync(testTmpDir, { recursive: true, force: true });
+      }
     }
   });
 });
