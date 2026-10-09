@@ -53,17 +53,7 @@ async function main() {
 
   // 2. Register each of the 5 accounts via POST /v1/auth/register
   const tokensPath = path.join(__dirname, 'lt2_tokens.json');
-  if (process.env.DRY_RUN === 'true' || process.env.MOCK_PRESEED === 'true') {
-    console.log('[preseed] DRY_RUN mode enabled. Creating mock preseed tokens.');
-    const fullTokens = accountMeta.map((acc, idx) => ({
-      id: `user_mock_id_${idx + 1}`,
-      handle: acc.handle,
-      email: acc.email,
-      token: `mock_access_token_${idx + 1}`,
-    }));
-    fs.writeFileSync(tokensPath, JSON.stringify(fullTokens, null, 2), 'utf8');
-    return;
-  }
+  const pacingMs = parseInt(process.env.PRESEED_PACING_MS || '1200', 10);
 
   for (const acc of accountMeta) {
     try {
@@ -118,7 +108,7 @@ async function main() {
       );
       process.exit(1);
     }
-    await sleep(1200); // 1.2s pacing to respect rate limits
+    await sleep(pacingMs); // pacing to respect rate limits
   }
 
   console.log(
