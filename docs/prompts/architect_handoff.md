@@ -124,16 +124,14 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
 Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
-- AG1 #280 heada8bd8e509a777b4c858042ebb27100b2a8d64bae: changes requested5469467994.
-  CI37916846853 RED, offline113775065186 e2e38tests15pass22fail1skip; guard regression PASS,
-  remaining22 failures inherited olddependency. Root113775065155 inherited5loadtest errors. Do not edit AG4 files.
-  CLOSED: strict verified ownership separated from possibly-alive observation; null/reused timestamp refuses
-  signals with injected-killer regression. Prior mock/query/async/absolute URL/env/crash/model honesty fixes retained.
-  Regression: query moved out of per-PID loop; snapshot before group SIGKILL reused for later individual kills.
-  Restore immediate live query before each PID signal, retain strict guard; injected query sequence must prove
-  no signal after later PID reuse. No unsafe runner execution by Astra.
-  Native k6 unavailable in CI; crash skipped and native scenarios use supplementary fallback. Actual native
-  exit/request traces still required via owning platform integration; no native gate acceptance from models.
+- AG1 #280 headc3c9abc1ea758250776d9e836347ec78c8d2d466: scoped guard correction ACCEPTED COMMENT5472608288.
+  CI37925985741 RED, offline113804973904 e2e38tests15pass22fail1skip; guard regression PASS,
+  remaining22 failures inherited olddependency; helper75/75 and cleanup20/20PASS. Root113804973882 inherited5loadtest errors.
+  CLOSED: immediate live requery before group and each PID signal; injected query sequences D/E refuse reused
+  PIDs after group/earlier child kill. Strict null/reused timestamp guard and prior technical closures retained.
+  No new scoped code blocker; do not churn accepted guard or edit AG4 files. No unsafe execution by Astra.
+  Merge waits for accepted dependency/final exact-head green and actual native evidence: k6 unavailable,
+  crash skipped, native scenarios supplementary fallback. No native gate acceptance from models. #280 draft.
 - AG2 #279 APPROVED5465388984, exact green7885baf4752937b75d503108e379d1f8473ff6bf
   squash-merged710ca88d648408dfff727289a15d5c1d2b71abb6. Actual CI37877545985/job113649520811 and independent
   offline75/75 PASS with extra network-deny guard. Standalone helper accepted; harness integration remains
@@ -152,15 +150,16 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head742d853fc49ffbedce4b91500498579dd62efed2: changes requested5469462997.
-  CI37916470375 RED; offline113773818301 helper75PASS/loadtest27tests26pass1fail(Cleanup1); root113773818198 GREEN.
-  CLOSED: exact window-error assertion restored; prior runtime clock/token-file/lint/cleanup closures retained.
-  Remaining: window test silently executes no assertion inside real02:00-03:30; use isolated fake date CLI
-  with boundaries/positive control, minimal env/loopback guard and deadlines, no runtime test-clock knob.
-  cleanup journal-path options added, but spawned runner still shares journals/fixed ports; same retained-comment
-  cleanup failure. Private snapshot/run directory must isolate all writers/readers and preserve recovery data.
-  Original integration/HLS/auth/recovery and unsafe preflight/false-success/shared-state issues remain; no load.
-- #47 tables6080023693/6080031866 record current decisions; #277 complete, #288 remains merged.
+- AG4 #263 head5ac91f68828f13f8ffffe416863e2a39d6e2f36d: changes requested5472601948 despite GREEN CI37927693461.
+  Offline113810547383 helper75/75 and loadtest28/28PASS, zero skips; root113810547421GREEN.
+  CLOSED: real-clock silent test skip removed; observed shared-journal cleanup failure fixed with temporary state
+  directories; prior unrelated-error assertion/token-file/lint/cleanup closures retained.
+  NEW regression: SYSTEM_VN_TIME reintroduces runtime production clock bypass under a new name; remove it,
+  fake date only in isolated test snapshot/CLI. Inside-window positive control fails at password before time
+  gate, proving nothing about window. Satisfy earlier checks, assert actual transition with hard no-outbound guard.
+  State-directory journal wiring improves isolation but shared sentinel/seed/fixed ports/inherited env remain;
+  original integration/HLS/auth/recovery and preflight/false-success groups unchanged. No production load.
+- #47 tables6084774174/6084784614 record current decisions; #277 complete, #288 remains merged.
   STATE #273 pending independent review/merge. No accepted LT2 result or production go-ahead; Oct9 window passed.
   Beta invites require LT2 PASS and legal effective10/10/2026. AG1/AG3 cinema implementation queued after current
   acceptance and architect/backend gates.
@@ -197,14 +196,15 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `742d853fc49ffbedce4b91500498579dd62efed2`: NOT APPROVED; CI RED; do not run production.
-- Review5469462997: runtime window bypass/token-file writes and unrelated-error window assertion CLOSED.
-  Window test now silently skips assertions during the real window; isolate fake date CLI/boundary controls.
-  Exact host/date/ICT/cutoff and cleanup reserve remain. Tests require isolated clock/CLI, no production clock knob,
-  real-wall-clock skip or weakened assertion. Tokens stay memory-only; no secrets read by Astra.
+LT2 harness #263 head `5ac91f68828f13f8ffffe416863e2a39d6e2f36d`: NOT APPROVED despite CI GREEN; do not run production.
+- Review5472601948: SYSTEM_VN_TIME reintroduces runtime production clock override; remove it completely.
+  Fake date only via isolated snapshot/CLI adapter; no renamed runtime override. Inside-window positive test
+  exits at password before reaching time gate; supply earlier validations and prove actual gate transition.
+  Prior token-file/unrelated-error/real-clock silent skip closures retained; tokens stay memory-only.
+  Exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded tests remain required.
 - Hidden cleanup/preseed mock paths removed/closed. PREFLIGHT_ONLY still creates accounts; DRY_RUN skips
   workloads and invents success without actual preflight; these false-success runner modes remain unaccepted.
-  Runner tests use shared journals/fixed ports/inherited env/unbounded children/log-string claims. Isolate snapshot,
+  Temporary journal directories now fix observed cleanup conflict; fixed ports/inherited env/unbounded children/log-string claims remain. Isolate snapshot,
   minimal env, contract fixtures, hard loopback guard, deadlines and verified owned teardown. No erased recovery data.
 - Required accepted helper, actual HTTP observations of BOTH workloads/rolling source, readiness before account
   creation/load, helper death checks, private run-scoped matched sentinel and retained nonzero abort remain missing.
@@ -254,7 +254,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at742d853 and review5469462997 remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at5ac91f6 but review5472601948 remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
