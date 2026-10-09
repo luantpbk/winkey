@@ -289,20 +289,35 @@ source "${normalizedScriptPath}"
   let processKiller = defaultProcessKiller;
   let groupKiller = defaultGroupKiller;
 
-  function isIdentityAlive(identity, liveTable) {
-    if (!identity || !liveTable.has(identity.pid)) {
-      // Non-existent PID in live process table -> dead / gone
+  // Strictly verifies ownership identity:
+  // Requires readable matching captured creation timestamp AND current OS table creation timestamp!
+  // Returns false if captured identity timestamp is null/missing, current OS timestamp is null/missing,
+  // or creation timestamps do not match (PID reuse).
+  // ONLY processes passing this check are authorized for termination / signaling.
+  function isVerifiedOwnership(identity, liveTable) {
+    if (!identity || !identity.pid || identity.creationEpoch == null || !liveTable) {
+      return false;
+    }
+    const current = liveTable.get(identity.pid);
+    if (!current || current.creationEpoch == null) {
+      return false;
+    }
+    return current.creationEpoch === identity.creationEpoch;
+  }
+
+  // Observes whether a tracked process might still be running in the OS:
+  // If the PID exists in the live process table but its creation timestamp cannot be verified,
+  // we MUST NOT assume it is gone / clean (it is still a live process in the OS!).
+  // Used by wait loops and assertions to ensure all processes have truly exited.
+  function isPossiblyAlive(identity, liveTable) {
+    if (!identity || !liveTable || !liveTable.has(identity.pid)) {
       return false;
     }
     const current = liveTable.get(identity.pid);
     if (!current) return false;
-    // If the PID exists in the live process table but its creation timestamp cannot be verified,
-    // we MUST NOT assume it is gone (it is still a live process in the OS!).
     if (current.creationEpoch == null) {
       return true;
     }
-    // Process is alive ONLY if current creation timestamp matches the captured identity.
-    // If the creation timestamp differs, Windows/POSIX has reused the PID for a new process!
     return current.creationEpoch === identity.creationEpoch;
   }
 
@@ -397,19 +412,27 @@ source "${normalizedScriptPath}"
     return Array.from(targetMap.values());
   }
 
-  function terminateVerifiedOwnedProcesses() {
-    discoverAndTrackDescendants();
+  function terminateVerifiedOwnedProcesses(simulatedTable = null, simulatedPlatform = null) {
+    if (!simulatedTable) {
+      discoverAndTrackDescendants();
+    }
 
-    // On POSIX: ONLY signal process group if currentRunRootIdentity was an actual spawned child
-    // in activeChildren AND confirmed alive in live table! Never signal an unverified group.
+    const plat = simulatedPlatform || process.platform;
+    const liveTable = simulatedTable || queryOsProcessTable();
+
+    // On POSIX: ONLY signal process group if:
+    // 1. currentRunRootIdentity exists and has verified non-null creationEpoch
+    // 2. It was an actual child spawned in activeChildren
+    // 3. Current OS process table revalidates readable, matching creationEpoch (verified ownership)!
+    // An unknown or unverified identity must NEVER authorize SIGKILL of a process group.
     if (
-      process.platform !== 'win32' &&
+      plat !== 'win32' &&
       currentRunRootIdentity &&
+      currentRunRootIdentity.creationEpoch != null &&
       activeChildren.some((c) => c && c.pid === currentRunRootIdentity.pid)
     ) {
       try {
-        const liveTable = queryOsProcessTable();
-        if (isIdentityAlive(currentRunRootIdentity, liveTable)) {
+        if (isVerifiedOwnership(currentRunRootIdentity, liveTable)) {
           groupKiller(currentRunRootIdentity.pid, 'SIGKILL');
         }
       } catch {
@@ -421,26 +444,12 @@ source "${normalizedScriptPath}"
     // Never kill a PID without re-verifying that the current process at that PID matches the recorded creationEpoch!
     const identities = Array.from(verifiedDescendantIdentities.values());
     for (const identity of identities) {
-      // Live query for immediate re-validation
-      const liveTable = queryOsProcessTable();
-      const liveProc = liveTable.get(identity.pid);
-
-      // 1. Process already exited -> do not kill
-      if (!liveProc) {
+      // Re-verify against live table: require readable matching creation timestamp before killing
+      if (!isVerifiedOwnership(identity, liveTable)) {
         continue;
       }
 
-      // 2. Process has missing or unreadable creation time -> NEVER KILL (could be unrelated process)
-      if (!liveProc.creationEpoch) {
-        continue;
-      }
-
-      // 3. Process creation time does not match captured identity -> PID REUSE! NEVER KILL!
-      if (liveProc.creationEpoch !== identity.creationEpoch) {
-        continue;
-      }
-
-      // 4. Identity is verified and identical: safe to terminate
+      // Identity is strictly verified and identical: safe to terminate
       try {
         processKiller(identity.pid, 'SIGKILL');
       } catch {
@@ -455,14 +464,14 @@ source "${normalizedScriptPath}"
       discoverAndTrackDescendants();
       const liveTable = queryOsProcessTable();
       const alive = Array.from(verifiedDescendantIdentities.values()).filter((id) =>
-        isIdentityAlive(id, liveTable),
+        isPossiblyAlive(id, liveTable),
       );
       if (alive.length === 0) return true;
       await new Promise((r) => setTimeout(r, 50));
     }
     const liveTable = queryOsProcessTable();
     const remaining = Array.from(verifiedDescendantIdentities.values()).filter((id) =>
-      isIdentityAlive(id, liveTable),
+      isPossiblyAlive(id, liveTable),
     );
     return remaining.length === 0;
   }
@@ -474,7 +483,7 @@ source "${normalizedScriptPath}"
       const gone = await waitForVerifiedOwnedProcesses(2000);
       const liveTable = queryOsProcessTable();
       const surviving = Array.from(verifiedDescendantIdentities.values())
-        .filter((id) => isIdentityAlive(id, liveTable))
+        .filter((id) => isPossiblyAlive(id, liveTable))
         .map((id) => id.pid);
       assert.strictEqual(
         gone,
@@ -561,7 +570,7 @@ source "${normalizedScriptPath}"
           if (!gone) {
             const liveTable = queryOsProcessTable();
             const alive = Array.from(verifiedDescendantIdentities.values())
-              .filter((id) => isIdentityAlive(id, liveTable))
+              .filter((id) => isPossiblyAlive(id, liveTable))
               .map((id) => id.pid);
             reject(
               new Error(
@@ -792,46 +801,142 @@ source "${normalizedScriptPath}"
     );
   });
 
-  test('Finding 14 (PID reuse protection): mismatched creation timestamp immediately aborts kill to protect unrelated process', () => {
-    // PID reuse protection: if a PID was captured with epoch T1, but the live OS table now reports
-    // epoch T2 (e.g. original process died and OS reassigned PID to an unrelated app),
-    // the teardown revalidation must refuse to kill the reused PID.
+  test('Finding 14 (PID reuse & unverified timestamp protection): mismatched or null creation timestamp immediately aborts kill to protect unrelated processes', () => {
+    // PID reuse & unverified timestamp protection:
+    // If a PID was captured with epoch T1, but the live OS table now reports epoch T2 (PID reuse)
+    // or null (unverified/unreadable timestamp), the teardown must NEVER authorize SIGKILL.
     const trackedIdentity = { pid: 99999, creationEpoch: 1000000, ppid: 12345 };
     const simulatedLiveTable = new Map([
       [99999, { pid: 99999, creationEpoch: 2000000, ppid: 1 }], // Different creation epoch -> PID REUSE!
     ]);
 
-    // 1. isIdentityAlive must report false on PID reuse
-    const alive = isIdentityAlive(trackedIdentity, simulatedLiveTable);
+    // 1. isVerifiedOwnership must report false on PID reuse
+    const ownedOnReuse = isVerifiedOwnership(trackedIdentity, simulatedLiveTable);
     assert.strictEqual(
-      alive,
+      ownedOnReuse,
       false,
-      'Reused PID with mismatched creation epoch must NOT be reported as alive for tracked identity',
+      'Reused PID with mismatched creation epoch must NOT be authorized as verified ownership',
+    );
+    assert.strictEqual(
+      isPossiblyAlive(trackedIdentity, simulatedLiveTable),
+      false,
+      'Reused PID with mismatched creation epoch must NOT be considered alive for tracked identity',
     );
 
-    // 2. Matching epoch must report true
+    // 2. Matching epoch must report true for both
     const matchingTable = new Map([[99999, { pid: 99999, creationEpoch: 1000000, ppid: 12345 }]]);
     assert.strictEqual(
-      isIdentityAlive(trackedIdentity, matchingTable),
+      isVerifiedOwnership(trackedIdentity, matchingTable),
+      true,
+      'Matching identity must be verified as owned',
+    );
+    assert.strictEqual(
+      isPossiblyAlive(trackedIdentity, matchingTable),
       true,
       'Matching identity must be reported as alive',
     );
 
-    // 3. Live process with unavailable timestamp control: must NOT infer gone!
+    // 3. Live process with unavailable timestamp control:
+    // isPossiblyAlive returns true (cannot infer gone when live PID exists in OS),
+    // BUT isVerifiedOwnership returns false (UNKNOWN IDENTITY MUST NEVER AUTHORIZE KILL)!
     const unavailableEpochTable = new Map([[99999, { pid: 99999, creationEpoch: null, ppid: 1 }]]);
     assert.strictEqual(
-      isIdentityAlive(trackedIdentity, unavailableEpochTable),
+      isPossiblyAlive(trackedIdentity, unavailableEpochTable),
       true,
-      'Live process with unavailable timestamp must never be inferred as dead',
+      'Live process with unavailable timestamp must never be inferred as dead in observation checks',
+    );
+    assert.strictEqual(
+      isVerifiedOwnership(trackedIdentity, unavailableEpochTable),
+      false,
+      'Live process with unavailable timestamp must NEVER be authorized for kill / signal',
     );
 
-    // 4. Dead process control: non-existent PID in live table must report dead
+    // 4. Dead process control: non-existent PID in live table must report false for both
     const emptyTable = new Map();
     assert.strictEqual(
-      isIdentityAlive(trackedIdentity, emptyTable),
+      isVerifiedOwnership(trackedIdentity, emptyTable),
+      false,
+      'Non-existent PID must not be verified as owned',
+    );
+    assert.strictEqual(
+      isPossiblyAlive(trackedIdentity, emptyTable),
       false,
       'Non-existent PID must be reported as dead',
     );
+
+    // 5. Injected-killer regressions: prove no signal for null timestamp and reused PID
+    const killedProcesses = [];
+    const killedGroups = [];
+    processKiller = (pid, sig) => killedProcesses.push({ pid, sig });
+    groupKiller = (pgid, sig) => killedGroups.push({ pgid, sig });
+
+    try {
+      const rootId = { pid: 88881, creationEpoch: 1000000, ppid: 1 };
+      const childId = { pid: 88882, creationEpoch: 1000500, ppid: 88881 };
+
+      currentRunRootIdentity = rootId;
+      activeChildren.push({ pid: 88881 });
+      verifiedDescendantIdentities.set(childId.pid, childId);
+
+      // Regression A: Null timestamp in OS live table -> MUST NOT SIGNAL group or process
+      const nullEpochTable = new Map([
+        [88881, { pid: 88881, creationEpoch: null, ppid: 1 }],
+        [88882, { pid: 88882, creationEpoch: null, ppid: 88881 }],
+      ]);
+      terminateVerifiedOwnedProcesses(nullEpochTable, 'linux');
+      assert.strictEqual(
+        killedGroups.length,
+        0,
+        'Injected killer must NOT receive group signal when OS creation timestamp is null',
+      );
+      assert.strictEqual(
+        killedProcesses.length,
+        0,
+        'Injected killer must NOT receive process signal when OS creation timestamp is null',
+      );
+
+      // Regression B: Reused PID (mismatched creation epoch) -> MUST NOT SIGNAL group or process
+      const reusedEpochTable = new Map([
+        [88881, { pid: 88881, creationEpoch: 2000000, ppid: 1 }],
+        [88882, { pid: 88882, creationEpoch: 2000500, ppid: 88881 }],
+      ]);
+      terminateVerifiedOwnedProcesses(reusedEpochTable, 'linux');
+      assert.strictEqual(
+        killedGroups.length,
+        0,
+        'Injected killer must NOT receive group signal when PID is reused with different creation epoch',
+      );
+      assert.strictEqual(
+        killedProcesses.length,
+        0,
+        'Injected killer must NOT receive process signal when PID is reused with different creation epoch',
+      );
+
+      // Regression C: Matching readable timestamps -> MUST signal verified owned group and process
+      const verifiedEpochTable = new Map([
+        [88881, { pid: 88881, creationEpoch: 1000000, ppid: 1 }],
+        [88882, { pid: 88882, creationEpoch: 1000500, ppid: 88881 }],
+      ]);
+      terminateVerifiedOwnedProcesses(verifiedEpochTable, 'linux');
+      assert.strictEqual(
+        killedGroups.length,
+        1,
+        'Injected killer must receive group signal when creation epoch matches and ownership is verified',
+      );
+      assert.strictEqual(killedGroups[0].pgid, 88881);
+      assert.strictEqual(
+        killedProcesses.length,
+        1,
+        'Injected killer must receive process signal when creation epoch matches and ownership is verified',
+      );
+      assert.strictEqual(killedProcesses[0].pid, 88882);
+    } finally {
+      verifiedDescendantIdentities.clear();
+      currentRunRootIdentity = null;
+      activeChildren.length = 0;
+      processKiller = defaultProcessKiller;
+      groupKiller = defaultGroupKiller;
+    }
   });
 
   test('Finding 15 (Parent-exit orphan tracking): retains verified descendant identity when parent exits', () => {
