@@ -107,53 +107,63 @@ if [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
   exit 1
 fi
 
-watchdog_loop() {
-  echo "[watchdog] Watchdog active (RUN_ID: ${RUN_ID}, TARGET_PID: $$)..."
-  while true; do
-    sleep 5
+WATCHDOG_READY_FILE="${WATCHDOG_READY_FILE:-${SCRIPT_DIR}/watchdog.ready}"
+rm -f "${WATCHDOG_READY_FILE}"
 
-    # Check for external abort signal file written by watchdog helper or metrics probe
-    if [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
-      echo "[watchdog] ALERT: Abort signal file detected (${ABORT_SIGNAL_FILE})! Immediate auto-abort." >&2
-      kill -INT $$ 2>/dev/null || true
-      exit 1
-    fi
+check_telemetry() {
+  # Check for external abort signal file written by watchdog helper or metrics probe
+  if [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+    echo "[watchdog] ALERT: Abort signal file detected (${ABORT_SIGNAL_FILE})! Immediate auto-abort." >&2
+    kill -INT $$ 2>/dev/null || true
+    exit 1
+  fi
 
-    # Legacy sites health check (must verify all 4 legacy sites if provided)
-    if [[ -n "${LEGACY_SITES}" ]]; then
-      for site in ${LEGACY_SITES}; do
-        if ! curl -sS --max-time 10 "${site}" > /dev/null 2>&1; then
-          echo "[watchdog] ALERT: Legacy site check failed for ${site}! Immediate auto-abort." >&2
-          kill -INT $$ 2>/dev/null || true
-          exit 1
-        fi
-      done
-    fi
-
-    # Edge-1 MemAvailable check via EDGE_METRICS_URL (No local generator /proc/meminfo fallback!)
-    if [[ -n "${EDGE_METRICS_URL:-}" ]]; then
-      metrics_body=$(curl -sS --max-time 5 "${EDGE_METRICS_URL}" 2>/dev/null || echo "")
-      if [[ -z "${metrics_body}" ]]; then
-        echo "[watchdog] ALERT: Failed to probe edge-1 metrics from ${EDGE_METRICS_URL}! Telemetry loss auto-abort." >&2
+  # Legacy sites health check (must verify all 4 legacy sites if provided)
+  if [[ -n "${LEGACY_SITES}" ]]; then
+    for site in ${LEGACY_SITES}; do
+      if ! curl -sS --max-time 5 "${site}" > /dev/null 2>&1; then
+        echo "[watchdog] ALERT: Legacy site check failed for ${site}! Immediate auto-abort." >&2
         kill -INT $$ 2>/dev/null || true
         exit 1
       fi
-      # Parse node_memory_MemAvailable_bytes
-      avail_bytes=$(echo "${metrics_body}" | grep 'node_memory_MemAvailable_bytes' | awk '{print $2}' | head -n1 || echo "")
-      if [[ -n "${avail_bytes}" ]]; then
-        # Convert to integer
-        avail_bytes_int=$(printf "%.0f" "${avail_bytes}" 2>/dev/null || echo "0")
-        if [[ "${avail_bytes_int}" -lt 1073741824 && "${avail_bytes_int}" -gt 0 ]]; then
-          echo "[watchdog] ALERT: Edge-1 MemAvailable fell below 1 GiB threshold (${avail_bytes_int} bytes)! Immediate auto-abort." >&2
-          kill -INT $$ 2>/dev/null || true
-          exit 1
-        fi
-      fi
-    elif [[ "${is_production}" -eq 1 ]]; then
-      echo "[watchdog] ERROR: EDGE_METRICS_URL environment variable is required for production telemetry monitoring. Fail-closed abort." >&2
+    done
+  fi
+
+  # Edge-1 MemAvailable check via EDGE_METRICS_URL (No local generator /proc/meminfo fallback!)
+  if [[ -n "${EDGE_METRICS_URL:-}" ]]; then
+    metrics_body=$(curl -sS --max-time 5 "${EDGE_METRICS_URL}" 2>/dev/null || echo "")
+    if [[ -z "${metrics_body}" ]]; then
+      echo "[watchdog] ALERT: Failed to probe edge-1 metrics from ${EDGE_METRICS_URL}! Telemetry loss auto-abort." >&2
       kill -INT $$ 2>/dev/null || true
       exit 1
     fi
+    # Parse node_memory_MemAvailable_bytes
+    avail_bytes=$(echo "${metrics_body}" | grep 'node_memory_MemAvailable_bytes' | awk '{print $2}' | head -n1 || echo "")
+    if [[ -n "${avail_bytes}" ]]; then
+      # Convert to integer
+      avail_bytes_int=$(printf "%.0f" "${avail_bytes}" 2>/dev/null || echo "0")
+      if [[ "${avail_bytes_int}" -lt 1073741824 && "${avail_bytes_int}" -gt 0 ]]; then
+        echo "[watchdog] ALERT: Edge-1 MemAvailable fell below 1 GiB threshold (${avail_bytes_int} bytes)! Immediate auto-abort." >&2
+        kill -INT $$ 2>/dev/null || true
+        exit 1
+      fi
+    fi
+  elif [[ "${is_production}" -eq 1 ]]; then
+    echo "[watchdog] ERROR: EDGE_METRICS_URL environment variable is required for production telemetry monitoring. Fail-closed abort." >&2
+    kill -INT $$ 2>/dev/null || true
+    exit 1
+  fi
+}
+
+watchdog_loop() {
+  echo "[watchdog] Watchdog active (RUN_ID: ${RUN_ID}, TARGET_PID: $$)..."
+  # Run initial probe immediately before entering loop
+  check_telemetry
+  touch "${WATCHDOG_READY_FILE}"
+
+  while true; do
+    sleep 5
+    check_telemetry
   done
 }
 
@@ -167,25 +177,48 @@ else
 fi
 
 # 3. Preflight Readiness & Watchdog Health Gate BEFORE account creation
-echo "[lt2] Verifying Watchdog status and target preflight readiness..."
-sleep 1
+echo "[lt2] Verifying Watchdog initial telemetry probe and target preflight readiness..."
 
+# Poll for Watchdog initial telemetry readiness (up to 5 seconds)
+watchdog_ready=0
+for i in {1..50}; do
+  if ! kill -0 "${WATCHDOG_PID}" 2>/dev/null || [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
+    echo "ERROR: Watchdog process died or emitted abort signal during initial telemetry probe. Fail-closed abort." >&2
+    exit 1
+  fi
+  if [[ -f "${WATCHDOG_READY_FILE}" ]]; then
+    watchdog_ready=1
+    break
+  fi
+  sleep 0.1
+done
+
+if [[ "${watchdog_ready}" -ne 1 ]]; then
+  echo "ERROR: Watchdog failed to complete initial telemetry probe within timeout. Fail-closed abort." >&2
+  exit 1
+fi
+
+# Perform explicit HTTP target preflight check (requiring 2xx/3xx response within 5s timeout)
+preflight_status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "${TARGET_URL}/v1/videos?sort=newest" 2>/dev/null || echo "000")
+if [[ "${preflight_status}" -ne 200 && "${preflight_status}" -ne 301 && "${preflight_status}" -ne 302 ]]; then
+  preflight_status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "${TARGET_URL}" 2>/dev/null || echo "000")
+fi
+
+if [[ "${preflight_status}" -eq "000" ]]; then
+  echo "ERROR: Target preflight check failed (connection refused or timeout) for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  exit 1
+elif [[ "${preflight_status}" -ge 500 ]]; then
+  echo "ERROR: Target preflight check returned HTTP ${preflight_status} server error for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  exit 1
+fi
+
+# Re-verify Watchdog is still healthy after preflight check
 if ! kill -0 "${WATCHDOG_PID}" 2>/dev/null || [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
-  echo "ERROR: Watchdog is dead or emitted abort signal before preseed data creation. Fail-closed abort." >&2
+  echo "ERROR: Watchdog process died or emitted abort signal during preflight check. Fail-closed abort before account creation." >&2
   exit 1
 fi
 
-if ! curl -sS --max-time 5 "${TARGET_URL}/v1/videos?sort=newest" > /dev/null 2>&1 && ! curl -sS --max-time 5 "${TARGET_URL}" > /dev/null 2>&1; then
-  echo "ERROR: Target preflight check failed for ${TARGET_URL}. Fail-closed abort before account creation." >&2
-  exit 1
-fi
-
-if ! kill -0 "${WATCHDOG_PID}" 2>/dev/null || [[ -f "${ABORT_SIGNAL_FILE}" ]]; then
-  echo "ERROR: Watchdog died or emitted abort signal during preflight check. Fail-closed abort before account creation." >&2
-  exit 1
-fi
-
-echo "[lt2] Preflight check passed cleanly & Watchdog confirmed alive."
+echo "[lt2] Preflight check passed cleanly (HTTP ${preflight_status}) & Watchdog initial telemetry confirmed healthy."
 
 # 4. Pre-seed 5 temporary lt2 accounts and create lt2_accounts.json (no passwords or tokens inside)
 echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."

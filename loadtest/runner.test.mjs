@@ -141,6 +141,12 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         const url = req.url;
         const method = req.method.toUpperCase();
 
+        if (url.includes('/metrics')) {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('node_memory_MemAvailable_bytes 2147483648\n');
+          return;
+        }
+
         if (url.includes('/v1/auth/register') && method === 'POST') {
           const parsed = JSON.parse(bodyStr || '{}');
           res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -189,8 +195,8 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           return;
         }
 
-        res.writeHead(404);
-        res.end(JSON.stringify({ code: 'NOT_FOUND', message: 'Not found' }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok' }));
       });
     });
 
@@ -206,6 +212,8 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           DRY_RUN: 'true',
           PRESEED_PACING_MS: '10',
           COLLECTOR_PORT: '9998', // Use separate port for test isolation
+          ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
+          WATCHDOG_READY_FILE: path.join(testTmpDir, 'watchdog.ready'),
           LT2_STATE_DIR: testTmpDir,
         },
       });
@@ -234,6 +242,8 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           TARGET_URL: 'http://127.0.0.1:59999', // Connection refused / unreachable target
           LOADTEST_USER_PASSWORD: 'Pass123!Preflight',
           ALLOW_OUTSIDE_WINDOW: 'true',
+          ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
+          WATCHDOG_READY_FILE: path.join(testTmpDir, 'watchdog.ready'),
           LT2_STATE_DIR: testTmpDir,
         },
       });
@@ -253,22 +263,19 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
     }
   });
 
-  test('Watchdog abort signal before preseed prevents account creation and produces 0 state files', async () => {
-    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-watchdog-dead-'));
+  test('Preflight HTTP 500 server error prevents preseed account creation and produces 0 state files', async () => {
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-preflight-500-'));
     const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
-    const abortSignalFile = path.join(testTmpDir, 'abort.signal');
-
-    // Pre-create abort signal file to simulate watchdog auto-abort signal before preseed
-    fs.writeFileSync(abortSignalFile, 'WATCHDOG_TELEMETRY_FAILURE', 'utf8');
 
     let registerCount = 0;
-    const testPort = 8089;
+    const testPort = 8092;
     const mockServer = http.createServer((req, res) => {
-      if (req.url.includes('/v1/auth/register')) {
+      const url = req.url;
+      if (url.includes('/v1/auth/register')) {
         registerCount++;
       }
-      res.writeHead(200);
-      res.end();
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
     });
     await new Promise((resolve) => mockServer.listen(testPort, '127.0.0.1', resolve));
 
@@ -277,28 +284,87 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         env: {
           ...process.env,
           TARGET_URL: `http://127.0.0.1:${testPort}`,
-          LOADTEST_USER_PASSWORD: 'Pass123!WatchdogDead',
+          LOADTEST_USER_PASSWORD: 'Pass123!500Error',
           ALLOW_OUTSIDE_WINDOW: 'true',
-          ABORT_SIGNAL_FILE: abortSignalFile,
+          ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
+          WATCHDOG_READY_FILE: path.join(testTmpDir, 'watchdog.ready'),
           LT2_STATE_DIR: testTmpDir,
         },
       });
-      assert.fail('lt2-run.sh should have failed due to watchdog abort signal');
+      assert.fail('lt2-run.sh should have failed due to preflight HTTP 500 error');
     } catch (err) {
       assert.strictEqual(err.code, 1);
-      assert.match(
-        err.stderr || err.stdout,
-        /Watchdog is dead or emitted abort signal|Watchdog died or emitted abort signal|Existing abort signal file detected/,
-      );
+      assert.match(err.stderr || err.stdout, /Target preflight check returned HTTP 500/);
       assert.strictEqual(
         registerCount,
         0,
-        'ZERO registration requests MUST be sent when watchdog fails',
+        'ZERO registration requests MUST be sent on preflight HTTP 500 error',
       );
       assert.strictEqual(
         fs.existsSync(accountsFile),
         false,
-        'lt2_accounts.json MUST NOT be written when watchdog fails',
+        'lt2_accounts.json MUST NOT be written on preflight HTTP 500 error',
+      );
+    } finally {
+      await new Promise((resolve) => mockServer.close(resolve));
+      if (fs.existsSync(testTmpDir)) {
+        fs.rmSync(testTmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Watchdog process dies due to low MemAvailable telemetry failure -> 0 register requests and 0 state files written', async () => {
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-watchdog-ram-fail-'));
+    const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
+
+    let registerCount = 0;
+    const testPort = 8091;
+
+    const mockServer = http.createServer((req, res) => {
+      const url = req.url;
+      if (url.includes('/v1/auth/register')) {
+        registerCount++;
+      }
+      if (url.includes('/metrics')) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        // Return MemAvailable below 1 GiB threshold (512 MiB)
+        res.end('node_memory_MemAvailable_bytes 536870912\n');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ items: [] }));
+    });
+    await new Promise((resolve) => mockServer.listen(testPort, '127.0.0.1', resolve));
+
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: `http://127.0.0.1:${testPort}`,
+          EDGE_METRICS_URL: `http://127.0.0.1:${testPort}/metrics`,
+          LOADTEST_USER_PASSWORD: 'Pass123!LowRam',
+          ALLOW_OUTSIDE_WINDOW: 'true',
+          ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
+          WATCHDOG_READY_FILE: path.join(testTmpDir, 'watchdog.ready'),
+          LT2_STATE_DIR: testTmpDir,
+        },
+      });
+      assert.fail('lt2-run.sh should have failed due to watchdog telemetry low RAM auto-abort');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(
+        err.stderr || err.stdout,
+        /MemAvailable fell below 1 GiB threshold|Watchdog process died|Watchdog failed to complete initial telemetry probe/,
+      );
+      assert.strictEqual(
+        registerCount,
+        0,
+        'ZERO registration requests MUST be sent when watchdog fails telemetry',
+      );
+      assert.strictEqual(
+        fs.existsSync(accountsFile),
+        false,
+        'lt2_accounts.json MUST NOT be written when watchdog fails telemetry',
       );
     } finally {
       await new Promise((resolve) => mockServer.close(resolve));
