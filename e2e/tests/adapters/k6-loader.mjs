@@ -1,3 +1,5 @@
+import { URL } from 'node:url';
+
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'k6') {
     return {

@@ -4,7 +4,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL, URL } from 'node:url';
+import { setTimeout } from 'node:timers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -64,7 +65,7 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
   let requestHandler = () => {};
   let tmpDir;
   let accountsFile;
-  let commentsFile;
+  let _commentsFile;
   let isolatedRunCleanup;
 
   let authMeDeletions = [];
@@ -75,7 +76,7 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     // 1. Give every test case its own isolated snapshot directory: zero shared checkout files
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-cleanup-'));
     accountsFile = path.join(tmpDir, 'lt2_accounts.json');
-    commentsFile = path.join(tmpDir, 'lt2_comments.json');
+    _commentsFile = path.join(tmpDir, 'lt2_comments.json');
 
     const sampleAccounts = [
       {

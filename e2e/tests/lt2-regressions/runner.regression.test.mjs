@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn, spawnSync, execSync } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
+import process from 'node:process';
+import { setTimeout, clearTimeout } from 'node:timers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -142,12 +144,18 @@ source "${normalizedScriptPath}"
         } else {
           try {
             process.kill(-child.pid, 'SIGKILL');
-          } catch {}
+          } catch {
+            void 0;
+          }
           try {
             process.kill(child.pid, 'SIGKILL');
-          } catch {}
+          } catch {
+            void 0;
+          }
         }
-      } catch {}
+      } catch {
+        void 0;
+      }
       setTimeout(finish, 2000);
     });
   }

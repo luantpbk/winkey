@@ -404,7 +404,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
 
     const ratioNoSeekTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio');
     const ratioInclSeekTrend = metricInstances.find((m) => m.name === 'rebuffer_ratio_incl_seek');
-    const watchTrend = metricInstances.find((m) => m.name === 'total_watch_time_ms');
+    const _watchTrend = metricInstances.find((m) => m.name === 'total_watch_time_ms');
 
     // 1. Assert seek event occurred exactly once
     assert.strictEqual(seekEventsTriggered, 1, 'Seek event must occur exactly once');

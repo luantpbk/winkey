@@ -6,6 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import process from 'node:process';
+import { Buffer } from 'node:buffer';
+import { setTimeout, clearTimeout } from 'node:timers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -358,7 +361,9 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
 
           try {
             child.kill('SIGTERM');
-          } catch {}
+          } catch {
+            void 0;
+          }
 
           const killTimeout = setTimeout(() => {
             try {
@@ -367,7 +372,9 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
               } else {
                 child.kill('SIGKILL');
               }
-            } catch {}
+            } catch {
+              void 0;
+            }
             setTimeout(done, 500);
           }, 1000);
 
