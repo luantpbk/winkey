@@ -101,9 +101,16 @@ TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_COD
 ## 3. Fail-Closed & Data Recovery Architecture
 
 - **Fail-Closed Preseed & Collector**: `preseed.mjs` and `comment-collector.mjs` fail closed (`process.exit(1)`) if account creation or collector health verification fails.
-- **Fail-Closed Video Pool**: If no valid video samples exist in `seed.json` or `/v1/videos`, k6 scenarios fail closed immediately.
-- **Paginated Comment Discovery with Real Request Timeouts**: `cleanup.mjs` performs automatic comment discovery across target videos using OpenAPI contract `PublicProfile` author metadata (`author: { id, handle, display_name, avatar_url }` or `null`) matching strictly on author handle and id without invented email fields, and keyset cursor pagination (`next_cursor`). Every fetch call during discovery uses `AbortSignal.timeout` linked to the remaining discovery budget. If discovery fails, returns non-200 (including 404), has an invalid payload, missing/invalid `next_cursor`, detected cursor cycles, or exceeds deadline before deletion starts, all accounts and comments are retained for retry recovery without deleting user accounts.
+- **Fail-Closed Video Pool & Preflight**: Preflight checks verify target health (`GET /healthz`), 02:00 - 03:30 AM VN window, and valid video samples in `/v1/videos`. Scenarios fail closed if preconditions are not met.
+- **Platform Watchdog & Telemetry Helper (#279)**: `lt2-run.sh` integrates helper #279 (`deploy/lt2/watchdog.mjs`) when available. Monitors edge-1 MemAvailable (>= 1 GiB), HTTP error rates (< 5%), and canonical legacy site health concurrently. If watchdog detects failure or process dies, triggers immediate `SIGINT` auto-abort.
+- **Dual Workload Telemetry**: Telemetry metrics across both workloads (`hls-viewers.js` for ABR playback, rebuffer ratio, startup time; `api-mix.js` for API request success, comment collector ACK) are reported continuously.
+- **Paginated Comment Discovery with Real Request Timeouts**: `cleanup.mjs` performs automatic comment discovery across target videos using OpenAPI contract `PublicProfile` author metadata (`author: { id, handle }` or `null`) matching strictly on author handle and id, and keyset cursor pagination (`next_cursor`). Every fetch call during discovery uses `AbortSignal.timeout` linked to the remaining discovery budget. If discovery fails, returns non-200 (including 404), has an invalid payload, missing/invalid `next_cursor`, detected cursor cycles, or exceeds deadline before deletion starts, all accounts and comments are retained for retry recovery without deleting user accounts.
 - **Token Renewal Error Handling & Write Guards**: Tokens are renewed proactively before expiration with expiration caching (`expires_in: 900`). If in-memory token renewal fails in `api-mix.js`, the stale token is cleared (`user.token = null`) and write operations are degraded to public read requests to prevent 401 write storms, while retrying renewal safely on subsequent VU iterations.
+- **Stop-Wait-Drain Protocol**:
+  1. **Stop**: `lt2-run.sh` sends termination signals to both k6 workload containers (`PID_HLS` and `PID_API`).
+  2. **Wait**: Waits for in-flight requests and socket connections to finish or time out.
+  3. **Drain**: Collector receives `SIGTERM` and flushes remaining un-ACKed comment records to `lt2_comments.json` using atomic `fsyncSync` + `renameSync`.
+  4. **Clean**: `cleanup.mjs` verifies all comments authored by an account are deleted (`204` / `404`) before calling `DELETE /v1/auth/me`. If any comment deletion fails, user account deletion is aborted and retained for retry recovery.
 - **Retention Recovery**: When `cleanup.mjs` encounters deletion errors (HTTP $\neq 204$), unremoved accounts (`lt2_accounts.json`) and comments (`lt2_comments.json`) are retained for retry recovery. `cleanup.mjs` exits with non-zero exit code (`1`) on any failure.
 - **Dual Generator Abortion**: `lt2-run.sh` traps `EXIT`, `SIGINT`, `SIGTERM` signals and terminates both `PID_HLS` and `PID_API` containers immediately.
 
@@ -111,10 +118,11 @@ TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> LT2_INVITE_COD
 
 ## 4. Immediate Abort & Emergency Protocol
 
-If any abort condition is met (HTTP errors > 5%, Edge RAM < 1 GiB, legacy site failure):
+If any abort condition is met (HTTP errors > 5%, Edge RAM < 1 GiB, legacy site failure, watchdog death):
 1. Stop k6 test immediately (`Ctrl+C` or automatic SIGINT trigger from watchdog).
 2. Both k6 containers are terminated automatically by `lt2-run.sh`.
-3. Standalone data cleanup script executes:
+3. Stop-wait-drain sequence flushes collector journal.
+4. Standalone data cleanup script executes:
 ```bash
 TARGET_URL=https://winkey.vn LOADTEST_USER_PASSWORD=<secure_pass> node ./loadtest/cleanup.mjs
 ```

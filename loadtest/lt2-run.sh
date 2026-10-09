@@ -98,7 +98,7 @@ trap abort_all EXIT SIGINT SIGTERM
 echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."
 TARGET_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" LT2_INVITE_CODE="${LT2_INVITE_CODE}" node "${SCRIPT_DIR}/preseed.mjs"
 
-# 3. Launch background Watchdog for legacy sites and system RAM
+# 3. Launch background Watchdog for legacy sites, edge RAM, and error rate telemetry (#279 helper integration)
 watchdog_loop() {
   echo "[watchdog] Watchdog active (polling legacy sites and host RAM every 30s)..."
   while true; do
@@ -128,8 +128,14 @@ watchdog_loop() {
   done
 }
 
-watchdog_loop &
-WATCHDOG_PID=$!
+if [[ -f "${REPO_ROOT}/deploy/lt2/watchdog.mjs" ]]; then
+  echo "[lt2] Launching platform watchdog helper (#279) from deploy/lt2/watchdog.mjs..."
+  LEGACY_SITES="${LEGACY_SITES}" TARGET_URL="${TARGET_URL}" node "${REPO_ROOT}/deploy/lt2/watchdog.mjs" &
+  WATCHDOG_PID=$!
+else
+  watchdog_loop &
+  WATCHDOG_PID=$!
+fi
 
 echo "[lt2] Executing k6 HLS viewers and API mix parallel load test against ${TARGET_URL}..."
 
