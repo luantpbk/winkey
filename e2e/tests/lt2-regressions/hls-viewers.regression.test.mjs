@@ -240,20 +240,109 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     );
   });
 
-  function evaluateZeroPlaybackRejection() {
+  function evaluateZeroPlaybackRejection(options = hlsModule.options, module = hlsModule) {
     const watchTime = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-    const httpFailed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
-    const rebufferRate =
-      metricInstances.find((m) => m.name === 'aggregate_rebuffer_ratio')?.rate() || 0;
+    const thresholds = options?.thresholds || {};
+    const thresholdEvaluations = [];
 
-    // Zero valid playback must trigger a final gate failure (e.g. error gate,
-    // rebuffer penalty, or dedicated playback gate) rather than exiting cleanly with 0 watch time.
-    const hasGateFailure = httpFailed >= 0.01 || rebufferRate >= 0.01;
+    // Evaluate each threshold configured on the module's options.thresholds
+    for (const [metricName, exprs] of Object.entries(thresholds)) {
+      const metric = metricInstances.find((m) => m.name === metricName);
+      const list = Array.isArray(exprs) ? exprs : [exprs];
+
+      for (const expr of list) {
+        const match = String(expr).match(/^([a-zA-Z0-9_()]+)\s*(<=|>=|<|>|==|!=)\s*([0-9.]+)$/);
+        if (!match) continue;
+
+        const [, agg, op, targetStr] = match;
+        const target = parseFloat(targetStr);
+        let actual = 0;
+
+        if (!metric) {
+          actual = 0;
+        } else if (agg === 'rate') {
+          actual = typeof metric.rate === 'function' ? metric.rate() : 0;
+        } else if (agg === 'count') {
+          actual = typeof metric.count === 'number' ? metric.count : metric.values?.length || 0;
+        } else if (agg === 'value') {
+          actual = typeof metric.value === 'number' ? metric.value : 0;
+        } else if (agg.startsWith('p(')) {
+          const pMatch = agg.match(/p\(([0-9.]+)\)/);
+          const p = pMatch ? parseFloat(pMatch[1]) : 95;
+          const vals = (metric.values || []).slice().sort((a, b) => a - b);
+          if (vals.length === 0) {
+            actual = 0;
+          } else {
+            const idx = Math.min(vals.length - 1, Math.floor((p / 100) * vals.length));
+            actual = vals[idx];
+          }
+        }
+
+        let passed = true;
+        switch (op) {
+          case '<':
+            passed = actual < target;
+            break;
+          case '<=':
+            passed = actual <= target;
+            break;
+          case '>':
+            passed = actual > target;
+            break;
+          case '>=':
+            passed = actual >= target;
+            break;
+          case '==':
+            passed = actual === target;
+            break;
+          case '!=':
+            passed = actual !== target;
+            break;
+        }
+
+        thresholdEvaluations.push({ metric: metricName, expr, actual, target, passed });
+      }
+    }
+
+    const hasBreachedThreshold = thresholdEvaluations.some((e) => !e.passed);
+
+    // Evaluate handleSummary if custom final exit/summary is exported
+    let summaryFailed = false;
+    if (typeof module?.handleSummary === 'function') {
+      try {
+        const summaryData = {
+          metrics: Object.fromEntries(
+            metricInstances.map((m) => [
+              m.name,
+              {
+                values: {
+                  rate: typeof m.rate === 'function' ? m.rate() : 0,
+                  count: typeof m.count === 'number' ? m.count : m.values?.length || 0,
+                  value: typeof m.value === 'number' ? m.value : 0,
+                },
+              },
+            ]),
+          ),
+        };
+        const summaryResult = module.handleSummary(summaryData);
+        if (summaryResult?.status && summaryResult.status !== 0) {
+          summaryFailed = true;
+        }
+      } catch {
+        summaryFailed = true;
+      }
+    }
+
+    // Native final exit: non-zero exit if thresholds breached or summary rejected
+    const isRejectedByGate = hasBreachedThreshold || summaryFailed;
+
     return {
       watchTime,
-      httpFailed,
-      rebufferRate,
-      isRejectedByGate: watchTime === 0 && hasGateFailure,
+      thresholdEvaluations,
+      hasBreachedThreshold,
+      summaryFailed,
+      isRejectedByGate: watchTime === 0 && isRejectedByGate,
+      nativeExitCode: isRejectedByGate ? 99 : 0,
     };
   }
 
@@ -270,7 +359,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty video pool with zero valid playback must breach final error/playback gate, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
+      `Empty video pool with zero valid playback must breach final error/playback gate, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
     );
   });
 
@@ -302,7 +391,7 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty 200 master playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
+      `Empty 200 master playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
     );
   });
 
@@ -337,7 +426,63 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
     assert.strictEqual(
       result.isRejectedByGate,
       true,
-      `Empty 200 variant playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, httpFailed=${result.httpFailed}`,
+      `Empty 200 variant playlist must breach final error/playback gate on zero valid playback, got watchTime=${result.watchTime}, nativeExitCode=${result.nativeExitCode}`,
+    );
+  });
+
+  test('Finding 18 (Zero-playback control): removed thresholds produce no gate breach', () => {
+    // Control: when thresholds are removed, the oracle must NOT falsely report a gate rejection
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    const result = evaluateZeroPlaybackRejection({ thresholds: {} });
+    assert.strictEqual(
+      result.isRejectedByGate,
+      false,
+      'Removed thresholds must not produce a gate breach',
+    );
+  });
+
+  test('Finding 18 (Zero-playback control): non-breached thresholds produce no gate breach', () => {
+    // Control: when default thresholds are present and metrics are zero (non-breached),
+    // oracle must reflect that existing thresholds did NOT breach
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    const result = evaluateZeroPlaybackRejection(hlsModule.options);
+    assert.strictEqual(
+      result.hasBreachedThreshold,
+      false,
+      'Existing default thresholds are non-breached when metrics are 0',
+    );
+    assert.strictEqual(
+      result.isRejectedByGate,
+      false,
+      'Non-breached default thresholds must not falsely report a gate rejection',
+    );
+  });
+
+  test('Finding 18 (Zero-playback control): dedicated playback gate is evaluated and breached on zero watch time', () => {
+    // Control: when a dedicated gate (e.g. total_watch_time_ms: ['count>0']) is configured,
+    // the oracle properly recognizes it and marks the run as rejected by gate
+    resetHttpState();
+    resetCoreState();
+    resetMetricsState();
+    const dedicatedOptions = {
+      thresholds: {
+        total_watch_time_ms: ['count>0'],
+      },
+    };
+    const result = evaluateZeroPlaybackRejection(dedicatedOptions);
+    assert.strictEqual(
+      result.hasBreachedThreshold,
+      true,
+      'Dedicated total_watch_time_ms > 0 threshold must breach on 0 watch time',
+    );
+    assert.strictEqual(
+      result.isRejectedByGate,
+      true,
+      'Dedicated playback gate breach must be recognized as valid gate rejection',
     );
   });
 

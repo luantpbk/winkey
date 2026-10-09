@@ -20,6 +20,7 @@ const bashBin =
 describe('[LT2 Regression] Actual Runner & Lifecycle Safety Verification', () => {
   let tmpDir;
   let traceLog;
+  let pidLog;
   let wrapperScriptPath;
   const activeChildren = [];
 
@@ -28,18 +29,30 @@ describe('[LT2 Regression] Actual Runner & Lifecycle Safety Verification', () =>
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-runner-'));
     traceLog = path.join(tmpDir, 'trace.log');
     fs.writeFileSync(traceLog, '', 'utf8');
+    pidLog = path.join(tmpDir, 'pids.log');
+    fs.writeFileSync(pidLog, '', 'utf8');
 
     // Create an in-process bash wrapper script defining scoped exported functions
     // Functions take precedence over any directory in PATH (including /tmp/node/bin)
     wrapperScriptPath = path.join(tmpDir, 'wrapper.sh');
     const normalizedScriptPath = originalScriptPath.replace(/\\/g, '/');
     const normalizedTraceLog = traceLog.replace(/\\/g, '/');
+    const normalizedPidLog = pidLog.replace(/\\/g, '/');
 
     const wrapperContent = `#!/usr/bin/env bash
 set -e
 
+# Log the main shell PID and any background jobs
+echo "$$" >> "${normalizedPidLog}"
+log_pids() {
+  echo "$$" >> "${normalizedPidLog}" 2>/dev/null || true
+  jobs -p >> "${normalizedPidLog}" 2>/dev/null || true
+}
+trap log_pids EXIT SIGINT SIGTERM
+
 # Scoped interceptor for curl: strictly validates exact loopback origins, hard denial for non-loopback
 curl() {
+  log_pids
   for arg in "$@"; do
     if [[ "$arg" =~ ^https?://\\[([^\\]]+)\\](:[0-9]+)?(/.*)?$ ]]; then
       host="\${BASH_REMATCH[1]}"
@@ -61,6 +74,7 @@ curl() {
 export -f curl
 
 node() {
+  log_pids
   echo "node $@" >> "${normalizedTraceLog}"
   if [ "\${SIMULATE_PRESEED_FAIL:-0}" = "1" ] && echo "$@" | grep -q preseed; then
     return 1
@@ -70,29 +84,34 @@ node() {
 export -f node
 
 docker() {
+  log_pids
   echo "docker $@" >> "${normalizedTraceLog}"
   return 0
 }
 export -f docker
 
 k6() {
+  log_pids
   echo "k6 $@" >> "${normalizedTraceLog}"
   return 0
 }
 export -f k6
 
 sleep() {
+  log_pids
   /bin/sleep 0.05 2>/dev/null || builtin sleep 0.05 2>/dev/null || true
 }
 export -f sleep
 
 kill() {
+  log_pids
   echo "kill $@" >> "${normalizedTraceLog}"
   builtin kill "$@" 2>/dev/null || /bin/kill "$@" 2>/dev/null || true
 }
 export -f kill
 
 date() {
+  log_pids
   if [ "\${FAIL_TZ:-0}" = "1" ]; then
     case "\${TZ:-}" in
       *Asia/Ho_Chi_Minh*)
@@ -132,7 +151,8 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
-  const activeChildPids = [];
+  const ownedPids = new Set();
+  const ownedPgids = new Set();
 
   function isProcessAlive(pid) {
     if (!pid) return false;
@@ -151,49 +171,143 @@ source "${normalizedScriptPath}"
     }
   }
 
-  function terminateProcessTree(pid) {
-    if (!pid) return;
-    try {
-      if (process.platform === 'win32') {
-        execSync(`taskkill /pid ${pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
-      } else {
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          void 0;
+  function discoverOwnedDescendants() {
+    // 1. Read pids.log recorded by wrapper script
+    if (pidLog && fs.existsSync(pidLog)) {
+      try {
+        const content = fs.readFileSync(pidLog, 'utf8');
+        const lines = content.split(/\r?\n/);
+        for (const line of lines) {
+          const pid = parseInt(line.trim(), 10);
+          if (!isNaN(pid) && pid > 0) {
+            ownedPids.add(pid);
+          }
         }
+      } catch {
+        void 0;
+      }
+    }
+
+    // 2. Query OS process table for children/descendants of all currently known owned PIDs
+    const pidsToCheck = Array.from(ownedPids);
+    for (const p of pidsToCheck) {
+      try {
+        if (process.platform === 'win32') {
+          // On Windows, ParentProcessId persists even after the parent terminates
+          const out = execSync(
+            `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"ParentProcessId = ${p}\\" | Select-Object -ExpandProperty ProcessId"`,
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
+          );
+          const pids = out
+            .split(/\r?\n/)
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !isNaN(n) && n > 0);
+          for (const pid of pids) {
+            ownedPids.add(pid);
+          }
+        } else {
+          // POSIX: pgrep -P finds direct children
+          const out = execSync(`pgrep -P ${p} || true`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 2000,
+          });
+          const pids = out
+            .split(/\r?\n/)
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !isNaN(n) && n > 0);
+          for (const pid of pids) {
+            ownedPids.add(pid);
+          }
+        }
+      } catch {
+        void 0;
+      }
+    }
+
+    // 3. On POSIX, query all processes in owned PGIDs
+    if (process.platform !== 'win32') {
+      for (const pgid of ownedPgids) {
         try {
-          process.kill(pid, 'SIGKILL');
+          const out = execSync(`pgrep -g ${pgid} || true`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 2000,
+          });
+          const pids = out
+            .split(/\r?\n/)
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !isNaN(n) && n > 0);
+          for (const pid of pids) {
+            ownedPids.add(pid);
+          }
         } catch {
           void 0;
         }
       }
-    } catch {
-      void 0;
     }
   }
 
-  async function waitForProcessDisappearance(pid, timeoutMs = 2000) {
+  function terminateAllOwnedProcesses() {
+    discoverOwnedDescendants();
+
+    // On POSIX: signal process groups first
+    if (process.platform !== 'win32') {
+      for (const pgid of ownedPgids) {
+        try {
+          process.kill(-pgid, 'SIGKILL');
+        } catch {
+          void 0;
+        }
+      }
+    }
+
+    // Terminate each owned PID individually (works even after parent died)
+    for (const pid of ownedPids) {
+      try {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /pid ${pid} /T /F 2>nul || taskkill /pid ${pid} /F 2>nul || exit 0`, {
+            stdio: 'ignore',
+          });
+        } else {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            void 0;
+          }
+        }
+      } catch {
+        void 0;
+      }
+    }
+  }
+
+  async function waitForAllOwnedProcesses(timeoutMs = 2000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (!isProcessAlive(pid)) return true;
+      discoverOwnedDescendants();
+      const alive = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+      if (alive.length === 0) return true;
       await new Promise((r) => setTimeout(r, 50));
     }
-    return !isProcessAlive(pid);
+    discoverOwnedDescendants();
+    const remaining = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+    return remaining.length === 0;
   }
 
   afterEach(async () => {
     // Bounded process-tree teardown: kill and await all spawned descendants even if parent exited
-    for (const pid of activeChildPids) {
-      terminateProcessTree(pid);
-      const gone = await waitForProcessDisappearance(pid, 2000);
-      assert.strictEqual(
-        gone,
-        true,
-        `Process tree for PID ${pid} must be completely terminated with no surviving descendants`,
-      );
-    }
-    activeChildPids.length = 0;
+    terminateAllOwnedProcesses();
+    const gone = await waitForAllOwnedProcesses(2000);
+    const surviving = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+    assert.strictEqual(
+      gone,
+      true,
+      `All owned processes and descendants must be completely terminated with no surviving descendants (surviving PIDs: ${surviving.join(', ')})`,
+    );
+
+    ownedPids.clear();
+    ownedPgids.clear();
     activeChildren.length = 0;
 
     // Only remove owned temporary directory; zero global mutations
@@ -203,7 +317,7 @@ source "${normalizedScriptPath}"
   });
 
   function executeRunner(customEnv = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const pathSeparator = process.platform === 'win32' ? ';' : ':';
       // Sanitized minimal environment: NO inherited credentials, tokens, or sensitive variables
       const hermeticEnv = {
@@ -227,7 +341,10 @@ source "${normalizedScriptPath}"
       });
       activeChildren.push(child);
       if (child.pid) {
-        activeChildPids.push(child.pid);
+        ownedPids.add(child.pid);
+        if (process.platform !== 'win32') {
+          ownedPgids.add(child.pid);
+        }
       }
 
       let stdout = '';
@@ -241,12 +358,22 @@ source "${normalizedScriptPath}"
       });
 
       const timer = setTimeout(async () => {
-        terminateProcessTree(child.pid);
-        const gone = await waitForProcessDisappearance(child.pid, 2000);
-        if (!gone) {
-          throw new Error(`Runner process ${child.pid} failed to terminate on timeout`);
+        try {
+          terminateAllOwnedProcesses();
+          const gone = await waitForAllOwnedProcesses(2000);
+          if (!gone) {
+            const alive = Array.from(ownedPids).filter((pid) => isProcessAlive(pid));
+            reject(
+              new Error(
+                `Runner execution timed out and failed to clean up child processes (surviving PIDs: ${alive.join(', ')})`,
+              ),
+            );
+            return;
+          }
+          resolve({ status: -1, stdout, stderr, timedOut: true });
+        } catch (err) {
+          reject(err);
         }
-        resolve({ status: -1, stdout, stderr, timedOut: true });
       }, 10000);
 
       child.on('close', (code) => {
