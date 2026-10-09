@@ -63,7 +63,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Agent | Owns | Status |
 |---|---|---|
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
-| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; #278 complete (#281), CIN2-G1 readiness #284 active |
+| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; #278/#284 complete (#281/#288), idle pending architect contract #286 |
 | Antigravity 1 | apps/web, e2e, packages/api-client | LT2-A1 offline regressions #275; BETA1-web complete |
 | Antigravity 2 | deploy/, workflows, root tooling; every production rollout | LT2-A2 watchdog/CI #276; generator standby / same-night deletion |
 | Antigravity 3 | auth, social, realtime, shared TS packages | LT2-A3 contract/recovery audit #277 |
@@ -123,50 +123,45 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Antigravity 4 | Existing #263: sole loadtest/systest integrator, all open code findings and actual Handoff Report |
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
-Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
-- AG1 #280 headc3424256ba403c52ade17277de45c5253514f148: changes requested5465599369;
-  draft/stacked old59d dependency. Actual CI37880717724 RED: root5 inherited loadtest lint errors;
-  offline job113659581057 all5suites30tests8pass22fail. Independent TEMP4suites25tests8pass17fail;
-  no snapshot-owned shell/node survived this run. Fixture published_at/RFC3339 smoke, intended TZ failure/
-  fallback trace and positive post-gate marker, split3zero-playback cases and crash control now accepted.
-  Actual final-gate binding remains: hardcoded rates do not evaluate options/summary/native exit. Teardown
-  checks parentPID only, not descendants/PGID; async timer throw must settle execution promise safely.
-  AG1 must not fix AG4-owned lint/code; old dependency failures do not reopen current#263 cleanup fixes.
-  Keep truthful suite counts/dependency and obtain exact-head green CI after dependency acceptance.
+Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
+- AG1 #280 headf30889da0d3b036c53aa691a4223e5623bbc8480: changes requested5467437024.
+  CI37883608411 RED; actual offline113668623630 helper75/cleanup20 PASS; e2e33tests11pass22fail.
+  Root113668623787 has5 inherited old-loadtest errors (AbortSignal4/setTimeout1). AG1 must not fix AG4 code.
+  Accepted: async timer rejects safely; POSIX PGID/descendant observation improves parent-only checks.
+  NEW unsafe Windows ownership: shell $$ / jobs MSYS IDs feed native taskkill; namespaces differ (harmless
+  process-table check PID34 vs WINPID21416). Do not run this runner unrestricted. Require verified Windows
+  identity/mapping/owned tree and PID-reuse handling. Native gate oracle still fabricates exit99/0 and
+  handleSummary.status/any-exception rejection, silently ignores unknown thresholds. Actual offline native
+  final gate binding/crash controls and exact-head green CI on accepted dependency remain. Draft/old59d stack.
 - AG2 #279 APPROVED5465388984, exact green7885baf4752937b75d503108e379d1f8473ff6bf
   squash-merged710ca88d648408dfff727289a15d5c1d2b71abb6. Actual CI37877545985/job113649520811 and independent
-  offline75/75 PASS with extra network-deny guard. All three prior findings5465160906 closed: preflight flag,
-  normalized socket guard and preflight-active cadence. Standalone helper/offline CI accepted; no production
-  deployment needed. AG4 integration remains gated on actual dual-workload telemetry, readiness, owned lifecycle
-  and final status. Interface recorded in ADR034 addendum below; AG2 standby/destruction ownership unchanged.
-- AG3 #282 head657a87e212001b90a7b4151197dc94c1c55ac99b: blocking COMMENT5465599467
-  (same authenticated PR author; independent review/merge required). Actual CI37880054633 GREEN;
-  probe not executed by Astra. Worker concurrency labeled model and account404 policy model retains now;
-  coordinator remains unapproved. New real limiter import needs recorded-source/build hash binding and
-  pathToFileURL for Windows; no-URL constructor exercises in-memory fallback, not Valkey/full auth route.
-  Actual api-mix/cleanup/native k6 not executed; status429 gate, deletion/order/discovery/journal/ownership
-  remain model claims. Atomic retention uses direct writes, not durable atomic rename; schema checks remain
-  field presence/enum, not full types/items/negative validation. Worker requests/Promise.all have no bounded
-  lifecycle/finally; missing fixtures silently fall back. Correct claims and publish safe actual-source evidence.
-  No service fix/new endpoint assigned; AG4 must not integrate proposed coordinator.
-- Codex #281 audit APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
-  squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
-  independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
-  #278 COMPLETE; Codex idle, no Go fix. Sonnet/Sonnet2 remain paused.
-- AG4 #263 head794e0d2273bcc12f453b8783cf6c232a9fa02562: changes requested5465823486.
-  Exact-head CI37883075286 GREEN; actual offline113666970250 runs75helper+23cleanup PASS, AG1/e2e skipped.
-  Since4fdd8e only runner/README changed. Accepted: correct explicit helper RUN_ID/TARGET_PID/ABORT_SIGNAL_FILE/
-  EDGE_METRICS_URL/ERROR_RATE_SOURCE names and removal of generator /proc RAM fallback. Preserve prior cleanup closures.
-  Still no preflight readiness before account creation/load, actual dual-request producer, helper-death monitor,
-  matched-run sentinel/nonzero abort retention. Shared abort.signal is unconditionally removed. Optional fallback
-  misses HTTP errors/status/mandatory sites/metric source+freshness, permits missing/zero/negative RAM metric.
-  Require accepted helper/run-scoped paths and real integration tests. Unchanged window/lifecycle/HLS/token/
-  journal/schema/ownership/zero-leftover groups remain. Actual Handoff stale; README death/preflight/telemetry/
-  drain claims unsupported. No merge or production authorization. #47 decision table6074499914.
-- #47 latest exact-head review table6074060755 records AG1/AG3/AG4 decisions; AG2#279 remains merged. Docs PR#273 remains pending independent
-  review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
-  explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
-  Invitations remain gated on LT2 PASS and the legal effective date10/10/2026.
+  offline75/75 PASS with extra network-deny guard. Standalone helper accepted; harness integration remains
+  gated. ADR034 addendum records interface; AG2 generator standby/same-night VM+boot-volume deletion unchanged.
+- AG3 #282 head8ee089006d16c09e5288db559dbfa18c2267e966: blocking COMMENT5467437230
+  (authenticated author account; independent review/merge required). CI37883770425 GREEN; actual root113669137767
+  format/0lint errors and TS113669137858 logs inspected; probe not executed by Astra. Accepted: Windows pathToFileURL,
+  recorded dist hashes/source binding, explicit models/in-memory fallback, worker3s/pool10s deadlines+exit/finally,
+  atomic private temp/fsync/rename helper demonstration. These models do not prove actual cleanup/native k6.
+  Full-schema/100% claim remains false: required user.avatar_url/email/role items, strict RFC3339/type, problem
+  optional/errors schema and additionalProperties missing; cursor512 bound invented. Use canonical validator
+  or limit claims truthfully. Finally server.close unbounded; hanging-server sockets not all tracked.
+- Codex #281 APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
+  merged4390957298633bec84204b32dd833adaeb30ecea; LT2 defect evidence only, #278 complete.
+  CIN2 #288 APPROVED5467410494, exact green55497f849e9c4ab4e573cb59c43ae4de5d5ff2fb
+  mergedb978f66c0676e9d89ee4850650b8b3167b0607aa. Single cached signed-playback regression; actual CI37886494670
+  video113677595497 vet/race api4.619s/integration309.048s PASS; existing CI20m timeout unchanged. No local full
+  Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
+  #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
+  source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
+- AG4 #263 head78f3a802856f2384a368055e3de4c053b1096764: changes requested5467436824.
+  CI37887859234 RED; actual offline113681831681 helper75 PASS/loadtest26tests25pass1fail (DRY_RUN cleanup1).
+  Root113681831830 new runner.test.mjs console unused. NEW production ALLOW_OUTSIDE_WINDOW bypass rejected;
+  hidden runtime DRY_RUN/MOCK_PRESEED/PREFLIGHT_ONLY mock-success paths and shared-journal tests rejected.
+  Required metric URL presence before collector now accepted narrowly. Preserve env-name/generator-RAM removal
+  and earlier cleanup closures. Remaining safety/HLS/auth/recovery below unchanged; PR Handoff still stale.
+- #47 table6076979167 records current three reviews plus #288 merge. STATE #273 pending independent review/merge.
+  No accepted LT2 result or production go-ahead; Oct9 window passed. Beta invites require LT2 PASS and legal
+  effective10/10/2026. AG1/AG3 cinema implementation queued after current acceptance and architect/backend gates.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
@@ -200,34 +195,31 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `794e0d2273bcc12f453b8783cf6c232a9fa02562`: NOT APPROVED; do not run production.
-- Current exact-head CI37883075286 GREEN; offline113666970250 helper75/cleanup23 PASS, e2e integration skipped. Prior715349a independent22/22cleanup tests accepted.
-  Review5459010398 closes required next_cursor, cursor cycles/page caps, removal of invented profile email and
-  partial recovered-journal temp/fsync/rename0600. Preserve earlier real request/body deadlines, delayed empty-
-  page deadline, corrupt/non-array journal failure, comment-failure/login-failure author retention fixes.
-- Required full page/record/journal/account schemas and exact current-run account/target ownership remain.
-  Prefix lt2_ and noncontract profile fallbacks still broad; mostly id-only validation. Account DELETE404 still
-  treated as success despite contract204. Prove authoritative zero-leftover scan before deleting author.
-- Review5465599268 partially accepts known-account-pair conflict rejection; remaining identity/ownership groups stay open. Proactive cached expiry is PER VU, not cross-VU/five-account coordination; login storm remains possible.
-  Renewal failure degrades writes to reads, explicitly rejected. Fail workload/test instead of changing mix.
-  Missing collector ACK/uncertain create response reconciliation still unimplemented; emails still logged.
-- HLS unchanged; runner helper config names now accepted, but readiness/death/run-scoped sentinel and real dual telemetry remain missing. Optional fallback remains unsafe. Unsafe substring host gate, HHMM octal/date/TZ/window cleanup-reserve, unbounded/
-  unowned collector preflight, collector-before-writers stop order, Docker CLI PID cleanup and swallowed cleanup
-  status/signal continuation remain. Stop/wait only owned containers, then drain/wait collector, cleanup and exit.
-- HLS still accepts PRIVATE/invalid playback, invents manifest fallback, ignores EXT-X-MAP init, earns false watch
-  on failed media, uses rounded Rate and p95 gate instead of exact weighted non-seek stall/(watch+stall).
-  Enforce valid PUBLIC READY detail/URLs/init/segments, test-wide failure, no-playback nonzero, exact aggregate
-  and separate inclusive report with both workload summaries/final runner status. Accepted #281 reproduces these
-  unchanged-source defects; these observations are not repaired-harness acceptance.
-- Collector0600 open improved, but wildcard/unbounded body/invalid input/corrupt prior journal -> [] and
-  persistence/ACK uncertainty remain. Validate and preserve run-owned durable recovery without silent loss.
-- #279 standalone platform helper accepted/merged as above; #280 tests/#282 audit still blocked. No unaccepted coordinator integration.
-  Actual #263 PR Handoff body still old5m/targetVM/p95/inline-password sample; replace with full truthful
-  finding -> changed code -> actual regression/output checklist and correct README claims.
-- No accepted `[LT2] result`; VM standby. No performance fix before production evidence identifies first
-  bottleneck. Only run after harness accepted/merged and explicit architect go-ahead inside02:00-03:30 ICT
-  from2026-10-09, enough cleanup reserve. Oct9 window = Oct8 19:00-20:30 UTC. AG2/user delete VM AND
-  boot volume same night and post linked non-secret proof. Invitations remain gated on PASS and legal date.
+LT2 harness #263 head `78f3a802856f2384a368055e3de4c053b1096764`: NOT APPROVED; CI RED; do not run production.
+- Review5467436824: restore unconditional production window, exact parsed host/date/ICT/cutoff and cleanup reserve.
+  New ALLOW_OUTSIDE_WINDOW production bypass violates ADR034. Offline tests must adapt clock/CLI, not weaken gates.
+- Remove hidden mock-success paths in runtime cleanup/preseed. PREFLIGHT_ONLY still creates accounts; DRY_RUN skips
+  workloads and invents success without actual preflight; MOCK_PRESEED can feed invalid identities to real workloads.
+  Runner tests use shared journals/fixed ports/inherited env/unbounded children/log-string claims. Isolate snapshot,
+  minimal env, contract fixtures, hard loopback guard, deadlines and verified owned teardown. No erased recovery data.
+- Required accepted helper, actual HTTP observations of BOTH workloads/rolling source, readiness before account
+  creation/load, helper death checks, private run-scoped matched sentinel and retained nonzero abort remain missing.
+  Optional fallback omits error-rate/status/canonical-site/provenance/freshness checks; zero/missing/negative RAM allowed.
+- Collector preflight still unbounded before trap. Abort kills collector before writers, lacks owned container/drain
+  waits, swallows cleanup failure and may resume after signals. Stop/wait writers/owned containers -> drain/wait
+  collector -> cleanup; terminal signals, first failing peer and combined failure outcome required.
+- HLS/api-mix/collector unchanged: PUBLIC READY/detail/URLs/init/segments, no invented manifest/false watch; exact
+  weighted non-seek stall/(watch+stall), separate inclusive report and actual zero-playback/native final failure.
+  Cross-VU five-account renewal, no write-to-read degradation; ACK/uncertain-create/durable full-schema exact-run
+  ownership, DELETE204 and authoritative zero-leftovers/no-email logs remain. No unaccepted AG3 coordinator.
+- Accepted prior cleanup fixes stay closed: real request/body budget, required cursor/cycle/page cap, corrupt recovery
+  preservation/atomic journal subset, no invented author email, failed-comment/login author retention and conflicting
+  known account-pair detection. New presence-only metrics check and correct helper env names do not close integration.
+- Whole PR Handoff must map finding -> actual code -> actual regression/output; stale targetVM/5m/p95/password sample
+  and unsupported README preflight/dual telemetry/death/stop-wait-drain claims must be corrected.
+- No accepted [LT2] result, no performance fix without first-bottleneck evidence. Run only after accepted/merged harness
+  and explicit go-ahead inside02:00-03:30 ICT, with cleanup reserve. AG2 deletes VM AND boot volume same night and
+  posts linked non-secret proof. Invitations remain gated on PASS and legal date.
 ## CIN2 requested: real series and episode playback (2026-10-09)
 - User explicitly requests the feature and confirms owners mark a playlist “Bộ phim”. Regular collections are not
   automatically films. Existing lists can be converted; standalone videos stay one-episode films.
@@ -238,8 +230,8 @@ LT2 harness #263 head `794e0d2273bcc12f453b8783cf6c232a9fa02562`: NOT APPROVED; 
 - One public series card replaces its individual episode cards; catalogue membership/pagination is backend-owned.
   Series detail/watch keeps playlist context, playable episode order/count, desktop sidebar/mobile below-player,
   previous/next across pages and deep links; preserve video visibility checks and existing player/tracker.
-- Codex starts CIN2-G1 #284 readiness now, own video data plane only: inspect actual batch/detail/playback code and
-  real tests. Report any PUBLIC-only batch contract gap to architect before implementation; no production calls.
+- Codex CIN2-G1 #284 readiness accepted/closed via #288, test-only mergeb978f66c; actual batch/detail/playback audit and
+  real tests expose PUBLIC-only batch contract gap #286. Architect contract gate before implementation; no production calls.
 - AG3 CIN2-S1 queued after current #277/#282 accepted and architect contracts/migration merge. AG1 CIN2-W1 queued
   after #275/#280 accepted and contract/backend available. Brief records tests, boundaries and separate branches.
   Do not start a second implementation task while LT2 work remains unaccepted.
@@ -258,7 +250,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at794e0d, but review5465823486 remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at78f3a80 and review5467436824 remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
