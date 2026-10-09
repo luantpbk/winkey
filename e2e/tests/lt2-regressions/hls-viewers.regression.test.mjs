@@ -241,15 +241,28 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
   });
 
   test('Finding 18: Zero-playback handling: empty pool, invalid 200 playlists, and failure must reject zero valid playback', () => {
-    // 1. Empty video pool must call fail()
+    // 1. Empty video pool must trigger final gate rejection, not exit 0 cleanly
+    resetHttpState();
     resetCoreState();
-    assert.throws(
-      () => hlsModule.default({ videos: [] }),
-      /FAIL: No valid video samples/i,
-      'Empty video pool must call k6 fail()',
+    resetMetricsState();
+    try {
+      hlsModule.default({ videos: [] });
+    } catch {
+      // Adapter fail() throws on iteration level; final gate rejection must still be evaluated
+    }
+    const emptyPoolWatchTime =
+      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+    const emptyPoolFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
+    const emptyPoolFailedRate = emptyPoolFailedMetric?.rate() || 0;
+    // A test run with zero valid playback must breach final error gate (http_req_failed >= 0.01)
+    const emptyPoolGateRejected = emptyPoolWatchTime === 0 && emptyPoolFailedRate >= 0.01;
+    assert.strictEqual(
+      emptyPoolGateRejected,
+      true,
+      `Empty video pool with zero valid playback must breach final error gate (http_req_failed >= 0.01), got watchTime=${emptyPoolWatchTime}, failedRate=${emptyPoolFailedRate}`,
     );
 
-    // 2. Empty/invalid 200 master playlist must reject zero valid playback
+    // 2. Empty/invalid 200 master playlist must reject zero valid playback via final gate failure
     resetHttpState();
     resetCoreState();
     resetMetricsState();
@@ -264,32 +277,27 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       return { status: 404, body: '', timings: { duration: 10 } };
     });
 
-    let masterRejected = false;
-    try {
-      hlsModule.default({
-        videos: [
-          {
-            id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
-            playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
-          },
-        ],
-      });
-      const watch = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-      const failed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
-      if (lastFailedMessage !== null || (watch === 0 && failed > 0)) {
-        masterRejected = true;
-      }
-    } catch {
-      masterRejected = true;
-    }
+    hlsModule.default({
+      videos: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+          playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+        },
+      ],
+    });
 
+    const masterWatchTime =
+      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+    const masterFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
+    const masterFailedRate = masterFailedMetric?.rate() || 0;
+    const masterGateRejected = masterWatchTime === 0 && masterFailedRate >= 0.01;
     assert.strictEqual(
-      masterRejected,
+      masterGateRejected,
       true,
-      'Workload must reject zero valid playback on empty 200 master playlist with error or gate failure, not exit cleanly with 0 watch time',
+      `Workload must reject zero valid playback on empty 200 master playlist via final gate failure (expected failedRate >= 0.01, got watchTime=${masterWatchTime}, failedRate=${masterFailedRate})`,
     );
 
-    // 3. Empty/invalid 200 variant playlist must reject zero valid playback
+    // 3. Empty/invalid 200 variant playlist must reject zero valid playback via final gate failure
     resetHttpState();
     resetCoreState();
     resetMetricsState();
@@ -307,29 +315,24 @@ describe('[LT2 Regression] Actual HLS Viewers Contract & Metric Verification', (
       return { status: 404, body: '', timings: { duration: 10 } };
     });
 
-    let variantRejected = false;
-    try {
-      hlsModule.default({
-        videos: [
-          {
-            id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
-            playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
-          },
-        ],
-      });
-      const watch = metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
-      const failed = metricInstances.find((m) => m.name === 'http_req_failed')?.rate() || 0;
-      if (lastFailedMessage !== null || (watch === 0 && failed > 0)) {
-        variantRejected = true;
-      }
-    } catch {
-      variantRejected = true;
-    }
+    hlsModule.default({
+      videos: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-b00000000001',
+          playback: { hls_url: 'http://127.0.0.1:8080/master.m3u8' },
+        },
+      ],
+    });
 
+    const variantWatchTime =
+      metricInstances.find((m) => m.name === 'total_watch_time_ms')?.count || 0;
+    const variantFailedMetric = metricInstances.find((m) => m.name === 'http_req_failed');
+    const variantFailedRate = variantFailedMetric?.rate() || 0;
+    const variantGateRejected = variantWatchTime === 0 && variantFailedRate >= 0.01;
     assert.strictEqual(
-      variantRejected,
+      variantGateRejected,
       true,
-      'Workload must reject zero valid playback on empty 200 variant playlist with error or gate failure, not exit cleanly with 0 watch time',
+      `Workload must reject zero valid playback on empty 200 variant playlist via final gate failure (expected failedRate >= 0.01, got watchTime=${variantWatchTime}, failedRate=${variantFailedRate})`,
     );
   });
 

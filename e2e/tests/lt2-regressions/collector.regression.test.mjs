@@ -66,15 +66,35 @@ function getListeningSocketInfo(port) {
       .find((l) => l.includes(`:${port}`) && (l.includes('LISTEN') || l.includes('LISTENING')));
     if (!line) return null;
     const match = line.match(/(127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::|localhost):[0-9]+/);
-    const pidMatch = line.trim().match(/\s+(\d+)\s*$/);
+    // Handle Windows netstat (... 12345), Linux ss (users:(("...",pid=12345,...))), and lsof
+    const ssPidMatch = line.match(/pid=(\d+)/);
+    const endPidMatch = line.trim().match(/\s+(\d+)\s*$/);
+    const lsofPidMatch = line.match(/^\S+\s+(\d+)/);
+    const pid = ssPidMatch
+      ? parseInt(ssPidMatch[1], 10)
+      : endPidMatch
+        ? parseInt(endPidMatch[1], 10)
+        : lsofPidMatch
+          ? parseInt(lsofPidMatch[1], 10)
+          : null;
     return {
       address: match ? match[1] : null,
-      pid: pidMatch ? parseInt(pidMatch[1], 10) : null,
+      pid,
       raw: line.trim(),
     };
   } catch {
     return null;
   }
+}
+
+async function waitForSocketDisappearance(port, timeoutMs = 2000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const info = getListeningSocketInfo(port);
+    if (!info) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return getListeningSocketInfo(port) === null;
 }
 
 describe('[LT2 Regression] Actual Comment Collector Validation & Security', () => {
@@ -281,13 +301,15 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
       // 1. Inspect the listening socket directly from the OS socket table and verify port ownership
       const socketInfo = getListeningSocketInfo(freePort);
       assert.ok(socketInfo, `Socket info for port ${freePort} must be present in OS socket table`);
-      if (socketInfo.pid && child.pid) {
-        assert.strictEqual(
-          socketInfo.pid,
-          child.pid,
-          `Port ${freePort} must be owned by the spawned collector process (PID ${child.pid})`,
-        );
-      }
+      assert.ok(
+        socketInfo.pid,
+        `Port ${freePort} listening PID must be discoverable in OS socket table (raw: ${socketInfo.raw})`,
+      );
+      assert.strictEqual(
+        socketInfo.pid,
+        child.pid,
+        `Port ${freePort} must be owned by the spawned collector process (PID ${child.pid}, got ${socketInfo.pid})`,
+      );
       // Current SHA line 73: server.listen(PORT, '0.0.0.0') binds to '0.0.0.0'
       assert.strictEqual(
         socketInfo.address,
@@ -346,12 +368,23 @@ describe('[LT2 Regression] Actual Comment Collector Validation & Security', () =
                 child.kill('SIGKILL');
               }
             } catch {}
-            done();
+            setTimeout(done, 500);
           }, 1000);
 
-          child.once('close', () => clearTimeout(killTimeout));
+          child.once('close', () => {
+            clearTimeout(killTimeout);
+            done();
+          });
         });
       }
+
+      // Verify that listening socket disappears after process teardown
+      const socketReleased = await waitForSocketDisappearance(freePort, 2000);
+      assert.strictEqual(
+        socketReleased,
+        true,
+        `Port ${freePort} socket must disappear from OS socket table after teardown`,
+      );
     }
   });
 });

@@ -120,7 +120,8 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     }
   });
 
-  test('Contract Schema Validation: builder fixtures produce 100% valid OpenAPI records', () => {
+  test('Contract Fixture Smoke Validation: structural property, UUID, and ISO timestamp coverage per OpenAPI', () => {
+    // Note: covers structural presence, UUID format, and RFC 3339 timestamps for fixtures used in tests.
     const profile = makeValidProfile();
     assertValidUuid(profile.id, 'profile.id');
     assert.strictEqual(/^[A-Za-z0-9_.]{3,30}$/.test(profile.handle), true);
@@ -128,13 +129,19 @@ describe('[LT2 Regression] Actual Cleanup & Discovery Contract Verification', ()
     const video = makeValidVideoSummary();
     assertValidUuid(video.id, 'video.id');
     assertValidUuid(video.owner.id, 'video.owner.id');
-    assert.ok(video.title && video.duration_ms && video.thumbnail_url);
+    assert.strictEqual(typeof video.title, 'string');
+    assert.strictEqual(typeof video.duration_ms, 'number');
+    assert.strictEqual(typeof video.thumbnail_url, 'string');
+    assert.strictEqual(new Date(video.created_at).toISOString(), video.created_at);
+    assert.strictEqual(new Date(video.updated_at).toISOString(), video.updated_at);
 
     const comment = makeValidComment();
     assertValidUuid(comment.id, 'comment.id');
     assertValidUuid(comment.video_id, 'comment.video_id');
     assertValidUuid(comment.author.id, 'comment.author.id');
     assert.strictEqual(comment.video_id, video.id);
+    assert.strictEqual(typeof comment.body, 'string');
+    assert.strictEqual(new Date(comment.created_at).toISOString(), comment.created_at);
   });
 
   test('Finding 1: Missing required next_cursor in video listing response must retain author accounts', async () => {

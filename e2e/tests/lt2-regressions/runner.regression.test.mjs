@@ -92,7 +92,7 @@ export -f kill
 
 date() {
   if [ "\${FAIL_TZ:-0}" = "1" ]; then
-    case "$TZ" in
+    case "\${TZ:-}" in
       *Asia/Ho_Chi_Minh*)
         echo "date: timezone lookup failed for Asia/Ho_Chi_Minh" >&2
         return 1
@@ -100,14 +100,17 @@ date() {
     esac
   fi
   case "$*" in
+    *%s*)
+      echo "1760000000"
+      ;;
     *%H%M*)
       echo "\${FAKE_TIME:-0230}"
       ;;
     *%Y*|*%m*|*%d*|*date*)
-      echo "\${FAKE_DATE:-2026-10-08}"
+      echo "\${FAKE_DATE:-2026-10-09}"
       ;;
     *)
-      echo "\${FAKE_DATE:-2026-10-08} \${FAKE_TIME:-02:30:00}"
+      echo "\${FAKE_DATE:-2026-10-09} \${FAKE_TIME:-02:30:00}"
       ;;
   esac
 }
@@ -121,23 +124,38 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
+  async function terminateChildTree(child) {
+    if (!child || child.killed || child.exitCode !== null) return;
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      child.once('close', finish);
+      child.once('exit', finish);
+      try {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
+        } else {
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+          } catch {}
+          try {
+            process.kill(child.pid, 'SIGKILL');
+          } catch {}
+        }
+      } catch {}
+      setTimeout(finish, 2000);
+    });
+  }
+
   afterEach(async () => {
     // Bounded process-tree teardown: kill and await all spawned descendants
     for (const child of activeChildren) {
-      if (child && !child.killed && child.exitCode === null) {
-        try {
-          if (process.platform === 'win32') {
-            execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
-          } else {
-            try {
-              process.kill(-child.pid, 'SIGKILL');
-            } catch {}
-            try {
-              process.kill(child.pid, 'SIGKILL');
-            } catch {}
-          }
-        } catch {}
-      }
+      await terminateChildTree(child);
     }
     activeChildren.length = 0;
 
@@ -177,19 +195,13 @@ source "${normalizedScriptPath}"
       child.stdout.on('data', (d) => (stdout += d));
       child.stderr.on('data', (d) => (stderr += d));
 
-      const timer = setTimeout(() => {
-        try {
-          if (process.platform === 'win32') {
-            execSync(`taskkill /pid ${child.pid} /T /F 2>nul || exit 0`, { stdio: 'ignore' });
-          } else {
-            try {
-              process.kill(-child.pid, 'SIGKILL');
-            } catch {}
-            try {
-              process.kill(child.pid, 'SIGKILL');
-            } catch {}
-          }
-        } catch {}
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({ status: -1, stdout, stderr, error: err, timedOut: false });
+      });
+
+      const timer = setTimeout(async () => {
+        await terminateChildTree(child);
         resolve({ status: -1, stdout, stderr, timedOut: true });
       }, 10000);
 
@@ -254,22 +266,43 @@ source "${normalizedScriptPath}"
     const res = await executeRunner({
       TARGET_URL: 'http://production.loadtest.invalid:8080',
       FAIL_TZ: '1',
+      FAKE_DATE: '2026-10-09',
       FAKE_TIME: '0230',
       LOADTEST_USER_PASSWORD: 'prod-password-secure',
     });
 
     const trace = fs.existsSync(traceLog) ? fs.readFileSync(traceLog, 'utf8') : '';
 
-    // In current SHA, the runner swallows the error (|| date +"%H%M") and continues running!
+    // Safety specification: lt2-run.sh must fail-closed on timezone failure and must NOT fall back to local date.
+    // In current buggy SHA, it swallows the error (|| date +"%H%M") and proceeds to preseed!
     assert.strictEqual(
       res.status !== 0,
       true,
-      'Safety finding: lt2-run.sh must fail-closed when Asia/Ho_Chi_Minh timezone evaluation fails, not fall back to local date',
+      'Safety finding: lt2-run.sh must fail-closed (non-zero exit) when Asia/Ho_Chi_Minh timezone evaluation fails, not fall back to local date',
     );
     assert.strictEqual(
       trace.includes('preseed') || trace.includes('docker run'),
       false,
       'Preseed and k6 workloads must NOT be launched when timezone calculation fails',
+    );
+  });
+
+  test('Finding 10 positive control: valid Asia/Ho_Chi_Minh timezone within window passes time check', async () => {
+    const res = await executeRunner({
+      TARGET_URL: 'http://production.loadtest.invalid:8080',
+      FAIL_TZ: '0',
+      FAKE_DATE: '2026-10-09',
+      FAKE_TIME: '0230',
+      LOADTEST_USER_PASSWORD: 'prod-password-secure',
+    });
+
+    // In a healthy environment with valid timezone, date and time checks succeed.
+    // The runner proceeds past the window check without time/date window rejection.
+    const output = (res.stdout || '') + (res.stderr || '');
+    assert.strictEqual(
+      output.includes('outside approved window') || output.includes('cannot be executed before'),
+      false,
+      'Positive control: valid timezone within approved window must not trigger time/date window error',
     );
   });
 
