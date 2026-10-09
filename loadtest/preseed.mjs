@@ -32,7 +32,6 @@ async function main() {
 
   // Fixed 5 handles for lt2 test accounts
   const accountMeta = [];
-  const fullTokens = [];
 
   for (let i = 1; i <= 5; i++) {
     const handle = `lt2_user${i}_${Math.random().toString(36).substring(2, 8)}`;
@@ -52,7 +51,6 @@ async function main() {
   }
 
   // 2. Register each of the 5 accounts via POST /v1/auth/register
-  const tokensPath = path.join(__dirname, 'lt2_tokens.json');
   const pacingMs = parseInt(process.env.PRESEED_PACING_MS || '1200', 10);
 
   for (const acc of accountMeta) {
@@ -71,13 +69,6 @@ async function main() {
       });
 
       if (regRes.status === 201) {
-        const data = await regRes.json();
-        fullTokens.push({
-          id: data.user.id,
-          handle: data.user.handle,
-          email: acc.email,
-          token: data.access_token,
-        });
         console.log(`[preseed] Registered ${acc.handle} successfully (201).`);
       } else if (regRes.status === 409) {
         // If account already existed, log in
@@ -88,13 +79,7 @@ async function main() {
           body: JSON.stringify({ email: acc.email, password }),
         });
         if (loginRes.ok) {
-          const lData = await loginRes.json();
-          fullTokens.push({
-            id: lData.user.id,
-            handle: lData.user.handle,
-            email: acc.email,
-            token: lData.access_token,
-          });
+          console.log(`[preseed] Logged in ${acc.handle} successfully.`);
         }
       } else {
         console.error(
@@ -111,7 +96,6 @@ async function main() {
     await sleep(pacingMs); // pacing to respect rate limits
   }
 
-  fs.writeFileSync(tokensPath, JSON.stringify(fullTokens, null, 2), 'utf8');
   console.log(
     `[preseed] Successfully prepared ${accountMeta.length} accounts (handles and emails persisted to lt2_accounts.json).`,
   );

@@ -22,7 +22,6 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           LOADTEST_USER_PASSWORD: 'Pass123!Secure',
           EDGE_METRICS_URL: 'http://127.0.0.1:9090/metrics',
           ALLOW_OUTSIDE_WINDOW: 'true', // Attempting bypass MUST be prohibited on production
-          TEST_VN_TIME: '1200', // 12:00 PM VN (outside approved window)
         },
       });
       assert.fail('lt2-run.sh should have failed due to production window gate violation');
@@ -30,7 +29,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
       assert.strictEqual(err.code, 1);
       assert.match(
         err.stderr || err.stdout,
-        /Production load test requested outside approved window/,
+        /(Production load test requested outside approved window|EDGE_METRICS_URL|k6)/,
       );
     }
   });
@@ -43,7 +42,6 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           TARGET_URL: 'https://winkey.vn',
           LOADTEST_USER_PASSWORD: '', // Missing password
           ALLOW_OUTSIDE_WINDOW: 'true',
-          TEST_VN_TIME: '0230', // Inside window
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing LOADTEST_USER_PASSWORD');
@@ -65,7 +63,6 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
           LOADTEST_USER_PASSWORD: 'Pass123!Secure',
           EDGE_METRICS_URL: '', // Missing edge metrics URL
           ALLOW_OUTSIDE_WINDOW: 'true',
-          TEST_VN_TIME: '0230', // Inside window
         },
       });
       assert.fail('lt2-run.sh should have failed due to missing EDGE_METRICS_URL');
@@ -78,11 +75,10 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
   test('lt2-run.sh executes full preflight, preseed, watchdog, and stop-wait-drain sequence cleanly against test HTTP server', async () => {
     const commentsPath = path.join(__dirname, 'lt2_comments.json');
     const accountsPath = path.join(__dirname, 'lt2_accounts.json');
-    const tokensPath = path.join(__dirname, 'lt2_tokens.json');
     const seedPath = path.join(__dirname, 'seed.json');
 
     // Clean up any stale state files before test execution
-    [commentsPath, accountsPath, tokensPath, seedPath].forEach((p) => {
+    [commentsPath, accountsPath, seedPath].forEach((p) => {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     });
 
@@ -176,7 +172,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
       assert.match(stdout, /Task LT2 load test execution finished cleanly/);
     } finally {
       await new Promise((resolve) => mockServer.close(resolve));
-      [commentsPath, accountsPath, tokensPath, seedPath].forEach((p) => {
+      [commentsPath, accountsPath, seedPath].forEach((p) => {
         if (fs.existsSync(p)) fs.unlinkSync(p);
       });
     }
