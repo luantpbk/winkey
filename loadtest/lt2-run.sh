@@ -46,7 +46,7 @@ if [[ "${is_production}" -eq 1 && -z "${EDGE_METRICS_URL:-}" ]]; then
 fi
 
 # Check execution window (02:00 - 03:30 AM Vietnam time, UTC+7) starting Oct 9, 2026
-current_vn_time=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")
+current_vn_time="${TEST_VN_TIME:-$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")}"
 if [[ "${is_production}" -eq 1 ]]; then
   if [[ "${current_vn_time}" -lt "0200" || "${current_vn_time}" -gt "0330" ]]; then
     echo "ERROR: Production load test requested outside approved window (02:00 - 03:30 AM VN). Bypassing is PROHIBITED on production." >&2

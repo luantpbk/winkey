@@ -111,6 +111,7 @@ async function main() {
     await sleep(pacingMs); // pacing to respect rate limits
   }
 
+  fs.writeFileSync(tokensPath, JSON.stringify(fullTokens, null, 2), 'utf8');
   console.log(
     `[preseed] Successfully prepared ${accountMeta.length} accounts (handles and emails persisted to lt2_accounts.json).`,
   );
