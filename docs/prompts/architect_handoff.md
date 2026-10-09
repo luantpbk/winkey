@@ -124,12 +124,16 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
 Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
-- AG1 #280 head ff4d6fb7830b485a9b755904798e4bce2aafac59, changes requested5465160810;
-  no head checks. Scoped tool mocks, real process termination, valid UUID fixtures and empty200 playback cases
-  improved. Independent offline run:21 tests,7 pass/14 fail. Timezone negative can pass on unrelated unbound-TZ
-  error; require the intended diagnostic and healthy control. Zero-playback must assert native final gate/exit,
-  not any adapter exception. Await owned child/socket teardown and timeout termination. Old59d dependency
-  failures do not reopen accepted715349a cursor fixes. Keep draft until regression evidence and CI are truthful.
+- AG1 #280 head89bf4b0c05c794a8e702d532f95ec2ef5ad3e812: changes requested5465452323;
+  draft/stacked old59d dependency. Actual CI37878691682/root113653124128 RED:5 inherited loadtest lint errors
+  (AbortSignal4/setTimeout1); AG1 must not edit AG4 files to clear them. Independent sanitized TEMP22 tests
+  6pass16fail/10.85s/no hang. Original unbound-TZ false-pass closed; collector PID/ss parsing/socket-release,
+  spawn error and awaited teardown improved. New own smoke bug reads absent VideoSummary created_at/updated_at
+  instead of published_at and rejects valid RFC3339 without milliseconds. Fix own test; do not call every FAIL
+  an honest harness defect. Split three zero-playback cases and bind assertions to actual final gate/native exit,
+  not mandatory HTTP error rate. Prove intended TZ diagnostic/date-call path and positive post-time-gate marker.
+  Verify owned descendants gone even after parent exit/kill/timeouts. Old cursor failures do not reopen accepted
+  current#263 cleanup fixes. Keep truthful evidence counts, explicit dependency and exact-head green CI before merge.
 - AG2 #279 APPROVED5465388984, exact green7885baf4752937b75d503108e379d1f8473ff6bf
   squash-merged710ca88d648408dfff727289a15d5c1d2b71abb6. Actual CI37877545985/job113649520811 and independent
   offline75/75 PASS with extra network-deny guard. All three prior findings5465160906 closed: preflight flag,
@@ -153,7 +157,7 @@ Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
   in cleanup. Canonical UUID/full schema/exact-run identity and conflicting handle/id validation remain open;
   runner/HLS/other safety code and old Handoff unchanged. No new regression source/behavioral acceptance.
   Prior22 cleanup tests/fixes stay accepted; remaining5459010398 groups below still active. No production run.
-- #47 Oct9 review/merge table6073647622 records latest AG2/AG3 decisions. Docs PR#273 remains pending independent
+- #47 Oct9 AG1 review table6073749682 and AG2/AG3 table6073647622 record latest decisions. Docs PR#273 remains pending independent
   review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
   explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
   Invitations remain gated on LT2 PASS and the legal effective date10/10/2026.
