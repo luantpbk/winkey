@@ -271,8 +271,25 @@ export async function runCleanup(opts = {}) {
             }
 
             const authorObj = item.author || item.user || {};
-            const authorHandle = authorObj.handle || item.authorHandle || '';
-            const authorId = authorObj.id || item.authorId || '';
+            const authorHandle =
+              typeof authorObj.handle === 'string' ? authorObj.handle : item.authorHandle || '';
+            const authorId = typeof authorObj.id === 'string' ? authorObj.id : item.authorId || '';
+
+            // Detect conflicting author metadata (authorId points to account A, but handle points to account B)
+            const matchingByHandle = accounts.find((a) => a.handle === authorHandle);
+            const matchingById = accounts.find((a) => a.id && a.id === authorId);
+            if (
+              matchingByHandle &&
+              matchingById &&
+              matchingByHandle.handle !== matchingById.handle
+            ) {
+              discoveryIncomplete = true;
+              console.warn(
+                `[cleanup] WARNING: Conflicting author metadata for comment ${item.id}: handle '${authorHandle}' vs id '${authorId}'. Retaining fail-closed.`,
+              );
+              break;
+            }
+
             if (
               authorHandle.startsWith('lt2_') ||
               accounts.some((a) => a.handle === authorHandle || (a.id && a.id === authorId))

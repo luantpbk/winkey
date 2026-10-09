@@ -694,4 +694,61 @@ describe('Fail-Closed and Execution Safety Tests', () => {
     assert.strictEqual(res.failedAccounts.length, 1);
     assert.strictEqual(fs.existsSync(accountsFile), true);
   });
+
+  test('Discovery rejects conflicting author metadata (authorId vs authorHandle mismatch) and retains all accounts fail-closed', async () => {
+    const sampleAccounts = [
+      { id: 'user_id_1', handle: 'lt2_acc1', email: 'lt2_acc1@example.com' },
+      { id: 'user_id_2', handle: 'lt2_acc2', email: 'lt2_acc2@example.com' },
+    ];
+    fs.writeFileSync(accountsFile, JSON.stringify(sampleAccounts, null, 2));
+
+    let deleteAccountCalled = false;
+
+    const mockFetch = async (url) => {
+      if (url.includes('/v1/videos?sort=newest')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [{ id: 'v1' }],
+            next_cursor: null,
+          }),
+        };
+      }
+      if (url.includes('/v1/videos/v1/comments')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                id: 'comm_conflict',
+                author: { id: 'user_id_2', handle: 'lt2_acc1' }, // Conflicting: id belongs to acc2, handle belongs to acc1!
+              },
+            ],
+            next_cursor: null,
+          }),
+        };
+      }
+      if (url.endsWith('/v1/auth/me')) {
+        deleteAccountCalled = true;
+        return { status: 204 };
+      }
+      return { status: 404 };
+    };
+
+    const res = await runCleanup({
+      targetUrl: 'http://localhost:8080',
+      password: 'Pass123!',
+      fetchFn: mockFetch,
+    });
+
+    assert.strictEqual(
+      deleteAccountCalled,
+      false,
+      'User account MUST NOT be deleted when author metadata is conflicting',
+    );
+    assert.strictEqual(res.failedAccounts.length, 2);
+    assert.strictEqual(fs.existsSync(accountsFile), true);
+  });
 });
