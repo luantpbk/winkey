@@ -1,6 +1,6 @@
 # Platform Watchdog for Task LT2 (ADR-034)
 
-This directory contains the independent platform safety watchdog helper and offline test harness for Winkey's 1,000-viewer load test (Task LT2, ADR-034), maintained by **Antigravity 2** (Platform / DevOps).
+This directory contains the independent platform safety watchdog helper, rolling error rate telemetry producer, and offline test harness for Winkey's 1,000-viewer load test (Task LT2, ADR-034), maintained by **Antigravity 2** (Platform / DevOps).
 
 ---
 
@@ -11,26 +11,33 @@ During Task LT2 execution on production, the watchdog runs in the background to 
 1. **edge-1 Host Available Memory (`MemAvailable < 1 GiB`)**:
    - Monitored source: Verified metrics from `edge-1` (NEVER the generator VM's local memory).
    - Validations:
-     - Node label must match `edge-1` (rejects telemetry from other nodes or unverified sources).
+     - Strict URL & provenance verification: Exporter URLs must strictly target hostname `100.113.240.3` or `edge-1`, port `9100`, and pathname `/metrics`. Substring or deceptive hostnames (e.g., `100.113.240.3:9100.evil.example`) are rejected.
+     - VictoriaMetrics vector JSON: If `__name__` is omitted, query provenance from `sourceUrl` (`node_memory_MemAvailable_bytes`) must be verified; otherwise rejected (`MISSING_METRIC_NAME`).
+     - Text metrics: Label series without explicit node/instance identity (`{job="generator-01"}`) from unverified endpoints are rejected (`AMBIGUOUS_SERIES`). Non-finite or `NaN` timestamps are rejected (`INVALID_TIMESTAMP`).
      - Freshness: Metric timestamp must be $\le 120\text{s}$ old (rejects stale metrics).
      - Finite value: Value must be a non-negative finite number.
    - Threshold: Available memory falling below `1,073,741,824` bytes (1 GiB) triggers an immediate auto-abort.
-2. **Canonical Four Legacy Sites Health Check (Concurrent & Scheduled)**:
+2. **Canonical Four Legacy Sites Health Check (Concurrent & Monotonic)**:
    - All four canonical legacy sites are probed concurrently every 30 seconds:
      - `https://kendrickheller.com`
      - `https://cuuhohanam.com`
      - `https://kidzlab.edu.vn`
      - `https://sblaichau.vn`
    - Total wall-clock deadline: 5s spanning connection, headers, and body transfer.
-   - Bounded buffering: Payloads limited to 64 KiB to prevent memory exhaustion.
+   - Bounded streaming discard: Valid HTTP 200 responses with bodies exceeding 64 KiB (such as `sblaichau.vn` at ~150 KiB) are streamed and discarded up to 10 MB without unbounded memory buffering (`discardBody: true`), ensuring memory safety without false aborts.
    - Any non-200 status code, connection failure, or timeout triggers an immediate auto-abort.
+   - Monotonic scheduling: Legacy checks run on an independent monotonic schedule (`scheduleNextLegacy`), preventing latency in RAM or error probes from drifting legacy probe start ticks.
 3. **Sustained Load HTTP Errors (> 5% for 60s across BOTH Workloads)**:
-   - Telemetry source covers both LT2 workloads:
-     1. `api-mix` (REST API traffic, comment submissions, auth)
-     2. `hls-viewers` (HLS playlists and media segment streaming)
+   - Strict 60s dual-workload telemetry schema:
+     1. `api_mix` (REST API traffic, comment submissions, auth)
+     2. `hls_viewers` (HLS playlists and media segment streaming)
    - Evaluates rolling 60s window numerator (failed requests) / denominator (total requests).
+   - Window enforcement: Strictly requires `windowSec === 60`. Any other window (e.g. 2s, 3600s) is rejected (`INVALID_WINDOW`).
+   - Strict types: Counts must be non-negative integers; coerced strings, booleans, or nulls are rejected (`INVALID_WORKLOAD_COUNTS`).
+   - Workload activity check: During active test runs (`!isPreflight`), zero traffic on either workload triggers an immediate abort (`INACTIVE_WORKLOAD`), preventing API traffic from masking missing HLS traffic or vice-versa.
+   - Preflight vs active run lifecycle: Preflight mode (`isPreflight: true`) accepts 0 requests to verify reachability and schema readiness prior to generator startup.
    - If failure rate exceeds 5% continuously for $\ge 60$ seconds, an auto-abort is triggered. Transient spikes (< 60s) log warnings but do not abort prematurely.
-   - Fail-closed: Missing file, HTTP non-200, invalid rate (e.g. non-finite, negative, > 1), or telemetry loss triggers an immediate auto-abort.
+   - Unscoped PromQL vectors are disallowed (`UNSCOPED_VECTOR_DISALLOWED`) to guarantee strict dual-workload validation.
 
 ---
 
@@ -80,23 +87,39 @@ Both exposition formats are supported by `parseMemAvailable()`.
 
 ---
 
-## 3. Rolling 60s HTTP Error Telemetry Format
-
-The watchdog accepts either a VictoriaMetrics/Prometheus PromQL vector endpoint or a local JSON telemetry file updated by the runner:
+## 3. Rolling 60s HTTP Error Telemetry Format & Producer
 
 ### Structured Workload JSON Format
 ```json
 {
-  "timestamp": "2026-10-09T02:15:30.000Z",
+  "version": "1.0",
+  "timestamp": 1791469200,
   "windowSec": 60,
   "workloads": {
     "api_mix": { "requests": 500, "failed": 15 },
     "hls_viewers": { "requests": 500, "failed": 15 }
-  },
-  "totalRequests": 1000,
-  "failedRequests": 30,
-  "rate": 0.03
+  }
 }
+```
+
+### In-Memory Producer (`RollingErrorRateProducer`)
+A lightweight, high-performance sliding window accumulator is provided in `deploy/lt2/watchdog.mjs`:
+```javascript
+import { RollingErrorRateProducer } from './watchdog.mjs';
+
+const producer = new RollingErrorRateProducer(60);
+
+// Record events during load generation:
+producer.recordSuccess('api_mix', 10);
+producer.recordFailure('api_mix', 1);
+producer.recordSuccess('hls_viewers', 20);
+
+// Periodically generate snapshot or write to telemetry file:
+const sample = producer.getSample();
+fs.writeFileSync('/tmp/telemetry.json', JSON.stringify(sample));
+
+// Preflight sample (0 requests, schema-valid):
+const preflight = producer.getPreflightSample();
 ```
 
 ---
@@ -124,7 +147,7 @@ WATCHDOG_PID=$!
 |---|---|---|
 | `--run-id` / `RUN_ID` | auto-generated | Unique run identifier for atomic isolation |
 | `--pid` / `TARGET_PID` | `(none)` | PID of the test runner process to signal via `SIGINT` on abort |
-| `--abort-file` / `ABORT_SIGNAL_FILE` | `/tmp/lt2_abort.signal` | Path where structured abort JSON is atomically replaced (mode 0600) |
+| `--abort-file` / `ABORT_SIGNAL_FILE` | `/tmp/winkey_lt2_<runId>/abort.signal` | Path where structured abort JSON is atomically replaced (mode 0600) |
 | `--metrics-url` / `EDGE_METRICS_URL` | `(none)` | URL for edge-1 Prometheus/VictoriaMetrics metric (fail-closed) |
 | `--error-source` / `ERROR_RATE_SOURCE` | `(none)` | URL or local file path for rolling 60s HTTP error telemetry |
 | `MIN_MEM_AVAILABLE_BYTES` | `1073741824` (1 GiB) | Edge-1 minimum available memory threshold |
@@ -159,12 +182,12 @@ The runner must implement:
 
 ---
 
-## 5. Offline Testing & Verification
+## 5. Hermetic Offline Testing & Verification
 
-Run the test suite offline (runs in ~3 seconds using Node 22 native test runner):
+Run the test suite offline (runs in ~1 second using Node 22 native test runner):
 ```bash
 node --test deploy/lt2/watchdog.test.mjs
 # or via root package.json:
 pnpm run test:watchdog
 ```
-All 38 unit and integration tests run purely offline with zero network or container dependencies.
+All 67 unit and integration tests run purely offline with zero network or container dependencies. Non-loopback network calls are strictly hard-denied at the socket level (`net.Socket.prototype.connect`).

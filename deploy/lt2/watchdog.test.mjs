@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
+import net from 'node:net';
 import {
   parseMemAvailable,
   fetchWithWallClockDeadline,
@@ -11,13 +12,40 @@ import {
   checkLegacySites,
   parseHttpErrorRate,
   createRolling60sSample,
+  RollingErrorRateProducer,
   checkHttpErrorRate,
+  isTrustedExporterUrl,
   PlatformWatchdog,
   ONE_GIB_BYTES,
   DEFAULT_LEGACY_SITES,
   TRUSTED_EDGE_NODE,
   TRUSTED_EDGE_INSTANCE,
 } from './watchdog.mjs';
+
+// HARD-DENY non-loopback network calls for entire offline test suite
+const origSocketConnect = net.Socket.prototype.connect;
+
+net.Socket.prototype.connect = function (...args) {
+  let host = 'localhost';
+  if (typeof args[0] === 'object' && args[0] !== null) {
+    host = args[0].host || args[0].hostname || 'localhost';
+  } else if (typeof args[1] === 'string') {
+    host = args[1];
+  }
+  const isLoopback =
+    host === '127.0.0.1' ||
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '[::1]' ||
+    (typeof host === 'string' && host.startsWith('127.'));
+
+  if (!isLoopback) {
+    throw new Error(
+      `OFFLINE TEST ISOLATION FAILURE: Unexpected non-loopback network connection attempt to '${host}'. All test boundaries must use mocks or loopback servers.`,
+    );
+  }
+  return origSocketConnect.apply(this, args);
+};
 
 describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () => {
   let tmpDir;
@@ -30,6 +58,24 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('isTrustedExporterUrl', () => {
+    test('accepts trusted edge-1 exporter endpoint on 9100/metrics', () => {
+      assert.strictEqual(isTrustedExporterUrl('http://100.113.240.3:9100/metrics'), true);
+      assert.strictEqual(isTrustedExporterUrl('http://edge-1:9100/metrics'), true);
+    });
+
+    test('rejects deceptive hostnames, substring URLs, and wrong paths/ports', () => {
+      assert.strictEqual(
+        isTrustedExporterUrl('http://100.113.240.3:9100.evil.example/metrics'),
+        false,
+      );
+      assert.strictEqual(isTrustedExporterUrl('http://100.113.240.3:8080/metrics'), false);
+      assert.strictEqual(isTrustedExporterUrl('http://100.113.240.3:9100/other'), false);
+      assert.strictEqual(isTrustedExporterUrl('not-a-url'), false);
+      assert.strictEqual(isTrustedExporterUrl(null), false);
+    });
   });
 
   describe('parseMemAvailable', () => {
@@ -170,6 +216,59 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(parsed.error, 'UNVERIFIED_SOURCE');
     });
 
+    test('rejects text metric labels without node or instance identity from unverified source', () => {
+      const parsed = parseMemAvailable(
+        'node_memory_MemAvailable_bytes{job="generator-01"} 8589934592\n',
+      );
+      assert.strictEqual(parsed.error, 'AMBIGUOUS_SERIES');
+    });
+
+    test('rejects text metric with non-finite or NaN timestamp', () => {
+      const parsed = parseMemAvailable(
+        'node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8589934592 NaN\n',
+      );
+      assert.strictEqual(parsed.error, 'INVALID_TIMESTAMP');
+    });
+
+    test('rejects VictoriaMetrics JSON missing __name__ when query provenance is missing', () => {
+      const json = {
+        status: 'success',
+        data: {
+          resultType: 'vector',
+          result: [
+            {
+              metric: { instance: '100.113.240.3:9100', node: 'edge-1' },
+              value: [10000, '8589934592'],
+            },
+          ],
+        },
+      };
+      const parsed = parseMemAvailable(JSON.stringify(json), { nowSec: 10000 });
+      assert.strictEqual(parsed.error, 'MISSING_METRIC_NAME');
+    });
+
+    test('accepts VictoriaMetrics JSON missing __name__ when sourceUrl provides query provenance', () => {
+      const json = {
+        status: 'success',
+        data: {
+          resultType: 'vector',
+          result: [
+            {
+              metric: { instance: '100.113.240.3:9100', node: 'edge-1' },
+              value: [10000, '8589934592'],
+            },
+          ],
+        },
+      };
+      const parsed = parseMemAvailable(JSON.stringify(json), {
+        nowSec: 10000,
+        sourceUrl:
+          'http://100.88.247.70:8428/api/v1/query?query=node_memory_MemAvailable_bytes%7Bnode%3D%22edge-1%22%7D',
+      });
+      assert.strictEqual(parsed.bytes, 8589934592);
+      assert.strictEqual(parsed.node, 'edge-1');
+    });
+
     test('rejects wrong-node telemetry in VictoriaMetrics JSON', () => {
       const json = {
         status: 'success',
@@ -279,6 +378,9 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         } else if (url === '/overflow') {
           res.writeHead(200, { 'Content-Type': 'text/plain' });
           res.end('A'.repeat(1000));
+        } else if (url === '/large200') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('B'.repeat(150 * 1024)); // 150 KiB payload (> 64 KiB)
         } else {
           res.writeHead(404);
           res.end();
@@ -323,6 +425,26 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(res.body, 'Hello Watchdog');
     });
 
+    test('completes large HTTP 200 payload without error when discardBody is enabled', async () => {
+      const res = await fetchWithWallClockDeadline(
+        `http://127.0.0.1:${serverPort}/large200`,
+        1000,
+        { discardBody: true },
+      );
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.bytes, 150 * 1024);
+    });
+
+    test('legacy sites probe succeeds on large HTTP 200 payload via bounded discard', async () => {
+      const res = await checkLegacySites(
+        [`http://127.0.0.1:${serverPort}/large200`],
+        1000,
+        fetchWithWallClockDeadline,
+      );
+      assert.strictEqual(res.ok, true);
+      assert.strictEqual(res.results[0].statusCode, 200);
+    });
+
     test('aborts when headers are hung beyond total wall-clock deadline', async () => {
       await assert.rejects(
         fetchWithWallClockDeadline(`http://127.0.0.1:${serverPort}/hung`, 100),
@@ -364,6 +486,40 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(res.abort, undefined);
     });
 
+    test('passes end-to-end with unlabeled direct exporter from trusted URL', async () => {
+      const mockFetch = async () => ({
+        statusCode: 200,
+        body: 'node_memory_MemAvailable_bytes 8589934592\n',
+      });
+      const res = await checkEdgeRam('http://100.113.240.3:9100/metrics', ONE_GIB_BYTES, mockFetch);
+      assert.strictEqual(res.ok, true);
+      assert.strictEqual(res.availBytes, 8589934592);
+    });
+
+    test('aborts end-to-end with unlabeled direct exporter from deceptive URL', async () => {
+      const mockFetch = async () => ({
+        statusCode: 200,
+        body: 'node_memory_MemAvailable_bytes 8589934592\n',
+      });
+      const res = await checkEdgeRam(
+        'http://100.113.240.3:9100.evil.example/metrics',
+        ONE_GIB_BYTES,
+        mockFetch,
+      );
+      assert.strictEqual(res.abort, true);
+      assert.match(res.reason, /Unlabeled Prometheus text metric requires trusted exact endpoint/);
+    });
+
+    test('aborts end-to-end when text metric contains ambiguous labels without node/instance', async () => {
+      const mockFetch = async () => ({
+        statusCode: 200,
+        body: 'node_memory_MemAvailable_bytes{job="generator-01"} 8589934592\n',
+      });
+      const res = await checkEdgeRam('http://mock/metrics', ONE_GIB_BYTES, mockFetch);
+      assert.strictEqual(res.abort, true);
+      assert.match(res.reason, /without node or instance identity/);
+    });
+
     test('aborts when edge-1 MemAvailable falls below 1 GiB', async () => {
       const mockFetch = async () => ({
         statusCode: 200,
@@ -402,7 +558,15 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         status: 'success',
         data: {
           resultType: 'vector',
-          result: [{ metric: { node: 'wrong-node' }, value: [Date.now() / 1000, '5000000000'] }],
+          result: [
+            {
+              metric: {
+                __name__: 'node_memory_MemAvailable_bytes',
+                node: 'wrong-node',
+              },
+              value: [Date.now() / 1000, '5000000000'],
+            },
+          ],
         },
       };
       const mockFetch = async () => ({
@@ -494,7 +658,7 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(parsed.windowSec, 60);
     });
 
-    test('parses VictoriaMetrics vector JSON format with rate in [0, 1]', () => {
+    test('rejects unscoped PromQL vector JSON format with UNSCOPED_VECTOR_DISALLOWED', () => {
       const nowSec = 1791457900;
       const json = {
         status: 'success',
@@ -504,8 +668,7 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         },
       };
       const parsed = parseHttpErrorRate(JSON.stringify(json), { nowSec });
-      assert.strictEqual(parsed.rate, 0.04);
-      assert.strictEqual(parsed.timestamp, nowSec);
+      assert.strictEqual(parsed.error, 'UNSCOPED_VECTOR_DISALLOWED');
     });
 
     test('rejects bare rate numbers and raw string rates without schema', () => {
@@ -528,9 +691,9 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(parsed.error, 'STALE_METRIC');
     });
 
-    test('rejects windowSec < 60', () => {
+    test('rejects windowSec !== 60 (both short e.g. 2s and long e.g. 3600s)', () => {
       const nowSec = 10000;
-      const sample = {
+      const sampleShort = {
         windowSec: 2,
         timestamp: nowSec,
         workloads: {
@@ -538,8 +701,23 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
           hls_viewers: { requests: 100, failed: 2 },
         },
       };
-      const parsed = parseHttpErrorRate(JSON.stringify(sample), { nowSec });
-      assert.strictEqual(parsed.error, 'INVALID_WINDOW');
+      assert.strictEqual(
+        parseHttpErrorRate(JSON.stringify(sampleShort), { nowSec }).error,
+        'INVALID_WINDOW',
+      );
+
+      const sampleLong = {
+        windowSec: 3600,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: 100, failed: 2 },
+          hls_viewers: { requests: 100, failed: 2 },
+        },
+      };
+      assert.strictEqual(
+        parseHttpErrorRate(JSON.stringify(sampleLong), { nowSec }).error,
+        'INVALID_WINDOW',
+      );
     });
 
     test('rejects single-workload or API-only telemetry missing hls_viewers', () => {
@@ -569,6 +747,48 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(parsed.error, 'INVALID_WORKLOAD_COUNTS');
     });
 
+    test('rejects non-integer, string, or null workload counts without coercion', () => {
+      const nowSec = 10000;
+      const sampleString = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: '100', failed: 2 },
+          hls_viewers: { requests: 100, failed: 2 },
+        },
+      };
+      assert.strictEqual(
+        parseHttpErrorRate(JSON.stringify(sampleString), { nowSec }).error,
+        'INVALID_WORKLOAD_COUNTS',
+      );
+
+      const sampleNull = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: null, failed: 2 },
+          hls_viewers: { requests: 100, failed: 2 },
+        },
+      };
+      assert.strictEqual(
+        parseHttpErrorRate(JSON.stringify(sampleNull), { nowSec }).error,
+        'INVALID_WORKLOAD_COUNTS',
+      );
+
+      const sampleFloat = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: 100.5, failed: 2 },
+          hls_viewers: { requests: 100, failed: 2 },
+        },
+      };
+      assert.strictEqual(
+        parseHttpErrorRate(JSON.stringify(sampleFloat), { nowSec }).error,
+        'INVALID_WORKLOAD_COUNTS',
+      );
+    });
+
     test('rejects failedRequests exceeding requests within workload', () => {
       const nowSec = 10000;
       const sample = {
@@ -583,9 +803,33 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(parsed.error, 'INVALID_WORKLOAD_COUNTS');
     });
 
-    test('rejects zero total requests across workloads', () => {
+    test('rejects inactive workload during active test run with INACTIVE_WORKLOAD', () => {
       const nowSec = 10000;
-      const sample = {
+      const apiOnlySample = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: 500, failed: 10 },
+          hls_viewers: { requests: 0, failed: 0 },
+        },
+      };
+      const parsedApiOnly = parseHttpErrorRate(JSON.stringify(apiOnlySample), { nowSec });
+      assert.strictEqual(parsedApiOnly.error, 'INACTIVE_WORKLOAD');
+      assert.match(parsedApiOnly.reason, /hls_viewers/);
+
+      const hlsOnlySample = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: 0, failed: 0 },
+          hls_viewers: { requests: 500, failed: 10 },
+        },
+      };
+      const parsedHlsOnly = parseHttpErrorRate(JSON.stringify(hlsOnlySample), { nowSec });
+      assert.strictEqual(parsedHlsOnly.error, 'INACTIVE_WORKLOAD');
+      assert.match(parsedHlsOnly.reason, /api_mix/);
+
+      const allZeroSample = {
         windowSec: 60,
         timestamp: nowSec,
         workloads: {
@@ -593,8 +837,63 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
           hls_viewers: { requests: 0, failed: 0 },
         },
       };
-      const parsed = parseHttpErrorRate(JSON.stringify(sample), { nowSec });
-      assert.strictEqual(parsed.error, 'ZERO_REQUESTS');
+      const parsedAllZero = parseHttpErrorRate(JSON.stringify(allZeroSample), { nowSec });
+      assert.strictEqual(parsedAllZero.error, 'INACTIVE_WORKLOAD');
+    });
+
+    test('accepts zero requests during preflight lifecycle to verify readiness', () => {
+      const nowSec = 10000;
+      const preflightSample = {
+        windowSec: 60,
+        timestamp: nowSec,
+        workloads: {
+          api_mix: { requests: 0, failed: 0 },
+          hls_viewers: { requests: 0, failed: 0 },
+        },
+      };
+      const parsed = parseHttpErrorRate(JSON.stringify(preflightSample), {
+        nowSec,
+        isPreflight: true,
+      });
+      assert.strictEqual(parsed.rate, 0);
+      assert.strictEqual(parsed.totalRequests, 0);
+      assert.strictEqual(parsed.isPreflight, true);
+    });
+
+    test('RollingErrorRateProducer maintains sliding 60s buckets and generates valid samples', () => {
+      const baseSec = 10000;
+      const producer = new RollingErrorRateProducer(60);
+
+      // Record API mix events
+      producer.recordSuccess('api_mix', 90, (baseSec + 10) * 1000);
+      producer.recordFailure('api_mix', 10, (baseSec + 20) * 1000); // 10 fails out of 100
+
+      // Record HLS events
+      producer.recordSuccess('hls_viewers', 95, (baseSec + 30) * 1000);
+      producer.recordFailure('hls_viewers', 5, (baseSec + 40) * 1000); // 5 fails out of 100
+
+      const sample = producer.getSample(baseSec + 50);
+      assert.strictEqual(sample.windowSec, 60);
+      assert.strictEqual(sample.timestamp, baseSec + 50);
+      assert.strictEqual(sample.workloads.api_mix.requests, 100);
+      assert.strictEqual(sample.workloads.api_mix.failed, 10);
+      assert.strictEqual(sample.workloads.hls_viewers.requests, 100);
+      assert.strictEqual(sample.workloads.hls_viewers.failed, 5);
+
+      const parsed = parseHttpErrorRate(JSON.stringify(sample), { nowSec: baseSec + 50 });
+      assert.strictEqual(parsed.rate, 0.075); // 15 / 200 = 7.5%
+      assert.strictEqual(parsed.totalRequests, 200);
+      assert.strictEqual(parsed.failedRequests, 15);
+
+      // Preflight sample returns 0 requests
+      const preflightSample = producer.getPreflightSample(baseSec + 50);
+      assert.strictEqual(preflightSample.workloads.api_mix.requests, 0);
+      const preflightParsed = parseHttpErrorRate(JSON.stringify(preflightSample), {
+        nowSec: baseSec + 50,
+        isPreflight: true,
+      });
+      assert.strictEqual(preflightParsed.rate, 0);
+      assert.strictEqual(preflightParsed.isPreflight, true);
     });
   });
 
@@ -747,22 +1046,32 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
 
   describe('PlatformWatchdog Protocol & Run Lifecycle', () => {
     test('runCycle fails closed when neither or only one source is provided', async () => {
+      const mockLegacyFetch = async () => ({
+        statusCode: 200,
+        body: 'OK',
+      });
       const watchdogNoSources = new PlatformWatchdog({
         runId: 'test_no_sources',
-        abortSignalFile: abortFile,
+        abortSignalFile: path.join(tmpDir, 'no_sources.signal'),
+        fetchFn: mockLegacyFetch,
       });
       const okNoSources = await watchdogNoSources.runCycle();
       assert.strictEqual(okNoSources, false);
 
-      const mockRamFetch = async () => ({
-        statusCode: 200,
-        body: 'node_memory_MemAvailable_bytes 8000000000\n',
-      });
+      const mockFetch = async (url) => {
+        if (url.includes('metrics')) {
+          return {
+            statusCode: 200,
+            body: 'node_memory_MemAvailable_bytes 8000000000\n',
+          };
+        }
+        return { statusCode: 200, body: 'OK' };
+      };
       const watchdogOnlyRam = new PlatformWatchdog({
         runId: 'test_only_ram',
         edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
-        abortSignalFile: abortFile,
-        fetchFn: mockRamFetch,
+        abortSignalFile: path.join(tmpDir, 'only_ram.signal'),
+        fetchFn: mockFetch,
       });
       const okOnlyRam = await watchdogOnlyRam.runCycle();
       assert.strictEqual(okOnlyRam, false);
@@ -941,6 +1250,69 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.strictEqual(payload.abort, true);
       assert.strictEqual(payload.runId, 'runner_obs_test');
       assert.strictEqual(payload.reason, 'Runner observation test');
+    });
+
+    test('start() runs independent monotonic timers and preserves legacy cadence despite poll delays', async () => {
+      const legacyStarts = [];
+      const pollStarts = [];
+
+      const mockTimedFetch = async (url) => {
+        const now = Date.now();
+        if (url.includes('metrics')) {
+          pollStarts.push(now);
+          // Simulate 20ms probe delay on RAM polling
+          await new Promise((r) => setTimeout(r, 20));
+          const currentSec = Math.floor(now / 1000);
+          return {
+            statusCode: 200,
+            body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${currentSec}\n`,
+          };
+        }
+        if (url.includes('error-rate')) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify(
+              createRolling60sSample({
+                timestampSec: now / 1000,
+                windowSec: 60,
+                workloads: {
+                  api_mix: { requests: 200, failed: 2 },
+                  hls_viewers: { requests: 200, failed: 2 },
+                },
+              }),
+            ),
+          };
+        }
+        // Legacy site probe
+        legacyStarts.push(now);
+        return { statusCode: 200, body: 'OK' };
+      };
+
+      const watchdog = new PlatformWatchdog({
+        runId: 'test_start_stop',
+        edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+        errorRateSource: 'http://mock/error-rate',
+        legacyCheckIntervalMs: 80,
+        pollIntervalMs: 25,
+        fetchFn: mockTimedFetch,
+        abortSignalFile: path.join(tmpDir, 'start_stop.signal'),
+      });
+
+      // Start the watchdog (with preflight skipped to measure runtime ticks directly)
+      await watchdog.start({ skipPreflight: true, exitOnError: false });
+
+      // Let it run for 260ms (should observe ~3 legacy probes and multiple poll probes)
+      await new Promise((r) => setTimeout(r, 260));
+
+      await watchdog.stop();
+
+      assert.strictEqual(watchdog.running, false);
+      assert.ok(watchdog.legacyRequestStarts.length >= 2);
+      assert.ok(pollStarts.length >= 4);
+
+      // Verify that legacy probes started at ~80ms intervals without drifting from the 20ms RAM probe delay
+      const gap1 = watchdog.legacyRequestStarts[1] - watchdog.legacyRequestStarts[0];
+      assert.ok(gap1 >= 50 && gap1 <= 150, `Legacy gap ${gap1}ms should be around 80ms`);
     });
   });
 });
