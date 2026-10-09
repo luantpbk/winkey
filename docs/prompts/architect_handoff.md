@@ -63,7 +63,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Agent | Owns | Status |
 |---|---|---|
 | Architect | contracts/, db/, docs/, contracts.yml | ChatGPT Astra (acting) while Claude Opus is paused |
-| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; #278 audit complete (#281), idle |
+| ChatGPT (Codex, "GPT 6.1 sol medium") | services/video, analytics, upload, transcoder, libs/go | acting owner; #278 complete (#281), CIN2-G1 readiness #284 active |
 | Antigravity 1 | apps/web, e2e, packages/api-client | LT2-A1 offline regressions #275; BETA1-web complete |
 | Antigravity 2 | deploy/, workflows, root tooling; every production rollout | LT2-A2 watchdog/CI #276; generator standby / same-night deletion |
 | Antigravity 3 | auth, social, realtime, shared TS packages | LT2-A3 contract/recovery audit #277 |
@@ -225,6 +225,24 @@ LT2 harness #263 head `4fdd8e91729dc4b30b087bcac74dbdaff2e8b2b5`: NOT APPROVED; 
   bottleneck. Only run after harness accepted/merged and explicit architect go-ahead inside02:00-03:30 ICT
   from2026-10-09, enough cleanup reserve. Oct9 window = Oct8 19:00-20:30 UTC. AG2/user delete VM AND
   boot volume same night and post linked non-secret proof. Invitations remain gated on PASS and legal date.
+## CIN2 requested: real series and episode playback (2026-10-09)
+- User explicitly requests the feature and confirms owners mark a playlist “Bộ phim”. Regular collections are not
+  automatically films. Existing lists can be converted; standalone videos stay one-episode films.
+- Feature #283; design PR #285, head `17ebf5471ce6ca2843255d013fbe2ed9ae71fa7a`. ADR-035 + canonical brief
+  `docs/prompts/astra_CIN2_series.md` are in that separate design PR, based on main `710ca88d648408dfff727289a15d5c1d2b71abb6`.
+  Exact-head CI 37885106617 SUCCESS; independent review pending. Contracts/migration/generated client and runtime implementation
+  are NOT yet delivered or deployed. Design PR is not a feature-live claim.
+- One public series card replaces its individual episode cards; catalogue membership/pagination is backend-owned.
+  Series detail/watch keeps playlist context, playable episode order/count, desktop sidebar/mobile below-player,
+  previous/next across pages and deep links; preserve video visibility checks and existing player/tracker.
+- Codex starts CIN2-G1 #284 readiness now, own video data plane only: inspect actual batch/detail/playback code and
+  real tests. Report any PUBLIC-only batch contract gap to architect before implementation; no production calls.
+- AG3 CIN2-S1 queued after current #277/#282 accepted and architect contracts/migration merge. AG1 CIN2-W1 queued
+  after #275/#280 accepted and contract/backend available. Brief records tests, boundaries and separate branches.
+  Do not start a second implementation task while LT2 work remains unaccepted.
+- AG2 retains platform/LT2 VM/deletion, later CIN2 rollout only after accepted implementation. AG4 stays on #263;
+  Sonnet/Sonnet2 paused. No production load/deploy authorization, new genre/poster/history pipeline or beta gate
+  change is included. ADR-034 and the 10/10/2026 legal effective date still apply.
 ## Beta gate order (ADR-034)
 SEC0 ✅ → #249 ✅ → BETA1 ✅ → CIN1 ✅ + BETA1-web ✅ (deployed / accepted #274) → LT2 ⏳ (changes requested).
 
@@ -250,7 +268,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - QOE3: nginx media access log to Loki, plus a data-freshness panel.
 - QOE2 follow-up: call `recordLoadedData()` when `readyState >= 2` at tracker creation.
 - R2-ab decision (≥ 2026-10-19).
-- CIN2: genres, series, posters and server-synced continue-watching. Only if the user asks; needs contracts.
+- Cinema extras: genres, posters and server-synced continue-watching remain backlog. Series/episode CIN2 is now explicitly requested; see #283/#285 above.
 - node-01 (INF-W1); home Garage cluster (INF-W2) at ≥ 3 home nodes.
 - ClickHouse restore check in the monthly drill.
 
