@@ -190,4 +190,4 @@ node --test deploy/lt2/watchdog.test.mjs
 # or via root package.json:
 pnpm run test:watchdog
 ```
-All 67 unit and integration tests run purely offline with zero network or container dependencies. Non-loopback network calls are strictly hard-denied at the socket level (`net.Socket.prototype.connect`).
+All 75 unit and integration tests run purely offline with zero network or container dependencies. Non-loopback network calls are strictly hard-denied at the socket level (`net.Socket.prototype.connect`), handling direct options, normalized `[options, callback]` arrays, and unmocked HTTP/HTTPS calls.

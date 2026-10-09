@@ -1137,7 +1137,15 @@ export class PlatformWatchdog {
     }
 
     // 2. Mandatory legacy sites check (concurrent)
-    const legacyCheck = await checkLegacySites(this.legacySites, 5000, this.fetchFn);
+    const legacyStartAt = now;
+    this.legacyRequestStarts.push(legacyStartAt);
+    this.nextLegacyCheckAt = legacyStartAt + this.legacyCheckIntervalMs;
+
+    const legacyCheck = await checkLegacySites(
+      this.legacySites,
+      this.legacyTimeoutMs,
+      this.fetchFn,
+    );
     if (legacyCheck.abort) {
       this.triggerAbort(`Preflight failed: ${legacyCheck.reason}`, {
         type: 'PREFLIGHT_LEGACY_SITE',
@@ -1146,17 +1154,14 @@ export class PlatformWatchdog {
       return false;
     }
 
-    this.nextLegacyCheckAt = now + this.legacyCheckIntervalMs;
-    this.legacyRequestStarts.push(now);
-
-    // 3. Mandatory error rate telemetry source check
+    // 3. Mandatory error rate telemetry source check (explicit isPreflight: true)
     const errCheck = await checkHttpErrorRate(
       this.errorRateSource,
       this.maxErrorRate,
       this.errorSustainedSec,
       this.errorRateState,
       this.fetchFn,
-      { nowSec: now / 1000 },
+      { nowSec: now / 1000, isPreflight: true },
     );
     if (errCheck.abort) {
       this.triggerAbort(`Preflight failed: ${errCheck.reason}`, {
@@ -1305,8 +1310,10 @@ export class PlatformWatchdog {
       }, delay);
     };
 
-    // Schedule first legacy probe after legacyCheckIntervalMs
-    scheduleNextLegacy(Date.now() + this.legacyCheckIntervalMs);
+    // Schedule first legacy probe anchored to preflight target if available, preserving monotonic cadence
+    const firstLegacyTarget =
+      this.nextLegacyCheckAt > 0 ? this.nextLegacyCheckAt : Date.now() + this.legacyCheckIntervalMs;
+    scheduleNextLegacy(firstLegacyTarget);
 
     // 2. Independent Monotonic Fast Polling Scheduler (RAM + Error Rate)
     const scheduleNextPoll = (targetTime) => {

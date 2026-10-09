@@ -25,21 +25,70 @@ import {
 // HARD-DENY non-loopback network calls for entire offline test suite
 const origSocketConnect = net.Socket.prototype.connect;
 
-net.Socket.prototype.connect = function (...args) {
-  let host = 'localhost';
-  if (typeof args[0] === 'object' && args[0] !== null) {
-    host = args[0].host || args[0].hostname || 'localhost';
-  } else if (typeof args[1] === 'string') {
-    host = args[1];
+export function extractDestinationHost(args) {
+  let target = args;
+  // Unwrap normalized args array e.g. [{ host: '...', port: ... }, cb]
+  while (Array.isArray(target) && target.length > 0 && Array.isArray(target[0])) {
+    target = target[0];
   }
-  const isLoopback =
+
+  const arg0 = target[0];
+  let host = 'localhost';
+
+  if (typeof arg0 === 'object' && arg0 !== null && !Array.isArray(arg0)) {
+    host = arg0.host || arg0.hostname || 'localhost';
+  } else if (typeof arg0 === 'number') {
+    if (typeof target[1] === 'string') {
+      host = target[1];
+    } else {
+      host = 'localhost';
+    }
+  } else if (typeof arg0 === 'string') {
+    if (arg0.includes('/') || arg0.includes('\\')) {
+      host = 'localhost';
+    } else if (typeof target[1] === 'number') {
+      host = arg0;
+    } else {
+      host = arg0;
+    }
+  }
+
+  // Also check if any item in target has host/hostname
+  for (const item of target) {
+    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      if (item.host) host = item.host;
+      else if (item.hostname) host = item.hostname;
+    }
+  }
+
+  return host;
+}
+
+export function isLoopbackTarget(rawHost) {
+  if (!rawHost || typeof rawHost !== 'string') return true;
+  let host = rawHost.trim().toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+  if (host.includes(':') && !host.includes('::')) {
+    const parts = host.split(':');
+    if (parts.length === 2) {
+      host = parts[0];
+    }
+  }
+  return (
     host === '127.0.0.1' ||
     host === 'localhost' ||
     host === '::1' ||
+    host === '0.0.0.0' ||
     host === '[::1]' ||
-    (typeof host === 'string' && host.startsWith('127.'));
+    host.startsWith('127.')
+  );
+}
 
-  if (!isLoopback) {
+net.Socket.prototype.connect = function (...args) {
+  const host = extractDestinationHost(args);
+  if (!isLoopbackTarget(host)) {
     throw new Error(
       `OFFLINE TEST ISOLATION FAILURE: Unexpected non-loopback network connection attempt to '${host}'. All test boundaries must use mocks or loopback servers.`,
     );
@@ -58,6 +107,42 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('offline network isolation & socket interceptor', () => {
+    test('hard-denies direct options targeting non-loopback host', () => {
+      const sock = new net.Socket();
+      assert.throws(
+        () => sock.connect({ host: 'example.invalid', port: 443 }),
+        /OFFLINE TEST ISOLATION FAILURE/,
+      );
+    });
+
+    test('hard-denies normalized [options, callback] array targeting non-loopback host', () => {
+      const sock = new net.Socket();
+      assert.throws(
+        () => sock.connect([{ host: 'example.invalid', port: 443 }, () => {}]),
+        /OFFLINE TEST ISOLATION FAILURE/,
+      );
+    });
+
+    test('hard-denies port and hostname signature (port, host, callback)', () => {
+      const sock = new net.Socket();
+      assert.throws(
+        () => sock.connect(443, 'example.invalid', () => {}),
+        /OFFLINE TEST ISOLATION FAILURE/,
+      );
+    });
+
+    test('intercepts actual unmocked http.get before opening external socket', async () => {
+      await assert.rejects(
+        new Promise((resolve, reject) => {
+          const req = http.get('http://example.invalid', () => resolve());
+          req.on('error', reject);
+        }),
+        /OFFLINE TEST ISOLATION FAILURE/,
+      );
+    });
   });
 
   describe('isTrustedExporterUrl', () => {
@@ -1117,26 +1202,20 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       assert.match(res.errors[0], /Persistence failure/);
     });
 
-    test('preflight passes when all three telemetry sources are healthy', async () => {
+    test('preflight passes with zero traffic via producer.getPreflightSample()', async () => {
       const nowSec = 10000;
-      const validSample = createRolling60sSample({
-        timestampSec: nowSec,
-        windowSec: 60,
-        workloads: {
-          api_mix: { requests: 500, failed: 5 },
-          hls_viewers: { requests: 500, failed: 5 },
-        },
-      });
+      const producer = new RollingErrorRateProducer(60);
+      const preflightSample = producer.getPreflightSample(nowSec);
 
       const mockFetch = async (url) => {
         if (url.includes('metrics')) {
           return {
             statusCode: 200,
-            body: 'node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 10000000\n',
+            body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${nowSec}\n`,
           };
         }
         if (url.includes('error-rate')) {
-          return { statusCode: 200, body: JSON.stringify(validSample) };
+          return { statusCode: 200, body: JSON.stringify(preflightSample) };
         }
         return { statusCode: 200, body: 'OK' };
       };
@@ -1149,8 +1228,68 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         fetchFn: mockFetch,
       });
 
-      const preflightResult = await watchdog.preflight(10000 * 1000);
+      const preflightResult = await watchdog.preflight(nowSec * 1000);
       assert.strictEqual(preflightResult, true);
+    });
+
+    test('preflight aborts fail-closed on missing error telemetry source', async () => {
+      const nowSec = 10000;
+      const mockFetch = async () => ({
+        statusCode: 200,
+        body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${nowSec}\n`,
+      });
+      const watchdog = new PlatformWatchdog({
+        runId: 'test_preflight_missing',
+        edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+        errorRateSource: '/tmp/nonexistent-preflight.json',
+        abortSignalFile: path.join(tmpDir, 'preflight_missing.signal'),
+        fetchFn: mockFetch,
+      });
+      const ok = await watchdog.preflight(nowSec * 1000);
+      assert.strictEqual(ok, false);
+      const abort = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'preflight_missing.signal'), 'utf8'),
+      );
+      assert.strictEqual(abort.abort, true);
+      assert.match(abort.reason, /Preflight failed.*does not exist/);
+    });
+
+    test('preflight aborts fail-closed on stale telemetry timestamp', async () => {
+      const nowSec = 10000;
+      const staleSample = {
+        windowSec: 60,
+        timestamp: 8000, // 2000s stale
+        workloads: {
+          api_mix: { requests: 0, failed: 0 },
+          hls_viewers: { requests: 0, failed: 0 },
+        },
+      };
+      const mockFetch = async (url) => {
+        if (url.includes('metrics')) {
+          return {
+            statusCode: 200,
+            body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${nowSec}\n`,
+          };
+        }
+        if (url.includes('error-rate')) {
+          return { statusCode: 200, body: JSON.stringify(staleSample) };
+        }
+        return { statusCode: 200, body: 'OK' };
+      };
+      const watchdog = new PlatformWatchdog({
+        runId: 'test_preflight_stale',
+        edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+        errorRateSource: 'http://mock/error-rate',
+        abortSignalFile: path.join(tmpDir, 'preflight_stale.signal'),
+        fetchFn: mockFetch,
+      });
+      const ok = await watchdog.preflight(nowSec * 1000);
+      assert.strictEqual(ok, false);
+      const abort = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'preflight_stale.signal'), 'utf8'),
+      );
+      assert.strictEqual(abort.abort, true);
+      assert.match(abort.reason, /Preflight failed.*stale/);
     });
 
     test('maintains fixed monotonic legacy site cadence despite probe delays', async () => {
@@ -1313,6 +1452,132 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
       // Verify that legacy probes started at ~80ms intervals without drifting from the 20ms RAM probe delay
       const gap1 = watchdog.legacyRequestStarts[1] - watchdog.legacyRequestStarts[0];
       assert.ok(gap1 >= 50 && gap1 <= 150, `Legacy gap ${gap1}ms should be around 80ms`);
+    });
+
+    test('start() with preflight enabled anchors legacy cadence to preflight start and aborts on active zero traffic', async () => {
+      let isPreflightPhase = true;
+      const producer = new RollingErrorRateProducer(60);
+
+      const mockFetch = async (url) => {
+        const now = Date.now();
+        if (url.includes('metrics')) {
+          const currentSec = Math.floor(now / 1000);
+          return {
+            statusCode: 200,
+            body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${currentSec}\n`,
+          };
+        }
+        if (url.includes('error-rate')) {
+          // Simulate 35ms latency during error check
+          await new Promise((r) => setTimeout(r, 35));
+          if (isPreflightPhase) {
+            return {
+              statusCode: 200,
+              body: JSON.stringify(producer.getPreflightSample(now / 1000)),
+            };
+          }
+          // Active phase still has zero requests -> should fail closed with INACTIVE_WORKLOAD
+          return {
+            statusCode: 200,
+            body: JSON.stringify(producer.getPreflightSample(now / 1000)),
+          };
+        }
+        return { statusCode: 200, body: 'OK' };
+      };
+
+      const watchdog = new PlatformWatchdog({
+        runId: 'test_start_with_preflight',
+        edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+        errorRateSource: 'http://mock/error-rate',
+        legacyCheckIntervalMs: 80,
+        pollIntervalMs: 25,
+        fetchFn: mockFetch,
+        abortSignalFile: path.join(tmpDir, 'start_preflight.signal'),
+      });
+
+      // Start the watchdog WITH PREFLIGHT ENABLED
+      const startPromise = watchdog.start({ skipPreflight: false, exitOnError: false });
+      await startPromise;
+      isPreflightPhase = false;
+
+      // Allow runtime to execute for 200ms
+      await new Promise((r) => setTimeout(r, 200));
+      await watchdog.stop();
+
+      // Check legacy start gap:
+      // First legacy probe was at preflight (index 0). Second was first active probe (index 1).
+      assert.ok(watchdog.legacyRequestStarts.length >= 2);
+      const gap = watchdog.legacyRequestStarts[1] - watchdog.legacyRequestStarts[0];
+      // Anchored to preflight legacy start (80ms), even though preflight error probe took 35ms!
+      assert.ok(
+        gap >= 60 && gap <= 110,
+        `Legacy gap ${gap}ms across preflight transition should be around 80ms`,
+      );
+
+      // Active loop should have aborted because active traffic was still 0 requests
+      const abortSignal = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'start_preflight.signal'), 'utf8'),
+      );
+      assert.strictEqual(abortSignal.abort, true);
+      assert.match(
+        abortSignal.reason,
+        /Workload .* has zero requests during active load run|Workload .* has 0 requests during active test run|INACTIVE_WORKLOAD/i,
+      );
+    });
+
+    test('start() with preflight enabled transitions smoothly to active mode when generator supplies load', async () => {
+      let isPreflightPhase = true;
+      const producer = new RollingErrorRateProducer(60);
+
+      const mockFetch = async (url) => {
+        const now = Date.now();
+        if (url.includes('metrics')) {
+          const currentSec = Math.floor(now / 1000);
+          return {
+            statusCode: 200,
+            body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${currentSec}\n`,
+          };
+        }
+        if (url.includes('error-rate')) {
+          if (isPreflightPhase) {
+            return {
+              statusCode: 200,
+              body: JSON.stringify(producer.getPreflightSample(now / 1000)),
+            };
+          }
+          return {
+            statusCode: 200,
+            body: JSON.stringify(producer.getSample(now / 1000)),
+          };
+        }
+        return { statusCode: 200, body: 'OK' };
+      };
+
+      const watchdog = new PlatformWatchdog({
+        runId: 'test_start_active_load',
+        edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+        errorRateSource: 'http://mock/error-rate',
+        legacyCheckIntervalMs: 80,
+        pollIntervalMs: 25,
+        fetchFn: mockFetch,
+        abortSignalFile: path.join(tmpDir, 'start_active_load.signal'),
+      });
+
+      // Start the watchdog WITH PREFLIGHT ENABLED
+      await watchdog.start({ skipPreflight: false, exitOnError: false });
+      isPreflightPhase = false;
+
+      // Generator supplies active load
+      producer.recordSuccess('api_mix', 50);
+      producer.recordSuccess('hls_viewers', 50);
+
+      // Run active loop for 150ms
+      await new Promise((r) => setTimeout(r, 150));
+      await watchdog.stop();
+
+      // No abort triggered!
+      assert.strictEqual(fs.existsSync(path.join(tmpDir, 'start_active_load.signal')), false);
+      assert.ok(watchdog.legacyRequestStarts.length >= 2);
     });
   });
 });
