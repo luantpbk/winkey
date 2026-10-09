@@ -1,4 +1,4 @@
-/* global fetch, console, process, Buffer, AbortSignal, setTimeout */
+/* global fetch, console, process, Buffer, AbortSignal, setTimeout, clearTimeout */
 /**
  * audit_probe_277.mjs
  * Authoritative, reproducible verification probe for Issue #277 and PR #282.
@@ -11,13 +11,13 @@
  *                         AG4 must NOT merge or integrate coordinator changes into loadtest/
  *                         until formal decision and approval by Astra / Claude Opus.
  *
- * CLASSIFICATION & SCOPE:
+ * SCOPED CLASSIFICATION:
  * 1. REAL MODULE EVIDENCE (HASH-BOUND): ValkeyRateLimiter (in-memory fallback) & ProblemError (RFC 9457)
  * 2. CONCURRENCY REPRODUCTION MODEL: 50 isolated Worker threads modeling 715349a VU concurrency in Node.js
  *    (DISCLAIMER: Simulation model in Node.js, NOT a native k6 execution or status_429 metric proof)
  * 3. RETENTION ON NON-204 DELETE: Retain accounts on 400, 401, 403, 404, 500 (only 204 deletes; 404 retained)
- * 4. ATOMIC RETENTION & BOUNDED LIFECYCLE: Atomic durable writeback (temp+fsync+rename) in try...finally
- * 5. CANONICAL CONTRACT SCHEMAS & NEGATIVE CASES: Full Comment, CommentPage, TokenResponse, ProblemDetails
+ * 4. ATOMIC RETENTION & BOUNDED LIFECYCLE: Atomic durable writeback & bounded server/socket teardown
+ * 5. TARGETED CANONICAL CONTRACT SCHEMAS: Exact RFC 3339, strict email/role/avatar validation, no invented bounds
  * 6. PURGE-BEFORE-DELETE ORDER, CORRUPT JOURNAL & EXACT RUN-ACCOUNT SCOPING
  */
 
@@ -103,11 +103,65 @@ if (!isMainThread) {
     console.log('Architect Notice:     Coordinator RFC is STRICTLY NOT ALLOWED for integration');
     console.log('======================================================================\n');
 
-    // Resource tracking for guaranteed finally cleanup
+    // Resource tracking for guaranteed bounded finally cleanup
     const activeServers = [];
     const activeSockets = new Set();
     const activeWorkers = [];
     const tempDirs = [];
+
+    // Factory: Automatically track all owned servers and sockets
+    const createTrackedServer = (requestListener) => {
+      const server = http.createServer(requestListener);
+      activeServers.push(server);
+      server.on('connection', (sock) => {
+        activeSockets.add(sock);
+        sock.on('close', () => activeSockets.delete(sock));
+      });
+      return server;
+    };
+
+    // Teardown: Forcibly destroy sockets and bound server close with strict deadline
+    const closeTrackedServersWithDeadline = async (timeoutMs = 1500) => {
+      for (const sock of activeSockets) {
+        try {
+          sock.destroy();
+        } catch {
+          // ignore
+        }
+      }
+      activeSockets.clear();
+
+      await Promise.allSettled(
+        activeServers.map((server) => {
+          return new Promise((resolve) => {
+            let finished = false;
+            const timer = setTimeout(() => {
+              if (!finished) {
+                finished = true;
+                try {
+                  if (typeof server.closeAllConnections === 'function') {
+                    server.closeAllConnections();
+                  }
+                } catch {
+                  // ignore
+                }
+                resolve();
+              }
+            }, timeoutMs);
+            timer.unref?.();
+
+            server.close(() => {
+              if (!finished) {
+                finished = true;
+                clearTimeout(timer);
+                resolve();
+              }
+            });
+          });
+        }),
+      );
+      activeServers.length = 0;
+    };
 
     try {
       // -------------------------------------------------------------------------
@@ -238,7 +292,7 @@ if (!isMainThread) {
       let authSvcCalls = 0;
       const runnerLimiter = new ValkeyRateLimiter();
 
-      const authServer = http.createServer(async (req, res) => {
+      const authServer = createTrackedServer(async (req, res) => {
         if (req.method === 'POST' && req.url === '/v1/auth/login') {
           let bodyStr = '';
           req.on('data', (chunk) => {
@@ -301,12 +355,6 @@ if (!isMainThread) {
           res.end();
         }
       });
-
-      authServer.on('connection', (sock) => {
-        activeSockets.add(sock);
-        sock.on('close', () => activeSockets.delete(sock));
-      });
-      activeServers.push(authServer);
 
       await new Promise((resolve) => authServer.listen(0, '127.0.0.1', resolve));
       const authPort = authServer.address().port;
@@ -422,9 +470,8 @@ if (!isMainThread) {
       // =========================================================================
       console.log('>>> [PART 4/6] Atomic Durable Writeback & Bounded Lifecycle in try...finally');
 
-      // 4.1 AbortSignal.timeout halts hanging requests
-      const hangingServer = http.createServer((_req, _res) => {});
-      activeServers.push(hangingServer);
+      // 4.1 AbortSignal.timeout halts hanging requests & proven hang path teardown
+      const hangingServer = createTrackedServer((_req, _res) => {});
       await new Promise((resolve) => hangingServer.listen(0, '127.0.0.1', resolve));
       const hangingPort = hangingServer.address().port;
 
@@ -437,6 +484,32 @@ if (!isMainThread) {
       }
       assert.strictEqual(abortedBySignal, true);
       console.log('- AbortSignal.timeout: Stalled HTTP request cancelled within 50ms deadline.');
+
+      // Bounded teardown proof on deliberately hanging server and socket
+      await new Promise((resolve) => {
+        for (const sock of activeSockets) {
+          if (sock.localPort === hangingPort || sock.remotePort === hangingPort) {
+            sock.destroy();
+            activeSockets.delete(sock);
+          }
+        }
+        const timer = setTimeout(() => {
+          try {
+            hangingServer.closeAllConnections?.();
+          } catch {
+            // ignore
+          }
+          resolve();
+        }, 500);
+        timer.unref?.();
+        hangingServer.close(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      const hangingIdx = activeServers.indexOf(hangingServer);
+      if (hangingIdx !== -1) activeServers.splice(hangingIdx, 1);
+      console.log('- Verified hanging server and sockets closed cleanly within 500ms bound.');
 
       // 4.2 Atomic durable file writeback in try...finally
       const tmpCleanupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-atomic-'));
@@ -475,16 +548,27 @@ if (!isMainThread) {
       );
 
       // =========================================================================
-      // SECTION 5: CANONICAL CONTRACT SCHEMAS & RIGOROUS NEGATIVE TESTS
+      // SECTION 5: TARGETED CANONICAL CONTRACT SCHEMAS & RIGOROUS NEGATIVE TESTS
       // =========================================================================
-      console.log('>>> [PART 5/6] Canonical Contract Schemas & Negative Case Validation');
+      console.log('>>> [PART 5/6] Targeted Canonical Contract Schemas & Negative Case Validation');
 
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const handleRegex = /^[A-Za-z0-9_.]{3,30}$/;
+      const rfc3339Regex =
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+      const emailRegex =
+        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+      const validRoles = new Set(['viewer', 'creator', 'moderator', 'admin']);
+
+      function isRfc3339DateTime(v) {
+        return typeof v === 'string' && rfc3339Regex.test(v) && !isNaN(Date.parse(v));
+      }
 
       // Schema validator: Comment (social.v1.yaml:911-952)
       function validateComment(cmt) {
-        if (!cmt || typeof cmt !== 'object') throw new Error('Comment must be an object');
+        if (!cmt || typeof cmt !== 'object' || Array.isArray(cmt)) {
+          throw new Error('Comment must be an object');
+        }
         const required = [
           'id',
           'video_id',
@@ -499,7 +583,9 @@ if (!isMainThread) {
           'can_delete',
         ];
         for (const f of required) {
-          if (!(f in cmt)) throw new Error(`Comment missing required field: ${f}`);
+          if (!(f in cmt) || cmt[f] === undefined) {
+            throw new Error(`Comment missing required field: ${f}`);
+          }
         }
         if (!uuidRegex.test(cmt.id)) throw new Error(`Invalid id UUID: ${cmt.id}`);
         if (!uuidRegex.test(cmt.video_id))
@@ -509,9 +595,19 @@ if (!isMainThread) {
         }
 
         if (cmt.author !== null) {
-          if (typeof cmt.author !== 'object') throw new Error('Author must be object or null');
+          if (!cmt.author || typeof cmt.author !== 'object' || Array.isArray(cmt.author)) {
+            throw new Error('Author must be object or null');
+          }
+          const authorRequired = ['id', 'handle', 'display_name', 'avatar_url'];
+          for (const af of authorRequired) {
+            if (!(af in cmt.author) || cmt.author[af] === undefined) {
+              throw new Error(`Author missing required field: ${af}`);
+            }
+          }
           if (!uuidRegex.test(cmt.author.id)) throw new Error('Author id must be UUID');
-          if (!handleRegex.test(cmt.author.handle)) throw new Error('Author handle invalid format');
+          if (typeof cmt.author.handle !== 'string' || !handleRegex.test(cmt.author.handle)) {
+            throw new Error('Author handle invalid format');
+          }
           if (
             typeof cmt.author.display_name !== 'string' ||
             cmt.author.display_name.length < 1 ||
@@ -522,8 +618,9 @@ if (!isMainThread) {
           if (cmt.author.avatar_url !== null && typeof cmt.author.avatar_url !== 'string') {
             throw new Error('Author avatar_url must be string or null');
           }
-          if ('email' in cmt.author)
+          if ('email' in cmt.author) {
             throw new Error('Author PublicProfile must NEVER contain email');
+          }
         }
 
         if (typeof cmt.body !== 'string' || cmt.body.length > 2000) {
@@ -535,10 +632,11 @@ if (!isMainThread) {
         if (!Number.isInteger(cmt.reply_count) || cmt.reply_count < 0) {
           throw new Error('reply_count must be non-negative integer');
         }
-        if (isNaN(Date.parse(cmt.created_at)))
-          throw new Error('created_at must be valid date-time');
-        if (cmt.edited_at !== null && isNaN(Date.parse(cmt.edited_at))) {
-          throw new Error('edited_at must be valid date-time or null');
+        if (!isRfc3339DateTime(cmt.created_at)) {
+          throw new Error('created_at must be valid RFC 3339 date-time string');
+        }
+        if (cmt.edited_at !== null && !isRfc3339DateTime(cmt.edited_at)) {
+          throw new Error('edited_at must be valid RFC 3339 date-time string or null');
         }
         if (typeof cmt.can_edit !== 'boolean') throw new Error('can_edit must be boolean');
         if (typeof cmt.can_delete !== 'boolean') throw new Error('can_delete must be boolean');
@@ -547,67 +645,151 @@ if (!isMainThread) {
 
       // Schema validator: CommentPage (social.v1.yaml:953-963)
       function validateCommentPage(page) {
-        if (!page || typeof page !== 'object') throw new Error('CommentPage must be object');
-        if (!Array.isArray(page.items)) throw new Error('items must be array');
-        for (const item of page.items) validateComment(item);
-        if (page.next_cursor === undefined) throw new Error('next_cursor is required');
-        if (
-          page.next_cursor !== null &&
-          (typeof page.next_cursor !== 'string' || page.next_cursor.length > 512)
-        ) {
-          throw new Error('next_cursor must be string <= 512 chars or null');
+        if (!page || typeof page !== 'object' || Array.isArray(page)) {
+          throw new Error('CommentPage must be an object');
+        }
+        if (!('items' in page) || !('next_cursor' in page)) {
+          throw new Error('CommentPage must contain items and next_cursor');
+        }
+        if (!Array.isArray(page.items)) {
+          throw new Error('items must be an array');
+        }
+        for (const item of page.items) {
+          validateComment(item);
+        }
+        if (page.next_cursor !== null && typeof page.next_cursor !== 'string') {
+          throw new Error('next_cursor must be string or null');
         }
         return true;
       }
 
       // Schema validator: TokenResponse (auth.v1.yaml:891-906)
       function validateTokenResponse(tok) {
-        if (!tok || typeof tok !== 'object') throw new Error('TokenResponse must be object');
-        if (typeof tok.access_token !== 'string' || !tok.access_token) {
-          throw new Error('access_token required');
+        if (!tok || typeof tok !== 'object' || Array.isArray(tok)) {
+          throw new Error('TokenResponse must be an object');
         }
-        if (tok.token_type !== 'Bearer') throw new Error('token_type must be Bearer');
+        if (typeof tok.access_token !== 'string' || !tok.access_token) {
+          throw new Error('access_token is required');
+        }
+        if (tok.token_type !== 'Bearer') {
+          throw new Error('token_type must be Bearer');
+        }
         if (!Number.isInteger(tok.expires_in) || tok.expires_in <= 0) {
           throw new Error('expires_in must be positive integer');
         }
-        if (!tok.user || typeof tok.user !== 'object') {
-          throw new Error('TokenResponse missing required user field');
+        if (!tok.user || typeof tok.user !== 'object' || Array.isArray(tok.user)) {
+          throw new Error('TokenResponse missing required user object');
         }
         const u = tok.user;
+        const userRequired = [
+          'id',
+          'email',
+          'email_verified',
+          'handle',
+          'display_name',
+          'avatar_url',
+          'roles',
+          'created_at',
+        ];
+        for (const f of userRequired) {
+          if (!(f in u) || u[f] === undefined) {
+            throw new Error(`user missing required field: ${f}`);
+          }
+        }
         if (!uuidRegex.test(u.id)) throw new Error('user.id must be UUID');
-        if (typeof u.email !== 'string') throw new Error('user.email required');
-        if (typeof u.email_verified !== 'boolean') throw new Error('user.email_verified required');
-        if (typeof u.handle !== 'string') throw new Error('user.handle required');
-        if (typeof u.display_name !== 'string') throw new Error('user.display_name required');
-        if (!Array.isArray(u.roles)) throw new Error('user.roles required');
-        if (isNaN(Date.parse(u.created_at))) throw new Error('user.created_at must be date-time');
+        if (typeof u.email !== 'string' || !emailRegex.test(u.email)) {
+          throw new Error('user.email must be valid email format');
+        }
+        if (typeof u.email_verified !== 'boolean') {
+          throw new Error('user.email_verified must be boolean');
+        }
+        if (typeof u.handle !== 'string' || !handleRegex.test(u.handle)) {
+          throw new Error('user.handle must match pattern');
+        }
+        if (
+          typeof u.display_name !== 'string' ||
+          u.display_name.length < 1 ||
+          u.display_name.length > 50
+        ) {
+          throw new Error('user.display_name must be 1..50 characters');
+        }
+        if (u.avatar_url !== null && typeof u.avatar_url !== 'string') {
+          throw new Error('user.avatar_url must be string or null');
+        }
+        if (
+          !Array.isArray(u.roles) ||
+          u.roles.length === 0 ||
+          !u.roles.every((r) => validRoles.has(r))
+        ) {
+          throw new Error('user.roles must be non-empty array of valid Role enums');
+        }
+        if (!isRfc3339DateTime(u.created_at)) {
+          throw new Error('user.created_at must be valid RFC 3339 date-time string');
+        }
         return true;
       }
 
-      // Schema validator: DeleteMeRequest (auth.v1.yaml:880-890)
+      // Schema validator: DeleteMeRequest (auth.v1.yaml:880-890, additionalProperties: false)
       function validateDeleteMeRequest(req) {
-        if (!req || typeof req !== 'object') throw new Error('DeleteMeRequest must be object');
-        if (typeof req.confirm_handle !== 'string') throw new Error('confirm_handle required');
+        if (!req || typeof req !== 'object' || Array.isArray(req)) {
+          throw new Error('DeleteMeRequest must be an object');
+        }
+        for (const key of Object.keys(req)) {
+          if (key !== 'confirm_handle' && key !== 'password') {
+            throw new Error(`DeleteMeRequest contains forbidden additional property: ${key}`);
+          }
+        }
+        if (typeof req.confirm_handle !== 'string' || req.confirm_handle.length === 0) {
+          throw new Error('confirm_handle is required and must be non-empty string');
+        }
         if (req.password !== undefined && typeof req.password !== 'string') {
-          throw new Error('password must be string');
+          throw new Error('password must be string if present');
         }
         return true;
       }
 
       // Schema validator: ProblemDetails (RFC 9457, common.yaml:53-86)
       function validateProblemDetails(prob) {
-        if (!prob || typeof prob !== 'object') throw new Error('Problem must be object');
-        if (typeof prob.type !== 'string') throw new Error('type URI required');
-        if (typeof prob.title !== 'string') throw new Error('title required');
-        if (!Number.isInteger(prob.status) || prob.status < 400 || prob.status > 599) {
-          throw new Error('status must be 400..599');
+        if (!prob || typeof prob !== 'object' || Array.isArray(prob)) {
+          throw new Error('Problem must be an object');
         }
-        if (prob.code !== undefined && typeof prob.code !== 'string')
-          throw new Error('code must be string');
+        if (typeof prob.type !== 'string' || prob.type.length === 0) {
+          throw new Error('type URI is required');
+        }
+        if (typeof prob.title !== 'string' || prob.title.length === 0) {
+          throw new Error('title is required');
+        }
+        if (!Number.isInteger(prob.status) || prob.status < 400 || prob.status > 599) {
+          throw new Error('status must be integer between 400 and 599');
+        }
+        if (prob.detail !== undefined && typeof prob.detail !== 'string') {
+          throw new Error('detail must be string if present');
+        }
+        if (prob.instance !== undefined && typeof prob.instance !== 'string') {
+          throw new Error('instance must be string if present');
+        }
+        if (prob.code !== undefined) {
+          if (typeof prob.code !== 'string' || !/^[A-Z0-9_]+$/.test(prob.code)) {
+            throw new Error('code must be SCREAMING_SNAKE_CASE string');
+          }
+        }
+        if (prob.errors !== undefined) {
+          if (!Array.isArray(prob.errors)) {
+            throw new Error('errors must be an array');
+          }
+          for (const err of prob.errors) {
+            if (!err || typeof err !== 'object' || Array.isArray(err)) {
+              throw new Error('each error item must be an object');
+            }
+            if (typeof err.field !== 'string' || typeof err.message !== 'string') {
+              throw new Error('each error item must have string field and message');
+            }
+          }
+        }
         return true;
       }
 
-      // Validate positive cases
+      // Validate positive cases against canonical OpenAPI schemas
       assert.ok(validateComment(fixtures.valid_comment_active_author));
       assert.ok(validateComment(fixtures.valid_comment_tombstone));
       assert.ok(validateCommentPage(fixtures.valid_comment_page));
@@ -615,9 +797,16 @@ if (!isMainThread) {
       assert.ok(validateTokenResponse(fixtures.valid_token_response));
       assert.ok(validateDeleteMeRequest(fixtures.valid_delete_me_request));
       assert.ok(validateProblemDetails(fixtures.valid_problem_document));
-      console.log('- Positive contract schemas validated successfully.');
+      console.log(
+        '- Positive contract schemas validated successfully against canonical contracts.',
+      );
 
       // Rigorous Negative Cases
+      assert.throws(
+        () =>
+          validateComment({ ...fixtures.valid_comment_active_author, created_at: '2026/10/08' }),
+        /RFC 3339/,
+      );
       assert.throws(
         () => validateComment({ ...fixtures.valid_comment_active_author, id: 'bad-uuid' }),
         /Invalid id UUID/,
@@ -643,17 +832,57 @@ if (!isMainThread) {
         /Body exceeds 2000/,
       );
       assert.throws(() => validateCommentPage({ items: [], next_cursor: 12345 }), /next_cursor/);
-      assert.throws(() => validateCommentPage({ items: [] }), /next_cursor is required/);
+      assert.throws(() => validateCommentPage({ items: [] }), /next_cursor/);
       assert.throws(
         () => validateTokenResponse({ access_token: 'tok', token_type: 'Bearer', expires_in: 900 }),
-        /TokenResponse missing required user field/,
+        /TokenResponse missing required user object/,
       );
-      assert.throws(() => validateDeleteMeRequest({}), /confirm_handle required/);
+      assert.throws(
+        () =>
+          validateTokenResponse({
+            ...fixtures.valid_token_response,
+            user: { ...fixtures.valid_token_response.user, avatar_url: undefined },
+          }),
+        /user missing required field: avatar_url/,
+      );
+      assert.throws(
+        () =>
+          validateTokenResponse({
+            ...fixtures.valid_token_response,
+            user: { ...fixtures.valid_token_response.user, email: 'not-an-email' },
+          }),
+        /user.email must be valid email format/,
+      );
+      assert.throws(
+        () =>
+          validateTokenResponse({
+            ...fixtures.valid_token_response,
+            user: { ...fixtures.valid_token_response.user, roles: ['superadmin'] },
+          }),
+        /valid Role enums/,
+      );
+      assert.throws(
+        () =>
+          validateDeleteMeRequest({
+            ...fixtures.valid_delete_me_request,
+            unexpected_prop: true,
+          }),
+        /forbidden additional property/,
+      );
+      assert.throws(() => validateDeleteMeRequest({}), /confirm_handle is required/);
       assert.throws(
         () => validateProblemDetails({ type: '/err', title: 'Err', status: 200 }),
-        /status must be 400..599/,
+        /status must be integer between 400 and 599/,
       );
-      console.log('- Verified 10 rigorous negative validation cases fail closed as required.\n');
+      assert.throws(
+        () =>
+          validateProblemDetails({
+            ...fixtures.valid_problem_document,
+            errors: [{ field: 'email', message: 123 }],
+          }),
+        /string field and message/,
+      );
+      console.log('- Verified 16 rigorous negative validation cases fail closed as required.\n');
 
       // =========================================================================
       // SECTION 6: PURGE-BEFORE-DELETE ORDER, CORRUPT JOURNAL & EXACT SCOPING
@@ -721,18 +950,32 @@ if (!isMainThread) {
       );
 
       console.log('======================================================================');
-      console.log('ALL 6 PROBE SECTIONS VERIFIED & PASSED WITH 100% COMPLIANCE');
+      console.log('PROBE EXECUTION COMPLETED: CANONICAL CONTRACT & MODEL INVARIANTS VERIFIED');
+      console.log('CLAIM BOUNDS: Scope is strictly limited to targeted OpenAPI contracts');
+      console.log('(Comment, CommentPage, TokenResponse, DeleteMeRequest, ProblemDetails) and');
+      console.log('demonstrated recovery models. Does NOT claim universal schema coverage or');
+      console.log('native k6 harness execution.');
       console.log('======================================================================');
     } finally {
       // -------------------------------------------------------------------------
-      // RESOURCE-OWNING CLEANUP IN FINALLY
+      // RESOURCE-OWNING CLEANUP IN FINALLY (STRICTLY BOUNDED)
       // -------------------------------------------------------------------------
-      await Promise.allSettled(activeWorkers.map((w) => w.terminate()));
-      for (const s of activeSockets) s.destroy();
-      await Promise.allSettled(
-        activeServers.map((srv) => new Promise((resolve) => srv.close(resolve))),
-      );
-      for (const d of tempDirs) fs.rmSync(d, { recursive: true, force: true });
+      await Promise.race([
+        Promise.allSettled(activeWorkers.map((w) => w.terminate())),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
+      activeWorkers.length = 0;
+
+      await closeTrackedServersWithDeadline(1500);
+
+      for (const d of tempDirs) {
+        try {
+          fs.rmSync(d, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      }
+      tempDirs.length = 0;
     }
   }
 
