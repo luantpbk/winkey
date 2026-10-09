@@ -100,11 +100,7 @@ abort_all() {
 
 trap abort_all EXIT SIGINT SIGTERM
 
-# 2. Pre-seed 5 temporary lt2 accounts and create lt2_accounts.json (no passwords or tokens inside)
-echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."
-TARGET_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" LT2_INVITE_CODE="${LT2_INVITE_CODE}" node "${SCRIPT_DIR}/preseed.mjs"
-
-# 3. Launch background Watchdog for real telemetry sources (Edge-1 RAM, HTTP error rate, Legacy sites)
+# 2. Launch background Watchdog FIRST (active before preseed data creation)
 ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE:-${SCRIPT_DIR}/abort.signal}"
 rm -f "${ABORT_SIGNAL_FILE}"
 
@@ -166,6 +162,10 @@ else
   watchdog_loop &
   WATCHDOG_PID=$!
 fi
+
+# 3. Pre-seed 5 temporary lt2 accounts and create lt2_accounts.json (no passwords or tokens inside)
+echo "[lt2] Pre-seeding 5 temporary lt2 accounts..."
+TARGET_URL="${TARGET_URL}" LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" LT2_INVITE_CODE="${LT2_INVITE_CODE}" node "${SCRIPT_DIR}/preseed.mjs"
 
 echo "[lt2] Executing k6 HLS viewers and API mix parallel load test against ${TARGET_URL}..."
 
