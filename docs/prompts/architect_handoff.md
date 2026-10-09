@@ -124,27 +124,27 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
 Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
-- AG1 #280 headf30889da0d3b036c53aa691a4223e5623bbc8480: changes requested5467437024.
-  CI37883608411 RED; actual offline113668623630 helper75/cleanup20 PASS; e2e33tests11pass22fail.
-  Root113668623787 has5 inherited old-loadtest errors (AbortSignal4/setTimeout1). AG1 must not fix AG4 code.
-  Accepted: async timer rejects safely; POSIX PGID/descendant observation improves parent-only checks.
-  NEW unsafe Windows ownership: shell $$ / jobs MSYS IDs feed native taskkill; namespaces differ (harmless
-  process-table check PID34 vs WINPID21416). Do not run this runner unrestricted. Require verified Windows
-  identity/mapping/owned tree and PID-reuse handling. Native gate oracle still fabricates exit99/0 and
-  handleSummary.status/any-exception rejection, silently ignores unknown thresholds. Actual offline native
-  final gate binding/crash controls and exact-head green CI on accepted dependency remain. Draft/old59d stack.
+- AG1 #280 head8481ab084e24241c1097b3f64b61e02b7f50d347: changes requested5467697749.
+  CI37904809570 RED; actual offline113735640365 e2e34tests12pass22fail, root113735640228 inherited5old-loadtest
+  errors. AG1 must not fix AG4 files or infer current#263 defects from old59d snapshot.
+  Accepted: MSYS->WINPID mapper/ancestry, honest supplementary threshold model/no fake nativeExitCode or
+  handleSummary.status, unsupported-format rejection; prior async timer settlement stays closed.
+  Owned kill still fails open on root PID existence/missing creation timestamp/stale number-only PID cache;
+  query/JSON errors become empty tables and can falsely report no orphans. Require verified root/descendant
+  identity with creation time and revalidate before kill; query failure explicit, parent-exit/orphan fault cases.
+  Do not run unsafe Windows runner. Native k6 final gate evidence still pending; model is supplementary.
 - AG2 #279 APPROVED5465388984, exact green7885baf4752937b75d503108e379d1f8473ff6bf
   squash-merged710ca88d648408dfff727289a15d5c1d2b71abb6. Actual CI37877545985/job113649520811 and independent
   offline75/75 PASS with extra network-deny guard. Standalone helper accepted; harness integration remains
   gated. ADR034 addendum records interface; AG2 generator standby/same-night VM+boot-volume deletion unchanged.
-- AG3 #282 head8ee089006d16c09e5288db559dbfa18c2267e966: blocking COMMENT5467437230
-  (authenticated author account; independent review/merge required). CI37883770425 GREEN; actual root113669137767
-  format/0lint errors and TS113669137858 logs inspected; probe not executed by Astra. Accepted: Windows pathToFileURL,
-  recorded dist hashes/source binding, explicit models/in-memory fallback, worker3s/pool10s deadlines+exit/finally,
-  atomic private temp/fsync/rename helper demonstration. These models do not prove actual cleanup/native k6.
-  Full-schema/100% claim remains false: required user.avatar_url/email/role items, strict RFC3339/type, problem
-  optional/errors schema and additionalProperties missing; cursor512 bound invented. Use canonical validator
-  or limit claims truthfully. Finally server.close unbounded; hanging-server sockets not all tracked.
+- AG3 #282 head1859d0e262e00544d111d1e359a35072e7e0f0b4: COMMENT5467698027; scoped progress accepted,
+  one must-fix evidence wording correction before independent review/merge (authenticated author account).
+  CI37904121587 GREEN; TS113733407819 tests/build logs inspected, not evidence probe ran. No probe by Astra.
+  Prior field/socket/teardown/cursor findings CLOSED, plus pathToFileURL/hash/model/worker/atomic-helper closures.
+  Remaining 🟠: header/section/output says canonical verification while using handwritten narrower fixture
+  policies and not checking avatar URI format. Replace with exact review wording: manual synthetic fixture
+  sanity checks, NOT OpenAPI schema validation/conformance; hash-bound in-memory limiter and declared models
+  only, no native k6/harness evidence. Do not add another custom validator/service fix or integrate coordinator.
 - Codex #281 APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
   merged4390957298633bec84204b32dd833adaeb30ecea; LT2 defect evidence only, #278 complete.
   CIN2 #288 APPROVED5467410494, exact green55497f849e9c4ab4e573cb59c43ae4de5d5ff2fb
@@ -153,13 +153,15 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head78f3a802856f2384a368055e3de4c053b1096764: changes requested5467436824.
-  CI37887859234 RED; actual offline113681831681 helper75 PASS/loadtest26tests25pass1fail (DRY_RUN cleanup1).
-  Root113681831830 new runner.test.mjs console unused. NEW production ALLOW_OUTSIDE_WINDOW bypass rejected;
-  hidden runtime DRY_RUN/MOCK_PRESEED/PREFLIGHT_ONLY mock-success paths and shared-journal tests rejected.
-  Required metric URL presence before collector now accepted narrowly. Preserve env-name/generator-RAM removal
-  and earlier cleanup closures. Remaining safety/HLS/auth/recovery below unchanged; PR Handoff still stale.
-- #47 table6076979167 records current three reviews plus #288 merge. STATE #273 pending independent review/merge.
+- AG4 #263 headf163e9dd105cc021ad9c09f63c51a758d975df91: changes requested5467686260.
+  CI37904176407 RED; offline113733573317 helper75PASS/loadtest27tests26pass1fail(Cleanup1), root113733573364
+  unused preseed.tokensPath:55 / runner.test.console:1. Production ALLOW_OUTSIDE_WINDOW bypass and runtime
+  cleanup/preseed mocks CLOSED; prior wiring/RAM source and cleanup closures stay closed. DRY_RUN/PREFLIGHT_ONLY
+  still skips workloads/claims false ready after mutation; shared files/fixed ports/env/no deadlines/guards and
+  log-only tests unsafe, window test depends real clock/conditionally no assertions. PRESEED_PACING_MS accepts
+  invalid/rate-limit-breaking values. Fix actual tests and ALL prior readiness/window/lifecycle/HLS/auth/recovery
+  groups, not only newest regression. Actual Handoff still stale; no merge or production go-ahead.
+- #47 table6077384433 records current three reviews; #288 remains merged. STATE #273 pending independent review/merge.
   No accepted LT2 result or production go-ahead; Oct9 window passed. Beta invites require LT2 PASS and legal
   effective10/10/2026. AG1/AG3 cinema implementation queued after current acceptance and architect/backend gates.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
@@ -195,11 +197,11 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `78f3a802856f2384a368055e3de4c053b1096764`: NOT APPROVED; CI RED; do not run production.
-- Review5467436824: restore unconditional production window, exact parsed host/date/ICT/cutoff and cleanup reserve.
-  New ALLOW_OUTSIDE_WINDOW production bypass violates ADR034. Offline tests must adapt clock/CLI, not weaken gates.
-- Remove hidden mock-success paths in runtime cleanup/preseed. PREFLIGHT_ONLY still creates accounts; DRY_RUN skips
-  workloads and invents success without actual preflight; MOCK_PRESEED can feed invalid identities to real workloads.
+LT2 harness #263 head `f163e9dd105cc021ad9c09f63c51a758d975df91`: NOT APPROVED; CI RED; do not run production.
+- Review5467686260: unconditional production window restored, ALLOW_OUTSIDE_WINDOW bypass closed; exact host/date/ICT/cutoff
+  and cleanup reserve remain. Offline tests must adapt clock/CLI, not conditionally skip on real wall-clock time.
+- Hidden cleanup/preseed mock paths removed/closed. PREFLIGHT_ONLY still creates accounts; DRY_RUN skips
+  workloads and invents success without actual preflight; these false-success runner modes remain unaccepted.
   Runner tests use shared journals/fixed ports/inherited env/unbounded children/log-string claims. Isolate snapshot,
   minimal env, contract fixtures, hard loopback guard, deadlines and verified owned teardown. No erased recovery data.
 - Required accepted helper, actual HTTP observations of BOTH workloads/rolling source, readiness before account
@@ -250,7 +252,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at78f3a80 and review5467436824 remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED atf163e9d and review5467686260 remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
