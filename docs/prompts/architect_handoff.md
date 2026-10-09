@@ -124,33 +124,38 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
 Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
-- AG1 #280 head 2de547b104d3e0616b0328863785b54dd5e637be, review 5464764772 requests changes;
-  no head checks. Global tool mutation closed; scoped functions and production.invalid no-launch cases added.
-  Unsafe runner still has immediate sleep/log-only kill and can orphan watchdog children; DO NOT RUN suite.
-  Positive fixtures contain invalid UUID 'v'; zero-playback only checks HTTP500 instead of final gate/empty200
-  playback; seek denominator and owned child/env/socket teardown pending. Old 59d dependency failures do not
-  reopen accepted current 715349a cursor fix. TEMP journals/auth mocks/real adapters remain accepted.
-- AG2 #279 head bb5d74ba5800c76b3161dee9fea3d3193ca20a2f, review 5464764654 requests changes.
-  Actual CI 52/52 green but test_no_sources calls four production sites; CI logs show sblaichau.vn >64KiB body.
-  Fix suite isolation before rerun. Explicit JSON identity/freshness, structured counts, sentinel wx/private/runId
-  and CI dependency conditions improved. Text RAM identity/source URL/timestamp and direct-exporter wiring,
-  unscoped vector/window/both-workload validation, actual rolling producer/preflight lifecycle still blocked.
-  Real start/timer scaled probe has legacy gaps333/222/332ms for300ms schedule; fix actual scheduling.
-  Legacy HTTP200 large body must not be a false site outage. README/PR Handoff unchanged; correct examples.
+- AG1 #280 head ff4d6fb7830b485a9b755904798e4bce2aafac59, changes requested5465160810;
+  no head checks. Scoped tool mocks, real process termination, valid UUID fixtures and empty200 playback cases
+  improved. Independent offline run:21 tests,7 pass/14 fail. Timezone negative can pass on unrelated unbound-TZ
+  error; require the intended diagnostic and healthy control. Zero-playback must assert native final gate/exit,
+  not any adapter exception. Await owned child/socket teardown and timeout termination. Old59d dependency
+  failures do not reopen accepted715349a cursor fixes. Keep draft until regression evidence and CI are truthful.
+- AG2 #279 head f1a2ccd4ed2b96d80c043d78048a4880109758e5, changes requested5465160906.
+  Actual CI37875195865/job113642111997:67/67 pass; independently reproduced with an extra network guard.
+  Exporter/source identity, strict JSON/window/workload counts, rolling producer, large200-body handling and
+  independent timers improved. Three findings remain: preflight omits isPreflight:true and rejects valid zero-load
+  startup; network guard misses normalized [options,callback] connect arguments; transition from preflight to
+  active probes resets legacy anchor (scaled80ms cadence observed33/162/242ms). Fix only these open findings.
   Platform interface remains NOT accepted for integration/production; no design addendum approved.
-- AG3 #277 amendment6063802386 partially accepted in6072462926: deleteMe retraction, corrupt-byte
-  preservation, exact-run scope, full Comment fields and no read degradation. Cited scratch probe source absent
-  on reviewer host; publish sanitized executable sources/fixtures/output and actual pinned-k6 coordination,
-  distinguish model mocks from unchanged715349a behavior. Assignment remains open, no service fix assigned.
+- AG3 #282 head160dcee33a4af25faee4c6b9028671035026ad67 publishes #277 probe/fixtures; blocking COMMENT
+  review5465166055 (same authenticated PR author cannot request changes or self-merge). CI37874260272 RED:
+  root formatting and auth lint. Sources use handwritten HTTP/Worker/model functions, not actual715349a or
+  pinned-k6 execution; correct the claims and provide actual-module failure-gate evidence. Validate complete
+  schemas and bound requests/workers with finally cleanup. Earlier contract corrections remain accepted.
+  Automatic approval review blocked direct execution in the unrestricted inherited environment; Astra reviewed
+  source and actual CI logs, did not execute this probe or accept its model output. Proposed token coordinator
+  remains unapproved; no service fix or new endpoint assigned. Independent review/merge required.
 - Codex #281 audit APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
   squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
   independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
   #278 COMPLETE; Codex idle, no Go fix. Sonnet/Sonnet2 remain paused.
-- AG4 #263 unchanged715349a/green CI, prior22cleanup tests accepted; review5459010398 still active.
-  Integration reminder6072463169: finish all code groups/Handoff, consume only reviewed specialist evidence.
-- #47 Oct9 review table6072463399. Oct9 02:00-03:30 ICT window already passed at verification; no out-of-window
-  load. Next eligible window still requires accepted harness, explicit go-ahead and cleanup reserve. AG2 retains
-  VM/boot-volume same-night destruction for approved run. Invitations remain gated on PASS and legal date.
+- AG4 #263 unchanged715349a8cace7459b409b765677183fee552c321/green CI; prior22 cleanup tests accepted;
+  review5459010398 still active. Reminder6073254956 requests actual remaining code fixes, new full SHA and
+  truthful Handoff checklist. Specialist completion does not repair the unchanged harness. No production run.
+- #47 Oct9 review table6073255166 records all four current decisions. Docs PR#273 remains pending independent
+  review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
+  explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
+  Invitations remain gated on LT2 PASS and the legal effective date10/10/2026.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
