@@ -70,7 +70,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
 
-# STATE (updated 2026-10-09, by ChatGPT Astra, acting architect)
+# STATE (updated 2026-10-10, by ChatGPT Astra, acting architect)
 ## Live in production
 - R2 recommendations (ADR-028) and the R2-ab experiment (ADR-030). Decide no earlier than 2026-10-19, and only with
   ≥ 200 active viewers per arm.
@@ -150,22 +150,22 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head13f119cce1c6f3aeddf75ae63d520cabc1f69c91: changes requested5472942700 despite GREEN CI37961846298.
-  Offline113926433953 helper75/75 and loadtest28/28PASS, zero skips; root113926433897GREEN.
-  CLOSED: SYSTEM_VN_TIME runtime override removed; test-only fake date executable; window now before password,
-  so positive control actually crosses time gate. Do not rework these closed clock findings. Prior journal conflict,
-  silent-skip/unrelated-error assertion/token-file/lint/cleanup closures retained.
-  Latest single-file delta moves background helper spawn before preseed but has no readiness acknowledgement
-  or live-child check; accounts may be created before asynchronous preflight fails. Existing readiness finding open.
-  Require successful run-scoped readiness/liveness before writes and actual failure/death -> zero-write regression.
-  Existing production window/host/cutoff-reserve/readiness and
-  dual telemetry/helper death/abort/lifecycle/HLS/auth/durable recovery groups remain open. Complete consolidated
-  checklist with actual changed code/regressions/output; blocked items explicit. No whole-PR acceptance from
-  green clock tests/mock log claims. Shared sentinel/fixed ports/inherited env/deadline limitations remain.
-- #47 table6085337387 records current decision; #280 unchangedc3c9abc, scoped guard correction remains accepted
-  pending native/dependency/final green; #277 complete, #288 remains merged. STATE #273 independent review/merge pending.
-  No accepted LT2 result or production go-ahead. Beta invites require LT2 PASS and legal effective10/10/2026.
-  AG1/AG3 cinema implementation queued after current acceptance and architect/backend gates.
+- AG4 #263 head924b45f9f82661ed940b38c1131c4e2ad80dc70f: changes requested5473114017, CI37963326680RED.
+  Offline113931407139 helper75PASS/loadtest30tests28PASS2FAIL, zero skips; root113931407137GREEN.
+  Partial progress: preseed child-liveness/abort checks and existing sentinel retained. Sleep1 is not successful
+  preflight completion; delayed/hung failure can still follow mutations. Target curl accepts4xx/5xx/root fallback.
+  Require accepted successful run-bound preflight completion/deadline/liveness before writes.
+  CI happy-path lacks EDGE_METRICS_URL fixture and aborts; shared abort.signal then contaminates unreachable-target
+  regression. Isolate private per-run snapshot/state/sentinel with valid telemetry/site fixtures and exact causes.
+  New precreated abort-file test proves stale-file rejection, not actual helper death/preflight failure. Trace actual
+  missing/stale/delayed preflight or death -> zero registrations/writes, successful readiness -> only then writes.
+  CLOSED clock override/test-only date/gate ordering and prior guard/journal/token/lint/cleanup fixes retained.
+  Original dual telemetry/active helper-death/matched sentinel/lifecycle/HLS/auth/durable recovery/authoritative
+  cleanup and truthful Handoff checklist remain open. No full-PR acceptance from partial checks or mock log claims.
+- #47 table6085615402 records current decision; #280 unchangedc3c9abc, scoped guard correction accepted pending
+  native/dependency/final green; #277 complete, #288 merged. STATE #273 independent review/merge pending.
+  Legal effective date2026-10-10 reached. No accepted LT2 result/production go-ahead; invitations still require
+  LT2 PASS and cleanup/destruction proof. AG1/AG3 cinema queued after acceptance and architect/backend gates.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
@@ -199,9 +199,10 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `13f119cce1c6f3aeddf75ae63d520cabc1f69c91`: NOT APPROVED despite CI GREEN; do not run production.
-- Review5472942700: background helper spawn now before preseed; no readiness/liveness acknowledgement.
-  Existing failure-before-write gate remains open; preserve accepted helper interface and require real regression.
+LT2 harness #263 head `924b45f9f82661ed940b38c1131c4e2ad80dc70f`: NOT APPROVED; CI RED; do not run production.
+- Review5473114017: preseed liveness/sentinel checks added, but sleep1 is not successful readiness acknowledgement.
+  Existing failure-before-write gate open; happy-path lacks metrics fixture/shared sentinel contaminates next test.
+  Precreated abort is stale-file model, not helper death; require actual delayed-failure zero-write trace.
   SYSTEM_VN_TIME runtime override and false positive time control remain CLOSED.
   Test-only date CLI added; window before password means actual gate transition now tested. Preserve closures.
   Existing exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded test requirements remain.
@@ -258,7 +259,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at13f119c but review5472942700 remains changes requested for existing integration groups.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at924b45f; review5473114017 changes requested. Legal effective date reached; LT2 gates still open.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
