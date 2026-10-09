@@ -161,165 +161,257 @@ source "${normalizedScriptPath}"
     fs.writeFileSync(wrapperScriptPath, wrapperContent, { mode: 0o755 });
   });
 
-  const verifiedOwnedPids = new Set();
-  let currentRunRootPid = null;
-  let currentRunStartTime = 0;
+  // Retained verified process identities
+  // currentRunRootIdentity: { pid: number, creationEpoch: number, ppid: number | null }
+  let currentRunRootIdentity = null;
+  // verifiedDescendantIdentities: Map<number, { pid: number, creationEpoch: number, ppid: number | null }>
+  const verifiedDescendantIdentities = new Map();
 
-  function isProcessAlive(pid) {
-    if (!pid) return false;
-    try {
-      if (process.platform === 'win32') {
-        const out = execSync(`tasklist /fi "PID eq ${pid}" /fo csv /nh`, {
+  function parseCreationEpoch(val) {
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (typeof val === 'string') {
+      const m = val.match(/\d+/);
+      if (m) return parseInt(m[0], 10);
+    }
+    return null;
+  }
+
+  // OS process discovery: strictly queries system process table.
+  // Fails EXPLICITLY on query errors or invalid output. Never swallows errors or assumes clean table.
+  function queryOsProcessTable(customCmd = null) {
+    if (process.platform === 'win32') {
+      let out;
+      try {
+        const cmd =
+          customCmd ||
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress"`;
+        out = execSync(cmd, {
           encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 4000,
         });
-        return out.includes(`"${pid}"`);
+      } catch (err) {
+        throw new Error(
+          `Process table discovery failed: PowerShell Get-CimInstance query failed: ${err.message}`,
+        );
       }
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
+
+      const trimmed = (out || '').trim();
+      if (!trimmed) {
+        throw new Error('Process table discovery failed: empty output from Win32_Process query');
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (err) {
+        throw new Error(
+          `Process table discovery failed: invalid JSON from Get-CimInstance: ${err.message}`,
+        );
+      }
+
+      const procs = Array.isArray(parsed) ? parsed : [parsed];
+      const procMap = new Map();
+      for (const p of procs) {
+        if (!p || typeof p.ProcessId !== 'number') continue;
+        const epoch = parseCreationEpoch(p.CreationDate);
+        // Retain verified OS identity
+        procMap.set(p.ProcessId, {
+          pid: p.ProcessId,
+          ppid: typeof p.ParentProcessId === 'number' ? p.ParentProcessId : null,
+          creationEpoch: epoch,
+        });
+      }
+      return procMap;
+    } else {
+      // POSIX
+      let out;
+      try {
+        const cmd = customCmd || `ps -eo pid=,ppid=,pgid=,lstart=`;
+        out = execSync(cmd, {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 4000,
+        });
+      } catch (err) {
+        throw new Error(`Process table discovery failed: ps command failed: ${err.message}`);
+      }
+      const trimmed = (out || '').trim();
+      if (!trimmed) {
+        throw new Error('Process table discovery failed: empty output from ps command');
+      }
+      const lines = trimmed.split(/\r?\n/);
+      const procMap = new Map();
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 4) {
+          const pid = parseInt(parts[0], 10);
+          const ppid = parseInt(parts[1], 10);
+          const pgid = parseInt(parts[2], 10);
+          const lstart = parts.slice(3).join(' ');
+          if (!isNaN(pid) && pid > 0) {
+            procMap.set(pid, {
+              pid,
+              ppid,
+              pgid,
+              creationEpoch: lstart,
+            });
+          }
+        }
+      }
+      return procMap;
     }
   }
 
-  function getVerifiedOwnedProcesses() {
-    if (!currentRunRootPid) return [];
-    const owned = new Set();
-    if (isProcessAlive(currentRunRootPid)) {
-      owned.add(currentRunRootPid);
-    }
+  function isIdentityAlive(identity, liveTable) {
+    if (!identity || !liveTable.has(identity.pid)) return false;
+    const current = liveTable.get(identity.pid);
+    if (!current || !current.creationEpoch) return false;
+    // Process is alive ONLY if current creation timestamp matches the captured identity.
+    // If the creation timestamp differs, Windows has reused the PID for a new process!
+    return current.creationEpoch === identity.creationEpoch;
+  }
 
-    try {
-      if (process.platform === 'win32') {
-        // Query full process table via PowerShell CIM
-        const out = execSync(
-          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate | ConvertTo-Json -Compress"`,
-          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
-        );
-        let procs = [];
-        try {
-          const parsed = JSON.parse(out.trim());
-          procs = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          procs = [];
-        }
+  function discoverAndTrackDescendants(table = null) {
+    if (!currentRunRootIdentity) return [];
+    const procMap = table || queryOsProcessTable();
 
-        const byPpid = new Map();
-        const procDetails = new Map();
-        for (const p of procs) {
-          if (!p || typeof p.ProcessId !== 'number') continue;
-          let epoch = 0;
-          if (typeof p.CreationDate === 'string') {
-            const m = p.CreationDate.match(/\d+/);
-            if (m) epoch = parseInt(m[0], 10);
-          }
-          procDetails.set(p.ProcessId, { ppid: p.ParentProcessId, epoch });
-          if (!byPpid.has(p.ParentProcessId)) {
-            byPpid.set(p.ParentProcessId, []);
-          }
-          byPpid.get(p.ParentProcessId).push(p.ProcessId);
+    if (process.platform === 'win32') {
+      const byPpid = new Map();
+      for (const [pid, p] of procMap) {
+        if (p.ppid != null) {
+          if (!byPpid.has(p.ppid)) byPpid.set(p.ppid, []);
+          byPpid.get(p.ppid).push(pid);
         }
+      }
 
-        // Breadth-first search from currentRunRootPid down the process tree
-        const queue = [currentRunRootPid];
-        while (queue.length > 0) {
-          const parent = queue.shift();
-          const children = byPpid.get(parent) || [];
-          for (const childId of children) {
-            const detail = procDetails.get(childId);
-            // Verify creation date was at or after test run start (allowing 2s skew) to prevent PID reuse collision
-            if (detail && (!detail.epoch || detail.epoch >= currentRunStartTime - 2000)) {
-              if (!owned.has(childId)) {
-                owned.add(childId);
-                queue.push(childId);
-              }
-            }
-          }
-        }
-
-        // Cross-verify WINPIDs recorded in pids.log
-        if (pidLog && fs.existsSync(pidLog)) {
-          const loggedLines = fs.readFileSync(pidLog, 'utf8').split(/\r?\n/);
-          for (const line of loggedLines) {
-            const candPid = parseInt(line.trim(), 10);
-            if (!isNaN(candPid) && candPid > 0 && procDetails.has(candPid)) {
-              const detail = procDetails.get(candPid);
-              // Walk ancestor chain to confirm currentRunRootPid is a true ancestor
-              let curr = detail.ppid;
-              let isAncestor = false;
-              let depth = 0;
-              while (curr && depth < 20) {
-                if (curr === currentRunRootPid) {
-                  isAncestor = true;
-                  break;
-                }
-                const next = procDetails.get(curr);
-                curr = next ? next.ppid : null;
-                depth++;
-              }
-              if (isAncestor && (!detail.epoch || detail.epoch >= currentRunStartTime - 2000)) {
-                owned.add(candPid);
-              }
-            }
-          }
-        }
-      } else {
-        // POSIX: Query processes by process group and PPID tree
-        const out = execSync(`ps -eo pid=,ppid=,pgid= || true`, {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 2000,
-        });
-        const lines = out.split(/\r?\n/);
-        for (const line of lines) {
-          const parts = line
-            .trim()
-            .split(/\s+/)
-            .map((n) => parseInt(n, 10));
-          if (parts.length >= 3) {
-            const [pid, ppid, pgid] = parts;
-            if (pgid === currentRunRootPid || ppid === currentRunRootPid) {
-              owned.add(pid);
+      // BFS down from root PID
+      const queue = [currentRunRootIdentity.pid];
+      while (queue.length > 0) {
+        const parentPid = queue.shift();
+        const children = byPpid.get(parentPid) || [];
+        for (const childPid of children) {
+          const detail = procMap.get(childPid);
+          // Require readable creationEpoch AND creationEpoch >= root's creationEpoch - 2000
+          if (
+            detail &&
+            detail.creationEpoch &&
+            detail.creationEpoch >= currentRunRootIdentity.creationEpoch - 2000
+          ) {
+            if (!verifiedDescendantIdentities.has(childPid)) {
+              verifiedDescendantIdentities.set(childPid, {
+                pid: childPid,
+                creationEpoch: detail.creationEpoch,
+                ppid: detail.ppid,
+              });
+              queue.push(childPid);
             }
           }
         }
       }
-    } catch {
-      void 0;
+
+      // Cross-verify candidate WINPIDs from pids.log
+      if (pidLog && fs.existsSync(pidLog)) {
+        const lines = fs.readFileSync(pidLog, 'utf8').split(/\r?\n/);
+        for (const line of lines) {
+          const candPid = parseInt(line.trim(), 10);
+          if (!isNaN(candPid) && candPid > 0 && procMap.has(candPid)) {
+            const detail = procMap.get(candPid);
+            if (
+              detail &&
+              detail.creationEpoch &&
+              detail.creationEpoch >= currentRunRootIdentity.creationEpoch - 2000
+            ) {
+              // Walk ancestor chain to confirm root is a true ancestor
+              let curr = detail.ppid;
+              let isDescendant = false;
+              let depth = 0;
+              while (curr && depth < 20) {
+                if (curr === currentRunRootIdentity.pid) {
+                  isDescendant = true;
+                  break;
+                }
+                const p = procMap.get(curr);
+                curr = p ? p.ppid : null;
+                depth++;
+              }
+              if (isDescendant) {
+                verifiedDescendantIdentities.set(candPid, {
+                  pid: candPid,
+                  creationEpoch: detail.creationEpoch,
+                  ppid: detail.ppid,
+                });
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // POSIX: Query processes by PPID or PGID
+      for (const [pid, detail] of procMap) {
+        if (
+          detail.ppid === currentRunRootIdentity.pid ||
+          detail.pgid === currentRunRootIdentity.pid
+        ) {
+          if (!verifiedDescendantIdentities.has(pid)) {
+            verifiedDescendantIdentities.set(pid, {
+              pid,
+              creationEpoch: detail.creationEpoch,
+              ppid: detail.ppid,
+              pgid: detail.pgid,
+            });
+          }
+        }
+      }
     }
 
-    for (const pid of owned) {
-      verifiedOwnedPids.add(pid);
-    }
-    return Array.from(verifiedOwnedPids);
+    return Array.from(verifiedDescendantIdentities.values());
   }
 
   function terminateVerifiedOwnedProcesses() {
-    const pids = getVerifiedOwnedProcesses();
+    discoverAndTrackDescendants();
 
     // On POSIX: signal process group first
-    if (process.platform !== 'win32' && currentRunRootPid) {
+    if (process.platform !== 'win32' && currentRunRootIdentity) {
       try {
-        process.kill(-currentRunRootPid, 'SIGKILL');
+        process.kill(-currentRunRootIdentity.pid, 'SIGKILL');
       } catch {
         void 0;
       }
     }
 
-    // Terminate each verified owned PID individually
-    for (const pid of pids) {
-      try {
-        if (process.platform === 'win32') {
-          execSync(`taskkill /pid ${pid} /F 2>nul || exit 0`, { stdio: 'ignore' });
-        } else {
-          try {
-            process.kill(pid, 'SIGKILL');
-          } catch {
-            void 0;
-          }
+    // Revalidate each tracked identity immediately before killing.
+    // Never kill a PID without re-verifying that the current process at that PID matches the recorded creationEpoch!
+    const identities = Array.from(verifiedDescendantIdentities.values());
+    for (const identity of identities) {
+      // Live query for immediate re-validation
+      const liveTable = queryOsProcessTable();
+      const liveProc = liveTable.get(identity.pid);
+
+      // 1. Process already exited -> do not kill
+      if (!liveProc) {
+        continue;
+      }
+
+      // 2. Process has missing or unreadable creation time -> NEVER KILL (could be unrelated process)
+      if (!liveProc.creationEpoch) {
+        continue;
+      }
+
+      // 3. Process creation time does not match captured identity -> PID REUSE! NEVER KILL!
+      if (liveProc.creationEpoch !== identity.creationEpoch) {
+        continue;
+      }
+
+      // 4. Identity is verified and identical: safe to terminate
+      if (process.platform === 'win32') {
+        execSync(`taskkill /pid ${identity.pid} /F 2>nul || exit 0`, { stdio: 'ignore' });
+      } else {
+        try {
+          process.kill(identity.pid, 'SIGKILL');
+        } catch {
+          void 0;
         }
-      } catch {
-        void 0;
       }
     }
   }
@@ -327,34 +419,48 @@ source "${normalizedScriptPath}"
   async function waitForVerifiedOwnedProcesses(timeoutMs = 2000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const pids = getVerifiedOwnedProcesses();
-      const alive = pids.filter((pid) => isProcessAlive(pid));
+      discoverAndTrackDescendants();
+      const liveTable = queryOsProcessTable();
+      const alive = Array.from(verifiedDescendantIdentities.values()).filter((id) =>
+        isIdentityAlive(id, liveTable),
+      );
       if (alive.length === 0) return true;
       await new Promise((r) => setTimeout(r, 50));
     }
-    const remaining = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
+    const liveTable = queryOsProcessTable();
+    const remaining = Array.from(verifiedDescendantIdentities.values()).filter((id) =>
+      isIdentityAlive(id, liveTable),
+    );
     return remaining.length === 0;
   }
 
   afterEach(async () => {
     // Bounded process-tree teardown: kill and await all spawned descendants even if parent exited
-    terminateVerifiedOwnedProcesses();
-    const gone = await waitForVerifiedOwnedProcesses(2000);
-    const surviving = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
-    assert.strictEqual(
-      gone,
-      true,
-      `All verified owned processes and descendants must be completely terminated with no surviving descendants (surviving PIDs: ${surviving.join(', ')})`,
-    );
+    try {
+      terminateVerifiedOwnedProcesses();
+      const gone = await waitForVerifiedOwnedProcesses(2000);
+      const liveTable = queryOsProcessTable();
+      const surviving = Array.from(verifiedDescendantIdentities.values())
+        .filter((id) => isIdentityAlive(id, liveTable))
+        .map((id) => id.pid);
+      assert.strictEqual(
+        gone,
+        true,
+        `All verified owned processes and descendants must be completely terminated with no surviving descendants (surviving PIDs: ${surviving.join(', ')})`,
+      );
+    } finally {
+      verifiedDescendantIdentities.clear();
+      currentRunRootIdentity = null;
+      activeChildren.length = 0;
 
-    verifiedOwnedPids.clear();
-    currentRunRootPid = null;
-    currentRunStartTime = 0;
-    activeChildren.length = 0;
-
-    // Only remove owned temporary directory; zero global mutations
-    if (tmpDir && fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      // Only remove owned temporary directory; zero global mutations
+      if (tmpDir && fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          void 0;
+        }
+      }
     }
   });
 
@@ -382,10 +488,25 @@ source "${normalizedScriptPath}"
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       activeChildren.push(child);
-      currentRunRootPid = child.pid;
-      currentRunStartTime = Date.now();
       if (child.pid) {
-        verifiedOwnedPids.add(child.pid);
+        const table = queryOsProcessTable();
+        const rootProc = table.get(child.pid);
+        if (!rootProc) {
+          throw new Error(
+            `Failed to capture verified identity of spawned root PID ${child.pid}: process not found in OS table immediately after spawn`,
+          );
+        }
+        if (!rootProc.creationEpoch) {
+          throw new Error(
+            `Failed to capture verified identity of spawned root PID ${child.pid}: missing or unreadable creation timestamp from OS`,
+          );
+        }
+        currentRunRootIdentity = {
+          pid: child.pid,
+          creationEpoch: rootProc.creationEpoch,
+          ppid: rootProc.ppid,
+        };
+        verifiedDescendantIdentities.set(child.pid, currentRunRootIdentity);
       }
 
       let stdout = '';
@@ -403,7 +524,10 @@ source "${normalizedScriptPath}"
           terminateVerifiedOwnedProcesses();
           const gone = await waitForVerifiedOwnedProcesses(2000);
           if (!gone) {
-            const alive = getVerifiedOwnedProcesses().filter((pid) => isProcessAlive(pid));
+            const liveTable = queryOsProcessTable();
+            const alive = Array.from(verifiedDescendantIdentities.values())
+              .filter((id) => isIdentityAlive(id, liveTable))
+              .map((id) => id.pid);
             reject(
               new Error(
                 `Runner execution timed out and failed to clean up child processes (surviving PIDs: ${alive.join(', ')})`,
@@ -606,6 +730,77 @@ source "${normalizedScriptPath}"
     assert.ok(
       dockerStopLine !== -1 && collectorKillLine !== -1 && dockerStopLine < collectorKillLine,
       `Safety finding: abort trap must stop/wait Docker containers BEFORE draining or terminating collector (dockerStop=${dockerStopLine}, kill=${collectorKillLine})`,
+    );
+  });
+
+  test('Finding 13 (OS process discovery fault): discovery failure throws explicitly and rejects, never passes clean', () => {
+    // Teardown safety: if the OS process table cannot be queried (command error or malformed JSON),
+    // the system must throw explicitly. It must NEVER silently treat discovery failure as a clean state.
+    const faultCmd =
+      process.platform === 'win32'
+        ? 'powershell -NoProfile -Command "Write-Output \\"NOT_JSON\\""'
+        : 'echo NOT_JSON';
+
+    assert.throws(
+      () => queryOsProcessTable(faultCmd),
+      /Process table discovery failed/,
+      'Process discovery must throw an explicit error on invalid query output',
+    );
+  });
+
+  test('Finding 14 (PID reuse protection): mismatched creation timestamp immediately aborts kill to protect unrelated process', () => {
+    // PID reuse protection: if a PID was captured with epoch T1, but the live OS table now reports
+    // epoch T2 (e.g. original process died and OS reassigned PID to an unrelated app),
+    // the teardown revalidation must refuse to kill the reused PID.
+    const trackedIdentity = { pid: 99999, creationEpoch: 1000000, ppid: 12345 };
+    const simulatedLiveTable = new Map([
+      [99999, { pid: 99999, creationEpoch: 2000000, ppid: 1 }], // Different creation epoch -> PID REUSE!
+    ]);
+
+    // 1. isIdentityAlive must report false
+    const alive = isIdentityAlive(trackedIdentity, simulatedLiveTable);
+    assert.strictEqual(
+      alive,
+      false,
+      'Reused PID with mismatched creation epoch must NOT be reported as alive for tracked identity',
+    );
+
+    // 2. Matching epoch must report true
+    const matchingTable = new Map([[99999, { pid: 99999, creationEpoch: 1000000, ppid: 12345 }]]);
+    assert.strictEqual(
+      isIdentityAlive(trackedIdentity, matchingTable),
+      true,
+      'Matching identity must be reported as alive',
+    );
+  });
+
+  test('Finding 15 (Parent-exit orphan tracking): retains verified descendant identity when parent exits', () => {
+    // Orphan tracking: when a parent process exits, child processes may become orphaned (ppid changes to 1/init).
+    // The test harness retains verified identity records { pid, creationEpoch, ppid }
+    // so descendants are safely identified and cleaned up even after the root parent process terminates.
+    const mockRoot = { pid: 1000, creationEpoch: 1500000, ppid: 100 };
+    const mockChild = { pid: 1001, creationEpoch: 1500500, ppid: 1000 };
+
+    const simulatedTable = new Map([
+      [1000, mockRoot],
+      [1001, mockChild],
+    ]);
+
+    currentRunRootIdentity = mockRoot;
+    verifiedDescendantIdentities.clear();
+    verifiedDescendantIdentities.set(mockRoot.pid, mockRoot);
+
+    discoverAndTrackDescendants(simulatedTable);
+
+    assert.ok(
+      verifiedDescendantIdentities.has(mockChild.pid),
+      'Descendant PID must be discovered and tracked',
+    );
+    const trackedChild = verifiedDescendantIdentities.get(mockChild.pid);
+    assert.strictEqual(
+      trackedChild.creationEpoch,
+      mockChild.creationEpoch,
+      'Tracked child must retain verified creation timestamp',
     );
   });
 });
