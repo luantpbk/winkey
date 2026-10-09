@@ -153,13 +153,16 @@ Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
   squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
   independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
   #278 COMPLETE; Codex idle, no Go fix. Sonnet/Sonnet2 remain paused.
-- AG4 #263 head4fdd8e91729dc4b30b087bcac74dbdaff2e8b2b5: changes requested5465599268.
-  Actual CI37879814245 GREEN; offline113656844519 runs75helper+23cleanup PASS, skips e2e integration.
-  Known-pair conflicting author handle/id detection partially accepted; full schema/canonical identity/run
-  ownership still open. New optional watchdog launch lacks explicit run/PID/metrics/error source/readiness/
-  death/sentinel wiring; fallback still reads generator RAM. README claims unimplemented preflight/continuous
-  telemetry/stop-wait-drain; actual Handoff unchanged. Prior cleanup fixes stay closed; remaining groups below
-  active. No production run authorization or repaired-harness acceptance.
+- AG4 #263 head794e0d2273bcc12f453b8783cf6c232a9fa02562: changes requested5465823486.
+  Exact-head CI37883075286 GREEN; actual offline113666970250 runs75helper+23cleanup PASS, AG1/e2e skipped.
+  Since4fdd8e only runner/README changed. Accepted: correct explicit helper RUN_ID/TARGET_PID/ABORT_SIGNAL_FILE/
+  EDGE_METRICS_URL/ERROR_RATE_SOURCE names and removal of generator /proc RAM fallback. Preserve prior cleanup closures.
+  Still no preflight readiness before account creation/load, actual dual-request producer, helper-death monitor,
+  matched-run sentinel/nonzero abort retention. Shared abort.signal is unconditionally removed. Optional fallback
+  misses HTTP errors/status/mandatory sites/metric source+freshness, permits missing/zero/negative RAM metric.
+  Require accepted helper/run-scoped paths and real integration tests. Unchanged window/lifecycle/HLS/token/
+  journal/schema/ownership/zero-leftover groups remain. Actual Handoff stale; README death/preflight/telemetry/
+  drain claims unsupported. No merge or production authorization. #47 decision table6074499914.
 - #47 latest exact-head review table6074060755 records AG1/AG3/AG4 decisions; AG2#279 remains merged. Docs PR#273 remains pending independent
   review/merge. Oct9 02:00-03:30 ICT window already passed; next eligible window requires accepted harness,
   explicit go-ahead and cleanup reserve. AG2 retains VM/boot-volume same-night destruction for approved run.
@@ -197,8 +200,8 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `4fdd8e91729dc4b30b087bcac74dbdaff2e8b2b5`: NOT APPROVED; do not run production.
-- Exact-head CI37879814245 GREEN; offline113656844519 helper75/cleanup23 PASS, e2e integration skipped. Prior715349a independent22/22cleanup tests accepted.
+LT2 harness #263 head `794e0d2273bcc12f453b8783cf6c232a9fa02562`: NOT APPROVED; do not run production.
+- Current exact-head CI37883075286 GREEN; offline113666970250 helper75/cleanup23 PASS, e2e integration skipped. Prior715349a independent22/22cleanup tests accepted.
   Review5459010398 closes required next_cursor, cursor cycles/page caps, removal of invented profile email and
   partial recovered-journal temp/fsync/rename0600. Preserve earlier real request/body deadlines, delayed empty-
   page deadline, corrupt/non-array journal failure, comment-failure/login-failure author retention fixes.
@@ -208,7 +211,7 @@ LT2 harness #263 head `4fdd8e91729dc4b30b087bcac74dbdaff2e8b2b5`: NOT APPROVED; 
 - Review5465599268 partially accepts known-account-pair conflict rejection; remaining identity/ownership groups stay open. Proactive cached expiry is PER VU, not cross-VU/five-account coordination; login storm remains possible.
   Renewal failure degrades writes to reads, explicitly rejected. Fail workload/test instead of changing mix.
   Missing collector ACK/uncertain create response reconciliation still unimplemented; emails still logged.
-- HLS unchanged; runner only adds optional helper launch, without safe config/readiness/death handling. Unsafe substring host gate, HHMM octal/date/TZ/window cleanup-reserve, unbounded/
+- HLS unchanged; runner helper config names now accepted, but readiness/death/run-scoped sentinel and real dual telemetry remain missing. Optional fallback remains unsafe. Unsafe substring host gate, HHMM octal/date/TZ/window cleanup-reserve, unbounded/
   unowned collector preflight, collector-before-writers stop order, Docker CLI PID cleanup and swallowed cleanup
   status/signal continuation remain. Stop/wait only owned containers, then drain/wait collector, cleanup and exit.
 - HLS still accepts PRIVATE/invalid playback, invents manifest fallback, ignores EXT-X-MAP init, earns false watch
@@ -255,7 +258,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at4fdd8e, but review remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is green at794e0d, but review5465823486 remains changes requested.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
