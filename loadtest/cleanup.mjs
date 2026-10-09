@@ -31,7 +31,25 @@ function atomicWriteJson(filePath, data) {
 export async function runCleanup(opts = {}) {
   const targetUrl = opts.targetUrl || GATEWAY_URL;
   const password = opts.password || envPassword;
-  const customFetch = opts.fetchFn || fetch;
+  const customFetch =
+    opts.fetchFn ||
+    (process.env.DRY_RUN === 'true'
+      ? async (url, options = {}) => {
+          const method = (options.method || 'GET').toUpperCase();
+          if (method === 'GET') {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ items: [], next_cursor: null, access_token: 'mock_dry_token' }),
+            };
+          }
+          return {
+            ok: true,
+            status: 204,
+            json: async () => ({ access_token: 'mock_dry_token' }),
+          };
+        }
+      : fetch);
 
   console.log(`[cleanup] Starting data cleanup for target ${targetUrl}...`);
 

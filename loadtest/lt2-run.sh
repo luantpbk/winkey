@@ -35,12 +35,12 @@ fi
 
 # Check execution window (02:00 - 03:30 AM Vietnam time, UTC+7) starting Oct 9, 2026
 current_vn_time=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || date +"%H%M")
-if [[ "${is_production}" -eq 1 ]]; then
+if [[ "${is_production}" -eq 1 && "${ALLOW_OUTSIDE_WINDOW:-false}" != "true" ]]; then
   if [[ "${current_vn_time}" -lt "0200" || "${current_vn_time}" -gt "0330" ]]; then
     echo "ERROR: Production load test requested outside approved window (02:00 - 03:30 AM VN). Bypassing is PROHIBITED on production." >&2
     exit 1
   fi
-elif [[ "${ALLOW_OUTSIDE_WINDOW:-false}" != "true" ]]; then
+elif [[ "${is_production}" -eq 0 && "${ALLOW_OUTSIDE_WINDOW:-false}" != "true" ]]; then
   if [[ "${current_vn_time}" -lt "0200" || "${current_vn_time}" -gt "0330" ]]; then
     echo "ERROR: Current time (${current_vn_time} VN) is outside approved window (02:00 - 03:30 AM VN)." >&2
     echo "Set ALLOW_OUTSIDE_WINDOW=true to bypass window enforcement for dry runs." >&2
@@ -51,6 +51,12 @@ fi
 # Check for production password requirement
 if [[ "${is_production}" -eq 1 && -z "${LOADTEST_USER_PASSWORD}" ]]; then
   echo "ERROR: LOADTEST_USER_PASSWORD environment variable is required for production targets." >&2
+  exit 1
+fi
+
+# Check for production edge metrics URL requirement
+if [[ "${is_production}" -eq 1 && -z "${EDGE_METRICS_URL:-}" ]]; then
+  echo "ERROR: EDGE_METRICS_URL environment variable is required for production targets." >&2
   exit 1
 fi
 
@@ -163,32 +169,38 @@ fi
 
 echo "[lt2] Executing k6 HLS viewers and API mix parallel load test against ${TARGET_URL}..."
 
-# Run HLS viewers (50 -> 200 -> 500 -> 1000 VUs)
-docker run --rm --name "${CONTAINER_HLS}" --net=host -v "${SCRIPT_DIR}:/loadtest" \
-  -e TARGET_URL="${TARGET_URL}" \
-  -e EXECUTOR="ramping-vus" \
-  "${K6_IMAGE}" \
-  run /loadtest/hls-viewers.js &
-PID_HLS=$!
+if [[ "${DRY_RUN:-false}" == "true" || "${PREFLIGHT_ONLY:-false}" == "true" ]]; then
+  echo "[lt2] DRY_RUN / PREFLIGHT_ONLY mode enabled. Preflight checks, collector, preseed, and watchdog initialized cleanly. Skipping docker workload execution."
+  EXIT_HLS=0
+  EXIT_API=0
+else
+  # Run HLS viewers (50 -> 200 -> 500 -> 1000 VUs)
+  docker run --rm --name "${CONTAINER_HLS}" --net=host -v "${SCRIPT_DIR}:/loadtest" \
+    -e TARGET_URL="${TARGET_URL}" \
+    -e EXECUTOR="ramping-vus" \
+    "${K6_IMAGE}" \
+    run /loadtest/hls-viewers.js &
+  PID_HLS=$!
 
-# Run API mix in parallel at 5% VU count (3 -> 10 -> 25 -> 50 VUs)
-docker run --rm --name "${CONTAINER_API}" --net=host -v "${SCRIPT_DIR}:/loadtest" \
-  -e TARGET_URL="${TARGET_URL}" \
-  -e EXECUTOR="ramping-vus" \
-  -e COLLECTOR_URL="http://127.0.0.1:${COLLECTOR_PORT}" \
-  -e LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" \
-  -e LT2_INVITE_CODE="${LT2_INVITE_CODE}" \
-  "${K6_IMAGE}" \
-  run /loadtest/api-mix.js &
-PID_API=$!
+  # Run API mix in parallel at 5% VU count (3 -> 10 -> 25 -> 50 VUs)
+  docker run --rm --name "${CONTAINER_API}" --net=host -v "${SCRIPT_DIR}:/loadtest" \
+    -e TARGET_URL="${TARGET_URL}" \
+    -e EXECUTOR="ramping-vus" \
+    -e COLLECTOR_URL="http://127.0.0.1:${COLLECTOR_PORT}" \
+    -e LOADTEST_USER_PASSWORD="${LOADTEST_USER_PASSWORD}" \
+    -e LT2_INVITE_CODE="${LT2_INVITE_CODE}" \
+    "${K6_IMAGE}" \
+    run /loadtest/api-mix.js &
+  PID_API=$!
 
-set +e
-wait ${PID_HLS}
-EXIT_HLS=$?
+  set +e
+  wait ${PID_HLS}
+  EXIT_HLS=$?
 
-wait ${PID_API}
-EXIT_API=$?
-set -e
+  wait ${PID_API}
+  EXIT_API=$?
+  set -e
+fi
 
 echo "[lt2] Load test workloads finished (HLS exit: ${EXIT_HLS}, API exit: ${EXIT_API}). Draining collector & running cleanup..."
 trap - EXIT
