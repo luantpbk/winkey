@@ -289,6 +289,7 @@ export default function (data) {
               // Flush comment ID to collector with retries on missing ACK
               sendCommentToCollector({
                 id: commentId,
+                authorId: selectedUser.id || '',
                 authorHandle: selectedUser.handle,
               });
             }

@@ -283,6 +283,7 @@ export async function runCleanup(opts = {}) {
                 );
                 comments.push({
                   id: item.id,
+                  authorId,
                   authorHandle,
                   createdAt: item.created_at || new Date().toISOString(),
                 });
@@ -358,7 +359,10 @@ export async function runCleanup(opts = {}) {
         if (loginFailed || !freshToken) {
           failedAccounts.push(acc);
           const userComments = comments.filter(
-            (c) => c.authorHandle === acc.handle || (c.authorEmail && c.authorEmail === acc.email),
+            (c) =>
+              c.authorHandle === acc.handle ||
+              (acc.id && c.authorId && c.authorId === acc.id) ||
+              (c.authorEmail && c.authorEmail === acc.email),
           );
           for (const c of userComments) {
             if (!failedComments.some((fc) => fc.id === c.id)) {
@@ -370,7 +374,10 @@ export async function runCleanup(opts = {}) {
 
         // Step 2: Delete comments authored by this user
         const userComments = comments.filter(
-          (c) => c.authorHandle === acc.handle || (c.authorEmail && c.authorEmail === acc.email),
+          (c) =>
+            c.authorHandle === acc.handle ||
+            (acc.id && c.authorId && c.authorId === acc.id) ||
+            (c.authorEmail && c.authorEmail === acc.email),
         );
         let userCommentFailed = false;
 
@@ -448,7 +455,10 @@ export async function runCleanup(opts = {}) {
   const unhandledComments = comments.filter(
     (c) =>
       !accounts.some(
-        (a) => a.handle === c.authorHandle || (c.authorEmail && a.email === c.authorEmail),
+        (a) =>
+          a.handle === c.authorHandle ||
+          (a.id && c.authorId && c.authorId === a.id) ||
+          (c.authorEmail && a.email === c.authorEmail),
       ) && !failedComments.some((fc) => fc.id === c.id),
   );
   if (unhandledComments.length > 0) {

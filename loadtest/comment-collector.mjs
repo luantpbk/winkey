@@ -43,6 +43,7 @@ export function createCollectorServer() {
             if (!comments.some((c) => c.id === data.id)) {
               comments.push({
                 id: data.id,
+                authorId: data.authorId || '',
                 authorHandle: data.authorHandle || '',
                 createdAt: new Date().toISOString(),
               });
