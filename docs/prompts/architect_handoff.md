@@ -150,19 +150,19 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head5ac91f68828f13f8ffffe416863e2a39d6e2f36d: changes requested5472601948 despite GREEN CI37927693461.
-  Offline113810547383 helper75/75 and loadtest28/28PASS, zero skips; root113810547421GREEN.
-  CLOSED: real-clock silent test skip removed; observed shared-journal cleanup failure fixed with temporary state
-  directories; prior unrelated-error assertion/token-file/lint/cleanup closures retained.
-  NEW regression: SYSTEM_VN_TIME reintroduces runtime production clock bypass under a new name; remove it,
-  fake date only in isolated test snapshot/CLI. Inside-window positive control fails at password before time
-  gate, proving nothing about window. Satisfy earlier checks, assert actual transition with hard no-outbound guard.
-  State-directory journal wiring improves isolation but shared sentinel/seed/fixed ports/inherited env remain;
-  original integration/HLS/auth/recovery and preflight/false-success groups unchanged. No production load.
-- #47 tables6084774174/6084784614 record current decisions; #277 complete, #288 remains merged.
-  STATE #273 pending independent review/merge. No accepted LT2 result or production go-ahead; Oct9 window passed.
-  Beta invites require LT2 PASS and legal effective10/10/2026. AG1/AG3 cinema implementation queued after current
-  acceptance and architect/backend gates.
+- AG4 #263 head182f6ebfc95f2dc4ec05f9b63a86c2faf61a2337: changes requested5472849584 despite GREEN CI37959998082.
+  Offline113920170956 helper75/75 and loadtest28/28PASS, zero skips; root113920171002GREEN.
+  CLOSED: SYSTEM_VN_TIME runtime override removed; test-only fake date executable; window now before password,
+  so positive control actually crosses time gate. Do not rework these closed clock findings. Prior journal conflict,
+  silent-skip/unrelated-error assertion/token-file/lint/cleanup closures retained.
+  Two-file delta does not implement existing exact production window/host/cutoff-reserve or required readiness,
+  dual telemetry/helper death/abort/lifecycle/HLS/auth/durable recovery groups. Complete existing consolidated
+  checklist with actual changed code/regressions/output; blocked items explicit. No whole-PR acceptance from
+  green clock tests/mock log claims. Shared sentinel/fixed ports/inherited env/deadline limitations remain.
+- #47 table6085187016 records current decision; #280 unchangedc3c9abc, scoped guard correction remains accepted
+  pending native/dependency/final green; #277 complete, #288 remains merged. STATE #273 independent review/merge pending.
+  No accepted LT2 result or production go-ahead. Beta invites require LT2 PASS and legal effective10/10/2026.
+  AG1/AG3 cinema implementation queued after current acceptance and architect/backend gates.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
@@ -196,12 +196,11 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `5ac91f68828f13f8ffffe416863e2a39d6e2f36d`: NOT APPROVED despite CI GREEN; do not run production.
-- Review5472601948: SYSTEM_VN_TIME reintroduces runtime production clock override; remove it completely.
-  Fake date only via isolated snapshot/CLI adapter; no renamed runtime override. Inside-window positive test
-  exits at password before reaching time gate; supply earlier validations and prove actual gate transition.
+LT2 harness #263 head `182f6ebfc95f2dc4ec05f9b63a86c2faf61a2337`: NOT APPROVED despite CI GREEN; do not run production.
+- Review5472849584: SYSTEM_VN_TIME runtime override and false positive time control CLOSED.
+  Test-only date CLI added; window before password means actual gate transition now tested. Preserve closures.
+  Existing exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded test requirements remain.
   Prior token-file/unrelated-error/real-clock silent skip closures retained; tokens stay memory-only.
-  Exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded tests remain required.
 - Hidden cleanup/preseed mock paths removed/closed. PREFLIGHT_ONLY still creates accounts; DRY_RUN skips
   workloads and invents success without actual preflight; these false-success runner modes remain unaccepted.
   Temporary journal directories now fix observed cleanup conflict; fixed ports/inherited env/unbounded children/log-string claims remain. Isolate snapshot,
@@ -254,7 +253,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at5ac91f6 but review5472601948 remains changes requested.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is GREEN at182f6eb but review5472849584 remains changes requested for existing integration groups.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
