@@ -150,20 +150,20 @@ Outputs re-reviewed 2026-10-09; #288 merged, LT2 still blocked:
   Docker rerun by Astra; agent report separates local failed retries and eventual full fixture pass. No deploy.
   #284 accepted/closed; Codex idle until architect PUBLIC-only contract #286. AG1 #287 late-refresh identity
   source-risk/regression remains feature gate, not a reproduced production bug. Sonnet/Sonnet2 stay paused.
-- AG4 #263 head924b45f9f82661ed940b38c1131c4e2ad80dc70f: changes requested5473114017, CI37963326680RED.
-  Offline113931407139 helper75PASS/loadtest30tests28PASS2FAIL, zero skips; root113931407137GREEN.
-  Partial progress: preseed child-liveness/abort checks and existing sentinel retained. Sleep1 is not successful
-  preflight completion; delayed/hung failure can still follow mutations. Target curl accepts4xx/5xx/root fallback.
-  Require accepted successful run-bound preflight completion/deadline/liveness before writes.
-  CI happy-path lacks EDGE_METRICS_URL fixture and aborts; shared abort.signal then contaminates unreachable-target
-  regression. Isolate private per-run snapshot/state/sentinel with valid telemetry/site fixtures and exact causes.
-  New precreated abort-file test proves stale-file rejection, not actual helper death/preflight failure. Trace actual
-  missing/stale/delayed preflight or death -> zero registrations/writes, successful readiness -> only then writes.
-  CLOSED clock override/test-only date/gate ordering and prior guard/journal/token/lint/cleanup fixes retained.
-  Original dual telemetry/active helper-death/matched sentinel/lifecycle/HLS/auth/durable recovery/authoritative
-  cleanup and truthful Handoff checklist remain open. No full-PR acceptance from partial checks or mock log claims.
-- #47 table6085615402 records current decision; #280 unchangedc3c9abc, scoped guard correction accepted pending
-  native/dependency/final green; #277 complete, #288 merged. STATE #273 independent review/merge pending.
+- AG4 #263 head4971512d5709d6bffb11d1052be3d254a11d5273: changes requested5473205215, CI37965125996RED.
+  Offline113937489099 helper75PASS/loadtest31tests28PASS3FAIL; root113937489309GREEN.
+  CLOSED: private abort paths remove cross-test contamination; actual low-RAM helper rejection case traces zero
+  registrations andPASS. Prior clock/guard/journal/token/lint/cleanup closures retained.
+  Readiness marker written ONLY by fallback watchdog_loop, not accepted helper CLI. Valid real helper cannot
+  complete this gate; integrate accepted async preflight/start through loadtest-owned adapter/run-bound ACK,
+  preserve AG2 interface/ownership, never bypass helper or fabricate readiness. Missing/stale/delayed/success
+  readiness traces still pending. Target4xx and failed API masked by generic root/redirect still accepted.
+  All3 CI failures lack EDGE_METRICS_URL in child env; adding a handler alone is insufficient. Supply valid
+  complete metrics/error-source/canonical-site fixtures and intended branch tests without widening regex/skip.
+  Original dual producer/active helper death/owned sentinel/lifecycle/HLS/auth/durable recovery/authoritative
+  cleanup and truthful Handoff checklist remain open. No whole-PR acceptance from partial tests.
+- #47 table6085768624 records current decision; #280 unchangedc3c9abc, scoped guard accepted pending native/
+  dependency/final green; #277 complete, #288 merged. STATE #273 independent review/merge pending.
   Legal effective date2026-10-10 reached. No accepted LT2 result/production go-ahead; invitations still require
   LT2 PASS and cleanup/destruction proof. AG1/AG3 cinema queued after acceptance and architect/backend gates.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
@@ -199,10 +199,11 @@ Astra acceptance (2026-10-08):
 - AG2 corrected the four-site evidence list on #47 (6052049634). Independent kidzlab
   verification satisfies the gate. AG1 now #275; AG2 rollout complete, #276 platform/CI and LT2 deletion.
 
-LT2 harness #263 head `924b45f9f82661ed940b38c1131c4e2ad80dc70f`: NOT APPROVED; CI RED; do not run production.
-- Review5473114017: preseed liveness/sentinel checks added, but sleep1 is not successful readiness acknowledgement.
-  Existing failure-before-write gate open; happy-path lacks metrics fixture/shared sentinel contaminates next test.
-  Precreated abort is stale-file model, not helper death; require actual delayed-failure zero-write trace.
+LT2 harness #263 head `4971512d5709d6bffb11d1052be3d254a11d5273`: NOT APPROVED; CI RED; do not run production.
+- Review5473205215: readiness file written only by fallback, not accepted helper; cannot complete valid gate.
+  Integrate accepted async preflight/start via owned adapter/run ACK. Target4xx/root fallback still invalid.
+  Private abort paths and actual low-RAM zero-registration failure case CLOSED; other readiness cases pending.
+  Three CI tests still omit metrics URL; complete actual helper fixtures, preserve intended-error assertions.
   SYSTEM_VN_TIME runtime override and false positive time control remain CLOSED.
   Test-only date CLI added; window before password means actual gate transition now tested. Preserve closures.
   Existing exact host/date/ICT/cutoff/cleanup reserve and hard no-outbound bounded test requirements remain.
@@ -259,7 +260,7 @@ only after BETA1-web is deployed AND LT2 has passed.
 - User merged Astra docs PR #272 as `5be48cb5e410b2c7e31eb7f569c0ea8495db54fc`. Legal sources and matching web
   copies are complete with the user's exact text: effective 10/10/2026, backup retention 14 days, OCI region
   ap-singapore-1. #270 has synchronized these copies. Do not announce readiness before that effective date.
-- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at924b45f; review5473114017 changes requested. Legal effective date reached; LT2 gates still open.
+- #270 app and #274 rollout are accepted/merged/live; #263 CI is RED at4971512; review5473205215 changes requested. Legal effective date reached; LT2 gates still open.
 ## Waiting on the user
 - Choose `CINEMA_CURATOR_HANDLE` and create a few PUBLIC playlists on that channel. Optional: a feedback form URL.
 - For LT2 night: AG2 supplied non-secret generator readiness outputs; standby until the gates pass.
