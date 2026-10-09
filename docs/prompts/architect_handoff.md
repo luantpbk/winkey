@@ -70,7 +70,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Antigravity 4 | systest/, loadtest/ | LT2 (PR #263, changes requested) |
 | Sonnet / Sonnet 2 | — | PAUSED; no work until the user says so |
 
-# STATE (updated 2026-10-08, by ChatGPT Astra, acting architect)
+# STATE (updated 2026-10-09, by ChatGPT Astra, acting architect)
 ## Live in production
 - R2 recommendations (ADR-028) and the R2-ab experiment (ADR-030). Decide no earlier than 2026-10-19, and only with
   ≥ 200 active viewers per arm.
@@ -123,27 +123,34 @@ LT2 tasks. Ownership remains unchanged, Sonnet/Sonnet2 stay paused. Brief: `docs
 | Antigravity 4 | Existing #263: sole loadtest/systest integrator, all open code findings and actual Handoff Report |
 | Astra | Review interfaces/dependencies/diffs/CI, document any design addendum; no production go-ahead yet |
 
-Outputs re-reviewed 2026-10-08; portable evidence merged, no production go-ahead:
-- AG1 #280 cb9c0f2640f5fe556ecfb6a698d29367db9086f7: review5459033998 requests changes; no checks.
-  TEMP journal isolation, auth-delete mock and real adapters accepted. Runner still overwrites/deletes global
-  /tmp/node/bin; DO NOT RUN suite. Fix production-gate fixtures, full schemas, zero-playback and seek cases.
-  Branch still includes blocked #263; keep stacked, no indirect loadtest merge. Safe subset15 tests7pass/8fail
-  is against OLD59d81f3 dependency, not current715349a; do not reopen accepted current cursor fix.
-- AG2 #279 f0033feb271d5b2e0f4ab0ea8011db483adee597: review5459033696 requests changes.
-  Actual CI/offline38/38; deadlines/concurrency/missing-source abort and E2E adapter path accepted. Actual
-  imported probes accept wrong/missing/future/stale metric identity/timestamps and invalid rolling-window/both-
-  workload aggregates. Delayed cycle starts legacy probes35s apart. Fix exact telemetry, cadence, run-owned
-  atomic abort and dependency CI triggers. Platform interface NOT accepted for integration/production yet.
-- AG3 #277: corrected report still absent. deleteMe EXISTS; reject endpoint removal/new-contract proposal,
-  corrupt-journal-to-empty fallback, prefix-wide recovery and renewal-failure read degradation. Supplied full
-  Comment status/can_edit/can_delete fields ARE valid; Astra self-correction6059320320 stands.
+Outputs re-reviewed 2026-10-09; no new merge or production go-ahead:
+- AG1 #280 head 2de547b104d3e0616b0328863785b54dd5e637be, review 5464764772 requests changes;
+  no head checks. Global tool mutation closed; scoped functions and production.invalid no-launch cases added.
+  Unsafe runner still has immediate sleep/log-only kill and can orphan watchdog children; DO NOT RUN suite.
+  Positive fixtures contain invalid UUID 'v'; zero-playback only checks HTTP500 instead of final gate/empty200
+  playback; seek denominator and owned child/env/socket teardown pending. Old 59d dependency failures do not
+  reopen accepted current 715349a cursor fix. TEMP journals/auth mocks/real adapters remain accepted.
+- AG2 #279 head bb5d74ba5800c76b3161dee9fea3d3193ca20a2f, review 5464764654 requests changes.
+  Actual CI 52/52 green but test_no_sources calls four production sites; CI logs show sblaichau.vn >64KiB body.
+  Fix suite isolation before rerun. Explicit JSON identity/freshness, structured counts, sentinel wx/private/runId
+  and CI dependency conditions improved. Text RAM identity/source URL/timestamp and direct-exporter wiring,
+  unscoped vector/window/both-workload validation, actual rolling producer/preflight lifecycle still blocked.
+  Real start/timer scaled probe has legacy gaps333/222/332ms for300ms schedule; fix actual scheduling.
+  Legacy HTTP200 large body must not be a false site outage. README/PR Handoff unchanged; correct examples.
+  Platform interface remains NOT accepted for integration/production; no design addendum approved.
+- AG3 #277 amendment6063802386 partially accepted in6072462926: deleteMe retraction, corrupt-byte
+  preservation, exact-run scope, full Comment fields and no read degradation. Cited scratch probe source absent
+  on reviewer host; publish sanitized executable sources/fixtures/output and actual pinned-k6 coordination,
+  distinguish model mocks from unchanged715349a behavior. Assignment remains open, no service fix assigned.
 - Codex #281 audit APPROVED5458996658, exact green1ed6832ca023df9853160478fc5e9c2e9abb4b6a
-  squash-merged4390957298633bec84204b32dd833adaeb30ecea. Evidence portable/hash-checked; independent
-  9actual-module+9numeric+3runner observations. Pinned Docker evidence reviewed, not rerun on reviewer host.
-  Defect evidence only, no product/harness behavior change or deploy. #278 COMPLETE; Codex idle, no Go fix.
-- AG4 #263 now715349a CIgreen/22cleanup tests; review5459010398 still blocked. Integrate accepted evidence,
-  not unsafe AG3 proposals/unaccepted platform helper. Finish all groups plus actual PR Handoff.
-- #47 re-review table6063285965 records these decisions; exact PR review IDs above carry evidence.
+  squash-merged4390957298633bec84204b32dd833adaeb30ecea. Portable hash-checked defect evidence only;
+  independent9actual-module+9numeric+3runner; pinned Docker outputs reviewed, not rerun. No deploy needed.
+  #278 COMPLETE; Codex idle, no Go fix. Sonnet/Sonnet2 remain paused.
+- AG4 #263 unchanged715349a/green CI, prior22cleanup tests accepted; review5459010398 still active.
+  Integration reminder6072463169: finish all code groups/Handoff, consume only reviewed specialist evidence.
+- #47 Oct9 review table6072463399. Oct9 02:00-03:30 ICT window already passed at verification; no out-of-window
+  load. Next eligible window still requires accepted harness, explicit go-ahead and cleanup reserve. AG2 retains
+  VM/boot-volume same-night destruction for approved run. Invitations remain gated on PASS and legal date.
 One worktree/branch per member; do not push another owner's branch. Separate helper/test PRs need independent
 architect review. Full finding -> changed lines -> actual regression/output checklist remains mandatory.
 
