@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -41,6 +42,51 @@ func TestSignMediaURLGolden(t *testing.T) {
 }
 
 func urlHasSig(u string) bool { return strings.Contains(u, "/s/") }
+
+// Cached metadata must not retain a signed playback response from an earlier request.
+func TestCachedPlaybackRefreshesSignedURLsWithoutWideningAccess(t *testing.T) {
+	e := newEnv(t, true)
+	v := e.video(alice, visibility(domain.VisPrivate))
+	path := "/v1/videos/" + v.ID.String()
+	firstResponse := e.req(alice, "GET", path, "")
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("first request: %d", firstResponse.Code)
+	}
+	first := decode[videoJSON](t, firstResponse).Playback
+	if first == nil || first.ExpiresAt == nil {
+		t.Fatal("private playback must have signed URLs and an expiry")
+	}
+	reads := e.store.gets
+	hits := e.cache.hits
+	now := testNow.Add(mediaLinkTTL - 5*time.Minute)
+	e.h0.Now = func() time.Time { return now }
+
+	refreshedResponse := e.req(alice, "GET", path, "")
+	if refreshedResponse.Code != http.StatusOK {
+		t.Fatalf("refresh request: %d", refreshedResponse.Code)
+	}
+	refreshed := decode[videoJSON](t, refreshedResponse).Playback
+	if e.store.gets != reads || e.cache.hits != hits+1 {
+		t.Fatal("refresh must exercise the metadata cache hit")
+	}
+	wantExpiry := now.Add(mediaLinkTTL)
+	if refreshed == nil || refreshed.ExpiresAt == nil || !refreshed.ExpiresAt.Equal(wantExpiry) {
+		t.Fatalf("refresh must grant the existing six-hour TTL from the new request time: %+v", refreshed)
+	}
+	if refreshed.HLSURL == first.HLSURL || refreshed.ThumbnailURL == first.ThumbnailURL ||
+		!strings.Contains(refreshed.HLSURL, "/"+*v.HLSMasterKey) ||
+		!strings.Contains(refreshed.ThumbnailURL, "/"+*v.ThumbnailKey) {
+		t.Fatal("refresh must renew signatures while preserving video and object identity")
+	}
+	if refreshedResponse.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatal("signed playback response must remain private and non-cacheable")
+	}
+	for _, caller := range []*who{anon, bob} {
+		if got := e.req(caller, "GET", path, ""); got.Code != http.StatusNotFound {
+			t.Fatalf("metadata cache must not expose private playback: %d", got.Code)
+		}
+	}
+}
 
 // Signed URLs and playback.expires_at exactly when the video is not publicly watchable.
 func TestPlaybackIsSignedOnlyForVideosThePublicCannotWatch(t *testing.T) {
