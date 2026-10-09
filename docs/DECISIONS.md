@@ -774,3 +774,55 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Beta có cổng vào kiểm soát được mà không cần bảng hay migration. Đổi lại, mã có thể bị chia sẻ lại, nên giữ mỗi đợt nhỏ và thay mã khi cần.
 - Smoke test và load test tạo tài khoản trên production phải dùng một mã mời riêng, chỉ để trên host (`read -rs`).
 - Mở công khai về sau chỉ cần đặt `REGISTRATION_MODE=open`, sau khi LEGAL xong.
+
+### ADR-035 — CIN2: bộ phim từ Danh sách video và phát theo tập
+
+**Bối cảnh.** Ngày 2026-10-09 user yêu cầu trang phim có dữ liệu bộ/tập thật: video đơn vẫn là phim một tập;
+video thuộc một bộ được gom thành một thẻ, khi xem có danh sách tập và chuyển tập dễ dàng. CIN1 (ADR-033)
+hiện chỉ trình bày video bằng vỏ cinema. PL1 đã có danh sách và thứ tự, nhưng link xem chưa giữ ngữ cảnh danh sách.
+User chọn chủ danh sách đánh dấu **“Bộ phim”**, không tự coi mọi playlist là phim.
+
+**Quyết định.** Phạm vi CIN2 lần này là catalog và trải nghiệm bộ/tập; dùng lại playlist/video/player hiện có.
+
+- Thêm thuộc tính `is_series` cho playlist REGULAR, mặc định false; WATCH_LATER luôn false. Chủ danh sách có thể
+  chọn “Bộ phim” khi tạo hoặc sửa danh sách cũ. Không suy đoán bộ từ tên video, không tự chuyển playlist tuyển chọn.
+  Bộ phim chỉ chứa video của chính chủ danh sách; chuyển một danh sách có video của người khác sang bộ phải báo lỗi,
+  không âm thầm bỏ mục. Giới hạn 200 danh sách/5000 mục của PL1 vẫn áp dụng.
+- Catalog công khai gồm hai loại thẻ: VIDEO cho video PUBLIC READY chưa thuộc bộ PUBLIC hợp lệ, SERIES cho mỗi bộ
+  PUBLIC có ít nhất một tập PUBLIC READY đọc được. PRIVATE/UNLISTED/WATCH_LATER không vào catalog và không làm
+  biến mất video đơn. Một bộ chỉ có một tập vẫn là một bộ do chủ danh sách đánh dấu. Không hiện lại các tập thành
+  từng phim lẻ. Video ở nhiều bộ vẫn có ngữ cảnh riêng khi mở từng bộ; không đoán bộ đang xem từ video ID.
+- Trang `/` dùng catalog phim thật cho banner và các hàng “Phim bộ”, “Phim lẻ”, “Mới thêm”, thay các hàng video
+  thô ở cinema. Lưới/feeds video hiện có vẫn ở Khám phá và các route riêng. `/phim` vẫn redirect về `/`.
+  Catalog cần phân trang phía backend; không quét toàn bộ video/playlist ở browser hoặc suy ra membership chỉ
+  từ trang dữ liệu đang tải. Metadata tên/thumbnail video vẫn thuộc video-svc, không nhân bản sang social-svc.
+- Thẻ bộ dùng tiêu đề/mô tả của danh sách, thumbnail của tập đầu phát được và số tập công khai khả dụng;
+  bấm thẻ mở chi tiết bộ với danh sách tập. “Xem ngay” mở tập đầu khả dụng. Video đơn giữ chi tiết và cách phát hiện có.
+  Không dùng item_count PL1 như số tập phát được, vì item_count bao gồm cả mục không hiển thị.
+- Link xem giữ `playlist=<uuid>` bên cạnh video ID. Desktop: danh sách tập bên phải player, tập hiện tại được đánh dấu,
+  có “Tập trước”/“Tập sau”. Mobile: danh sách tập dưới player. Giữ ngữ cảnh qua chuyển tập, refresh, back/forward
+  và link chia sẻ. Tập dài hơn một trang phải chuyển được qua ranh giới cursor và mở trực tiếp tập ở trang sau.
+  Không hiển thị sparse position như số tập; số thứ tự hiển thị do API episode context xác định.
+- Playlist context phải được xác minh: đúng bộ và video là tập khả dụng trong bộ. Query do người dùng nhập không
+  cấp quyền. Tập ẩn/xóa/không còn phát được hiển thị trạng thái rõ ràng và cho chọn tập khác; không vòng lặp tự retry.
+  Không tự phát tập kế tiếp trong lần triển khai đầu; thao tác chọn tập hoặc nút kế tiếp mới chuyển phát.
+- Dùng lại VideoPlayer, phụ đề, ABR và tracker. Đổi tập kết thúc phiên/heartbeat của tập cũ rồi khởi tạo tập mới;
+  không phát hai player. Lượt xem từ bộ dùng surface `playlist`, phim đơn dùng `other`; không thêm enum analytics.
+  Chỉ bỏ query src đã tiêu thụ, không xóa playlist context. Không đưa playback URL có chữ ký vào danh sách/localStorage.
+- Architect sở hữu contract/migration/API client. Social-svc sở hữu phân loại và catalog/membership/episode order;
+  video-svc vẫn xác minh quyền và READY, cấp playback và metadata batch. Nếu batch hiện có trả UNLISTED khi biết ID,
+  contract phải có tùy chọn PUBLIC-only cho catalog; không thay ngầm hành vi batch cũ.
+  Catalog chỉ được hydrate từ metadata đã kiểm tra PUBLIC READY, một batch có giới hạn cho mỗi trang, không N+1 getVideo.
+  Projection hoặc cache không được cấp quyền phát; video-svc là kiểm tra cuối cùng khi phát.
+- Contract phải chốt đầy đủ kiểu catalog phân biệt VIDEO/SERIES, cursor, episode context/prev/next và lỗi trước
+  khi agent triển khai. Migration thêm cờ/index/constraint do architect viết, đồng bộ bản k8s và SQL test.
+  Không đọc chéo schema media từ social, không đổi event hoặc tạo projection mới nếu contract chưa duyệt.
+
+**Phân công và thứ tự.** Feature #283; brief `docs/prompts/astra_CIN2_series.md`. Codex đang rảnh nhận CIN2-G1 #284
+kiểm tra data plane ngay, rồi triển khai phần Go chỉ sau khi contract tương ứng merge. AG3/AG1 nhận phần backend/web
+sau khi task LT2 hiện tại được chấp nhận, trên branch/PR riêng. AG2 giữ LT2 standby/xóa VM; rollout CIN2 chỉ sau review.
+AG4 giữ LT2. Sonnet/Sonnet2 vẫn paused. Các thay đổi contract/migration và code phải qua CI xanh exact head.
+
+**Hệ quả.** Bộ phim có danh tính và thứ tự tập thật, không phụ thuộc tên video hoặc trang feed đang tải.
+CIN2 không thêm thể loại/năm/poster pipeline, xem tiếp đồng bộ server, dịch vụ mới hoặc thay gate beta ADR-034.
+Chưa deploy hay tuyên bố tính năng đã live chỉ vì design được giao.

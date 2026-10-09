@@ -105,3 +105,14 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V5b | Phụ đề WebVTT do chủ video tải lên (ADR-018): migration 000010, `putSubtitle`/`deleteSubtitle`, `Playback.subtitles`. [Brief](prompts/sonnet_V5b_subtitles.md) · ✅ (#91) | Sonnet |
 | V5c | Auto-caption (Whisper trên gpu-01) ghi track `source = AUTO`; chờ quyết định ngân sách GPU (ADR-018) | Opus (thiết kế) + Sonnet |
 | LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |
+
+## CIN2 theo yêu cầu user (2026-10-09)
+
+| Task | Scope / gate | Owner |
+|---|---|---|
+| CIN2-A | ADR-035 + contract/migration/API client; trước implementation. Feature #283; [brief](prompts/astra_CIN2_series.md). | Astra |
+| CIN2-G1 | #284: public batch/playback readiness; bắt đầu ngay, code Go sau contract. | Codex |
+| CIN2-S1 | Phân loại bộ + catalog/episode context; sau audit LT2 #282 và contract. | Antigravity 3 |
+| CIN2-W1 | Một thẻ/bộ + chi tiết/tập/player context; sau regression LT2 #280 và backend/contract. | Antigravity 1 |
+
+AG2 giữ LT2 standby/destruction, AG4 giữ #263; CIN2 không đổi gate beta ADR-034.
