@@ -27,10 +27,11 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 |---|---|
 | `base` | hostname = inventory name, and stops OCI resetting it (`/etc/oci-hostname.conf` `PRESERVE_HOSTINFO=1`, cloud-init `preserve_hostname`); sysctls; NetworkManager ignores CNI interfaces |
 | `tailscale` | package + `tailscaled`; asserts the node is logged in with `tag:edge`. Login stays manual (`tailscale up --ssh --hostname=… --advertise-tags=tag:edge`) unless `TS_AUTHKEY` is exported |
-| `firewall` | public: `http`, `https`, `41641/udp`. trusted: `tailscale0`, pod CIDR, service CIDR |
+| `firewall` | public: `http`, `https`, `41641/udp`. cockpit and unneeded ports disabled. trusted: `tailscale0`, pod CIDR, service CIDR |
+| `ssh_hardening` | SSH drop-in (`/etc/ssh/sshd_config.d/10-winkey.conf`): disable password and interactive auth, disable root login, max 3 tries (ADR-034 / SEC0) |
 | `storage` | LV `ocivolume/data` (110 GB, XFS) on `/var/lib/rancher/k3s/storage`, so Garage/Postgres cannot fill `/` |
 | `k3s_server` | `/etc/rancher/k3s/config.yaml`, pinned k3s install, Traefik `HelmChartConfig`; asserts `FLANNEL_MTU <= 1230` |
-| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `media.winkey.vn`), `proxy_cache` on host LV data (40 GB max, ADR-032), and Certbot TLS |
+| `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `www.winkey.vn` 301 redirect, `media.winkey.vn`), `proxy_cache` on host LV data (40 GB max, ADR-032), and Certbot TLS |
 | `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
 | `data_k3s` | CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and database setup jobs (task DATA) |
 | `apps_k3s` | Winkey product services (auth, upload, video, social, realtime, web) via Kustomize (task I2) |
@@ -87,6 +88,8 @@ Verifies:
 4. Traefik rate limiting triggers HTTP 429 under concurrent bursts.
 5. S3/media proxy caching behavior (`MISS` then `HIT`).
 6. NodePorts 30422, 30432, 30900 are TCP unreachable from the public IP.
+7. User authentication lifecycle (register -> login -> /v1/auth/me) with automated throwaway cleanup via `DELETE /v1/auth/me` (`deleteMe`, ADR-034, #249). Reads `INVITE_CODE` from environment or `/etc/winkey/smoke.env`.
+8. Direct multipart upload and SEC1 media access control checks (credential-free).
 
 
 ### Do not set `traefik_service_type: LoadBalancer` on edge-1

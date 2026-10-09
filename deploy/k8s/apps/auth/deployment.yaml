@@ -98,6 +98,14 @@ spec:
                   name: auth-smtp
                   key: SMTP_URL
                   optional: true
+            - name: REGISTRATION_MODE
+              value: 'invite'
+            - name: INVITE_CODES
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: INVITE_CODES
+                  optional: true
           resources:
             requests:
               cpu: 30m

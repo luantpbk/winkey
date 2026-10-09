@@ -1,13 +1,29 @@
 'use client';
 
 import React, { useState, type ReactNode } from 'react';
+import { usePathname } from '../../i18n/routing';
 import { TopBar } from './top-bar';
 import { Sidebar } from './sidebar';
+import { CinemaShell } from './cinema-shell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({
+  children,
+  feedbackUrl,
+}: {
+  children: ReactNode;
+  feedbackUrl?: string | null;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  const isCinemaHome = pathname === '/' || pathname === '';
+
+  // Cinema home uses CinemaShell without sidebar
+  if (isCinemaHome) {
+    return <CinemaShell feedbackUrl={feedbackUrl}>{children}</CinemaShell>;
+  }
 
   const toggleSidebar = () => {
     // On small screen toggle mobile drawer; on desktop toggle collapsed rail
@@ -27,6 +43,7 @@ export function Shell({ children }: { children: ReactNode }) {
           collapsed={collapsed}
           mobileOpen={mobileOpen}
           onCloseMobile={() => setMobileOpen(false)}
+          feedbackUrl={feedbackUrl}
         />
         <main
           className={`flex-1 transition-all duration-200 min-h-[calc(100vh-56px)] p-4 sm:p-6 overflow-x-hidden ${

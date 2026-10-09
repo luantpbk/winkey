@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test:e2e": "playwright test",
-    "test:lt2-regression": "node --import ./tests/adapters/k6-register.mjs --test tests/lt2-regressions/*.regression.test.mjs"
+    "test:lt2-regression": "node --import ./tests/adapters/k6-register.mjs --test tests/lt2-regressions/*.regression.test.mjs",
+    "test:prod-feedback": "playwright test --config=playwright.prod.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.1"

@@ -36,6 +36,8 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 | `MAIL_TRANSPORT` | Outbound email transport mechanism (`smtp` or `log`, ADR-026) | `log` |
 | `SMTP_URL` | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`) | `smtp://user:pass@localhost:1025` |
 | `MAIL_FROM` | RFC 5322 From address used for outbound authentication emails | `Winkey <no-reply@winkey.vn>` |
+| `REGISTRATION_MODE` | Account registration mode (`open` or `invite`, task BETA1, ADR-034) | `open` |
+| `INVITE_CODES` | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes) | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678` |
 
 ---
 

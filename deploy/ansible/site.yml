@@ -5,7 +5,10 @@
     - base
     - role: tailscale
       tags: [tailscale, nginx_front]
-    - firewall
+    - role: firewall
+      tags: [firewall]
+    - role: ssh_hardening
+      tags: [ssh_hardening]
 
     - storage
     - k3s_server

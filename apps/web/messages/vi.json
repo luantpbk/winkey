@@ -16,7 +16,9 @@
     "lightMode": "Giao diện sáng",
     "darkMode": "Giao diện tối",
     "creatorRoleRequired": "Cần quyền Creator",
-    "watchLater": "Xem sau"
+    "watchLater": "Xem sau",
+    "movies": "Phim",
+    "explore": "Khám phá"
   },
   "home": {
     "recommended": "Video đề xuất",
@@ -100,7 +102,15 @@
     "emailVerified": "Đã xác minh",
     "emailUnverified": "Chưa xác minh",
     "oauthUnavailable": "Đăng nhập Google tạm thời chưa khả dụng",
-    "accountSuspended": "Tài khoản của bạn đã bị tạm khóa."
+    "accountSuspended": "Tài khoản của bạn đã bị tạm khóa.",
+    "inviteCode": "Mã mời",
+    "invitePlaceholder": "Mã mời thử nghiệm",
+    "inviteRequired": "Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.",
+    "inviteInvalid": "Mã mời không đúng hoặc đã hết hạn.",
+    "agreeTermsPrefix": "Tôi đồng ý với ",
+    "agreeTermsOfService": "Điều khoản sử dụng",
+    "agreeAnd": " và ",
+    "agreePrivacyPolicy": "Chính sách quyền riêng tư"
   },
   "upload": {
     "title": "Tải video lên Winkey",
@@ -539,5 +549,50 @@
     "playlistLimit": "Bạn đã đạt giới hạn tối đa 200 danh sách phát.",
     "tabPlaylists": "Danh sách phát",
     "noPlaylists": "Chưa có danh sách phát nào."
+  },
+  "cinema": {
+    "title": "Phim",
+    "watchNow": "Xem ngay",
+    "watchLater": "Xem sau",
+    "details": "Chi tiết",
+    "continueWatching": "Xem tiếp",
+    "removeFromContinue": "Xóa khỏi danh sách xem tiếp",
+    "top10Today": "Top 10 hôm nay",
+    "forYou": "Dành cho bạn",
+    "newUpdates": "Mới cập nhật",
+    "fromSubscriptions": "Từ kênh bạn theo dõi",
+    "viewAll": "Xem tất cả",
+    "similarVideos": "Tương tự",
+    "share": "Chia sẻ",
+    "linkCopied": "Đã sao chép liên kết vào bộ nhớ tạm",
+    "close": "Đóng",
+    "loginRequiredWatchLater": "Vui lòng đăng nhập để lưu vào Xem sau",
+    "addedToWatchLater": "Đã thêm vào Xem sau",
+    "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
+    "noDescription": "Không có mô tả cho video này.",
+    "home": "Trang chủ",
+    "trending": "Thịnh hành",
+    "explore": "Khám phá",
+    "subscriptions": "Đang theo dõi",
+    "myList": "Danh sách của tôi",
+    "my": "Của tôi",
+    "upload": "Tải lên",
+    "notifications": "Thông báo",
+    "me": "Tôi",
+    "beta": "Bản beta",
+    "terms": "Điều khoản sử dụng",
+    "privacy": "Quyền riêng tư",
+    "communityRules": "Quy tắc cộng đồng",
+    "betaFeedback": "Góp ý beta",
+    "copyright": "© 2026 Winkey · Bản beta",
+    "curatedBy": "Tuyển chọn bởi Winkey"
+  },
+  "legal": {
+    "englishNoticeNote": "Lưu ý:",
+    "englishNotice": "Văn bản pháp lý này hiện chỉ có bản tiếng Việt do Winkey chủ yếu hoạt động tại Việt Nam trong giai đoạn thử nghiệm kín.",
+    "legalNav": "Thông tin pháp lý",
+    "termsTitle": "Điều khoản sử dụng – Winkey",
+    "privacyTitle": "Chính sách quyền riêng tư – Winkey",
+    "communityTitle": "Quy tắc cộng đồng – Winkey"
   }
 }

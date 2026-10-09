@@ -57,26 +57,37 @@ export function buildWatchUrl(
   return `/watch/${encodeURIComponent(videoId)}${query ? `?${query}` : ''}`;
 }
 
+let lastStrippedSurface: { pathname: string; surface: WatchSurface } | null = null;
+
 /**
  * Reads `src` once from window.location, validates it (unknown -> 'other'),
  * and strips `src` from the address bar using history.replaceState (keeping other params).
  * Returns the resolved WatchSurface for the current playback.
+ * Caches the resolved surface for the pathname to safely support React StrictMode remounts.
  */
 export function stripWatchSurfaceFromAddressBar(): WatchSurface {
   if (typeof window === 'undefined') return 'other';
   try {
     const url = new URL(window.location.href);
     const rawSrc = url.searchParams.get('src');
-    const surface = parseWatchSurface(rawSrc);
 
-    if (url.searchParams.has('src')) {
+    if (rawSrc) {
+      const surface = parseWatchSurface(rawSrc);
+      lastStrippedSurface = { pathname: url.pathname, surface };
+
       url.searchParams.delete('src');
       const search = url.searchParams.toString();
       const newUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
       window.history.replaceState(window.history.state, '', newUrl);
+
+      return surface;
     }
 
-    return surface;
+    if (lastStrippedSurface && lastStrippedSurface.pathname === url.pathname) {
+      return lastStrippedSurface.surface;
+    }
+
+    return 'other';
   } catch {
     return 'other';
   }

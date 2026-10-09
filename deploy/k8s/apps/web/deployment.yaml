@@ -45,6 +45,10 @@ spec:
               value: '0'
             - name: NEXT_PUBLIC_MEDIA_BASE_URL
               value: 'https://media.winkey.vn'
+            - name: CINEMA_CURATOR_HANDLE
+              value: ''
+            - name: FEEDBACK_URL
+              value: ''
           resources:
             requests:
               cpu: 50m

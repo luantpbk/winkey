@@ -66,7 +66,7 @@ Ensure the data plane secrets (`winkey-pg-auth-svc`, `winkey-pg-media-svc`, `win
 ./deploy/k8s/apps/secrets.sh
 ```
 This generates and provisions:
-- `auth-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `JWT_PRIVATE_KEY` (RS256 2048-bit), `JWT_KID`, `COOKIE_SECRET`.
+- `auth-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `JWT_PRIVATE_KEY` (RS256 2048-bit), `JWT_KID`, `COOKIE_SECRET`, and closed-beta `INVITE_CODES` (ADR-034, task BETA1).
 - `auth-google`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In Google Cloud Console, configure Authorized redirect URI as `https://winkey.vn/v1/auth/oauth/google/callback`.
 - `auth-smtp`: `SMTP_URL` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In `auth-svc`, `MAIL_TRANSPORT` defaults to `log` in `deploy/k8s/apps/auth/deployment.yaml`. To enable real outbound email sending via SMTP, change `MAIL_TRANSPORT` to `smtp` in `deployment.yaml` and configure the `auth-smtp` secret.
 - `upload-secrets`: `DATABASE_URL`, `NATS_URL`.
