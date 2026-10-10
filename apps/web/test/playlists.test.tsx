@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from '../src/components/ui/toast';
 import { SavePlaylistDialog } from '../src/components/playlist/save-playlist-dialog';
+import { WatchClientSection } from '../src/app/[locale]/watch/[id]/watch-client';
 import PlaylistPage from '../src/app/[locale]/playlist/[id]/page';
 import { ChannelTabs } from '../src/app/[locale]/c/[handle]/channel-tabs';
 import {
@@ -1109,6 +1110,47 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
         });
         expect(screen.getByText('Bộ phim chỉ chứa video của chính kênh bạn.')).toBeDefined();
       });
+    });
+  });
+
+  // =========================================================================
+  // 8. Watch Page Save Button Authentication Check
+  // =========================================================================
+  describe('8. Watch Page Save Button Authentication Check', () => {
+    it('redirects unauthenticated users to /login?return_to=<current_watch_url> instead of just showing toast', async () => {
+      mockIsAuthenticated = false;
+      const testVideo = {
+        id: 'vid-watch-123',
+        title: 'Video kiểm thử',
+        description: 'Mô tả',
+        visibility: 'PUBLIC',
+        status: 'READY',
+        width: 1920,
+        height: 1080,
+        duration_ms: 300000,
+        view_count: 100,
+        like_count: 10,
+        published_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        owner: {
+          id: 'user-owner-1',
+          handle: 'ownerhandle',
+          display_name: 'Owner Name',
+          avatar_url: null,
+        },
+      } as any;
+
+      renderWithProviders(<WatchClientSection video={testVideo} />);
+
+      const saveBtn = screen.getByTestId('watch-page-save-btn');
+      expect(saveBtn).toBeDefined();
+
+      fireEvent.click(saveBtn);
+
+      expect(mockPush).toHaveBeenCalledWith('/login?return_to=/watch/vid-watch-123');
+
+      // Reset mock state
+      mockIsAuthenticated = true;
     });
   });
 });
