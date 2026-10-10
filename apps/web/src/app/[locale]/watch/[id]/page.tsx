@@ -20,7 +20,7 @@ async function getVideo(id: string): Promise<Video | null> {
   const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
   try {
     const res = await fetch(`${baseUrl}/v1/videos/${id}`, {
-      next: { revalidate: 30 },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     return await res.json();

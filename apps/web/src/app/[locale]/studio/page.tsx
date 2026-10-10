@@ -19,16 +19,22 @@ import {
   AlertCircle,
   Clock,
   Subtitles,
+  Pencil,
+  BookmarkPlus,
 } from 'lucide-react';
 
 import { useRealtime } from '../../../lib/realtime/realtime-context';
 import { VideoSubtitlesDialog } from '../../../components/studio/video-subtitles-dialog';
+import { SavePlaylistDialog } from '../../../components/playlist/save-playlist-dialog';
 import { StudioNav } from '../../../components/studio/studio-nav';
 
 export default function StudioPage() {
   const [selectedSubtitlesVideoId, setSelectedSubtitlesVideoId] = React.useState<string | null>(
     null,
   );
+  const [selectedSavePlaylistVideoId, setSelectedSavePlaylistVideoId] = React.useState<
+    string | null
+  >(null);
   const t = useTranslations('studio');
   const queryClient = useQueryClient();
   const { client, isConnected } = useRealtime();
@@ -403,6 +409,23 @@ export default function StudioPage() {
                           <ExternalLink className="h-4 w-4" />
                         </Link>
                       )}
+                      <Link
+                        href={`/studio/videos/${video.id}/edit`}
+                        data-testid={`edit-video-${video.id}`}
+                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        title={t('editAction')}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSavePlaylistVideoId(video.id)}
+                        data-testid={`save-playlist-${video.id}`}
+                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        title={t('saveToPlaylist')}
+                      >
+                        <BookmarkPlus className="h-4 w-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setSelectedSubtitlesVideoId(video.id)}
@@ -433,6 +456,15 @@ export default function StudioPage() {
         isOpen={!!selectedSubtitlesVideoId}
         onClose={() => setSelectedSubtitlesVideoId(null)}
       />
+
+      {/* Save to Playlist Modal Dialog */}
+      {selectedSavePlaylistVideoId && (
+        <SavePlaylistDialog
+          videoId={selectedSavePlaylistVideoId}
+          isOpen={true}
+          onClose={() => setSelectedSavePlaylistVideoId(null)}
+        />
+      )}
     </div>
   );
 }

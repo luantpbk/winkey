@@ -2054,4 +2054,106 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       contentType: 'image/png',
     });
   });
+
+  test('ST1: Studio edit video: edit title, visibility, tags -> watch page shows new title', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120000);
+
+    // 1. Log in as creator (owner of initial studio videos)
+    await page.goto('/login');
+    await page.waitForLoadState('domcontentloaded');
+
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    await loginForm.locator('button[type="submit"]').click();
+
+    // Verify arrived at Studio
+    await page.goto('/studio');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. Find first video row and verify "Sửa" link and "Thêm vào danh sách" button
+    const firstEditLink = page.locator('a[data-testid^="edit-video-"]').first();
+    await expect(firstEditLink).toBeVisible({ timeout: 15000 });
+
+    const videoHref = await firstEditLink.getAttribute('href');
+    const match = videoHref?.match(/videos\/([^/]+)/);
+    const videoId = match ? match[1] : '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+
+    const savePlaylistBtn = page.locator(`[data-testid="save-playlist-${videoId}"]`);
+    await expect(savePlaylistBtn).toBeVisible();
+
+    // 3. Click "Sửa" -> navigates to /studio/videos/{id}/edit
+    await firstEditLink.click();
+    await page.waitForURL(new RegExp(`/studio/videos/${videoId}/edit`));
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify edit form elements
+    const titleInput = page.locator('[data-testid="video-title-input"]');
+    await expect(titleInput).toBeVisible();
+    await expect(page.locator('[data-testid="title-counter"]')).toBeVisible();
+    await expect(page.locator('[data-testid="video-preview-card"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tags-helper-text"]')).toBeVisible();
+
+    // Save button should initially be disabled (no changes)
+    const saveBtn = page.locator('[data-testid="save-video-changes-btn"]');
+    await expect(saveBtn).toBeDisabled();
+
+    // Edit title
+    const newTitle = 'Video Huong Dan Winkey ST1 Da Chinh Sua';
+    await titleInput.fill(newTitle);
+
+    // Save button should now be enabled
+    await expect(saveBtn).toBeEnabled();
+
+    // Change visibility to UNLISTED
+    const unlistedOption = page.locator('[data-testid="visibility-option-UNLISTED"]');
+    await unlistedOption.click();
+
+    // Add a new tag
+    const tagInput = page.locator('[data-testid="tag-input"]');
+    await tagInput.fill('st1test');
+    await tagInput.press('Enter');
+
+    // Take screenshot of desktop edit page
+    const screenshotsDir = path.join(__dirname, '..', 'screenshots');
+    const editDesktopScreenshot = path.join(screenshotsDir, 'st1-studio-edit-desktop.png');
+    await page.screenshot({ path: editDesktopScreenshot, fullPage: true });
+    await testInfo.attach('st1-studio-edit-desktop', {
+      path: editDesktopScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 4. Click "Lưu thay đổi" -> wait for toast
+    await saveBtn.click();
+    await expect(
+      page.getByText(/Đã lưu thay đổi thành công|Changes saved successfully/i),
+    ).toBeVisible({
+      timeout: 10000,
+    });
+
+    // 5. Navigate to watch page /vi/watch/{id}
+    await page.goto(`/vi/watch/${videoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Watch page reflects the new title!
+    await expect(page.locator('h1').first()).toContainText(newTitle);
+
+    // Watch page shows owner-only "Chỉnh sửa" button
+    const ownerEditBtn = page.locator('[data-testid="owner-edit-video-btn"]');
+    await expect(ownerEditBtn).toBeVisible();
+    await expect(ownerEditBtn).toHaveAttribute(
+      'href',
+      new RegExp(`/studio/videos/${videoId}/edit`),
+    );
+
+    // Take screenshot of watch page with owner "Chỉnh sửa" button
+    const watchOwnerScreenshot = path.join(screenshotsDir, 'st1-watch-owner-desktop.png');
+    await page.screenshot({ path: watchOwnerScreenshot });
+    await testInfo.attach('st1-watch-owner-desktop', {
+      path: watchOwnerScreenshot,
+      contentType: 'image/png',
+    });
+  });
 });
