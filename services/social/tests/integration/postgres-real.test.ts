@@ -3027,15 +3027,24 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(app).not.toBeNull();
     if (!pool || !app) return;
 
-    const cinUserA = uuidv7();
-    const cinUserB = uuidv7();
+    const cinUserA = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8ba001';
+    const cinUserB = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8ba002';
 
-    // Setup public profiles
+    // 1. Setup playlist owners in auth.users (so auth.public_profiles view exposes them)
     await pool.query(`
-      INSERT INTO auth.public_profiles (id, handle, display_name, avatar_key)
+      INSERT INTO auth.users (id, email, handle, display_name, avatar_key, status)
       VALUES
-        ('${cinUserA}', 'cin_owner_a', 'Cinema Owner A', 'avatars/cin_a.jpg'),
-        ('${cinUserB}', 'cin_owner_b', 'Cinema Owner B', NULL)
+        ('${cinUserA}', 'cin_owner_a@winkey.vn', 'cin_owner_a', 'Cinema Owner A', 'avatars/cin_a.jpg', 'ACTIVE'),
+        ('${cinUserB}', 'cin_owner_b@winkey.vn', 'cin_owner_b', 'Cinema Owner B', NULL, 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    await pool.query(`
+      INSERT INTO social.channels (id, subscriber_count)
+      VALUES
+        ('${cinUserA}', 0),
+        ('${cinUserB}', 0)
+      ON CONFLICT (id) DO NOTHING;
     `);
 
     // Setup videos
