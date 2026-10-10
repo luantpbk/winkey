@@ -283,11 +283,7 @@ describe('CIN2-web: Series on Cinema Home (ADR-035)', () => {
       };
 
       renderWithProviders(
-        <CinemaSeriesCard
-          series={mockSeries}
-          coverVideo={mockVideo}
-          onOpenSeries={vi.fn()}
-        />,
+        <CinemaSeriesCard series={mockSeries} coverVideo={mockVideo} onOpenSeries={vi.fn()} />,
       );
 
       // Verify title
@@ -383,17 +379,13 @@ describe('CIN2-web: Series on Cinema Home (ADR-035)', () => {
       });
 
       // Render CinemaView with initialSeriesId
-      renderWithProviders(
-        <CinemaView initialSeriesId="pl-series-1" initialHeroVideos={[]} />,
-      );
+      renderWithProviders(<CinemaView initialSeriesId="pl-series-1" initialHeroVideos={[]} />);
 
       // Dialog is displayed
       await waitFor(() => {
         expect(screen.getByTestId('cinema-series-dialog')).toBeDefined();
       });
-      expect(screen.getByTestId('cinema-series-title').textContent).toBe(
-        'Thám Tử Lừng Danh Conan',
-      );
+      expect(screen.getByTestId('cinema-series-title').textContent).toBe('Thám Tử Lừng Danh Conan');
 
       // Verify "Xem ngay" button links to episode 1 with ?playlist=&src=playlist
       const watchBtn = screen.getByTestId('cinema-series-watch-btn');

@@ -37,7 +37,9 @@ export function CinemaSeriesCard({
   const watchFirstEpisodeHref = `${buildWatchUrl(series.first_video_id, 'playlist')}&playlist=${encodeURIComponent(series.playlist_id)}`;
   const thumbnailUrl = getThumbnailUrl(
     coverVideo?.thumbnail_url || null,
-    coverVideo && 'playback' in coverVideo ? (coverVideo as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url : null,
+    coverVideo && 'playback' in coverVideo
+      ? (coverVideo as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url
+      : null,
   );
 
   const handleMouseEnter = useCallback(() => {
@@ -203,7 +205,8 @@ export function CinemaSeriesCard({
                 {series.title}
               </h3>
               <p className="text-[11px] text-[#C9C9D1] mt-1 truncate">
-                {t('episodeCountBadge', { count: series.episode_count })} · {coverVideo?.owner?.display_name || series.owner?.display_name || ''}
+                {t('episodeCountBadge', { count: series.episode_count })} ·{' '}
+                {coverVideo?.owner?.display_name || series.owner?.display_name || ''}
               </p>
             </div>
           </div>

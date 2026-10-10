@@ -112,8 +112,8 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
             errData?.code === 'SERIES_FOREIGN_ITEM'
               ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
               : errData?.code === 'PLAYLIST_FULL'
-              ? 'Danh sách phát đã đầy (tối đa 5.000 video).'
-              : errData?.title || 'Không thể thêm vào danh sách phát.';
+                ? 'Danh sách phát đã đầy (tối đa 5.000 video).'
+                : errData?.title || 'Không thể thêm vào danh sách phát.';
           showToast({ title: msg, type: 'error' });
           // Rollback
           setSelectedIds((prev) => {
@@ -185,8 +185,8 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
           errData?.code === 'SERIES_FOREIGN_ITEM'
             ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
             : errData?.code === 'PLAYLIST_LIMIT'
-            ? 'Bạn đã đạt giới hạn tối đa 200 danh sách phát.'
-            : errData?.title || 'Không thể tạo danh sách phát.';
+              ? 'Bạn đã đạt giới hạn tối đa 200 danh sách phát.'
+              : errData?.title || 'Không thể tạo danh sách phát.';
         showToast({ title: msg, type: 'error' });
         setIsCreating(false);
         return;

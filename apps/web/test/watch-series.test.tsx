@@ -284,9 +284,7 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
         return { data: null, response: new Response() } as any;
       });
 
-      renderWithProviders(
-        <WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />,
-      );
+      renderWithProviders(<WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />);
 
       // Verify series navigation bar is displayed
       await waitFor(() => {
@@ -344,9 +342,7 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
         return { data: null, response: new Response() } as any;
       });
 
-      renderWithProviders(
-        <WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />,
-      );
+      renderWithProviders(<WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />);
 
       await waitFor(() => {
         expect(screen.getByTestId('series-navigation-bar')).toBeDefined();
@@ -396,9 +392,7 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
         return { data: null, response: new Response() } as any;
       });
 
-      renderWithProviders(
-        <WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />,
-      );
+      renderWithProviders(<WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />);
 
       // Verify replaceState was called to strip playlist
       await waitFor(() => {
@@ -489,7 +483,9 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
 
       act(() => {
         rerender(
-          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+          <QueryClientProvider
+            client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
+          >
             <ToastProvider>
               <WatchLayout video={mockVideo2} initialPlaylistId="pl-series-1" />
             </ToastProvider>
@@ -517,9 +513,7 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
       expect(trackerEvents.some((c) => c.videoId === 'ep-2' && c.event === 'start')).toBe(true);
 
       // Check the exact sequence: ep-1 start -> ep-1 end -> ep-2 start
-      const ep1EndIndex = trackerEvents.findIndex(
-        (c) => c.videoId === 'ep-1' && c.event === 'end',
-      );
+      const ep1EndIndex = trackerEvents.findIndex((c) => c.videoId === 'ep-1' && c.event === 'end');
       const ep2StartIndex = trackerEvents.findIndex(
         (c) => c.videoId === 'ep-2' && c.event === 'start',
       );

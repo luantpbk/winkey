@@ -399,10 +399,7 @@ export function CinemaView({
       />
 
       {/* 5. SERIES DETAIL DIALOG (?series=<playlist_id>) */}
-      <CinemaSeriesDialog
-        playlistId={selectedSeriesId}
-        onClose={closeSeries}
-      />
+      <CinemaSeriesDialog playlistId={selectedSeriesId} onClose={closeSeries} />
     </div>
   );
 }

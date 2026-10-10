@@ -1948,7 +1948,10 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     const homeScreenshot = path.join(screenshotsDir, 'cin2-home-series-card.png');
     await page.screenshot({ path: homeScreenshot });
-    await testInfo.attach('cin2-home-series-card', { path: homeScreenshot, contentType: 'image/png' });
+    await testInfo.attach('cin2-home-series-card', {
+      path: homeScreenshot,
+      contentType: 'image/png',
+    });
 
     // 2. Click series card -> opens Series Detail Dialog (?series=<playlist_id>)
     await seriesCard.locator('[data-testid="cinema-series-card-link"]').click();
@@ -1960,7 +1963,10 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     const dialogScreenshot = path.join(screenshotsDir, 'cin2-series-dialog.png');
     await page.screenshot({ path: dialogScreenshot });
-    await testInfo.attach('cin2-series-dialog', { path: dialogScreenshot, contentType: 'image/png' });
+    await testInfo.attach('cin2-series-dialog', {
+      path: dialogScreenshot,
+      contentType: 'image/png',
+    });
 
     // 3. Click "Xem ngay" -> navigates to Episode 1 with ?playlist=&src=playlist
     const watchNowBtn = page.locator('[data-testid="cinema-series-watch-btn"]');
@@ -1983,7 +1989,10 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     const watchDesktopScreenshot = path.join(screenshotsDir, 'cin2-watch-series-desktop.png');
     await page.screenshot({ path: watchDesktopScreenshot });
-    await testInfo.attach('cin2-watch-series-desktop', { path: watchDesktopScreenshot, contentType: 'image/png' });
+    await testInfo.attach('cin2-watch-series-desktop', {
+      path: watchDesktopScreenshot,
+      contentType: 'image/png',
+    });
 
     // Simulate play on Episode 1 to trigger heartbeat start
     await page.evaluate(() => {
@@ -2000,7 +2009,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await nextEpisodeBtn.click();
 
     // Verify URL transitioned to Episode 2 and retained ?playlist=
-    await page.waitForURL(/\/watch\/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12\?playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/);
+    await page.waitForURL(
+      /\/watch\/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12\?playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/,
+    );
 
     // Simulate play on Episode 2 to trigger new heartbeat start
     await page.evaluate(() => {
@@ -2027,7 +2038,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
     await expect(page).toHaveURL(/playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/);
-    await expect(page.locator('[data-testid="series-episodes-column"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="series-episodes-column"]')).toBeVisible({
+      timeout: 10000,
+    });
 
     // 6. Mobile viewport test (375x667): Verify mobile episode list is under player
     await page.setViewportSize({ width: 375, height: 667 });
@@ -2036,6 +2049,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
 
     const watchMobileScreenshot = path.join(screenshotsDir, 'cin2-watch-series-mobile.png');
     await page.screenshot({ path: watchMobileScreenshot });
-    await testInfo.attach('cin2-watch-series-mobile', { path: watchMobileScreenshot, contentType: 'image/png' });
+    await testInfo.attach('cin2-watch-series-mobile', {
+      path: watchMobileScreenshot,
+      contentType: 'image/png',
+    });
   });
 });

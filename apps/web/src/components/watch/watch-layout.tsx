@@ -8,10 +8,7 @@ import { api } from '../../lib/api-client';
 import { VideoPlayer } from '../video/video-player';
 import { RelatedVideosColumn } from '../video/related-videos-column';
 import { WatchClientSection } from '../../app/[locale]/watch/[id]/watch-client';
-import {
-  WatchSeriesEpisodeColumn,
-  WatchSeriesEpisodesList,
-} from './watch-series-column';
+import { WatchSeriesEpisodeColumn, WatchSeriesEpisodesList } from './watch-series-column';
 import { buildWatchUrl } from '../../lib/video/watch-url';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 

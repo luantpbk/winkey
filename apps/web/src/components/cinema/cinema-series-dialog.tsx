@@ -232,7 +232,9 @@ export function CinemaSeriesDialog({ playlistId, onClose }: CinemaSeriesDialogPr
 
   const coverThumbnailUrl = getThumbnailUrl(
     coverVideo?.thumbnail_url || null,
-    coverVideo && 'playback' in coverVideo ? (coverVideo as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url : null,
+    coverVideo && 'playback' in coverVideo
+      ? (coverVideo as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url
+      : null,
   );
 
   const watchFirstEpisodeHref = series
@@ -374,18 +376,15 @@ export function CinemaSeriesDialog({ playlistId, onClose }: CinemaSeriesDialogPr
 
             {/* Episode List */}
             <div className="px-8 sm:px-10 pb-10 pt-2 border-t border-white/10">
-              <h3 className="text-xl font-bold text-[#F4F4F6] mb-4 pt-4">
-                {t('episodesList')}
-              </h3>
+              <h3 className="text-xl font-bold text-[#F4F4F6] mb-4 pt-4">{t('episodesList')}</h3>
 
-              <div
-                data-testid="cinema-series-episodes-list"
-                className="flex flex-col gap-3"
-              >
+              <div data-testid="cinema-series-episodes-list" className="flex flex-col gap-3">
                 {episodes.map(({ episode, video }) => {
                   const epThumb = getThumbnailUrl(
                     video?.thumbnail_url || null,
-                    video && 'playback' in video ? (video as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url : null,
+                    video && 'playback' in video
+                      ? (video as { playback?: { thumbnail_url?: string } }).playback?.thumbnail_url
+                      : null,
                   );
                   const epHref = `${buildWatchUrl(episode.video_id, 'playlist')}&playlist=${encodeURIComponent(series.playlist_id)}`;
 
