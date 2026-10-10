@@ -235,11 +235,19 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
     const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-preflight-fail-'));
     const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
 
+    const metricsPort = 9093;
+    const metricsServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('node_memory_MemAvailable_bytes 2147483648\n');
+    });
+    await new Promise((resolve) => metricsServer.listen(metricsPort, '127.0.0.1', resolve));
+
     try {
       await execFileAsync('bash', [runScriptPath], {
         env: {
           ...process.env,
           TARGET_URL: 'http://127.0.0.1:59999', // Connection refused / unreachable target
+          EDGE_METRICS_URL: `http://127.0.0.1:${metricsPort}/metrics`,
           LOADTEST_USER_PASSWORD: 'Pass123!Preflight',
           ALLOW_OUTSIDE_WINDOW: 'true',
           ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
@@ -257,6 +265,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         'lt2_accounts.json MUST NOT be written when preflight fails',
       );
     } finally {
+      await new Promise((resolve) => metricsServer.close(resolve));
       if (fs.existsSync(testTmpDir)) {
         fs.rmSync(testTmpDir, { recursive: true, force: true });
       }
@@ -271,6 +280,11 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
     const testPort = 8092;
     const mockServer = http.createServer((req, res) => {
       const url = req.url;
+      if (url.includes('/metrics')) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('node_memory_MemAvailable_bytes 2147483648\n');
+        return;
+      }
       if (url.includes('/v1/auth/register')) {
         registerCount++;
       }
@@ -284,6 +298,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         env: {
           ...process.env,
           TARGET_URL: `http://127.0.0.1:${testPort}`,
+          EDGE_METRICS_URL: `http://127.0.0.1:${testPort}/metrics`,
           LOADTEST_USER_PASSWORD: 'Pass123!500Error',
           ALLOW_OUTSIDE_WINDOW: 'true',
           ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
@@ -294,7 +309,7 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
       assert.fail('lt2-run.sh should have failed due to preflight HTTP 500 error');
     } catch (err) {
       assert.strictEqual(err.code, 1);
-      assert.match(err.stderr || err.stdout, /Target preflight check returned HTTP 500/);
+      assert.match(err.stderr || err.stdout, /Target API preflight check returned HTTP 500/);
       assert.strictEqual(
         registerCount,
         0,
@@ -304,6 +319,75 @@ describe('LT2 Load Test Runner Real Code Integration Tests (lt2-run.sh)', () => 
         fs.existsSync(accountsFile),
         false,
         'lt2_accounts.json MUST NOT be written on preflight HTTP 500 error',
+      );
+    } finally {
+      await new Promise((resolve) => mockServer.close(resolve));
+      if (fs.existsSync(testTmpDir)) {
+        fs.rmSync(testTmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Preflight HTTP 404 client error on API endpoint prevents preseed account creation even if root URL returns 200', async () => {
+    const testTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-preflight-404-'));
+    const accountsFile = path.join(testTmpDir, 'lt2_accounts.json');
+
+    let registerCount = 0;
+    const testPort = 8093;
+    const mockServer = http.createServer((req, res) => {
+      const url = req.url;
+      if (url.includes('/v1/auth/register')) {
+        registerCount++;
+        res.writeHead(201);
+        res.end();
+        return;
+      }
+      if (url.includes('/metrics')) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('node_memory_MemAvailable_bytes 2147483648\n');
+        return;
+      }
+      if (url.includes('/v1/videos')) {
+        // API endpoint returns 404
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 'NOT_FOUND', message: 'API not found' }));
+        return;
+      }
+      // Root URL returns 200 OK (e.g. static site)
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body>Winkey Web Page</body></html>');
+    });
+    await new Promise((resolve) => mockServer.listen(testPort, '127.0.0.1', resolve));
+
+    try {
+      await execFileAsync('bash', [runScriptPath], {
+        env: {
+          ...process.env,
+          TARGET_URL: `http://127.0.0.1:${testPort}`,
+          EDGE_METRICS_URL: `http://127.0.0.1:${testPort}/metrics`,
+          LOADTEST_USER_PASSWORD: 'Pass123!404Error',
+          ALLOW_OUTSIDE_WINDOW: 'true',
+          ABORT_SIGNAL_FILE: path.join(testTmpDir, 'abort.signal'),
+          WATCHDOG_READY_FILE: path.join(testTmpDir, 'watchdog.ready'),
+          LT2_STATE_DIR: testTmpDir,
+        },
+      });
+      assert.fail('lt2-run.sh should have failed due to API HTTP 404 client error');
+    } catch (err) {
+      assert.strictEqual(err.code, 1);
+      assert.match(
+        err.stderr || err.stdout,
+        /Target API preflight check returned HTTP 404 client error/,
+      );
+      assert.strictEqual(
+        registerCount,
+        0,
+        'ZERO registration requests MUST be sent on preflight API 404 error even if root is 200',
+      );
+      assert.strictEqual(
+        fs.existsSync(accountsFile),
+        false,
+        'lt2_accounts.json MUST NOT be written on preflight API 404 error',
       );
     } finally {
       await new Promise((resolve) => mockServer.close(resolve));

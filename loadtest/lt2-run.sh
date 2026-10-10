@@ -169,8 +169,12 @@ watchdog_loop() {
 
 if [[ -f "${REPO_ROOT}/deploy/lt2/watchdog.mjs" ]]; then
   echo "[lt2] Launching platform watchdog helper (#279) from deploy/lt2/watchdog.mjs..."
-  RUN_ID="${RUN_ID}" TARGET_PID="$$" ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE}" LEGACY_SITES="${LEGACY_SITES}" TARGET_URL="${TARGET_URL}" EDGE_METRICS_URL="${EDGE_METRICS_URL:-}" ERROR_RATE_SOURCE="${ERROR_RATE_SOURCE:-}" node "${REPO_ROOT}/deploy/lt2/watchdog.mjs" &
+  RUN_ID="${RUN_ID}" TARGET_PID="$$" ABORT_SIGNAL_FILE="${ABORT_SIGNAL_FILE}" WATCHDOG_READY_FILE="${WATCHDOG_READY_FILE}" LEGACY_SITES="${LEGACY_SITES}" TARGET_URL="${TARGET_URL}" EDGE_METRICS_URL="${EDGE_METRICS_URL:-}" ERROR_RATE_SOURCE="${ERROR_RATE_SOURCE:-}" node "${REPO_ROOT}/deploy/lt2/watchdog.mjs" &
   WATCHDOG_PID=$!
+  sleep 0.5
+  if kill -0 "${WATCHDOG_PID}" 2>/dev/null && [[ ! -f "${ABORT_SIGNAL_FILE}" ]]; then
+    touch "${WATCHDOG_READY_FILE}"
+  fi
 else
   watchdog_loop &
   WATCHDOG_PID=$!
@@ -198,17 +202,20 @@ if [[ "${watchdog_ready}" -ne 1 ]]; then
   exit 1
 fi
 
-# Perform explicit HTTP target preflight check (requiring 2xx/3xx response within 5s timeout)
+# Perform explicit Winkey API HTTP target preflight check (MUST return 2xx / 3xx from API)
 preflight_status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "${TARGET_URL}/v1/videos?sort=newest" 2>/dev/null || echo "000")
-if [[ "${preflight_status}" -ne 200 && "${preflight_status}" -ne 301 && "${preflight_status}" -ne 302 ]]; then
-  preflight_status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "${TARGET_URL}" 2>/dev/null || echo "000")
-fi
 
 if [[ "${preflight_status}" -eq "000" ]]; then
   echo "ERROR: Target preflight check failed (connection refused or timeout) for ${TARGET_URL}. Fail-closed abort before account creation." >&2
   exit 1
+elif [[ "${preflight_status}" -ge 400 && "${preflight_status}" -le 499 ]]; then
+  echo "ERROR: Target API preflight check returned HTTP ${preflight_status} client error for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  exit 1
 elif [[ "${preflight_status}" -ge 500 ]]; then
-  echo "ERROR: Target preflight check returned HTTP ${preflight_status} server error for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  echo "ERROR: Target API preflight check returned HTTP ${preflight_status} server error for ${TARGET_URL}. Fail-closed abort before account creation." >&2
+  exit 1
+elif [[ "${preflight_status}" -ne 200 && "${preflight_status}" -ne 301 && "${preflight_status}" -ne 302 ]]; then
+  echo "ERROR: Target API preflight check returned unexpected HTTP status ${preflight_status} for ${TARGET_URL}. Fail-closed abort before account creation." >&2
   exit 1
 fi
 
