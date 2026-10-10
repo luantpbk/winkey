@@ -153,6 +153,9 @@ func (s *memStore) UpdateVideo(_ context.Context, id, ownerID uuid.UUID, u domai
 	if u.Visibility != nil {
 		v.Visibility = *u.Visibility
 	}
+	if u.Tags != nil {
+		v.Tags = *u.Tags
+	}
 	s.videos[id] = v
 	return v, nil
 }

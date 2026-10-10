@@ -29,7 +29,7 @@ var _ domain.Store = (*Postgres)(nil)
 // videoCols joins the owner profile (LEFT: a suspended/deleted owner has no
 // row in the view) and reads everything GetVideo/UpdateVideo return.
 const videoSelect = `
-	SELECT v.id, v.owner_id, v.title, v.description, v.visibility::text, v.status::text,
+	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.visibility::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
 	       v.hls_master_key, v.thumbnail_key, v.storyboard_key,
 	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
@@ -40,13 +40,16 @@ const videoSelect = `
 func scanVideo(row pgx.Row) (domain.Video, error) {
 	var v domain.Video
 	var ownerActive bool
-	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Visibility, &v.Status,
+	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.Visibility, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
 		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey,
 		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
 		&v.ModerationState, &v.ModerationReason, &v.ModeratedBy, &v.ModeratedAt)
 	v.Owner.ID = v.OwnerID
 	v.Owner.Missing = !ownerActive
+	if v.Tags == nil {
+		v.Tags = []string{}
+	}
 	return v, err
 }
 
@@ -273,9 +276,10 @@ func (p *Postgres) UpdateVideo(ctx context.Context, id, ownerID uuid.UUID, u dom
 		UPDATE media.videos SET
 			title       = coalesce($3, title),
 			description = coalesce($4, description),
-			visibility  = coalesce($5::media.visibility, visibility)
+			visibility  = coalesce($5::media.visibility, visibility),
+			tags        = coalesce($6::text[], tags)
 		WHERE id = $1 AND owner_id = $2
-		RETURNING visibility::text`, id, ownerID, u.Title, u.Description, u.Visibility).Scan(&after); err != nil {
+		RETURNING visibility::text`, id, ownerID, u.Title, u.Description, u.Visibility, u.Tags).Scan(&after); err != nil {
 		return domain.Video{}, fmt.Errorf("update video: %w", err)
 	}
 	if after != before {

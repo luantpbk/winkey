@@ -226,9 +226,10 @@ func setCacheControl(w http.ResponseWriter, v domain.Video) {
 // ---- PATCH /v1/videos/{video_id} ----------------------------------------------
 
 type updateRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Visibility  *string `json:"visibility"`
+	Title       *string   `json:"title"`
+	Description *string   `json:"description"`
+	Visibility  *string   `json:"visibility"`
+	Tags        *[]string `json:"tags"`
 }
 
 func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
@@ -263,8 +264,17 @@ func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fe []httpx.FieldError
-	if req.Title == nil && req.Description == nil && req.Visibility == nil {
-		fe = append(fe, httpx.FieldError{Field: "body", Message: "at least one of title, description, visibility is required"})
+	if req.Title == nil && req.Description == nil && req.Visibility == nil && req.Tags == nil {
+		fe = append(fe, httpx.FieldError{Field: "body", Message: "at least one of title, description, visibility, tags is required"})
+	}
+	var tags *[]string
+	if req.Tags != nil {
+		norm, err := domain.NormalizeTags(*req.Tags)
+		if err != nil {
+			fe = append(fe, httpx.FieldError{Field: "tags", Message: err.Error()})
+		} else {
+			tags = &norm
+		}
 	}
 	if req.Title != nil {
 		if n := utf8.RuneCountInString(*req.Title); n < 1 || n > 100 {
@@ -287,7 +297,7 @@ func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, err := h.Store.UpdateVideo(r.Context(), id, who.ID, domain.Update{
-		Title: req.Title, Description: req.Description, Visibility: req.Visibility,
+		Title: req.Title, Description: req.Description, Visibility: req.Visibility, Tags: tags,
 	})
 	if h.Cache != nil {
 		h.Cache.Invalidate(r.Context(), id)

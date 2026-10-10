@@ -38,6 +38,7 @@ type videoJSON struct {
 	ID          string        `json:"id"`
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
+	Tags        []string      `json:"tags"`
 	Owner       profileJSON   `json:"owner"`
 	Visibility  string        `json:"visibility"`
 	Status      string        `json:"status"`
@@ -132,12 +133,15 @@ func moderation(state string, reason *string, at *time.Time) *moderationJSON {
 // (owner, moderator, admin only).
 func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	out := videoJSON{
-		ID: v.ID.String(), Title: v.Title, Description: v.Description, Owner: h.profile(v.Owner),
+		ID: v.ID.String(), Title: v.Title, Description: v.Description, Tags: v.Tags, Owner: h.profile(v.Owner),
 		Visibility: v.Visibility, Status: v.Status, DurationMs: v.DurationMs, Width: v.Width, Height: v.Height,
 		ViewCount: v.ViewCount, LikeCount: v.LikeCount, PublishedAt: utcPtr(v.PublishedAt), CreatedAt: v.CreatedAt.UTC(),
 	}
 	if out.Owner.ID == "" {
 		out.Owner.ID = v.OwnerID.String()
+	}
+	if out.Tags == nil { // e.g. a cache entry written before TAG1
+		out.Tags = []string{}
 	}
 	if who.SeesModeration(v) {
 		out.Moderation = moderation(v.ModerationState, v.ModerationReason, v.ModeratedAt)

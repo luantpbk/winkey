@@ -838,7 +838,12 @@ Phần backend đã có `updateVideo` (`PATCH /v1/videos/{id}`: tiêu đề, mô
   - User xác minh tên miền trên Google Search Console bằng bản ghi DNS TXT (Cloudflare), rồi nộp sitemap.
 - **Thẻ (TAG1):** Google **bỏ qua** `<meta name="keywords">`. Thẻ không giúp lên Google; thứ hạng đến từ tiêu đề, mô tả, dữ liệu có cấu trúc, sitemap và lượt xem.
   - Giá trị thật của thẻ là cho tìm kiếm trong Winkey và cho video liên quan. Cả hai đều nằm ở video-svc (Go), cùng migration `media.videos.tags` và FTS.
-  - Thư mục Go hiện **không có chủ**, nên TAG1 chờ user quyết định có cho Sonnet làm lại không.
+  - Thư mục Go hiện **không có chủ**, nên TAG1 chờ user quyết định có cho Sonnet làm lại không. **Cập nhật 2026-10-10:** user giao luôn phần Go cho kiến trúc sư. TAG1 gồm:
+    - migration 000020: cột `media.videos.tags` (tối đa 10 thẻ), thẻ đưa vào `search_vector` với trọng số A;
+    - `Video.tags` và `UpdateVideoRequest.tags`;
+    - chuẩn hoá thẻ: cắt khoảng trắng, bỏ trùng không phân biệt hoa thường và dấu;
+    - video liên quan ưu tiên thẻ.
+    Giao diện nhập thẻ thuộc ST1-web.
   - Trong lúc chờ, SEO1 đưa từ khoá vào mô tả, việc này có tác dụng thật.
 - **Lỗi thêm vào danh sách:** Antigravity 2 tra log production của social-svc (`POST /v1/playlists/*/items`, `GET .../playlist-membership`) và gateway, rồi báo nguyên nhân trước khi giao sửa.
 **Hệ quả.** Creator sửa được video và video có thể lên Google mà không cần sửa Go. Thẻ hoãn lại, nhưng ít ảnh hưởng tới SEO.
