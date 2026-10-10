@@ -3,13 +3,12 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
 import type { Video } from '@winkey/api-client';
-import { VideoPlayer } from '../../../../components/video/video-player';
 import { CommentSection } from '../../../../components/social/comment-section';
-import { RelatedVideosColumn } from '../../../../components/video/related-videos-column';
-import { WatchClientSection } from './watch-client';
+import { WatchLayout } from '../../../../components/watch/watch-layout';
 
 interface WatchPageProps {
   params: Promise<{ locale: string; id: string }>;
+  searchParams?: Promise<{ playlist?: string; src?: string }>;
 }
 
 async function getVideo(id: string): Promise<Video | null> {
@@ -65,7 +64,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
   };
 }
 
-export default async function WatchPage({ params }: WatchPageProps) {
+export default async function WatchPage({ params, searchParams }: WatchPageProps) {
   const { locale, id } = await params;
   setRequestLocale(locale);
 
@@ -75,46 +74,18 @@ export default async function WatchPage({ params }: WatchPageProps) {
     notFound();
   }
 
+  const searchParamsObj = searchParams ? await searchParams : {};
+  const initialPlaylistId = searchParamsObj.playlist;
+
   return (
-    <div className="w-full max-w-[1800px] mx-auto grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {/* Main player + Video Info */}
-      <div className="lg:col-span-2 xl:col-span-3 flex flex-col gap-4">
-        {/* Player with Poster */}
-        <VideoPlayer
-          videoId={video.id}
-          durationMs={video.duration_ms}
-          src={video.playback?.hls_url}
-          poster={video.playback?.thumbnail_url}
-          title={video.title}
-          renditions={video.playback?.renditions}
-          subtitles={video.playback?.subtitles}
-          storyboardUrl={video.playback?.storyboard_url}
-          expiresAt={video.playback?.expires_at}
-        />
-
-        {/* Video Title */}
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
-          {video.title}
-        </h1>
-
-        {/* Client Interactive Section (Owner info, Subscribe, Like, Description) */}
-        <WatchClientSection video={video} />
-      </div>
-
-      {/* Related Videos Column:
-          - desktop (≥ 1024 px): right of the player, beside the description/comments;
-          - mobile (< 1024 px): under the player and the description, before the comments.
-      */}
-      <div className="lg:col-span-1 xl:col-span-1 lg:row-span-2">
-        <RelatedVideosColumn videoId={video.id} />
-      </div>
-
-      {/* Comments Section */}
-      <div className="lg:col-span-2 xl:col-span-3">
+    <WatchLayout
+      video={video}
+      initialPlaylistId={initialPlaylistId}
+      commentsSlot={
         <React.Suspense fallback={null}>
           <CommentSection videoId={video.id} />
         </React.Suspense>
-      </div>
-    </div>
+      }
+    />
   );
 }

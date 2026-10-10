@@ -85,6 +85,14 @@ export type PlaylistItemPage = SocialComponents['schemas']['PlaylistItemPage'];
 export type AddPlaylistItemRequest = SocialComponents['schemas']['AddPlaylistItemRequest'];
 export type MovePlaylistItemRequest = SocialComponents['schemas']['MovePlaylistItemRequest'];
 export type PlaylistMembership = SocialComponents['schemas']['PlaylistMembership'];
+export type SeriesSummary = SocialComponents['schemas']['SeriesSummary'];
+export type CinemaCatalogItem = SocialComponents['schemas']['CinemaCatalogItem'];
+export type CinemaCatalogSeries = SocialComponents['schemas']['CinemaCatalogSeries'];
+export type CinemaCatalogVideo = SocialComponents['schemas']['CinemaCatalogVideo'];
+export type CinemaCatalogPage = SocialComponents['schemas']['CinemaCatalogPage'];
+export type SeriesEpisode = SocialComponents['schemas']['SeriesEpisode'];
+export type SeriesEpisodePage = SocialComponents['schemas']['SeriesEpisodePage'];
+export type SeriesEpisodeContext = SocialComponents['schemas']['SeriesEpisodeContext'];
 
 export type AdminUser = AuthComponents['schemas']['AdminUser'];
 export type AdminUserPage = AuthComponents['schemas']['AdminUserPage'];

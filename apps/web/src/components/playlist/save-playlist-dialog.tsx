@@ -25,6 +25,7 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newVisibility, setNewVisibility] = useState<Visibility>('PRIVATE');
+  const [newIsSeries, setNewIsSeries] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -108,9 +109,11 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
         if (res.response.status === 409) {
           const errData = res.error as { code?: string; title?: string } | undefined;
           const msg =
-            errData?.code === 'PLAYLIST_FULL'
-              ? 'Danh sách phát đã đầy (tối đa 5.000 video).'
-              : errData?.title || 'Không thể thêm vào danh sách phát.';
+            errData?.code === 'SERIES_FOREIGN_ITEM'
+              ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
+              : errData?.code === 'PLAYLIST_FULL'
+                ? 'Danh sách phát đã đầy (tối đa 5.000 video).'
+                : errData?.title || 'Không thể thêm vào danh sách phát.';
           showToast({ title: msg, type: 'error' });
           // Rollback
           setSelectedIds((prev) => {
@@ -172,15 +175,18 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
           title: trimmedTitle,
           description: '',
           visibility: newVisibility,
+          is_series: newIsSeries,
         },
       });
 
       if (createRes.response.status === 409) {
         const errData = createRes.error as { code?: string; title?: string } | undefined;
         const msg =
-          errData?.code === 'PLAYLIST_LIMIT'
-            ? 'Bạn đã đạt giới hạn tối đa 200 danh sách phát.'
-            : errData?.title || 'Không thể tạo danh sách phát.';
+          errData?.code === 'SERIES_FOREIGN_ITEM'
+            ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
+            : errData?.code === 'PLAYLIST_LIMIT'
+              ? 'Bạn đã đạt giới hạn tối đa 200 danh sách phát.'
+              : errData?.title || 'Không thể tạo danh sách phát.';
         showToast({ title: msg, type: 'error' });
         setIsCreating(false);
         return;
@@ -190,19 +196,30 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
         const createdPlaylist = createRes.data;
 
         // Automatically add video to this new playlist
-        await api.social.POST('/v1/playlists/{playlist_id}/items', {
+        const itemRes = await api.social.POST('/v1/playlists/{playlist_id}/items', {
           params: { path: { playlist_id: createdPlaylist.id } },
           body: { video_id: videoId },
         });
 
+        if (itemRes.response.status === 409) {
+          const itemErr = itemRes.error as { code?: string; title?: string } | undefined;
+          const msg =
+            itemErr?.code === 'SERIES_FOREIGN_ITEM'
+              ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
+              : itemErr?.title || 'Không thể thêm video vào danh sách phát.';
+          showToast({ title: msg, type: 'error' });
+        } else {
+          setSelectedIds((prev) => new Set(prev).add(createdPlaylist.id));
+          showToast({
+            title: `Đã tạo "${createdPlaylist.title}" và lưu video`,
+            type: 'success',
+          });
+        }
+
         setPlaylists((prev) => [...prev, createdPlaylist]);
-        setSelectedIds((prev) => new Set(prev).add(createdPlaylist.id));
         setNewTitle('');
+        setNewIsSeries(false);
         setShowCreateForm(false);
-        showToast({
-          title: `Đã tạo "${createdPlaylist.title}" và lưu video`,
-          type: 'success',
-        });
       } else {
         showToast({ title: 'Không thể tạo danh sách phát.', type: 'error' });
       }
@@ -338,6 +355,28 @@ export function SavePlaylistDialog({ videoId, isOpen, onClose }: SavePlaylistDia
                   <option value="UNLISTED">Không công khai</option>
                   <option value="PUBLIC">Công khai</option>
                 </select>
+              </div>
+
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  id="new-playlist-is-series"
+                  type="checkbox"
+                  checked={newIsSeries}
+                  onChange={(e) => setNewIsSeries(e.target.checked)}
+                  data-testid="new-playlist-is-series-checkbox"
+                  className="h-4 w-4 mt-0.5 rounded border-zinc-600 bg-zinc-800 text-red-600 focus:ring-red-500 focus:ring-offset-zinc-900"
+                />
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="new-playlist-is-series"
+                    className="text-xs font-medium text-zinc-300 cursor-pointer select-none"
+                  >
+                    Bộ phim
+                  </label>
+                  <span className="text-[11px] text-zinc-500">
+                    Đánh dấu danh sách phát này là một bộ phim.
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-1">

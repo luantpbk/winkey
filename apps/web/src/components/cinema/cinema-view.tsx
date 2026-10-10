@@ -5,8 +5,9 @@ import type { VideoSummary, Playlist } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
 import { CinemaHero } from './cinema-hero';
-import { CinemaRow } from './cinema-row';
+import { CinemaRow, type CinemaRowItem } from './cinema-row';
 import { CinemaDetailDialog } from './cinema-detail-dialog';
+import { CinemaSeriesDialog } from './cinema-series-dialog';
 import type { WatchSurface } from '../../lib/video/watch-url';
 import {
   getContinueWatching,
@@ -18,6 +19,7 @@ import { useTranslations } from 'next-intl';
 export interface CinemaViewProps {
   curatorHandle?: string;
   initialVideoId?: string;
+  initialSeriesId?: string;
   initialHeroVideos?: VideoSummary[];
   initialSortSource?: 'trending' | 'latest';
 }
@@ -25,6 +27,7 @@ export interface CinemaViewProps {
 export function CinemaView({
   curatorHandle,
   initialVideoId,
+  initialSeriesId,
   initialHeroVideos,
   initialSortSource = 'trending',
 }: CinemaViewProps) {
@@ -35,6 +38,9 @@ export function CinemaView({
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(initialVideoId || null);
   const [selectedSurface, setSelectedSurface] = useState<WatchSurface>('other');
 
+  // URL series dialog sync (?series=<playlist_id>)
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(initialSeriesId || null);
+
   // Continue Watching state
   const [continueWatchingVideos, setContinueWatchingVideos] = useState<VideoSummary[]>([]);
   const [progressMap, setProgressMap] = useState<Record<string, number>>({});
@@ -42,11 +48,12 @@ export function CinemaView({
   // Editorial playlists state
   const [editorialPlaylists, setEditorialPlaylists] = useState<Playlist[]>([]);
 
-  // 1. Sync ?v=<id> with browser history
+  // 1. Sync ?v=<id> and ?series=<id> with browser history
   useEffect(() => {
     const handlePopState = () => {
       const url = new URL(window.location.href);
       setSelectedVideoId(url.searchParams.get('v'));
+      setSelectedSeriesId(url.searchParams.get('series'));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -58,6 +65,7 @@ export function CinemaView({
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.set('v', id);
+      url.searchParams.delete('series');
       window.history.pushState({ videoId: id }, '', url.toString());
     }
   }, []);
@@ -72,6 +80,68 @@ export function CinemaView({
       }
     }
   }, []);
+
+  const openSeries = useCallback((playlistId: string) => {
+    setSelectedSeriesId(playlistId);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('series', playlistId);
+      url.searchParams.delete('v');
+      window.history.pushState({ seriesId: playlistId }, '', url.toString());
+    }
+  }, []);
+
+  const closeSeries = useCallback(() => {
+    setSelectedSeriesId(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('series')) {
+        url.searchParams.delete('series');
+        window.history.pushState({}, '', url.toString());
+      }
+    }
+  }, []);
+
+  // Hydrate catalog rows with ONE batchGetVideos call per page, dropping omitted items
+  const fetchCatalogRow = useCallback(
+    async (kind: 'all' | 'series' | 'video'): Promise<CinemaRowItem[]> => {
+      const res = await api.social.GET('/v1/cinema/catalog', {
+        params: { query: { kind, limit: 20 } },
+      });
+
+      const items = res.data?.items || [];
+      if (items.length === 0) return [];
+
+      const ids = items.map((it) =>
+        it.kind === 'SERIES' ? it.series.first_video_id : it.video_id,
+      );
+
+      const batchRes = await api.video.GET('/v1/videos/batch', {
+        params: { query: { ids } },
+        querySerializer: { array: { style: 'form', explode: false } },
+      });
+
+      const batchVideos = batchRes.data?.items || [];
+      const videoMap = new Map<string, VideoSummary>(batchVideos.map((v) => [v.id, v]));
+
+      const result: CinemaRowItem[] = [];
+      for (const it of items) {
+        if (it.kind === 'SERIES') {
+          const coverVideo = videoMap.get(it.series.first_video_id);
+          if (coverVideo) {
+            result.push({ kind: 'series', series: it.series, coverVideo });
+          }
+        } else {
+          const video = videoMap.get(it.video_id);
+          if (video) {
+            result.push({ kind: 'video', video });
+          }
+        }
+      }
+      return result;
+    },
+    [],
+  );
 
   // 2. Load Continue Watching entries & fetch batch
   const reloadContinueWatching = useCallback(async () => {
@@ -209,6 +279,36 @@ export function CinemaView({
           testId="cinema-row-top10"
         />
 
+        {/* Row c1: "Phim bộ" (Series) */}
+        <CinemaRow
+          title={t('seriesRowTitle')}
+          surface="playlist"
+          fetchItems={() => fetchCatalogRow('series')}
+          onOpenDetail={(id) => openDetail(id, 'playlist')}
+          onOpenSeries={openSeries}
+          testId="cinema-row-series"
+        />
+
+        {/* Row c2: "Phim lẻ" (Standalone Videos) */}
+        <CinemaRow
+          title={t('moviesRowTitle')}
+          surface="other"
+          fetchItems={() => fetchCatalogRow('video')}
+          onOpenDetail={(id) => openDetail(id, 'other')}
+          onOpenSeries={openSeries}
+          testId="cinema-row-movies"
+        />
+
+        {/* Row c3: "Mới thêm" (All newest items interleaved) */}
+        <CinemaRow
+          title={t('newestCatalogRowTitle')}
+          surface="latest"
+          fetchItems={() => fetchCatalogRow('all')}
+          onOpenDetail={(id) => openDetail(id, 'latest')}
+          onOpenSeries={openSeries}
+          testId="cinema-row-newest-catalog"
+        />
+
         {/* Row c: "Dành cho bạn" (Signed-in only) */}
         {isAuthenticated && (
           <CinemaRow
@@ -290,13 +390,16 @@ export function CinemaView({
         ))}
       </div>
 
-      {/* 4. DETAIL DIALOG */}
+      {/* 4. DETAIL DIALOG (?v=<id>) */}
       <CinemaDetailDialog
         videoId={selectedVideoId}
         surface={selectedSurface}
         onClose={closeDetail}
         onSelectVideo={(newId) => openDetail(newId, 'up_next')}
       />
+
+      {/* 5. SERIES DETAIL DIALOG (?series=<playlist_id>) */}
+      <CinemaSeriesDialog playlistId={selectedSeriesId} onClose={closeSeries} />
     </div>
   );
 }

@@ -51,6 +51,10 @@ import type {
   VideoStats,
   VideoStatsDay,
   StatsTotals,
+  CinemaCatalogItem,
+  SeriesEpisode,
+  SeriesEpisodeContext,
+  SeriesSummary,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -61,6 +65,9 @@ import {
   mockAdminUsers,
   mockModerationCases,
   mockAuditEntries,
+  mockSeriesPlaylist,
+  mockSeriesEpisodes,
+  mockCinemaCatalogItems,
 } from './fixtures';
 
 let currentUser: User | null = mockUsers.creator;
@@ -78,6 +85,24 @@ export function setMockPlaylistFull(val: boolean) {
 }
 export function setMockPlaylistLimit(val: boolean) {
   mockPlaylistLimit = val;
+}
+
+let mockSeriesForeignItem = false;
+export function setMockSeriesForeignItem(val: boolean) {
+  mockSeriesForeignItem = val;
+}
+export function resetMockSeriesForeignItem() {
+  mockSeriesForeignItem = false;
+}
+
+let mockCinemaCatalogOverride: CinemaCatalogItem[] | null = null;
+export function setMockCinemaCatalogOverride(val: CinemaCatalogItem[] | null) {
+  mockCinemaCatalogOverride = val;
+}
+
+let mockSeriesEpisodesOverride: SeriesEpisode[] | null = null;
+export function setMockSeriesEpisodesOverride(val: SeriesEpisode[] | null) {
+  mockSeriesEpisodesOverride = val;
 }
 
 let usedVerifyEmailTokens = new Set<string>();
@@ -114,6 +139,7 @@ const initialMockPlaylists: Playlist[] = [
     created_at: '2026-02-01T00:00:00Z',
     updated_at: '2026-02-01T00:00:00Z',
   },
+  mockSeriesPlaylist,
 ];
 
 const initialMockPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = [
@@ -149,6 +175,30 @@ const initialMockPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = 
       added_at: '2026-02-02T00:00:00Z',
     },
   },
+  {
+    playlist_id: mockSeriesPlaylist.id,
+    item: {
+      video_id: mockSeriesEpisodes[0].video_id,
+      position: 1048576,
+      added_at: '2026-09-10T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: mockSeriesPlaylist.id,
+    item: {
+      video_id: mockSeriesEpisodes[1].video_id,
+      position: 2097152,
+      added_at: '2026-09-15T00:00:00Z',
+    },
+  },
+  {
+    playlist_id: mockSeriesPlaylist.id,
+    item: {
+      video_id: mockSeriesEpisodes[2].video_id,
+      position: 3145728,
+      added_at: '2026-09-20T00:00:00Z',
+    },
+  },
 ];
 
 let dynamicPlaylists: Playlist[] = JSON.parse(JSON.stringify(initialMockPlaylists));
@@ -159,6 +209,9 @@ let dynamicPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = JSON.p
 export function resetPlaylistMocks() {
   mockPlaylistFull = false;
   mockPlaylistLimit = false;
+  mockSeriesForeignItem = false;
+  mockCinemaCatalogOverride = null;
+  mockSeriesEpisodesOverride = null;
   dynamicPlaylists = JSON.parse(JSON.stringify(initialMockPlaylists));
   dynamicPlaylistItems = JSON.parse(JSON.stringify(initialMockPlaylistItems));
 }
@@ -3721,6 +3774,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       title: body.title,
       description: body.description || '',
       visibility: body.visibility || 'PRIVATE',
+      is_series: Boolean(body.is_series),
       item_count: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -3917,6 +3971,19 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
+    if (pl.is_series && mockSeriesForeignItem) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Series foreign item',
+          status: 409,
+          code: 'SERIES_FOREIGN_ITEM',
+          detail: 'Bộ phim chỉ chứa video của chính kênh bạn.',
+        },
+        { status: 409 },
+      );
+    }
+
     const body = (await request.json()) as { video_id: string };
     const existing = dynamicPlaylistItems.find(
       (x) => x.playlist_id === playlistId && x.item.video_id === body.video_id,
@@ -4015,6 +4082,21 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     }
 
     const body = (await request.json()) as UpdatePlaylistRequest;
+    if (body.is_series !== undefined) {
+      if (mockSeriesForeignItem) {
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Series foreign item',
+            status: 409,
+            code: 'SERIES_FOREIGN_ITEM',
+            detail: 'Bộ phim chỉ chứa video của chính kênh bạn.',
+          },
+          { status: 409 },
+        );
+      }
+      pl.is_series = body.is_series;
+    }
     if (body.title !== undefined) pl.title = body.title;
     if (body.description !== undefined) pl.description = body.description;
     if (body.visibility !== undefined) pl.visibility = body.visibility;
@@ -4331,5 +4413,131 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     };
 
     return HttpResponse.json(videoStats);
+  }),
+
+  http.get('*/v1/cinema/catalog', async ({ request }) => {
+    const url = new URL(request.url);
+    const kind = url.searchParams.get('kind') || 'all';
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    let items: CinemaCatalogItem[] = mockCinemaCatalogOverride
+      ? [...mockCinemaCatalogOverride]
+      : [...mockCinemaCatalogItems];
+
+    if (!mockCinemaCatalogOverride) {
+      if (kind === 'series') {
+        items = items.filter((it) => it.kind === 'SERIES');
+      } else if (kind === 'video') {
+        items = items.filter((it) => it.kind === 'VIDEO');
+      }
+    }
+
+    return HttpResponse.json({
+      items: items.slice(0, limit),
+      next_cursor: null,
+    });
+  }),
+
+  http.get('*/v1/series/:playlist_id/episodes', async ({ params, request }) => {
+    const playlistId = params.playlist_id as string;
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const cursor = url.searchParams.get('cursor');
+
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || !pl.is_series || pl.visibility !== 'PUBLIC') {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Series not found',
+          status: 404,
+          code: 'SERIES_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const episodes: SeriesEpisode[] = mockSeriesEpisodesOverride
+      ? [...mockSeriesEpisodesOverride]
+      : [...mockSeriesEpisodes];
+
+    const startIndex = cursor ? parseInt(cursor, 10) : 0;
+    const pageItems = episodes.slice(startIndex, startIndex + limit);
+    const nextCursor = startIndex + limit < episodes.length ? String(startIndex + limit) : null;
+
+    const seriesSummary: SeriesSummary = {
+      playlist_id: pl.id,
+      title: pl.title,
+      description: pl.description || '',
+      owner: pl.owner,
+      episode_count: episodes.length,
+      first_video_id: episodes[0]?.video_id || '',
+      updated_at: pl.updated_at,
+    };
+
+    return HttpResponse.json({
+      series: seriesSummary,
+      items: pageItems,
+      next_cursor: nextCursor,
+    });
+  }),
+
+  http.get('*/v1/series/:playlist_id/episodes/:video_id', async ({ params }) => {
+    const playlistId = params.playlist_id as string;
+    const videoId = params.video_id as string;
+
+    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    if (!pl || !pl.is_series || pl.visibility !== 'PUBLIC') {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Series not found',
+          status: 404,
+          code: 'SERIES_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const episodes: SeriesEpisode[] = mockSeriesEpisodesOverride
+      ? [...mockSeriesEpisodesOverride]
+      : [...mockSeriesEpisodes];
+
+    const currentIndex = episodes.findIndex((e) => e.video_id === videoId);
+    if (currentIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Episode not found',
+          status: 404,
+          code: 'EPISODE_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const currentEp = episodes[currentIndex];
+    const prevEp = currentIndex > 0 ? episodes[currentIndex - 1] : null;
+    const nextEp = currentIndex < episodes.length - 1 ? episodes[currentIndex + 1] : null;
+
+    const seriesSummary: SeriesSummary = {
+      playlist_id: pl.id,
+      title: pl.title,
+      description: pl.description || '',
+      owner: pl.owner,
+      episode_count: episodes.length,
+      first_video_id: episodes[0]?.video_id || '',
+      updated_at: pl.updated_at,
+    };
+
+    const context: SeriesEpisodeContext = {
+      series: seriesSummary,
+      episode_number: currentEp.episode_number,
+      previous_video_id: prevEp ? prevEp.video_id : null,
+      next_video_id: nextEp ? nextEp.video_id : null,
+      page_cursor: null,
+    };
+
+    return HttpResponse.json(context);
   }),
 ];

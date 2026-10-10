@@ -966,4 +966,149 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
       );
     });
   });
+
+  // =========================================================================
+  // 8. CIN2: Series Playlist (Bộ phim checkbox, 409 SERIES_FOREIGN_ITEM, badge)
+  // =========================================================================
+  describe('8. Series Playlist (CIN2 / ADR-035)', () => {
+    it('provides "Bộ phim" checkbox in SavePlaylistDialog and handles 409 SERIES_FOREIGN_ITEM', async () => {
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/channels/{channel_id}/playlists') {
+          return { data: { items: [], next_cursor: null }, response: new Response() } as any;
+        }
+        if (path === '/v1/videos/{video_id}/playlist-membership') {
+          return { data: { playlist_ids: [] }, response: new Response() } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      let postPlaylistBody: any = null;
+      vi.spyOn(api.social, 'POST').mockImplementation(async (path: string, options: any) => {
+        if (path === '/v1/playlists') {
+          postPlaylistBody = options?.body;
+          return {
+            error: {
+              code: 'SERIES_FOREIGN_ITEM',
+              title: 'Bộ phim chỉ chứa video của chính kênh bạn.',
+            },
+            response: new Response(null, { status: 409 }),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(
+        <SavePlaylistDialog videoId="foreign-vid-1" isOpen={true} onClose={vi.fn()} />,
+      );
+
+      // Open creation form
+      await waitFor(() => {
+        expect(screen.getByTestId('open-create-playlist-btn')).toBeDefined();
+      });
+      fireEvent.click(screen.getByTestId('open-create-playlist-btn'));
+
+      // Check for "Bộ phim" checkbox
+      const isSeriesCheckbox = screen.getByTestId(
+        'new-playlist-is-series-checkbox',
+      ) as HTMLInputElement;
+      expect(isSeriesCheckbox).toBeDefined();
+      expect(isSeriesCheckbox.checked).toBe(false);
+
+      // Fill form and check "Bộ phim"
+      fireEvent.change(screen.getByTestId('new-playlist-title-input'), {
+        target: { value: 'Bộ Phim Mới' },
+      });
+      fireEvent.click(isSeriesCheckbox);
+      expect(isSeriesCheckbox.checked).toBe(true);
+
+      // Submit form
+      fireEvent.click(screen.getByTestId('submit-create-playlist-btn'));
+
+      await waitFor(() => {
+        expect(postPlaylistBody).toEqual({
+          title: 'Bộ Phim Mới',
+          description: '',
+          visibility: 'PRIVATE',
+          is_series: true,
+        });
+        // 409 SERIES_FOREIGN_ITEM error toast is shown
+        expect(screen.getByText('Bộ phim chỉ chứa video của chính kênh bạn.')).toBeDefined();
+      });
+    });
+
+    it('renders "Bộ phim" badge on playlist page and allows editing is_series with 409 toast', async () => {
+      const mockSeriesPlaylistData: Playlist = {
+        id: 'pl-series-100',
+        owner: {
+          id: testOwnerId,
+          handle: 'testcreator',
+          display_name: 'Test Creator',
+          avatar_url: null,
+        },
+        kind: 'REGULAR',
+        title: 'Phim Bộ Thử Nghiệm',
+        description: 'Mô tả bộ phim',
+        visibility: 'PUBLIC',
+        item_count: 5,
+        is_series: true,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      };
+
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/playlists/{playlist_id}') {
+          return { data: mockSeriesPlaylistData, response: new Response() } as any;
+        }
+        if (path === '/v1/playlists/{playlist_id}/items') {
+          return { data: { items: [], next_cursor: null }, response: new Response() } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      let patchBody: any = null;
+      vi.spyOn(api.social, 'PATCH').mockImplementation(async (path: string, options: any) => {
+        if (path === '/v1/playlists/{playlist_id}') {
+          patchBody = options?.body;
+          return {
+            error: {
+              code: 'SERIES_FOREIGN_ITEM',
+              title: 'Bộ phim chỉ chứa video của chính kênh bạn.',
+            },
+            response: new Response(null, { status: 409 }),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(<PlaylistPage />);
+
+      // Verify "Bộ phim" badge is displayed
+      await waitFor(() => {
+        const badge = screen.getByTestId('playlist-series-badge');
+        expect(badge).toBeDefined();
+        expect(badge.textContent).toBe('Bộ phim');
+      });
+
+      // Open edit modal
+      fireEvent.click(screen.getByTestId('edit-playlist-btn'));
+
+      // Verify edit modal contains "Bộ phim" checkbox, checked by default
+      const editCheckbox = screen.getByTestId(
+        'edit-playlist-is-series-checkbox',
+      ) as HTMLInputElement;
+      expect(editCheckbox).toBeDefined();
+      expect(editCheckbox.checked).toBe(true);
+
+      // Save changes -> triggers 409 SERIES_FOREIGN_ITEM
+      fireEvent.click(screen.getByTestId('save-edit-playlist-btn'));
+
+      await waitFor(() => {
+        expect(patchBody).toMatchObject({
+          title: 'Phim Bộ Thử Nghiệm',
+          is_series: true,
+        });
+        expect(screen.getByText('Bộ phim chỉ chứa video của chính kênh bạn.')).toBeDefined();
+      });
+    });
+  });
 });
