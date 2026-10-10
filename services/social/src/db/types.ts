@@ -102,6 +102,7 @@ export interface PlaylistsTable {
   title: string;
   description: Generated<string>;
   visibility: Generated<PlaylistVisibility>;
+  is_series: Generated<boolean>;
   item_count: Generated<number>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -246,6 +247,7 @@ export interface PlaylistDto {
   title: string;
   description: string;
   visibility: PlaylistVisibility;
+  is_series: boolean;
   item_count: number;
   created_at: string;
   updated_at: string;
@@ -269,4 +271,51 @@ export interface PlaylistItemPageDto {
 
 export interface PlaylistMembershipDto {
   playlist_ids: string[];
+}
+
+export interface SeriesSummaryDto {
+  playlist_id: string;
+  title: string;
+  description: string;
+  owner: PublicProfileDto;
+  episode_count: number;
+  first_video_id: string;
+  updated_at: string;
+}
+
+export interface CinemaCatalogSeriesDto {
+  kind: 'SERIES';
+  series: SeriesSummaryDto;
+}
+
+export interface CinemaCatalogVideoDto {
+  kind: 'VIDEO';
+  video_id: string;
+  added_at: string;
+}
+
+export type CinemaCatalogItemDto = CinemaCatalogSeriesDto | CinemaCatalogVideoDto;
+
+export interface CinemaCatalogPageDto {
+  items: CinemaCatalogItemDto[];
+  next_cursor: string | null;
+}
+
+export interface SeriesEpisodeDto {
+  video_id: string;
+  episode_number: number;
+}
+
+export interface SeriesEpisodePageDto {
+  series: SeriesSummaryDto;
+  items: SeriesEpisodeDto[];
+  next_cursor: string | null;
+}
+
+export interface SeriesEpisodeContextDto {
+  series: SeriesSummaryDto;
+  episode_number: number;
+  previous_video_id: string | null;
+  next_video_id: string | null;
+  page_cursor: string | null;
 }

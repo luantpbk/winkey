@@ -1309,5 +1309,200 @@ describe('Playlists & Watch Later Unit Tests (Task PL1 / ADR-024)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().kind).toBe('WATCH_LATER');
     });
+
+    it('returns is_series: false for watch-later', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/me/watch-later',
+        headers: { 'x-user-id': userA },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().is_series).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------
+  // 12. Series Playlists (Task CIN2 / ADR-035)
+  // -------------------------------------------------------------
+  describe('Series Playlists (Task CIN2 / ADR-035)', () => {
+    it('creates a series playlist with is_series: true', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/playlists',
+        headers: { 'x-user-id': userA },
+        payload: { title: 'My Drama Series', is_series: true, visibility: 'PUBLIC' },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.is_series).toBe(true);
+      expect(body.title).toBe('My Drama Series');
+    });
+
+    it('creates a normal playlist with is_series: false when absent', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/playlists',
+        headers: { 'x-user-id': userA },
+        payload: { title: 'Normal List' },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().is_series).toBe(false);
+    });
+
+    it('updates is_series on an existing empty playlist', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/playlists',
+        headers: { 'x-user-id': userA },
+        payload: { title: 'To Be Series' },
+      });
+      const plId = createRes.json().id;
+      expect(createRes.json().is_series).toBe(false);
+
+      const updateRes = await app.inject({
+        method: 'PATCH',
+        url: `/v1/playlists/${plId}`,
+        headers: { 'x-user-id': userA },
+        payload: { is_series: true },
+      });
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.json().is_series).toBe(true);
+
+      // Can turn it back off
+      const updateOff = await app.inject({
+        method: 'PATCH',
+        url: `/v1/playlists/${plId}`,
+        headers: { 'x-user-id': userA },
+        payload: { is_series: false },
+      });
+      expect(updateOff.statusCode).toBe(200);
+      expect(updateOff.json().is_series).toBe(false);
+    });
+
+    it('returns 409 SERIES_FOREIGN_ITEM when updating is_series: true on playlist containing foreign video', async () => {
+      // Create playlist for userA
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/playlists',
+        headers: { 'x-user-id': userA },
+        payload: { title: 'Mixed Playlist' },
+      });
+      const plId = createRes.json().id;
+
+      // Add foreign video (videoPrivateB belongs to userB, but let's make a public video of userB)
+      const foreignVideo = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9099';
+      store.videos.push({
+        id: foreignVideo,
+        owner_id: userB,
+        like_count: 0,
+        comment_count: 0,
+        hidden: false,
+        visibility: 'PUBLIC',
+        created_at: new Date(),
+      });
+
+      // Add to userA's playlist (normal playlists allow foreign videos)
+      const addRes = await app.inject({
+        method: 'POST',
+        url: `/v1/playlists/${plId}/items`,
+        headers: { 'x-user-id': userA },
+        payload: { video_id: foreignVideo },
+      });
+      expect(addRes.statusCode).toBe(201);
+
+      // Try to turn on is_series: true
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/v1/playlists/${plId}`,
+        headers: { 'x-user-id': userA },
+        payload: { is_series: true },
+      });
+      expect(patchRes.statusCode).toBe(409);
+      expect(patchRes.json().code).toBe('SERIES_FOREIGN_ITEM');
+    });
+
+    it('returns 409 WATCH_LATER_IMMUTABLE when trying to set is_series on watch later', async () => {
+      const wlRes = await app.inject({
+        method: 'GET',
+        url: '/v1/me/watch-later',
+        headers: { 'x-user-id': userA },
+      });
+      const wlId = wlRes.json().id;
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/v1/playlists/${wlId}`,
+        headers: { 'x-user-id': userA },
+        payload: { is_series: true },
+      });
+      expect(patchRes.statusCode).toBe(409);
+      expect(patchRes.json().code).toBe('WATCH_LATER_IMMUTABLE');
+    });
+
+    it('allows adding own video to series, but rejects foreign video with 409 SERIES_FOREIGN_ITEM', async () => {
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/playlists',
+        headers: { 'x-user-id': userA },
+        payload: { title: 'Anime Series', is_series: true, visibility: 'PUBLIC' },
+      });
+      const seriesId = createRes.json().id;
+
+      // Add own video1
+      const addOwn = await app.inject({
+        method: 'POST',
+        url: `/v1/playlists/${seriesId}/items`,
+        headers: { 'x-user-id': userA },
+        payload: { video_id: video1 },
+      });
+      expect(addOwn.statusCode).toBe(201);
+
+      // Add foreign video of userB
+      const foreignVideo = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9098';
+      store.videos.push({
+        id: foreignVideo,
+        owner_id: userB,
+        like_count: 0,
+        comment_count: 0,
+        hidden: false,
+        visibility: 'PUBLIC',
+        created_at: new Date(),
+      });
+
+      const addForeign = await app.inject({
+        method: 'POST',
+        url: `/v1/playlists/${seriesId}/items`,
+        headers: { 'x-user-id': userA },
+        payload: { video_id: foreignVideo },
+      });
+      expect(addForeign.statusCode).toBe(409);
+      expect(addForeign.json().code).toBe('SERIES_FOREIGN_ITEM');
+    });
+
+    it('GET /v1/channels/:id/playlists includes is_series field', async () => {
+      store.playlists.push({
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9077',
+        owner_id: userA,
+        kind: 'REGULAR',
+        title: 'Channel List',
+        description: '',
+        visibility: 'PUBLIC',
+        item_count: 0,
+        is_series: true,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${userA}/playlists`,
+      });
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items;
+      expect(items.length).toBeGreaterThan(0);
+      for (const item of items) {
+        expect(typeof item.is_series).toBe('boolean');
+      }
+    });
   });
 });
