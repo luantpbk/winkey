@@ -2055,7 +2055,6 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     });
   });
 
-<<<<<<< HEAD
   test('PL2: Library page -> Create "Bộ phim" -> Add 3 videos -> Set Công khai -> Appears on Cinema Home "Phim bộ"', async ({
     page,
   }, testInfo) => {
@@ -2310,4 +2309,3 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     });
   });
 });
-

@@ -612,7 +612,10 @@
     "addNVideos": "Thêm {count} video",
     "nonPublicSeriesNotice": "Bộ phim đang ở chế độ {visibility}, chưa hiện trên trang chủ.",
     "loadMore": "Tải thêm",
-    "noVideosFound": "Không tìm thấy video nào."
+    "noVideosFound": "Không tìm thấy video nào.",
+    "addingProgress": "Đang thêm {current}/{total}…",
+    "sortOldestFirst": "Cũ nhất trước",
+    "sortNewestFirst": "Mới nhất trước"
   },
   "cinema": {
     "title": "Phim",

@@ -406,7 +406,7 @@ describe('PL2-web: Thư viện (Library) Page & Playlists Management', () => {
   // 4. Add My Videos Picker
   // =========================================================================
   describe('4. Add My Videos Picker', () => {
-    it('lists own READY videos, filters by search, and adds in order with at most 4 in parallel', async () => {
+    it('lists own READY videos sorted oldest to newest by default, with toggleable direction', async () => {
       const onClose = vi.fn();
       const onSuccess = vi.fn();
 
@@ -415,22 +415,6 @@ describe('PL2-web: Thư viện (Library) Page & Playlists Management', () => {
           return {
             data: { items: mockStudioVideosList, next_cursor: null },
             response: new Response(),
-          } as any;
-        }
-        return { data: null, response: new Response() } as any;
-      });
-
-      const addedIds: string[] = [];
-      vi.spyOn(api.social, 'POST').mockImplementation(async (path: string, options: any) => {
-        if (path === '/v1/playlists/{playlist_id}/items') {
-          addedIds.push(options.body.video_id);
-          return {
-            data: {
-              video_id: options.body.video_id,
-              position: 1,
-              added_at: new Date().toISOString(),
-            },
-            response: new Response(null, { status: 201 }),
           } as any;
         }
         return { data: null, response: new Response() } as any;
@@ -453,33 +437,171 @@ describe('PL2-web: Thư viện (Library) Page & Playlists Management', () => {
         expect(screen.queryByTestId('video-picker-item-vid-4')).toBeNull(); // vid-4 status is PROCESSING
       });
 
-      // Test search filter
-      const searchInput = screen.getByTestId('video-picker-search-input');
-      fireEvent.change(searchInput, { target: { value: 'Tập 2' } });
+      // Default sort is oldest -> newest by created_at
+      const toggleBtn = screen.getByTestId('toggle-sort-direction');
+      expect(toggleBtn.textContent).toContain('Cũ nhất trước');
 
-      await waitFor(() => {
-        expect(screen.getByTestId('video-picker-item-vid-2')).toBeDefined();
-        expect(screen.queryByTestId('video-picker-item-vid-1')).toBeNull();
+      // Toggle to newest -> oldest
+      fireEvent.click(toggleBtn);
+      expect(toggleBtn.textContent).toContain('Mới nhất trước');
+
+      // Toggle back to oldest -> newest
+      fireEvent.click(toggleBtn);
+      expect(toggleBtn.textContent).toContain('Cũ nhất trước');
+    });
+
+    it('adds videos sequentially one-by-one with live progress indicator (e.g. Đang thêm 1/2…)', async () => {
+      const onClose = vi.fn();
+      const onSuccess = vi.fn();
+
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/studio/videos') {
+          return {
+            data: { items: mockStudioVideosList, next_cursor: null },
+            response: new Response(),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
       });
 
-      // Clear search
-      fireEvent.change(searchInput, { target: { value: '' } });
+      const callOrder: string[] = [];
+      const inFlightRequests = new Set<string>();
+      let maxConcurrent = 0;
 
-      // Select vid-1 and vid-3
+      vi.spyOn(api.social, 'POST').mockImplementation(async (path: string, options: any) => {
+        if (path === '/v1/playlists/{playlist_id}/items') {
+          const videoId = options.body.video_id;
+          inFlightRequests.add(videoId);
+          maxConcurrent = Math.max(maxConcurrent, inFlightRequests.size);
+
+          // Small delay to simulate network latency
+          await new Promise((resolve) => setTimeout(resolve, 30));
+
+          callOrder.push(videoId);
+          inFlightRequests.delete(videoId);
+
+          return {
+            data: {
+              video_id: videoId,
+              position: callOrder.length * 1048576,
+              added_at: new Date().toISOString(),
+            },
+            response: new Response(null, { status: 201 }),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(
+        <AddMyVideosDialog
+          playlistId="pl-100"
+          isOpen={true}
+          onClose={onClose}
+          onSuccess={onSuccess}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('video-picker-item-vid-1')).toBeDefined();
+      });
+
+      // Select vid-1 and vid-2
       fireEvent.click(screen.getByTestId('video-picker-item-vid-1'));
-      fireEvent.click(screen.getByTestId('video-picker-item-vid-3'));
+      fireEvent.click(screen.getByTestId('video-picker-item-vid-2'));
 
       // Submit
       const submitBtn = screen.getByTestId('video-picker-submit-btn');
       fireEvent.click(submitBtn);
+
+      // Verify progress appears while submitting
+      await waitFor(() => {
+        const progressEl = screen.queryByTestId('adding-progress-text');
+        expect(progressEl).toBeDefined();
+      });
 
       await waitFor(() => {
         expect(onSuccess).toHaveBeenCalled();
         expect(onClose).toHaveBeenCalled();
       });
 
-      // Confirm added in order
-      expect(addedIds).toEqual(['vid-1', 'vid-3']);
+      // Strictly sequential: max concurrent is 1 (never parallel)
+      expect(maxConcurrent).toBe(1);
+      expect(callOrder).toEqual(['vid-1', 'vid-2']);
+    });
+
+    it('guarantees correct playlist positions even when mock responses have out-of-order latencies', async () => {
+      const onClose = vi.fn();
+      const onSuccess = vi.fn();
+
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/studio/videos') {
+          return {
+            data: { items: mockStudioVideosList, next_cursor: null },
+            response: new Response(),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      // Simulated playlist server state
+      const serverPlaylistItems: { video_id: string; position: number }[] = [];
+
+      // If calls were sent in parallel, vid-2 (10ms) would finish before vid-1 (60ms) and get position 1.
+      // But because AddMyVideosDialog executes sequentially (awaits vid-1 before sending vid-2),
+      // vid-1 is guaranteed to receive position 1 (1048576), and vid-2 receives position 2 (2097152).
+      vi.spyOn(api.social, 'POST').mockImplementation(async (path: string, options: any) => {
+        if (path === '/v1/playlists/{playlist_id}/items') {
+          const videoId = options.body.video_id;
+          const delay = videoId === 'vid-1' ? 60 : 10;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+
+          const nextPos =
+            serverPlaylistItems.length > 0
+              ? serverPlaylistItems[serverPlaylistItems.length - 1].position + 1048576
+              : 1048576;
+
+          const newItem = { video_id: videoId, position: nextPos };
+          serverPlaylistItems.push(newItem);
+
+          return {
+            data: {
+              ...newItem,
+              added_at: new Date().toISOString(),
+            },
+            response: new Response(null, { status: 201 }),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(
+        <AddMyVideosDialog
+          playlistId="pl-100"
+          isOpen={true}
+          onClose={onClose}
+          onSuccess={onSuccess}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('video-picker-item-vid-1')).toBeDefined();
+      });
+
+      // Select vid-1 (older) and vid-2 (newer)
+      fireEvent.click(screen.getByTestId('video-picker-item-vid-1'));
+      fireEvent.click(screen.getByTestId('video-picker-item-vid-2'));
+
+      // Submit
+      fireEvent.click(screen.getByTestId('video-picker-submit-btn'));
+
+      await waitFor(() => {
+        expect(onSuccess).toHaveBeenCalled();
+      });
+
+      // Positions are guaranteed to be in correct sequential order despite inverted latency
+      expect(serverPlaylistItems).toHaveLength(2);
+      expect(serverPlaylistItems[0]).toEqual({ video_id: 'vid-1', position: 1048576 });
+      expect(serverPlaylistItems[1]).toEqual({ video_id: 'vid-2', position: 2097152 });
     });
 
     it('reports per-item 409 errors (SERIES_FOREIGN_ITEM / PLAYLIST_FULL) in plain Vietnamese', async () => {

@@ -612,7 +612,10 @@
     "addNVideos": "Add {count} videos",
     "nonPublicSeriesNotice": "This series is currently set to {visibility} and does not appear on the home page.",
     "loadMore": "Load more",
-    "noVideosFound": "No videos found."
+    "noVideosFound": "No videos found.",
+    "addingProgress": "Adding {current}/{total}…",
+    "sortOldestFirst": "Oldest first",
+    "sortNewestFirst": "Newest first"
   },
   "cinema": {
     "title": "Movies",

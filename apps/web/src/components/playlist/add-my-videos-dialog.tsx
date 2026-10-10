@@ -8,7 +8,7 @@ import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
 import { formatDuration } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
-import { X, Search, Loader2, AlertCircle } from 'lucide-react';
+import { X, Search, Loader2, AlertCircle, ArrowUpDown } from 'lucide-react';
 
 export interface AddMyVideosDialogProps {
   playlistId: string;
@@ -38,7 +38,11 @@ export function AddMyVideosDialog({
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc'); // Default oldest -> newest (created_at)
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addingProgress, setAddingProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -52,6 +56,7 @@ export function AddMyVideosDialog({
     setSearchTerm('');
     setSelectedVideoIds(new Set());
     setSubmitErrors([]);
+    setAddingProgress(null);
 
     api.video
       .GET('/v1/studio/videos', {
@@ -108,16 +113,26 @@ export function AddMyVideosDialog({
     }
   };
 
+  // Sort videos by created_at: default asc (oldest -> newest), toggleable to desc (newest -> oldest)
+  const sortedVideos = useMemo(() => {
+    return [...videos].sort((a, b) => {
+      const timeA = new Date(a.created_at).getTime();
+      const timeB = new Date(b.created_at).getTime();
+      return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
+    });
+  }, [videos, sortDirection]);
+
   // Filtered videos by search query
   const filteredVideos = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return videos;
-    return videos.filter((v) => v.title.toLowerCase().includes(q));
-  }, [videos, searchTerm]);
+    if (!q) return sortedVideos;
+    return sortedVideos.filter((v) => v.title.toLowerCase().includes(q));
+  }, [sortedVideos, searchTerm]);
 
   if (!isOpen) return null;
 
   const toggleSelect = (videoId: string) => {
+    if (isSubmitting) return;
     setSelectedVideoIds((prev) => {
       const next = new Set(prev);
       if (next.has(videoId)) {
@@ -130,6 +145,7 @@ export function AddMyVideosDialog({
   };
 
   const handleSelectAll = () => {
+    if (isSubmitting) return;
     const visibleUnadded = filteredVideos.filter((v) => !existingVideoIds.has(v.id));
     if (selectedVideoIds.size >= visibleUnadded.length) {
       setSelectedVideoIds(new Set());
@@ -144,16 +160,16 @@ export function AddMyVideosDialog({
     setIsSubmitting(true);
     setSubmitErrors([]);
 
-    // Preserve the order of videos as displayed/selected
-    const orderedToInsert = videos.filter((v) => selectedVideoIds.has(v.id));
+    // Preserve the order of videos strictly as sorted (oldest -> newest or newest -> oldest)
+    const orderedToInsert = sortedVideos.filter((v) => selectedVideoIds.has(v.id));
     const errors: string[] = [];
     let successCount = 0;
 
-    // Concurrency limit: at most 4 in parallel, processing in order
-    const limit = 4;
-    let nextIndex = 0;
+    // Sequential: add one by one, no parallel workers, updating progress live
+    for (let i = 0; i < orderedToInsert.length; i++) {
+      const video = orderedToInsert[i];
+      setAddingProgress({ current: i + 1, total: orderedToInsert.length });
 
-    async function addOne(video: StudioVideo) {
       try {
         const res = await api.social.POST('/v1/playlists/{playlist_id}/items', {
           params: { path: { playlist_id: playlistId } },
@@ -177,17 +193,8 @@ export function AddMyVideosDialog({
       }
     }
 
-    async function worker() {
-      while (nextIndex < orderedToInsert.length) {
-        const idx = nextIndex++;
-        await addOne(orderedToInsert[idx]);
-      }
-    }
-
-    const workers = Array.from({ length: Math.min(limit, orderedToInsert.length) }, () => worker());
-    await Promise.all(workers);
-
     setIsSubmitting(false);
+    setAddingProgress(null);
 
     if (errors.length > 0) {
       setSubmitErrors(errors);
@@ -241,29 +248,46 @@ export function AddMyVideosDialog({
           </button>
         </div>
 
-        {/* Search bar & quick select */}
-        <div className="flex items-center gap-3 p-4 border-b border-zinc-800/80 bg-zinc-950/40">
-          <div className="relative flex-1">
+        {/* Search bar, sort toggle & quick select */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 p-4 border-b border-zinc-800/80 bg-zinc-950/40">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              disabled={isSubmitting}
               data-testid="video-picker-search-input"
               placeholder={t('searchVideosPlaceholder')}
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition"
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition disabled:opacity-50"
             />
           </div>
-          {filteredVideos.length > 0 && (
+
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleSelectAll}
-              className="shrink-0 text-xs text-zinc-300 hover:text-white px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 transition"
+              onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+              disabled={isSubmitting}
+              data-testid="toggle-sort-direction"
+              title={sortDirection === 'asc' ? t('sortOldestFirst') : t('sortNewestFirst')}
+              className="shrink-0 flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 transition"
             >
-              {selectedVideoIds.size >= filteredVideos.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+              <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
+              <span>{sortDirection === 'asc' ? t('sortOldestFirst') : t('sortNewestFirst')}</span>
             </button>
-          )}
+
+            {filteredVideos.length > 0 && (
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                disabled={isSubmitting}
+                className="shrink-0 text-xs text-zinc-300 hover:text-white px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 transition"
+              >
+                {selectedVideoIds.size >= filteredVideos.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Error notification if any */}
@@ -305,7 +329,7 @@ export function AddMyVideosDialog({
                 <div
                   key={video.id}
                   data-testid={`video-picker-item-${video.id}`}
-                  onClick={() => !isAlreadyIn && toggleSelect(video.id)}
+                  onClick={() => !isAlreadyIn && !isSubmitting && toggleSelect(video.id)}
                   className={`flex items-center gap-3 p-2.5 rounded-xl border transition cursor-pointer ${
                     isAlreadyIn
                       ? 'bg-zinc-950/40 border-zinc-800/40 opacity-50 cursor-not-allowed'
@@ -318,9 +342,9 @@ export function AddMyVideosDialog({
                   <input
                     type="checkbox"
                     checked={isSelected}
-                    disabled={isAlreadyIn}
+                    disabled={isAlreadyIn || isSubmitting}
                     onClick={(e) => e.stopPropagation()}
-                    onChange={() => !isAlreadyIn && toggleSelect(video.id)}
+                    onChange={() => !isAlreadyIn && !isSubmitting && toggleSelect(video.id)}
                     aria-label={`Chọn video ${video.title}`}
                     className="h-4 w-4 rounded border-zinc-600 bg-zinc-700 text-red-600 focus:ring-red-500 cursor-pointer disabled:cursor-not-allowed shrink-0"
                   />
@@ -362,7 +386,7 @@ export function AddMyVideosDialog({
             <button
               type="button"
               onClick={handleLoadMore}
-              disabled={loadingMore}
+              disabled={loadingMore || isSubmitting}
               className="mt-2 w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 hover:text-white transition flex items-center justify-center gap-2"
             >
               {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -382,7 +406,7 @@ export function AddMyVideosDialog({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition"
+              className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition disabled:opacity-50"
             >
               Hủy
             </button>
@@ -394,11 +418,20 @@ export function AddMyVideosDialog({
               className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 text-white text-xs font-semibold shadow-lg transition"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>
-                {selectedVideoIds.size > 0
-                  ? t('addNVideos', { count: selectedVideoIds.size })
-                  : 'Thêm video'}
-              </span>
+              {isSubmitting && addingProgress ? (
+                <span data-testid="adding-progress-text">
+                  {t('addingProgress', {
+                    current: addingProgress.current,
+                    total: addingProgress.total,
+                  })}
+                </span>
+              ) : (
+                <span>
+                  {selectedVideoIds.size > 0
+                    ? t('addNVideos', { count: selectedVideoIds.size })
+                    : 'Thêm video'}
+                </span>
+              )}
             </button>
           </div>
         </div>
