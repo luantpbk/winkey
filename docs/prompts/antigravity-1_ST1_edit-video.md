@@ -16,6 +16,10 @@ git worktree add ../winkey-ag1-st1 -b agent/ag1/st1-edit-video origin/main
      (textarea with a counter out of 5 000; line breaks are kept) and visibility (Công khai / Không công khai /
      Riêng tư, each with a one-line explanation).
    - Show a read-only preview: thumbnail, duration, status.
+   - **Tags** (TAG1, `Video.tags` / `UpdateVideoRequest.tags`): a chip input with at most 10 tags, each ≤ 30
+     characters; Enter or comma adds a chip; × removes it. Send the whole list (`[]` clears it). Show the
+     server's normalized list after saving: trimmed, duplicates differing only in case or accents removed.
+     Helper text: "Thẻ giúp người xem tìm video trong Winkey."
    - Embed the existing subtitles section (`video-subtitles-section.tsx`) on the same page.
    - "Lưu thay đổi" sends PATCH with only the changed fields. The button is disabled while nothing has changed.
    - Show a toast on success; show field errors for a 400; a 403 / 404 shows "Bạn không có quyền sửa video này."

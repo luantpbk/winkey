@@ -6,7 +6,7 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 
 | Agent | Role | Owns |
 |---|---|---|
-| Claude Opus (architect; resumed 2026-10-10) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
+| Claude Opus (architect; resumed 2026-10-10) | Architecture, contracts, DB migrations, reviews, merges; **acting owner of the Go data plane since 2026-10-10** (user decision) | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml`; acting: `services/video`, `services/analytics`, `services/upload`, `services/transcoder`, `libs/go` |
 | Claude Sonnet 5.5 | Go data plane: API side (**paused**) | `services/video`, `services/analytics`, `libs/go` |
 | Claude Sonnet 5.5 ("Sonnet 2") | Go data plane: media pipeline (**paused** since 2026-10-05) | `services/upload`, `services/transcoder` |
 | Antigravity 1 | Frontend + E2E | `apps/web`, `e2e/`, `packages/api-client` |
@@ -15,8 +15,8 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 | Antigravity 4 (Linux) | QA: full-stack system tests, load/performance tests | `systest/`, `loadtest/` |
 
 > **2026-10-10:** ChatGPT Astra (acting architect) and ChatGPT/Codex ("Sol", acting Go owner) have left the team for
-> now. The Go directories have **no active owner** while Sonnet and Sonnet 2 stay paused: no Go task is assigned until
-> the user resumes one of them. New designs avoid Go changes (ADR-034 addendum, ADR-035).
+> now. Sonnet and Sonnet 2 stay paused. **Update 2026-10-10:** the user made the architect (Claude Opus) the acting owner
+> of the Go directories; Go changes still go through a PR with green CI and real test output.
 
 ## Hard rules
 

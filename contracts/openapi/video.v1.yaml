@@ -861,6 +861,16 @@ components:
         created_at:
           type: string
           format: date-time
+        tags:
+          type: array
+          maxItems: 10
+          description: |
+            Owner-chosen tags (task TAG1, ADR-036), in the owner's order. Searched like the title and used for related
+            videos. video-svc always sends it (empty array when none); optional in the schema so older clients stay valid.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 30
         playback:
           description: Null until the video is `READY`.
           oneOf:
@@ -1125,6 +1135,16 @@ components:
           maxLength: 5000
         visibility:
           $ref: './common.yaml#/components/schemas/Visibility'
+        tags:
+          type: array
+          maxItems: 10
+          description: |
+            Replaces the whole tag list (task TAG1). Each tag is trimmed and inner whitespace collapsed; empty tags are
+            dropped; duplicates that differ only in case or Vietnamese accents are dropped (the first one is kept).
+            `[]` clears the tags. More than 10 tags, or a tag longer than 30 characters after trimming → `400`.
+          items:
+            type: string
+            maxLength: 60
 
     RecordViewRequest:
       type: object
