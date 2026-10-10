@@ -1827,7 +1827,10 @@ export const handlers = [
         { status: 404 },
       );
     }
-    return HttpResponse.json(video);
+    return HttpResponse.json({
+      ...video,
+      tags: video.tags || [],
+    });
   }),
 
   http.post('*/v1/videos/:id/views', async ({ params, request }) => {
@@ -1860,7 +1863,9 @@ export const handlers = [
 
   http.patch('*/v1/videos/:id', async ({ params, request }) => {
     const videoId = params.id as string;
-    const body = (await request.json()) as any;
+    const caller = callerFromRequest(request);
+    const isMockForbidden = request.headers.get('x-mock-forbidden') === 'true';
+
     const currentVideos = [...getDynamicVideos()];
     const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
     if (videoIndex === -1) {
@@ -1870,14 +1875,130 @@ export const handlers = [
       );
     }
     const current = currentVideos[videoIndex];
+
+    if (isMockForbidden || (caller && current.owner?.id && caller.id !== current.owner.id)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+          detail: 'Bạn không có quyền sửa video này.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const body = (await request.json()) as any;
+
+    if (
+      body.title === undefined &&
+      body.description === undefined &&
+      body.visibility === undefined &&
+      body.tags === undefined
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'VALIDATION_ERROR',
+          detail: 'At least one field is required',
+          errors: [{ field: 'body', message: 'at least one field is required' }],
+        },
+        { status: 400 },
+      );
+    }
+
+    const fieldErrors: { field: string; message: string }[] = [];
+
+    if (body.title !== undefined) {
+      const len = [...String(body.title)].length;
+      if (len < 1 || len > 100) {
+        fieldErrors.push({ field: 'title', message: 'must be 1-100 characters' });
+      }
+    }
+
+    if (body.description !== undefined) {
+      const len = [...String(body.description)].length;
+      if (len > 5000) {
+        fieldErrors.push({ field: 'description', message: 'must be at most 5000 characters' });
+      }
+    }
+
+    let normalizedTags = current.tags || [];
+    if (body.tags !== undefined) {
+      if (!Array.isArray(body.tags)) {
+        fieldErrors.push({ field: 'tags', message: 'must be an array' });
+      } else {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        const fold = (s: string) =>
+          s
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/đ/g, 'd')
+            .replace(/Đ/g, 'd');
+
+        let tagTooLong = false;
+        for (const raw of body.tags) {
+          const t = String(raw).trim().replace(/\s+/g, ' ');
+          if (!t) continue;
+          if ([...t].length > 30) {
+            tagTooLong = true;
+            break;
+          }
+          const folded = fold(t);
+          if (seen.has(folded)) continue;
+          seen.add(folded);
+          out.push(t);
+        }
+
+        if (tagTooLong) {
+          fieldErrors.push({ field: 'tags', message: 'a tag is longer than 30 characters' });
+        } else if (out.length > 10) {
+          fieldErrors.push({ field: 'tags', message: 'at most 10 tags' });
+        } else {
+          normalizedTags = out;
+        }
+      }
+    }
+
+    if (fieldErrors.length > 0) {
+      return HttpResponse.json(
+        {
+          type: '/problems/validation-error',
+          title: 'Validation failed',
+          status: 400,
+          code: 'VALIDATION_ERROR',
+          errors: fieldErrors,
+        },
+        { status: 400 },
+      );
+    }
+
     const updated: Video = {
       ...current,
-      title: body.title ?? current.title,
-      description: body.description ?? current.description,
-      visibility: body.visibility ?? current.visibility,
+      title: body.title !== undefined ? body.title : current.title,
+      description: body.description !== undefined ? body.description : current.description,
+      visibility: body.visibility !== undefined ? body.visibility : current.visibility,
+      tags: body.tags !== undefined ? normalizedTags : current.tags || [],
     };
     currentVideos[videoIndex] = updated;
     setDynamicVideos(currentVideos);
+
+    const currentStudio = [...getDynamicStudioVideos()];
+    const studioIndex = currentStudio.findIndex((v) => v.id === videoId);
+    if (studioIndex !== -1) {
+      currentStudio[studioIndex] = {
+        ...currentStudio[studioIndex],
+        title: updated.title,
+        visibility: updated.visibility,
+      };
+      setDynamicStudioVideos(currentStudio);
+    }
+
     return HttpResponse.json(updated);
   }),
 
