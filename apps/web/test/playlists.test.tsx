@@ -1117,7 +1117,7 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
   // 8. Watch Page Save Button Authentication Check
   // =========================================================================
   describe('8. Watch Page Save Button Authentication Check', () => {
-    it('redirects unauthenticated users to /login?return_to=<current_watch_url> instead of just showing toast', async () => {
+    it('redirects unauthenticated users to encoded /login?return_to=... including ?playlist=...&src=playlist', async () => {
       mockIsAuthenticated = false;
       const testVideo = {
         id: 'vid-watch-123',
@@ -1140,6 +1140,9 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
         },
       } as any;
 
+      // Set window.location with query params
+      window.history.pushState({}, '', '/watch/vid-watch-123?playlist=pl-test-series&src=playlist');
+
       renderWithProviders(<WatchClientSection video={testVideo} />);
 
       const saveBtn = screen.getByTestId('watch-page-save-btn');
@@ -1147,9 +1150,13 @@ describe('PL1-web: Playlists & Watch Later Unit Tests (ADR-024)', () => {
 
       fireEvent.click(saveBtn);
 
-      expect(mockPush).toHaveBeenCalledWith('/login?return_to=/watch/vid-watch-123');
+      const expectedReturnTo = encodeURIComponent(
+        '/watch/vid-watch-123?playlist=pl-test-series&src=playlist',
+      );
+      expect(mockPush).toHaveBeenCalledWith(`/login?return_to=${expectedReturnTo}`);
 
-      // Reset mock state
+      // Reset mock state and history
+      window.history.pushState({}, '', '/');
       mockIsAuthenticated = true;
     });
   });

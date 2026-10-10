@@ -103,7 +103,7 @@ export function WatchClientSection({ video }: { video: Video }) {
                   pathname && pathname.startsWith('/watch')
                     ? `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`
                     : `/watch/${video.id}${typeof window !== 'undefined' ? window.location.search : ''}`;
-                router.push(`/login?return_to=${currentPath}`);
+                router.push(`/login?return_to=${encodeURIComponent(currentPath)}`);
                 return;
               }
               setShowSaveDialog(true);
