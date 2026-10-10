@@ -52,6 +52,8 @@ configMapGenerator:
       - migrations/000017_upload_ledger.down.sql
       - migrations/000018_reco.up.sql
       - migrations/000018_reco.down.sql
+      - migrations/000019_cin2_series.up.sql
+      - migrations/000019_cin2_series.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
