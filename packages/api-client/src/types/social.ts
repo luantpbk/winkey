@@ -260,6 +260,8 @@ export interface paths {
         /**
          * Rename, re-describe or change the visibility of an own playlist.
          * @description Owner only (others → `404`). The watch-later list cannot be changed → `409` `WATCH_LATER_IMMUTABLE`.
+         *     Setting `is_series: true` while the playlist holds a video of another channel → `409` `SERIES_FOREIGN_ITEM`
+         *     (nothing is removed silently). Setting it back to `false` always works.
          */
         patch: operations["updatePlaylist"];
         trace?: never;
@@ -287,6 +289,7 @@ export interface paths {
          * @description The video must be one the caller can currently read (known to social-svc, not hidden, not `PRIVATE` unless
          *     the caller owns it) → otherwise `404` `VIDEO_NOT_FOUND`. Already in the playlist → `200` with the existing
          *     item (position unchanged); new → `201`. At most 5 000 items per playlist → `409` `PLAYLIST_FULL`.
+         *     A series (`is_series`) only accepts the owner's own videos → `409` `SERIES_FOREIGN_ITEM`.
          *     Rate limit 120/min per user → `429`.
          */
         post: operations["addPlaylistItem"];
@@ -476,6 +479,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/cinema/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public cinema catalogue (series and standalone videos), newest first. Optional auth.
+         * @description Same answer for every caller (personal state is never included), `Cache-Control: public, max-age=60`.
+         *     - `SERIES`: a `PUBLIC` playlist with `is_series` and at least one playable episode. Ordered by the time its
+         *       newest playable episode was added (`updated_at`).
+         *     - `VIDEO`: a playable video that is not an episode of any `PUBLIC` series. Ordered by `added_at` (when
+         *       social-svc saw `video.ready`).
+         *     - `kind=all` interleaves both by that timestamp, newest first; ties break on id descending.
+         *     The cursor is opaque and stable under inserts (keyset on timestamp + id). A video in several public series
+         *     is hidden as a standalone item and appears under each series.
+         */
+        get: operations["listCinemaCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/series/{playlist_id}/episodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Playable episodes of a public series, in playlist order. Optional auth.
+         * @description `404` `SERIES_NOT_FOUND` unless the playlist exists, is `PUBLIC`, has `is_series` and at least one playable
+         *     episode (the owner gets the same answer: owners manage their lists through the playlist endpoints).
+         *     `episode_number` is 1-based over playable episodes only, so it has no gaps. `Cache-Control: public, max-age=60`.
+         */
+        get: operations["listSeriesEpisodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/series/{playlist_id}/episodes/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Context of one episode for the watch page (number, previous, next). Optional auth.
+         * @description Used by the watch page when the link carries `?playlist=<id>`. `404` `SERIES_NOT_FOUND` as in
+         *     `listSeriesEpisodes`; `404` `EPISODE_NOT_FOUND` when the video is not a playable episode of that series (the
+         *     client then plays the video without series context, never guessing another series). `previous_video_id` /
+         *     `next_video_id` are the neighbouring playable episodes, null at the ends; `page_cursor` is the
+         *     `listSeriesEpisodes` cursor of the page (default limit) that contains this episode, null for the first page.
+         *     `Cache-Control: public, max-age=60`.
+         */
+        get: operations["getSeriesEpisode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -587,6 +669,11 @@ export interface components {
             title: string;
             description: string;
             visibility: components["schemas"]["Visibility"];
+            /**
+             * @description Marked by the owner as a series ("Bộ phim", task CIN2). Always false for the watch-later list. social-svc
+             *     always sends it; it is optional in the schema only so clients built before CIN2 stay valid (absent = false).
+             */
+            is_series?: boolean;
             item_count: number;
             /** Format: date-time */
             created_at: string;
@@ -606,11 +693,15 @@ export interface components {
             description: string;
             /** @description Defaults to `PRIVATE`. */
             visibility?: components["schemas"]["Visibility"];
+            /** @description Mark as a series ("Bộ phim", task CIN2); absent = false. A new playlist is empty, so this never conflicts. */
+            is_series?: boolean;
         };
         UpdatePlaylistRequest: {
             title?: string;
             description?: string;
             visibility?: components["schemas"]["Visibility"];
+            /** @description See `updatePlaylist` for `409` `SERIES_FOREIGN_ITEM`. */
+            is_series?: boolean;
         };
         PlaylistItem: {
             video_id: components["schemas"]["Uuid"];
@@ -695,6 +786,57 @@ export interface components {
         };
         ResolveCaseResult: {
             resolved_count: number;
+        };
+        SeriesSummary: {
+            playlist_id: components["schemas"]["Uuid"];
+            title: string;
+            description: string;
+            owner: components["schemas"]["PublicProfile"];
+            /** @description Playable episodes only (never PL1 `item_count`). */
+            episode_count: number;
+            /** @description First playable episode; its thumbnail is the series cover and "Xem ngay" starts here. */
+            first_video_id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CinemaCatalogItem: components["schemas"]["CinemaCatalogSeries"] | components["schemas"]["CinemaCatalogVideo"];
+        CinemaCatalogSeries: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "SERIES";
+            series: components["schemas"]["SeriesSummary"];
+        };
+        CinemaCatalogVideo: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "VIDEO";
+            video_id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            added_at: string;
+        };
+        CinemaCatalogPage: {
+            items: components["schemas"]["CinemaCatalogItem"][];
+            next_cursor: string | null;
+        };
+        SeriesEpisode: {
+            video_id: components["schemas"]["Uuid"];
+            episode_number: number;
+        };
+        SeriesEpisodePage: {
+            series: components["schemas"]["SeriesSummary"];
+            items: components["schemas"]["SeriesEpisode"][];
+            next_cursor: string | null;
+        };
+        SeriesEpisodeContext: {
+            series: components["schemas"]["SeriesSummary"];
+            episode_number: number;
+            previous_video_id: components["schemas"]["Uuid"] | null;
+            next_video_id: components["schemas"]["Uuid"] | null;
+            page_cursor: string | null;
         };
         /**
          * Format: uuid
@@ -1644,6 +1786,85 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCinemaCatalog: {
+        parameters: {
+            query?: {
+                kind?: "all" | "series" | "video";
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description At most 48, so one `batchGetVideos` call (50 ids) can hydrate a page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of catalogue items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CinemaCatalogPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    listSeriesEpisodes: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series and one page of episodes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesEpisodePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getSeriesEpisode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playlist_id: components["parameters"]["PlaylistId"];
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Episode context. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesEpisodeContext"];
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };

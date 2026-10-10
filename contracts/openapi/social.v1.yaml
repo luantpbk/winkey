@@ -29,6 +29,8 @@ info:
       (gateway: `PathPrefix`).
     - Task PL1 (ADR-024): playlists and watch-later live in social-svc; `/v1/playlists` and `/v1/me/watch-later`
       go to social-svc (gateway: `PathPrefix`).
+    - Task CIN2 (ADR-035): the cinema catalogue and series episodes live in social-svc; `/v1/cinema` and `/v1/series`
+      go to social-svc (gateway: `PathPrefix`).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -66,6 +68,14 @@ tags:
       filtered at read time (still shown to the video's owner). Gateway: `/v1/playlists` and `/v1/me/watch-later`
       go to social-svc (`PathPrefix`), as does `/v1/videos/{id}/playlist-membership` (add it to the videos regex);
       `/v1/channels/{id}/playlists` already goes there.
+  - name: cinema
+    description: |
+      Cinema catalogue and series (task CIN2, ADR-035). A REGULAR playlist marked `is_series` is a series ("Bộ phim");
+      its episodes are its items in position order. **Playable** means: known to `social.videos` (READY), visibility
+      `PUBLIC`, not hidden, and owned by the playlist owner. Only playable videos count as episodes, appear in the
+      catalogue or get an episode number. social-svc returns ids only; clients hydrate titles and thumbnails with
+      video-svc `batchGetVideos` (one call per page) and drop items that call omits. video-svc stays the final
+      authority when a video is played.
 paths:
   /v1/videos/{video_id}/comments:
     parameters:
@@ -529,6 +539,8 @@ paths:
       summary: Rename, re-describe or change the visibility of an own playlist.
       description: |
         Owner only (others → `404`). The watch-later list cannot be changed → `409` `WATCH_LATER_IMMUTABLE`.
+        Setting `is_series: true` while the playlist holds a video of another channel → `409` `SERIES_FOREIGN_ITEM`
+        (nothing is removed silently). Setting it back to `false` always works.
       security:
         - bearerAuth: []
       requestBody:
@@ -605,6 +617,7 @@ paths:
         The video must be one the caller can currently read (known to social-svc, not hidden, not `PRIVATE` unless
         the caller owns it) → otherwise `404` `VIDEO_NOT_FOUND`. Already in the playlist → `200` with the existing
         item (position unchanged); new → `201`. At most 5 000 items per playlist → `409` `PLAYLIST_FULL`.
+        A series (`is_series`) only accepts the owner's own videos → `409` `SERIES_FOREIGN_ITEM`.
         Rate limit 120/min per user → `429`.
       security:
         - bearerAuth: []
@@ -877,6 +890,116 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+
+  /v1/cinema/catalog:
+    get:
+      tags: [cinema]
+      operationId: listCinemaCatalog
+      summary: Public cinema catalogue (series and standalone videos), newest first. Optional auth.
+      description: |
+        Same answer for every caller (personal state is never included), `Cache-Control: public, max-age=60`.
+        - `SERIES`: a `PUBLIC` playlist with `is_series` and at least one playable episode. Ordered by the time its
+          newest playable episode was added (`updated_at`).
+        - `VIDEO`: a playable video that is not an episode of any `PUBLIC` series. Ordered by `added_at` (when
+          social-svc saw `video.ready`).
+        - `kind=all` interleaves both by that timestamp, newest first; ties break on id descending.
+        The cursor is opaque and stable under inserts (keyset on timestamp + id). A video in several public series
+        is hidden as a standalone item and appears under each series.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, series, video]
+            default: all
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          description: At most 48, so one `batchGetVideos` call (50 ids) can hydrate a page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 48
+            default: 24
+      responses:
+        '200':
+          description: One page of catalogue items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CinemaCatalogPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/series/{playlist_id}/episodes:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+    get:
+      tags: [cinema]
+      operationId: listSeriesEpisodes
+      summary: Playable episodes of a public series, in playlist order. Optional auth.
+      description: |
+        `404` `SERIES_NOT_FOUND` unless the playlist exists, is `PUBLIC`, has `is_series` and at least one playable
+        episode (the owner gets the same answer: owners manage their lists through the playlist endpoints).
+        `episode_number` is 1-based over playable episodes only, so it has no gaps. `Cache-Control: public, max-age=60`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 48
+            default: 48
+      responses:
+        '200':
+          description: The series and one page of episodes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEpisodePage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/series/{playlist_id}/episodes/{video_id}:
+    parameters:
+      - $ref: '#/components/parameters/PlaylistId'
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [cinema]
+      operationId: getSeriesEpisode
+      summary: Context of one episode for the watch page (number, previous, next). Optional auth.
+      description: |
+        Used by the watch page when the link carries `?playlist=<id>`. `404` `SERIES_NOT_FOUND` as in
+        `listSeriesEpisodes`; `404` `EPISODE_NOT_FOUND` when the video is not a playable episode of that series (the
+        client then plays the video without series context, never guessing another series). `previous_video_id` /
+        `next_video_id` are the neighbouring playable episodes, null at the ends; `page_cursor` is the
+        `listSeriesEpisodes` cursor of the page (default limit) that contains this episode, null for the first page.
+        `Cache-Control: public, max-age=60`.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Episode context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesEpisodeContext'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1140,6 +1263,11 @@ components:
           maxLength: 5000
         visibility:
           $ref: './common.yaml#/components/schemas/Visibility'
+        is_series:
+          type: boolean
+          description: |
+            Marked by the owner as a series ("Bộ phim", task CIN2). Always false for the watch-later list. social-svc
+            always sends it; it is optional in the schema only so clients built before CIN2 stay valid (absent = false).
         item_count:
           type: integer
           minimum: 0
@@ -1180,6 +1308,9 @@ components:
         visibility:
           $ref: './common.yaml#/components/schemas/Visibility'
           description: Defaults to `PRIVATE`.
+        is_series:
+          type: boolean
+          description: Mark as a series ("Bộ phim", task CIN2); absent = false. A new playlist is empty, so this never conflicts.
 
     UpdatePlaylistRequest:
       type: object
@@ -1195,6 +1326,9 @@ components:
           maxLength: 5000
         visibility:
           $ref: './common.yaml#/components/schemas/Visibility'
+        is_series:
+          type: boolean
+          description: See `updatePlaylist` for `409` `SERIES_FOREIGN_ITEM`.
 
     PlaylistItem:
       type: object
@@ -1383,3 +1517,122 @@ components:
         resolved_count:
           type: integer
           minimum: 1
+
+    SeriesSummary:
+      type: object
+      additionalProperties: false
+      required: [playlist_id, title, description, owner, episode_count, first_video_id, updated_at]
+      properties:
+        playlist_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        title:
+          type: string
+        description:
+          type: string
+        owner:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        episode_count:
+          type: integer
+          minimum: 1
+          description: Playable episodes only (never PL1 `item_count`).
+        first_video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+          description: First playable episode; its thumbnail is the series cover and "Xem ngay" starts here.
+        updated_at:
+          type: string
+          format: date-time
+
+    CinemaCatalogItem:
+      oneOf:
+        - $ref: '#/components/schemas/CinemaCatalogSeries'
+        - $ref: '#/components/schemas/CinemaCatalogVideo'
+      discriminator:
+        propertyName: kind
+        mapping:
+          SERIES: '#/components/schemas/CinemaCatalogSeries'
+          VIDEO: '#/components/schemas/CinemaCatalogVideo'
+
+    CinemaCatalogSeries:
+      type: object
+      additionalProperties: false
+      required: [kind, series]
+      properties:
+        kind:
+          type: string
+          const: SERIES
+        series:
+          $ref: '#/components/schemas/SeriesSummary'
+
+    CinemaCatalogVideo:
+      type: object
+      additionalProperties: false
+      required: [kind, video_id, added_at]
+      properties:
+        kind:
+          type: string
+          const: VIDEO
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        added_at:
+          type: string
+          format: date-time
+
+    CinemaCatalogPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 48
+          items:
+            $ref: '#/components/schemas/CinemaCatalogItem'
+        next_cursor:
+          type: [string, 'null']
+
+    SeriesEpisode:
+      type: object
+      additionalProperties: false
+      required: [video_id, episode_number]
+      properties:
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        episode_number:
+          type: integer
+          minimum: 1
+
+    SeriesEpisodePage:
+      type: object
+      additionalProperties: false
+      required: [series, items, next_cursor]
+      properties:
+        series:
+          $ref: '#/components/schemas/SeriesSummary'
+        items:
+          type: array
+          maxItems: 48
+          items:
+            $ref: '#/components/schemas/SeriesEpisode'
+        next_cursor:
+          type: [string, 'null']
+
+    SeriesEpisodeContext:
+      type: object
+      additionalProperties: false
+      required: [series, episode_number, previous_video_id, next_video_id, page_cursor]
+      properties:
+        series:
+          $ref: '#/components/schemas/SeriesSummary'
+        episode_number:
+          type: integer
+          minimum: 1
+        previous_video_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        next_video_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        page_cursor:
+          type: [string, 'null']

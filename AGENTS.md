@@ -6,15 +6,17 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 
 | Agent | Role | Owns |
 |---|---|---|
-| Claude Opus (architect, **paused** since 2026-10-07; ChatGPT Astra is acting architect, see `docs/prompts/architect_handoff.md`) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
-| ChatGPT Astra | Acting architect while Claude Opus is paused: same role, same ownership | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
-| Claude Sonnet 5.5 | Go data plane: API side (**paused**; ChatGPT is acting owner) | `services/video`, `services/analytics`, `libs/go` |
-| ChatGPT (Codex) | Go data plane: API side + media pipeline, acting owner while Sonnet and Sonnet 2 are paused | `services/video`, `services/analytics`, `libs/go`, `services/upload`, `services/transcoder` |
-| Claude Sonnet 5.5 ("Sonnet 2") | Go data plane: media pipeline (**paused** since 2026-10-05; ChatGPT is acting owner) | `services/upload`, `services/transcoder` |
+| Claude Opus (architect; resumed 2026-10-10) | Architecture, contracts, DB migrations, reviews, merges | `contracts/`, `db/`, `docs/`, `.github/workflows/contracts.yml` |
+| Claude Sonnet 5.5 | Go data plane: API side (**paused**) | `services/video`, `services/analytics`, `libs/go` |
+| Claude Sonnet 5.5 ("Sonnet 2") | Go data plane: media pipeline (**paused** since 2026-10-05) | `services/upload`, `services/transcoder` |
 | Antigravity 1 | Frontend + E2E | `apps/web`, `e2e/`, `packages/api-client` |
 | Antigravity 2 | Platform / DevOps | `deploy/`, `.github/workflows/*` (except `contracts.yml`), root tooling (`package.json`, `pnpm-workspace.yaml`, `turbo.json`, `go.work`) |
 | Antigravity 3 | Node product services | `services/auth`, `services/social`, `services/realtime`, `packages/outbox` and other shared TS packages |
 | Antigravity 4 (Linux) | QA: full-stack system tests, load/performance tests | `systest/`, `loadtest/` |
+
+> **2026-10-10:** ChatGPT Astra (acting architect) and ChatGPT/Codex ("Sol", acting Go owner) have left the team for
+> now. The Go directories have **no active owner** while Sonnet and Sonnet 2 stay paused: no Go task is assigned until
+> the user resumes one of them. New designs avoid Go changes (ADR-034 addendum, ADR-035).
 
 ## Hard rules
 

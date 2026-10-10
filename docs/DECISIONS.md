@@ -774,3 +774,50 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Beta có cổng vào kiểm soát được mà không cần bảng hay migration. Đổi lại, mã có thể bị chia sẻ lại, nên giữ mỗi đợt nhỏ và thay mã khi cần.
 - Smoke test và load test tạo tài khoản trên production phải dùng một mã mời riêng, chỉ để trên host (`read -rs`).
 - Mở công khai về sau chỉ cần đặt `REGISTRATION_MODE=open`, sau khi LEGAL xong.
+- **Phần bổ sung 2026-10-10 (Opus nhận lại vai trò kiến trúc sư).**
+  - **Mời đợt 1 ngay, tối đa 20 người.** SEC0, #249, BETA1, CIN1, BETA1-web và văn bản pháp lý (hiệu lực 10/10/2026) đều đã chạy trên production. 20 người dùng thấp hơn xa mức tải LT2 cần chứng minh. LT2 giờ là điều kiện để mời **đợt 2** (vượt 20 người) và để kết thúc P2, không còn chặn đợt 1.
+  - **Thu hẹp LT2 xuống chỉ đo người xem.**
+    - Chỉ còn người xem HLS ẩn danh, cộng một luồng API **chỉ đọc**, cũng ẩn danh: `listVideos`, `getVideo`, `listRelatedVideos`, `listComments`, `searchVideos`, `listCinemaCatalog`.
+    - Không tạo tài khoản, không comment, không like. Vì vậy không còn gì phải dọn sau khi chạy.
+    - Lý do: tiêu chí P2 là người xem đồng thời và rebuffer. Phần ghi dữ liệu chỉ chiếm 5 % lưu lượng, nhưng lại sinh ra hầu hết rủi ro và độ phức tạp: PR #263 đã lên +2 683 dòng mà vẫn chưa an toàn để chạy.
+    - Khi nào cần đo phần ghi, viết một ADR riêng.
+  - **Watchdog** `deploy/lt2/` (#279) là cơ chế dừng khẩn cấp.
+  - **Tiêu chí đạt:** rebuffer **gộp, không tính lúc tua** < 1 %, `http_req_failed` < 1 %, 4 site cũ luôn trả 200, không lần dừng khẩn cấp nào.
+  - **Khung giờ:** 02:00–03:30 giờ Việt Nam, sớm nhất là đêm 12/10/2026.
+  - **Đội ngũ:** ChatGPT Astra và ChatGPT/Codex ("Sol") tạm rời dự án. Các thư mục Go (`services/video`, `analytics`, `upload`, `transcoder`, `libs/go`) hiện không có chủ, vì Sonnet và Sonnet 2 vẫn tạm dừng. Thiết kế mới phải tránh sửa Go. Nếu bắt buộc phải sửa, user quyết định cho Sonnet làm lại.
+
+### ADR-035 — CIN2: "Bộ phim" từ danh sách phát, catalogue phim và phát theo tập
+**Bối cảnh.** Ngày 2026-10-09 user yêu cầu trang phim có bộ/tập thật. Video đơn vẫn là phim một tập. Các tập của một bộ gom thành một thẻ. Trang xem có danh sách tập và chuyển tập dễ dàng. User chọn cách: **chủ danh sách đánh dấu "Bộ phim"**; không tự coi mọi playlist là phim.
+
+Astra đã soạn một bản thiết kế (PR #285). Bản đó cần video-svc thêm một chế độ batch chỉ trả video PUBLIC (#286), tức là phải sửa Go, trong khi hiện không ai phụ trách phần Go. ADR này thay bản đó.
+**Quyết định.**
+- **Dữ liệu.** Migration 000019 thêm `social.playlists.is_series` (chỉ áp dụng cho REGULAR). Trigger chặn bộ phim chứa video của kênh khác (`SERIES_FOREIGN_ITEM`), áp dụng cả khi thêm mục lẫn khi bật cờ. Có index cho catalogue.
+  - Không bảng mới, không event mới, không đọc chéo schema. social-svc **đã có** bảng phản chiếu `social.videos` (READY, `visibility`, `hidden`; video bị xoá thì mất dòng). Bảng này đủ để biết video nào **phát được**: PUBLIC, không bị ẩn, cùng chủ với danh sách.
+- **API** (social-svc, contract `social.v1.yaml`, tag `cinema`):
+  - `Playlist.is_series`, đặt được qua `createPlaylist` / `updatePlaylist`.
+  - `GET /v1/cinema/catalog?kind=all|series|video`: thẻ `SERIES` hoặc `VIDEO`, mới nhất trước, cursor keyset, tối đa 48 thẻ mỗi trang, cache công khai 60 s.
+  - `GET /v1/series/{id}/episodes`: danh sách tập phát được, đánh số từ 1, không có lỗ hổng số.
+  - `GET /v1/series/{id}/episodes/{video_id}`: thông tin tập cho trang xem (số tập, tập trước, tập sau, cursor của trang chứa tập).
+  - Mọi số đếm chỉ tính tập phát được, không bao giờ dùng `item_count`. Video thuộc một bộ PUBLIC thì không hiện thành phim lẻ.
+- **Lấy tiêu đề và ảnh:** web gọi `batchGetVideos` như hiện nay, mỗi trang một lần. Danh sách id đã được social-svc lọc chỉ còn PUBLIC, nên dùng nguyên batch hiện có, **không sửa video-svc**.
+  - Có một trường hợp lệch ngắn: chủ vừa đổi video sang UNLISTED mà event chưa tới, thì thẻ vẫn hiện vài giây. Chấp nhận được, vì chính chủ đã đặt video đó vào một bộ công khai.
+  - Khi phát, video-svc vẫn kiểm tra quyền lần cuối.
+- **Web.**
+  - Trang chủ phim có các hàng "Phim bộ", "Phim lẻ", "Mới thêm" lấy từ catalogue, nằm cạnh các hàng CIN1 hiện có (Xem tiếp, Top 10, Dành cho bạn).
+  - Thẻ bộ: ảnh của tập đầu, tiêu đề danh sách, "N tập".
+  - Hộp chi tiết bộ: mô tả và danh sách tập. "Xem ngay" mở tập đầu.
+  - Trang xem `?playlist=<id>`:
+    - desktop có cột tập bên phải, mobile có danh sách tập dưới player; có nút "Tập trước" / "Tập sau";
+    - ngữ cảnh bộ giữ nguyên qua refresh, back và link chia sẻ;
+    - API trả `EPISODE_NOT_FOUND` thì phát video như bình thường, không có ngữ cảnh bộ;
+    - không tự chuyển sang tập kế tiếp (để CIN3 nếu cần).
+  - Đổi tập là kết thúc phiên phát cũ (heartbeat `end`) rồi mới bắt đầu phiên mới. `surface` = `playlist`.
+  - Trong form danh sách phát có ô chọn "Bộ phim".
+- **Không làm trong CIN2:** thể loại, năm, poster dọc, xem tiếp đồng bộ server, tự phát tập kế.
+**Phân công.**
+- Kiến trúc sư: contract, migration, api-client (cùng PR với ADR này).
+- Antigravity 3: social-svc.
+- Antigravity 1: web.
+- Antigravity 2: route `/v1/cinema` và `/v1/series`, rồi deploy.
+- Không agent Go nào phải làm gì.
+**Hệ quả.** Có bộ/tập thật mà không cần service mới hay sửa Go. Đổi lại, thứ tự tập phụ thuộc thứ tự chủ danh sách sắp xếp, và độ chính xác của catalogue phụ thuộc độ trễ của event (thường vài giây).
