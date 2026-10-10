@@ -111,8 +111,8 @@ for prefix in "/v1/search" "/v1/feed" "/v1/playback"; do
 done
 echo "SUCCESS: Router video@file rule contains /v1/search, /v1/feed, and /v1/playback."
 
-# 7. Check that router social@file rule matches /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/me/subscriptions, /v1/me/watch-later
-for prefix in "/v1/reports" "/v1/moderation" "/v1/notifications" "/v1/playlists"; do
+# 7. Check that router social@file rule matches /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, /v1/me/watch-later
+for prefix in "/v1/reports" "/v1/moderation" "/v1/notifications" "/v1/playlists" "/v1/cinema" "/v1/series"; do
     if ! echo "$SOCIAL_RULE" | grep -q "PathPrefix(\`${prefix}\`)"; then
         echo "FAILED: Router social@file rule does not contain PathPrefix(\`${prefix}\`)!" >&2
         exit 1
@@ -124,7 +124,7 @@ for exact_path in "/v1/me/subscriptions" "/v1/me/watch-later"; do
         exit 1
     fi
 done
-echo "SUCCESS: Router social@file rule contains /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/me/subscriptions, and /v1/me/watch-later."
+echo "SUCCESS: Router social@file rule contains /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, and /v1/me/watch-later."
 
 # 8. Check that router auth-protected@file rule matches /v1/admin
 AUTH_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/auth-protected@file" || true)

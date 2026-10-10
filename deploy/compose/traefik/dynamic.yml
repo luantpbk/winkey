@@ -25,11 +25,11 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation, notifications, playlists, watch-later)
+    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation, notifications, playlists, cinema, series, watch-later)
     # Higher priority (85) than video router (80) so /v1/videos/{id}/comments, /like, /playlist-membership route to social-svc
     social:
       entryPoints: ['web']
-      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like|playlist-membership)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || PathPrefix(`/v1/notifications`) || PathPrefix(`/v1/playlists`) || Path(`/v1/me/subscriptions`) || Path(`/v1/me/watch-later`)'
+      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like|playlist-membership)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || PathPrefix(`/v1/notifications`) || PathPrefix(`/v1/playlists`) || PathPrefix(`/v1/cinema`) || PathPrefix(`/v1/series`) || Path(`/v1/me/subscriptions`) || Path(`/v1/me/watch-later`)'
       service: 'social-svc'
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 85
