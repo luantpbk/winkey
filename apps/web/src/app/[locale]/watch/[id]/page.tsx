@@ -10,6 +10,7 @@ import {
   buildBreadcrumbListSchema,
   formatMetaDescription,
 } from '../../../../lib/seo/video-schema';
+import { jsonLd } from '../../../../lib/seo/json-ld';
 
 interface WatchPageProps {
   params: Promise<{ locale: string; id: string }>;
@@ -116,7 +117,7 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(videoObjectSchema),
+            __html: jsonLd(videoObjectSchema),
           }}
         />
       )}
@@ -124,7 +125,7 @@ export default async function WatchPage({ params, searchParams }: WatchPageProps
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(breadcrumbSchema),
+            __html: jsonLd(breadcrumbSchema),
           }}
         />
       )}

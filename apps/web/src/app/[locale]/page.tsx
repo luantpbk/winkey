@@ -5,6 +5,7 @@ import type { VideoSummary } from '@winkey/api-client';
 import { getBaseUrl } from '../../lib/api-client';
 import { CinemaView } from '../../components/cinema/cinema-view';
 import { buildWebSiteSchema } from '../../lib/seo/website-schema';
+import { jsonLd } from '../../lib/seo/json-ld';
 
 // Read process.env at request time, not at build time
 export const dynamic = 'force-dynamic';
@@ -113,7 +114,7 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(websiteSchema),
+          __html: jsonLd(websiteSchema),
         }}
       />
       <CinemaView

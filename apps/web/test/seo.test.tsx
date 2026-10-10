@@ -9,6 +9,7 @@ import {
 import { buildPersonSchema } from '../src/lib/seo/channel-schema';
 import { buildWebSiteSchema } from '../src/lib/seo/website-schema';
 import { xmlEscape, fetchPublicVideosForSitemap, generateSitemapXml } from '../src/lib/seo/sitemap';
+import { jsonLd } from '../src/lib/seo/json-ld';
 import robots from '../src/app/robots';
 import { generateMetadata as generateWatchMetadata } from '../src/app/[locale]/watch/[id]/page';
 import { generateMetadata as generateChannelMetadata } from '../src/app/[locale]/c/[handle]/page';
@@ -380,6 +381,54 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         'https://winkey.vn/kham-pha?q={search_term_string}',
       );
       expect(siteSchema.potentialAction['query-input']).toBe('required name=search_term_string');
+    });
+  });
+
+  describe('7. jsonLd helper escaping and XSS safety', () => {
+    it('escapes </script><script>x</script> in title so no raw </script> appears, and parses back to original', () => {
+      const maliciousPayload = {
+        title: '</script><script>x</script>',
+      };
+
+      const serialized = jsonLd(maliciousPayload);
+
+      // Raw </script> must never appear in serialized output
+      expect(serialized).not.toContain('</script>');
+      expect(serialized).not.toContain('<script>');
+      expect(serialized).toContain(
+        '\\u003c/script\\u003e\\u003cscript\\u003ex\\u003c/script\\u003e',
+      );
+
+      // Standard JSON.parse must reconstruct the exact original string
+      const parsed = JSON.parse(serialized);
+      expect(parsed).toEqual(maliciousPayload);
+      expect(parsed.title).toBe('</script><script>x</script>');
+    });
+
+    it('escapes <, >, &, U+2028, and U+2029 while preserving exact object values upon parsing', () => {
+      const complexPayload = {
+        html: '<div class="test">&amp; "value" > 0</div>',
+        lineBreak: 'Line 1\u2028Line 2\u2029Paragraph 2',
+      };
+
+      const serialized = jsonLd(complexPayload);
+
+      // Verify dangerous HTML characters and JS line separators are escaped
+      expect(serialized).not.toContain('<');
+      expect(serialized).not.toContain('>');
+      expect(serialized).not.toContain('&');
+      expect(serialized).not.toContain('\u2028');
+      expect(serialized).not.toContain('\u2029');
+
+      expect(serialized).toContain('\\u003c');
+      expect(serialized).toContain('\\u003e');
+      expect(serialized).toContain('\\u0026');
+      expect(serialized).toContain('\\u2028');
+      expect(serialized).toContain('\\u2029');
+
+      // Verify round-trip integrity
+      const parsed = JSON.parse(serialized);
+      expect(parsed).toEqual(complexPayload);
     });
   });
 });

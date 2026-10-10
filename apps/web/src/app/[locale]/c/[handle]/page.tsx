@@ -6,6 +6,7 @@ import type { PublicProfile, VideoSummary, VideoPage } from '@winkey/api-client'
 import { ChannelClientHeader } from './channel-client';
 import { ChannelTabs } from './channel-tabs';
 import { buildPersonSchema } from '../../../../lib/seo/channel-schema';
+import { jsonLd } from '../../../../lib/seo/json-ld';
 
 interface ChannelPageProps {
   params: Promise<{ locale: string; handle: string }>;
@@ -106,7 +107,7 @@ export default async function ChannelPage({ params }: ChannelPageProps) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(buildPersonSchema(profile)),
+          __html: jsonLd(buildPersonSchema(profile)),
         }}
       />
       <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
