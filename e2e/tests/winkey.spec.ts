@@ -2054,4 +2054,156 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       contentType: 'image/png',
     });
   });
+
+  test('PL2: Library page -> Create "Bộ phim" -> Add 3 videos -> Set Công khai -> Appears on Cinema Home "Phim bộ"', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(90000);
+    const screenshotsDir = path.resolve(__dirname, '../screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    // 1. Visit /login?return_to=/thu-vien as unauthenticated
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/vi/login?return_to=/thu-vien');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2. Log in as creator@winkey.vn
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    const [loginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      loginForm.locator('button[type="submit"]').click(),
+    ]);
+    expect(loginRes.status()).toBe(200);
+
+    // Mock refresh token cookie
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+
+    // Wait for redirect to /thu-vien
+    await page.waitForURL(/\/thu-vien/, { timeout: 20000 });
+    await expect(page.locator('[data-testid="library-page-title"]')).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator('[data-testid="create-playlist-btn"]')).toBeVisible();
+
+    // Verify existing playlists are displayed
+    const cards = page.locator('[data-testid^="library-playlist-card-"]');
+    await expect(cards.first()).toBeVisible({ timeout: 15000 });
+
+    // Desktop screenshot: Library page
+    const libDesktopScreenshot = path.join(screenshotsDir, 'pl2-library-desktop.png');
+    await page.screenshot({ path: libDesktopScreenshot });
+    await testInfo.attach('pl2-library-desktop', {
+      path: libDesktopScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 3. Click "+ Tạo danh sách" -> open dialog
+    await page.locator('[data-testid="create-playlist-btn"]').click();
+    const createDialog = page.locator('[data-testid="create-playlist-dialog"]');
+    await expect(createDialog).toBeVisible({ timeout: 10000 });
+
+    // Fill title, description, check "Bộ phim", keep visibility PRIVATE
+    const titleInput = page.locator('[data-testid="create-playlist-title-input"]');
+    await titleInput.fill('Hành Trình Khám Phá AI');
+    const descInput = page.locator('[data-testid="create-playlist-description-input"]');
+    await descInput.fill('Khóa học AI toàn diện dành cho lập trình viên.');
+    const seriesCheckbox = page.locator('[data-testid="create-playlist-is-series-checkbox"]');
+    await seriesCheckbox.check();
+
+    // Verify series hint is visible
+    await expect(page.locator('[data-testid="create-playlist-series-hint"]')).toBeVisible();
+
+    // Submit dialog -> navigates to /playlist/{id}
+    await page.locator('[data-testid="submit-create-playlist-btn"]').click();
+    await page.waitForURL(/\/playlist\/0192f5e4-/, { timeout: 20000 });
+
+    // 4. On playlist page: verify non-public series notice & "+ Thêm video của tôi" button
+    const notice = page.locator('[data-testid="series-non-public-notice"]');
+    await expect(notice).toBeVisible({ timeout: 15000 });
+    await expect(notice).toContainText(/Riêng tư/);
+
+    const addVideosBtn = page.locator('[data-testid="add-my-videos-btn"]');
+    await expect(addVideosBtn).toBeVisible();
+    await addVideosBtn.click();
+
+    // Add my videos dialog opens
+    const addDialog = page.locator('[data-testid="add-my-videos-dialog"]');
+    await expect(addDialog).toBeVisible({ timeout: 10000 });
+
+    // Select 3 videos
+    const videoCheckboxes = addDialog.locator('input[type="checkbox"]');
+    await expect(videoCheckboxes.first()).toBeVisible({ timeout: 15000 });
+    await videoCheckboxes.nth(0).check();
+    await videoCheckboxes.nth(1).check();
+    await videoCheckboxes.nth(2).check();
+
+    const confirmBtn = page.locator('[data-testid="video-picker-submit-btn"]');
+    await expect(confirmBtn).toContainText('Thêm 3 video');
+    await confirmBtn.click();
+
+    // Dialog closes, playlist items appear
+    await expect(addDialog).not.toBeVisible({ timeout: 15000 });
+    const playlistItems = page.locator('[data-testid^="playlist-item-"]');
+    await expect(playlistItems).toHaveCount(3, { timeout: 15000 });
+
+    // Screenshot: Playlist series page with notice and 3 videos
+    const plSeriesScreenshot = path.join(screenshotsDir, 'pl2-playlist-series-desktop.png');
+    await page.screenshot({ path: plSeriesScreenshot });
+    await testInfo.attach('pl2-playlist-series-desktop', {
+      path: plSeriesScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 5. Edit playlist to set visibility = PUBLIC
+    const editBtn = page.locator('[data-testid="edit-playlist-btn"]');
+    await expect(editBtn).toBeVisible();
+    await editBtn.click();
+
+    const editVisibilitySelect = page.locator('#edit-playlist-visibility');
+    await expect(editVisibilitySelect).toBeVisible({ timeout: 10000 });
+    await editVisibilitySelect.selectOption('PUBLIC');
+
+    const saveEditBtn = page.locator('[data-testid="save-edit-playlist-btn"]');
+    await saveEditBtn.click();
+
+    // Notice is now gone since visibility is PUBLIC
+    await expect(notice).not.toBeVisible({ timeout: 15000 });
+
+    // 6. Navigate to Cinema Home "/" and verify the series appears in "Phim bộ" row
+    await page.goto('/vi');
+    await page.waitForLoadState('domcontentloaded');
+
+    const seriesRow = page.locator('[data-testid="cinema-row-series"]');
+    await expect(seriesRow).toBeVisible({ timeout: 15000 });
+    await seriesRow.scrollIntoViewIfNeeded();
+
+    const createdSeriesCard = seriesRow
+      .locator('[data-testid="cinema-series-card"]')
+      .filter({ hasText: 'Hành Trình Khám Phá AI' });
+    await expect(createdSeriesCard).toBeVisible({ timeout: 15000 });
+
+    // 7. Mobile viewport: Library page layout check (375x667)
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/vi/thu-vien');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('[data-testid="library-page-title"]')).toBeVisible({
+      timeout: 15000,
+    });
+
+    const libMobileScreenshot = path.join(screenshotsDir, 'pl2-library-mobile.png');
+    await page.screenshot({ path: libMobileScreenshot });
+    await testInfo.attach('pl2-library-mobile', {
+      path: libMobileScreenshot,
+      contentType: 'image/png',
+    });
+  });
 });

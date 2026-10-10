@@ -6,8 +6,9 @@ import { api } from '../../../../lib/api-client';
 import { VideoCard } from '../../../../components/video/video-card';
 import { Link } from '../../../../i18n/routing';
 import { formatRelativeTime } from '../../../../lib/format';
-import { ListVideo, Lock, EyeOff, Globe, Loader2 } from 'lucide-react';
+import { ListVideo, Lock, EyeOff, Globe, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '../../../../lib/auth/auth-context';
+import { CreatePlaylistDialog } from '../../../../components/playlist/create-playlist-dialog';
 
 export interface ChannelTabsProps {
   profile: PublicProfile;
@@ -21,6 +22,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false);
   const { user } = useAuth();
   const isOwner = user?.id === profile.id;
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'playlists' && !playlistsLoaded) {
@@ -107,7 +109,22 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
 
       {/* Tab: Playlists */}
       {activeTab === 'playlists' && (
-        <div data-testid="channel-playlists-section">
+        <div data-testid="channel-playlists-section" className="flex flex-col gap-4">
+          {/* Owner only "+ Tạo danh sách" button */}
+          {isOwner && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCreateDialog(true)}
+                data-testid="channel-create-playlist-btn"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-md transition"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ Tạo danh sách</span>
+              </button>
+            </div>
+          )}
+
           {loadingPlaylists ? (
             <div className="flex items-center justify-center py-20 text-zinc-400">
               <Loader2 className="h-8 w-8 animate-spin" />
@@ -176,6 +193,16 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           </div>
         </div>
       )}
+
+      {/* Create Playlist Dialog */}
+      <CreatePlaylistDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onCreated={(newPl) => {
+          setPlaylists((prev) => [newPl, ...prev]);
+        }}
+        navigateOnSuccess={true}
+      />
     </div>
   );
 }

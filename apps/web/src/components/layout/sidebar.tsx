@@ -55,7 +55,7 @@ export function Sidebar({
     ...(isAuthenticated
       ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
       : []),
-    { href: '#library', label: t('library'), icon: FolderHeart },
+    { href: '/thu-vien', label: t('library'), icon: FolderHeart },
     { href: '#history', label: t('history'), icon: History },
   ];
 

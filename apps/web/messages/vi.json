@@ -559,6 +559,26 @@
     "seriesForeignItemError": "Bộ phim chỉ chứa video của chính kênh bạn.",
     "seriesBadge": "Bộ phim"
   },
+  "library": {
+    "title": "Thư viện",
+    "description": "Quản lý danh sách phát và các bộ phim của bạn.",
+    "createPlaylist": "+ Tạo danh sách",
+    "emptyTitle": "Bạn chưa có danh sách phát nào.",
+    "emptyDesc": "Tạo danh sách phát hoặc bộ phim để sắp xếp các video theo chủ đề.",
+    "public": "Công khai",
+    "unlisted": "Không công khai",
+    "private": "Riêng tư",
+    "seriesBadge": "Bộ phim",
+    "seriesCheckbox": "Bộ phim (gom các tập thành một bộ trên trang chủ)",
+    "seriesHint": "Bộ phim chỉ chứa video của chính bạn và phải để Công khai mới hiện ở trang chủ.",
+    "addMyVideos": "+ Thêm video của tôi",
+    "selectMyVideos": "Thêm video từ Studio",
+    "searchVideosPlaceholder": "Tìm kiếm theo tiêu đề video...",
+    "addNVideos": "Thêm {count} video",
+    "nonPublicSeriesNotice": "Bộ phim đang ở chế độ {visibility}, chưa hiện trên trang chủ.",
+    "loadMore": "Tải thêm",
+    "noVideosFound": "Không tìm thấy video nào."
+  },
   "cinema": {
     "title": "Phim",
     "watchNow": "Xem ngay",
