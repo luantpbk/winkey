@@ -13,6 +13,7 @@ All load tests are executed using Grafana k6 in Docker (pinned by digest): `graf
 
 1. **Viewers & Anonymous Reads Only**: No account creation, no registration, no comments, no likes, no video uploads. Zero state mutation.
 2. **Platform Safety Watchdog**: `deploy/lt2/watchdog.sh` monitors edge-1 RAM, HTTP error rates, and the 4 canonical legacy sites (`kendrickheller.com`, `cuuhohanam.com`, `kidzlab.edu.vn`, `sblaichau.vn`). Any safety breach triggers auto-abort.
+3. **Telemetry Placeholder Notice**: The `telemetry.json` file written by `lt2-run.sh` in `/tmp` serves as an initial schema-valid placeholder for the platform watchdog error telemetry check.
 
 ---
 
@@ -56,4 +57,5 @@ TARGET_URL=http://127.0.0.1:8080 VUS=50 DURATION=1m ./loadtest/lt2-run.sh
 ### PASS Rule
 - Aggregate `rebuffer_ratio < 0.01` (1%)
 - Aggregate `http_req_failed < 0.01` (1%)
+- `passed === true` in `results/lt2-summary.json` (otherwise exit 1).
 - Zero watchdog auto-aborts during full 35-minute run.

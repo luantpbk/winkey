@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v node >/dev/null 2>&1; then
+  if [ -x "/tmp/node/bin/node" ]; then
+    export PATH="/tmp/node/bin:${PATH}"
+  elif [ -x "/usr/local/bin/node" ]; then
+    export PATH="/usr/local/bin:${PATH}"
+  fi
+fi
+
 TARGET_URL="${TARGET_URL:-https://winkey.vn}"
 
 # Window safety gate: refuse execution on winkey.vn outside 02:00–03:30 Asia/Ho_Chi_Minh
@@ -63,6 +71,11 @@ cleanup() {
   fi
   if [ -f "${SUMMARY_FILE}" ]; then
     echo "Summary location: ${SUMMARY_FILE}"
+    SUMMARY_PASSED=$(node -e "try { const s = JSON.parse(require('fs').readFileSync('${SUMMARY_FILE}', 'utf8')); console.log(s.passed === true ? 'true' : 'false'); } catch (_) { console.log('false'); }")
+    if [ "${SUMMARY_PASSED}" != "true" ]; then
+      echo "ERROR: Summary gate failed (passed=false in ${SUMMARY_FILE})" >&2
+      exit_code=1
+    fi
   else
     echo "Summary location: (none generated)"
   fi

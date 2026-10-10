@@ -5,7 +5,6 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Import handleSummary from hls-viewers.js logic
 function computeSummary(data) {
   const stallNoseek =
     (data.metrics.stall_ms_noseek && data.metrics.stall_ms_noseek.values.count) || 0;
@@ -89,7 +88,6 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
   });
 
   it('bypasses window refusal when TARGET_URL is non-winkey.vn local address', async () => {
-    // Start local fake server for preflight checks
     const server = http.createServer((req, res) => {
       if (req.url?.includes('MemAvailable')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -117,7 +115,6 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
     const port = server.address().port;
     const fakeMetricsUrl = `http://127.0.0.1:${port}/metrics`;
 
-    // Start lt2-run.sh against mock server with invalid k6 command to trigger early failure after preflight
     const child = execFile('./loadtest/lt2-run.sh', [], {
       env: {
         ...process.env,
@@ -134,8 +131,45 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
     await new Promise((resolve) => child.on('close', resolve));
     server.close();
 
-    // Verify it passed window check and reached watchdog preflight
     assert.doesNotMatch(output, /strictly gated to 02:00–03:30/);
+  });
+
+  it('verifies 5% http_req_failed abort threshold configuration in both k6 scripts', () => {
+    const hlsContent = fs.readFileSync(path.join(process.cwd(), 'loadtest/hls-viewers.js'), 'utf8');
+    const apiContent = fs.readFileSync(path.join(process.cwd(), 'loadtest/api-read.js'), 'utf8');
+
+    const expectedConfig = "threshold: 'rate<0.05', abortOnFail: true";
+    assert.ok(
+      hlsContent.includes(expectedConfig),
+      'hls-viewers.js must contain 5% threshold abortOnFail config',
+    );
+    assert.ok(
+      apiContent.includes(expectedConfig),
+      'api-read.js must contain 5% threshold abortOnFail config',
+    );
+  });
+
+  it('propagates failure when summary file has passed=false', () => {
+    const summaryFile = path.join(process.cwd(), 'results/lt2-summary.json');
+    fs.mkdirSync(path.dirname(summaryFile), { recursive: true });
+
+    fs.writeFileSync(
+      summaryFile,
+      JSON.stringify({
+        rebuffer_ratio: 0.025,
+        rebuffer_ratio_incl_seek: 0.05,
+        http_req_failed: 0.005,
+        passed: false,
+      }),
+    );
+
+    const checkScript = `node -e "try { const s = JSON.parse(require('fs').readFileSync('${summaryFile}', 'utf8')); process.exit(s.passed === true ? 0 : 1); } catch (_) { process.exit(1); }"`;
+    try {
+      execFileSync('sh', ['-c', checkScript], { stdio: 'pipe' });
+      assert.fail('Expected script to exit non-zero when passed is false');
+    } catch (err) {
+      assert.equal(err.status, 1);
+    }
   });
 
   it('propagates failure from generator or watchdog abort', async () => {
