@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
 import { Link } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
-import { Share2, Flag, Subtitles, Clock, BookmarkPlus } from 'lucide-react';
+import { Share2, Flag, Subtitles, Clock, BookmarkPlus, Pencil } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
 import { SubscribeButton } from '../../../../components/social/subscribe-button';
 import { ReportDialog } from '../../../../components/moderation/report-dialog';
@@ -111,16 +111,28 @@ export function WatchClientSection({ video }: { video: Video }) {
           </button>
 
           {isOwner && (
-            <button
-              type="button"
-              onClick={() => setShowSubtitlesDialog(true)}
-              aria-label="Quản lý phụ đề"
-              data-testid="owner-manage-subtitles"
-              className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
-            >
-              <Subtitles className="h-4 w-4 text-red-500" />
-              <span>Phụ đề</span>
-            </button>
+            <>
+              <Link
+                href={`/studio/videos/${video.id}/edit`}
+                aria-label="Chỉnh sửa video"
+                data-testid="owner-edit-video-btn"
+                className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+              >
+                <Pencil className="h-4 w-4 text-red-500" />
+                <span>Chỉnh sửa</span>
+              </Link>
+
+              <button
+                type="button"
+                onClick={() => setShowSubtitlesDialog(true)}
+                aria-label="Quản lý phụ đề"
+                data-testid="owner-manage-subtitles"
+                className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+              >
+                <Subtitles className="h-4 w-4 text-red-500" />
+                <span>Phụ đề</span>
+              </button>
+            </>
           )}
 
           {!isOwner && (
