@@ -348,11 +348,13 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
         expect(screen.getByTestId('series-navigation-bar')).toBeDefined();
       });
 
-      // Press 'N' -> navigates to next episode
-      fireEvent.keyDown(window, { key: 'n' });
-      expect(mockPush).toHaveBeenCalledWith(
-        expect.stringMatching(/\/watch\/ep-2\?playlist=pl-series-1&src=playlist/),
-      );
+      // Press 'N' -> navigates to next episode (wrapped in waitFor to eliminate race condition with useEffect)
+      await waitFor(() => {
+        fireEvent.keyDown(window, { key: 'n' });
+        expect(mockPush).toHaveBeenCalledWith(
+          expect.stringMatching(/\/watch\/ep-2\?playlist=pl-series-1&src=playlist/),
+        );
+      });
 
       mockPush.mockClear();
 
