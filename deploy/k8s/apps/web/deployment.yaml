@@ -81,8 +81,14 @@ spec:
               mountPath: /tmp
             - name: next-cache
               mountPath: /app/apps/web/.next/cache
+            - name: sitemap-body
+              mountPath: /app/apps/web/.next/server/app/sitemap.xml.body
+              subPath: sitemap.xml.body
       volumes:
         - name: tmp
           emptyDir: {}
         - name: next-cache
           emptyDir: {}
+        - name: sitemap-body
+          configMap:
+            name: winkey-sitemap

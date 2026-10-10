@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: winkey-sitemap
+  namespace: default
+  labels:
+    app.kubernetes.io/name: web-svc
+    app.kubernetes.io/part-of: winkey
+data:
+  sitemap.xml.body: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+      <url>
+        <loc>https://winkey.vn</loc>
+        <changefreq>daily</changefreq>
+        <priority>1.0</priority>
+      </url>
+      <url>
+        <loc>https://winkey.vn/kham-pha</loc>
+        <changefreq>hourly</changefreq>
+        <priority>0.9</priority>
+      </url>
+      <url>
+        <loc>https://winkey.vn/trending</loc>
+        <changefreq>hourly</changefreq>
+        <priority>0.9</priority>
+      </url>
+      <url>
+        <loc>https://winkey.vn/c/thanhluanbka_44fab0</loc>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a28-6f16-7b86-9db4-1e2b790435ba</loc>
+        <lastmod>2026-10-08T06:19:17.843915Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a28-6f16-7b86-9db4-1e2b790435ba/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Đẳng Lang Nữ - Lấy Chồng Gà Trống _ Tập tục kỳ lạ _ Dân gian</video:title>
+          <video:description>Đẳng Lang Nữ - Lấy Chồng Gà Trống _ Tập tục kỳ lạ _ Dân gian</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a28-6f16-7b86-9db4-1e2b790435ba</video:player_loc>
+          <video:duration>675</video:duration>
+          <video:publication_date>2026-10-08T06:19:17.843915Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a24-cf6c-767d-af34-d1e434ba83e1</loc>
+        <lastmod>2026-10-08T06:15:42.877566Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a24-cf6c-767d-af34-d1e434ba83e1/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Trò lừa bất hiếu - Bán Mẹ _  Phim hay</video:title>
+          <video:description>Trò lừa bất hiếu - Bán Mẹ _  Phim hay</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a24-cf6c-767d-af34-d1e434ba83e1</video:player_loc>
+          <video:duration>787</video:duration>
+          <video:publication_date>2026-10-08T06:15:42.877566Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a22-fcef-726b-9501-23afe5409ce5</loc>
+        <lastmod>2026-10-08T06:12:35.523016Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a22-fcef-726b-9501-23afe5409ce5/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Liêu trai chí dị - Truyện Vân Thúy Tiên _ Dân gian</video:title>
+          <video:description>Liêu trai chí dị - Truyện Vân Thúy Tiên _ Dân gian</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a22-fcef-726b-9501-23afe5409ce5</video:player_loc>
+          <video:duration>411</video:duration>
+          <video:publication_date>2026-10-08T06:12:35.523016Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a21-6d04-7182-8ebb-a8be1a35a25d</loc>
+        <lastmod>2026-10-08T06:10:30.37706Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a21-6d04-7182-8ebb-a8be1a35a25d/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Chu Xứ Diệt Tam Hại _ Trảm Long - Đả Hổ - Quy Y</video:title>
+          <video:description>Chu Xứ Diệt Tam Hại _ Trảm Long - Đả Hổ - Quy Y</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a21-6d04-7182-8ebb-a8be1a35a25d</video:player_loc>
+          <video:duration>426</video:duration>
+          <video:publication_date>2026-10-08T06:10:30.37706Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a1f-136a-7aad-a227-5c2f81b0fbe4</loc>
+        <lastmod>2026-10-08T06:08:35.616597Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a1f-136a-7aad-a227-5c2f81b0fbe4/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Tứ Tham - Đời Người Một Kiếp _ Dân gian _ Bài học cuộc sống</video:title>
+          <video:description>Tứ Tham - Đời Người Một Kiếp _ Dân gian _ Bài học cuộc sống</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a1f-136a-7aad-a227-5c2f81b0fbe4</video:player_loc>
+          <video:duration>567</video:duration>
+          <video:publication_date>2026-10-08T06:08:35.616597Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a11a17-065e-74cc-befa-c58db066a7e1</loc>
+        <lastmod>2026-10-08T05:59:57.033459Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a11a17-065e-74cc-befa-c58db066a7e1/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Cướp Vợ Bạn Thân - Cái Giá Phải Trả _ Dân gian _ Phim hay</video:title>
+          <video:description>Cướp Vợ Bạn Thân - Cái Giá Phải Trả _ Dân gian _ Phim hay</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a11a17-065e-74cc-befa-c58db066a7e1</video:player_loc>
+          <video:duration>558</video:duration>
+          <video:publication_date>2026-10-08T05:59:57.033459Z</video:publication_date>
+        </video:video>
+      </url>
+      <url>
+        <loc>https://winkey.vn/watch/01a0f6e2-58da-72f0-b3a9-e65c31693b88</loc>
+        <lastmod>2026-10-01T10:00:15.402519Z</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.8</priority>
+        <video:video>
+          <video:thumbnail_loc>https://media.winkey.vn/v/01a0f6e2-58da-72f0-b3a9-e65c31693b88/a1/thumb/poster.jpg</video:thumbnail_loc>
+          <video:title>Trốn Tội - Quả Báo Nhãn Tiền |  Phim hay #dangian #phimhay #phimngan #luadao #bàihọccuộcsống</video:title>
+          <video:description>Trốn Tội - Quả Báo Nhãn Tiền |  Phim hay #dangian #phimhay #phimngan #luadao #bàihọccuộcsống</video:description>
+          <video:player_loc>https://winkey.vn/watch/01a0f6e2-58da-72f0-b3a9-e65c31693b88</video:player_loc>
+          <video:duration>397</video:duration>
+          <video:publication_date>2026-10-01T10:00:15.402519Z</video:publication_date>
+        </video:video>
+      </url>
+    </urlset>
