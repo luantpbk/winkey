@@ -4,6 +4,7 @@ import { setRequestLocale } from 'next-intl/server';
 import type { VideoSummary } from '@winkey/api-client';
 import { getBaseUrl } from '../../lib/api-client';
 import { CinemaView } from '../../components/cinema/cinema-view';
+import { buildWebSiteSchema } from '../../lib/seo/website-schema';
 
 // Read process.env at request time, not at build time
 export const dynamic = 'force-dynamic';
@@ -105,14 +106,23 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
   const curatorHandle = process.env.CINEMA_CURATOR_HANDLE || '';
 
   const { videos, sortSource } = await fetchInitialHero();
+  const websiteSchema = buildWebSiteSchema();
 
   return (
-    <CinemaView
-      curatorHandle={curatorHandle}
-      initialVideoId={initialVideoId}
-      initialSeriesId={initialSeriesId}
-      initialHeroVideos={videos}
-      initialSortSource={sortSource}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(websiteSchema),
+        }}
+      />
+      <CinemaView
+        curatorHandle={curatorHandle}
+        initialVideoId={initialVideoId}
+        initialSeriesId={initialSeriesId}
+        initialHeroVideos={videos}
+        initialSortSource={sortSource}
+      />
+    </>
   );
 }
