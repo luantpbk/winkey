@@ -40,7 +40,7 @@ interface PlaylistItemCursor {
   position: number;
 }
 
-function resolveOwnerProfile(
+export function resolveOwnerProfile(
   profile:
     | {
         id: string;
@@ -73,6 +73,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title?: unknown;
       description?: unknown;
       visibility?: unknown;
+      is_series?: unknown;
     };
   }>('/v1/playlists', async (request, reply) => {
     const caller = requireAuth(request);
@@ -90,17 +91,18 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
     }
 
     // Strict validation: check for unknown properties
-    const allowedKeys = new Set(['title', 'description', 'visibility']);
+    const allowedKeys = new Set(['title', 'description', 'visibility', 'is_series']);
     for (const key of Object.keys(body)) {
       if (!allowedKeys.has(key)) {
         throw ProblemError.badRequest(`Unknown property: ${key}`, undefined, 'INVALID_BODY');
       }
     }
 
-    const { title, description, visibility } = body as {
+    const { title, description, visibility, is_series } = body as {
       title?: unknown;
       description?: unknown;
       visibility?: unknown;
+      is_series?: unknown;
     };
 
     if (typeof title !== 'string' || title.trim().length < 1 || title.length > 150) {
@@ -135,6 +137,10 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       vis = visibility;
     }
 
+    if (is_series !== undefined && typeof is_series !== 'boolean') {
+      throw ProblemError.badRequest('is_series must be a boolean', undefined, 'INVALID_BODY');
+    }
+
     const newId = uuidv7();
 
     const created = await db.transaction().execute(async (trx) => {
@@ -164,6 +170,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
           title,
           description: descStr,
           visibility: vis,
+          is_series: is_series === true,
           item_count: 0,
         })
         .returningAll()
@@ -184,6 +191,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title: created.title,
       description: created.description,
       visibility: created.visibility,
+      is_series: created.is_series,
       item_count: created.item_count,
       created_at: created.created_at.toISOString(),
       updated_at: created.updated_at.toISOString(),
@@ -215,6 +223,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
         'p.title',
         'p.description',
         'p.visibility',
+        'p.is_series',
         'p.item_count',
         'p.created_at',
         'p.updated_at',
@@ -255,6 +264,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title: playlist.title,
       description: playlist.description,
       visibility: playlist.visibility,
+      is_series: playlist.is_series,
       item_count: playlist.item_count,
       created_at: playlist.created_at.toISOString(),
       updated_at: playlist.updated_at.toISOString(),
@@ -270,6 +280,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title?: unknown;
       description?: unknown;
       visibility?: unknown;
+      is_series?: unknown;
     };
   }>('/v1/playlists/:playlist_id', async (request, reply) => {
     const caller = requireAuth(request);
@@ -284,22 +295,28 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       throw ProblemError.badRequest('Request body must be an object', undefined, 'INVALID_BODY');
     }
 
-    const allowedKeys = new Set(['title', 'description', 'visibility']);
+    const allowedKeys = new Set(['title', 'description', 'visibility', 'is_series']);
     for (const key of Object.keys(body)) {
       if (!allowedKeys.has(key)) {
         throw ProblemError.badRequest(`Unknown property: ${key}`, undefined, 'INVALID_BODY');
       }
     }
 
-    const { title, description, visibility } = body as {
+    const { title, description, visibility, is_series } = body as {
       title?: unknown;
       description?: unknown;
       visibility?: unknown;
+      is_series?: unknown;
     };
 
-    if (title === undefined && description === undefined && visibility === undefined) {
+    if (
+      title === undefined &&
+      description === undefined &&
+      visibility === undefined &&
+      is_series === undefined
+    ) {
       throw ProblemError.badRequest(
-        'At least one field (title, description, visibility) must be provided',
+        'At least one field (title, description, visibility, is_series) must be provided',
         undefined,
         'INVALID_BODY',
       );
@@ -340,6 +357,10 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       );
     }
 
+    if (is_series !== undefined && typeof is_series !== 'boolean') {
+      throw ProblemError.badRequest('is_series must be a boolean', undefined, 'INVALID_BODY');
+    }
+
     // Check ownership and kind
     const existing = await db
       .selectFrom('social.playlists')
@@ -358,10 +379,29 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       );
     }
 
+    // If turning on is_series, check for foreign items
+    if (is_series === true) {
+      const foreignItem = await db
+        .selectFrom('social.playlist_items as pi')
+        .innerJoin('social.videos as v', 'v.id', 'pi.video_id')
+        .select('pi.video_id')
+        .where('pi.playlist_id', '=', playlist_id)
+        .where('v.owner_id', '<>', existing.owner_id)
+        .executeTakeFirst();
+
+      if (foreignItem) {
+        throw ProblemError.conflict(
+          'Playlist contains videos belonging to another channel',
+          'SERIES_FOREIGN_ITEM',
+        );
+      }
+    }
+
     const updates: Partial<{
       title: string;
       description: string;
       visibility: PlaylistVisibility;
+      is_series: boolean;
       updated_at: Date;
     }> = {
       updated_at: new Date(),
@@ -370,33 +410,47 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
     if (title !== undefined) updates.title = title as string;
     if (description !== undefined) updates.description = description as string;
     if (visibility !== undefined) updates.visibility = visibility as PlaylistVisibility;
+    if (is_series !== undefined) updates.is_series = is_series as boolean;
 
-    const updated = await db
-      .updateTable('social.playlists')
-      .set(updates)
-      .where('id', '=', playlist_id)
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    try {
+      const updated = await db
+        .updateTable('social.playlists')
+        .set(updates)
+        .where('id', '=', playlist_id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-    const profile = await db
-      .selectFrom('auth.public_profiles')
-      .selectAll()
-      .where('id', '=', caller.userId)
-      .executeTakeFirst();
+      const profile = await db
+        .selectFrom('auth.public_profiles')
+        .selectAll()
+        .where('id', '=', caller.userId)
+        .executeTakeFirst();
 
-    const playlistDto: PlaylistDto = {
-      id: updated.id,
-      owner: resolveOwnerProfile(profile, caller.userId, env.MEDIA_BASE_URL),
-      kind: updated.kind,
-      title: updated.title,
-      description: updated.description,
-      visibility: updated.visibility,
-      item_count: updated.item_count,
-      created_at: updated.created_at.toISOString(),
-      updated_at: updated.updated_at.toISOString(),
-    };
+      const playlistDto: PlaylistDto = {
+        id: updated.id,
+        owner: resolveOwnerProfile(profile, caller.userId, env.MEDIA_BASE_URL),
+        kind: updated.kind,
+        title: updated.title,
+        description: updated.description,
+        visibility: updated.visibility,
+        is_series: updated.is_series,
+        item_count: updated.item_count,
+        created_at: updated.created_at.toISOString(),
+        updated_at: updated.updated_at.toISOString(),
+      };
 
-    return reply.status(200).send(playlistDto);
+      return reply.status(200).send(playlistDto);
+    } catch (err: unknown) {
+      if (err instanceof ProblemError) throw err;
+      const pgErr = err as { code?: string; message?: string };
+      if (pgErr.code === '23514' && pgErr.message?.includes('SERIES_FOREIGN_ITEM')) {
+        throw ProblemError.conflict(
+          'Playlist contains videos belonging to another channel',
+          'SERIES_FOREIGN_ITEM',
+        );
+      }
+      throw err;
+    }
   });
 
   // 4. DELETE /v1/playlists/:playlist_id - Delete playlist
@@ -586,13 +640,21 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       resultItem = await db.transaction().execute(async (trx) => {
         const playlist = await trx
           .selectFrom('social.playlists')
-          .select(['id', 'owner_id', 'item_count'])
+          .select(['id', 'owner_id', 'item_count', 'is_series'])
           .where('id', '=', playlist_id)
           .forUpdate()
           .executeTakeFirst();
 
         if (!playlist || playlist.owner_id !== caller.userId) {
           throw ProblemError.notFound('Playlist not found', 'PLAYLIST_NOT_FOUND');
+        }
+
+        // A series only accepts the owner's own videos
+        if (playlist.is_series && video.owner_id !== playlist.owner_id) {
+          throw ProblemError.conflict(
+            'Cannot add video of another channel to a series',
+            'SERIES_FOREIGN_ITEM',
+          );
         }
 
         // Check if already in playlist (idempotent 200)
@@ -645,9 +707,15 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       });
     } catch (err: unknown) {
       if (err instanceof ProblemError) throw err;
-      // Map check_violation (code 23514) on playlists_item_count to PLAYLIST_FULL
-      const pgErr = err as { code?: string };
+      // Map check_violation (code 23514)
+      const pgErr = err as { code?: string; message?: string };
       if (pgErr.code === '23514') {
+        if (pgErr.message?.includes('SERIES_FOREIGN_ITEM')) {
+          throw ProblemError.conflict(
+            'Cannot add video of another channel to a series',
+            'SERIES_FOREIGN_ITEM',
+          );
+        }
         throw ProblemError.conflict('Playlist is full (maximum 5000 items)', 'PLAYLIST_FULL');
       }
       throw err;
@@ -920,6 +988,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
         'p.title',
         'p.description',
         'p.visibility',
+        'p.is_series',
         'p.item_count',
         'p.created_at',
         'p.updated_at',
@@ -972,6 +1041,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title: r.title,
       description: r.description,
       visibility: r.visibility,
+      is_series: r.is_series,
       item_count: r.item_count,
       created_at: r.created_at.toISOString(),
       updated_at: r.updated_at.toISOString(),
@@ -1053,6 +1123,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
         'p.title',
         'p.description',
         'p.visibility',
+        'p.is_series',
         'p.item_count',
         'p.created_at',
         'p.updated_at',
@@ -1083,6 +1154,7 @@ export const playlistsRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
       title: playlist.title,
       description: playlist.description,
       visibility: playlist.visibility,
+      is_series: false,
       item_count: playlist.item_count,
       created_at: playlist.created_at.toISOString(),
       updated_at: playlist.updated_at.toISOString(),

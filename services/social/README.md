@@ -47,18 +47,35 @@ Part of **Task C1**, owned by **Antigravity 3**.
     - `POST /v1/notifications/read`: Mark notifications as read using either `ids` (1-100 UUIDs) or `up_to` (ISO timestamp). Returns 204.
   - Janitor: Periodic background worker using Postgres advisory lock (`821390`) to batch delete notifications older than retention days (default 90 days).
 - **Playlists & Watch Later (Task PL1 / ADR-024)**:
-  - `POST /v1/playlists`: Create playlist owned by caller (default `PRIVATE` visibility, at most 200 playlists/user -> 409 `PLAYLIST_LIMIT`, rate limit 30/min).
-  - `GET /v1/playlists/:playlist_id`: One playlist details (`PUBLIC`/`UNLISTED` accessible to anyone, `PRIVATE`/`WATCH_LATER` accessible only to owner -> 404 otherwise). `Cache-Control: private, no-store`.
-  - `PATCH /v1/playlists/:playlist_id`: Update title, description, or visibility (owner only; watch later -> 409 `WATCH_LATER_IMMUTABLE`).
+  - `POST /v1/playlists`: Create playlist owned by caller (default `PRIVATE` visibility, at most 200 playlists/user -> 409 `PLAYLIST_LIMIT`, rate limit 30/min, optional `is_series: boolean`).
+  - `GET /v1/playlists/:playlist_id`: One playlist details (`PUBLIC`/`UNLISTED` accessible to anyone, `PRIVATE`/`WATCH_LATER` accessible only to owner -> 404 otherwise; returns `is_series`). `Cache-Control: private, no-store`.
+  - `PATCH /v1/playlists/:playlist_id`: Update title, description, visibility, or `is_series` (owner only; watch later -> 409 `WATCH_LATER_IMMUTABLE`; foreign items -> 409 `SERIES_FOREIGN_ITEM`).
   - `DELETE /v1/playlists/:playlist_id`: Delete playlist and cascade items (owner only; watch later -> 409 `WATCH_LATER_IMMUTABLE`).
   - `GET /v1/playlists/:playlist_id/items`: List items in position ASC order with keyset cursor pagination (`position > cursor`). Filters out hidden or private videos unless owned by caller. `Cache-Control: private, no-store`.
-  - `POST /v1/playlists/:playlist_id/items`: Append video to playlist (at most 5000 items -> 409 `PLAYLIST_FULL`, rate limit 120/min, idempotent 200 vs 201; sparse position `max(position) + 2^20`).
+  - `POST /v1/playlists/:playlist_id/items`: Append video to playlist (at most 5000 items -> 409 `PLAYLIST_FULL`, rate limit 120/min, idempotent 200 vs 201; sparse position `max(position) + 2^20`; foreign item into series -> 409 `SERIES_FOREIGN_ITEM`).
   - `DELETE /v1/playlists/:playlist_id/items/:video_id`: Remove video from playlist (idempotent 204).
   - `POST /v1/playlists/:playlist_id/items/:video_id/move`: Reposition item before another or to the end (`before_video_id: null`). Uses midpoint sparse positioning; triggers automatic deferred renumbering (`SET CONSTRAINTS social.playlist_items_position DEFERRED`) when no integer gap exists. Moving before itself is a no-op 200.
-  - `GET /v1/channels/:channel_id/playlists`: List channel's playlists. Channel owner sees all playlists (watch later pinned first, then `(updated_at, id)` DESC); others see only `PUBLIC` regular playlists. Keyset pagination on `(updated_at, id)`.
-  - `GET /v1/me/watch-later`: Lazily creates and returns caller's private watch-later playlist with title "Xem sau" (exempt from 200 playlist limit).
+  - `GET /v1/channels/:channel_id/playlists`: List channel's playlists. Channel owner sees all playlists (watch later pinned first, then `(updated_at, id)` DESC); others see only `PUBLIC` regular playlists. Includes `is_series`. Keyset pagination on `(updated_at, id)`.
+  - `GET /v1/me/watch-later`: Lazily creates and returns caller's private watch-later playlist with title "Xem sau" (exempt from 200 playlist limit, `is_series: false`).
   - `GET /v1/videos/:video_id/playlist-membership`: Returns array of caller-owned playlist IDs containing the given video.
-- **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes.
+- **Cinema Catalogue & Series (Task CIN2 / ADR-035)**:
+  - Gateway routes: Ingress prefixes `/v1/cinema/*` and `/v1/series/*` route to `social-svc`.
+  - `GET /v1/cinema/catalog`: Public cinema catalogue merging series and standalone videos.
+    - Filter: `kind=all` (default), `kind=series`, `kind=video`.
+    - SERIES items: Every `PUBLIC` `is_series = true` playlist with $\ge 1$ playable episode (public, non-hidden, owned by playlist owner). Returns `first_video_id`, `episode_count`, and `owner` profile; `updated_at` is the max `added_at` of playable episodes.
+    - VIDEO items: Standalone `social.videos` rows that are `PUBLIC`, non-hidden, and not a playable episode of any `PUBLIC` series. `added_at` is `social.videos.created_at`.
+    - Keyset pagination: Stable cursor `{t, id, k}` (base64url JSON) ordered by `(timestamp DESC, id DESC)`. Limit $\le 48$ (default 24).
+    - Caching: `Cache-Control: public, max-age=60`. Identical for anonymous and signed-in callers.
+    - High-performance query: Single SQL query per page utilizing composite indexes `social.playlists_public_series` and `social.videos_catalog` (no N+1).
+  - `GET /v1/series/:playlist_id/episodes`: Paginated playable episodes for a series.
+    - Returns `SeriesSummary` metadata plus `{video_id, episode_number}` items.
+    - Gapless 1-based numbering: `episode_number` strictly counts playable episodes in `(position ASC, video_id ASC)` order without numbering gaps.
+    - Keyset pagination: Cursor `{p, id}` (base64url JSON). Limit $\le 48$ (default 48).
+    - Error: 404 `SERIES_NOT_FOUND` if playlist does not exist, is not `PUBLIC`, is not `is_series`, or has 0 playable episodes.
+  - `GET /v1/series/:playlist_id/episodes/:video_id`: Episode playback context and navigation.
+    - Returns `episode_number`, `previous_video_id` (null for first episode), `next_video_id` (null for last episode), and `page_cursor` (the `listSeriesEpisodes` cursor with default limit 48 of the page containing this episode; `null` for page 1).
+    - Errors: 404 `SERIES_NOT_FOUND` if series is not found or has 0 playable episodes; 404 `EPISODE_NOT_FOUND` if video is not a playable episode in the series.
+- **RFC 9457 Errors**: Standardized problem details (`application/problem+json`) with machine-readable error codes (including `SERIES_FOREIGN_ITEM`, `SERIES_NOT_FOUND`, `EPISODE_NOT_FOUND`, `WATCH_LATER_IMMUTABLE`, `PLAYLIST_LIMIT`, `PLAYLIST_FULL`).
 - **Health & Readiness**: `/healthz` and `/readyz` endpoints verifying DB, Valkey, and NATS JetStream.
 
 ---

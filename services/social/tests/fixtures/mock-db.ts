@@ -90,6 +90,7 @@ export interface MockStore {
     description: string;
     visibility: PlaylistVisibility;
     item_count: number;
+    is_series?: boolean;
     created_at: Date;
     updated_at: Date;
     updated_at_micros?: string;
@@ -674,6 +675,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
               description: '',
               visibility: 'PRIVATE' as PlaylistVisibility,
               item_count: 0,
+              is_series: false,
               created_at: now,
               updated_at: now,
             };
@@ -689,7 +691,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
         const title = String(params[3]);
         const description = String(params[4] ?? '');
         const visibility = (params[5] as PlaylistVisibility) || 'PRIVATE';
-        const itemCount = Number(params[6] ?? 0);
+        const isSeries = sql.includes('is_series')
+          ? Boolean(params.find((p) => typeof p === 'boolean'))
+          : false;
+        const itemCount = Number(params.find((p) => typeof p === 'number') ?? 0);
         const now = new Date();
 
         const newPl = {
@@ -699,6 +704,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           title,
           description,
           visibility,
+          is_series: isSeries,
           item_count: itemCount,
           created_at: now,
           updated_at: now,
@@ -731,7 +737,28 @@ export function createMockDb(store: MockStore = createMockStore()): {
           if (sql.includes('visibility =') || sql.includes('"visibility" =')) {
             pl.visibility = params[paramIdx++] as PlaylistVisibility;
           }
-          return { rows: [pl], rowCount: 1 };
+          if (sql.includes('is_series =') || sql.includes('"is_series" =')) {
+            const isSeriesVal = params.find((p) => typeof p === 'boolean');
+            if (isSeriesVal !== undefined) {
+              if (isSeriesVal) {
+                // Check foreign items to simulate trigger
+                const hasForeign = store.playlist_items.some((pi) => {
+                  if (pi.playlist_id !== pl.id) return false;
+                  const v = store.videos.find((vid) => vid.id === pi.video_id);
+                  return v && v.owner_id !== pl.owner_id;
+                });
+                if (hasForeign) {
+                  const err = new Error('check_violation: SERIES_FOREIGN_ITEM') as Error & {
+                    code?: string;
+                  };
+                  err.code = '23514';
+                  throw err;
+                }
+              }
+              pl.is_series = isSeriesVal;
+            }
+          }
+          return { rows: [{ ...pl, is_series: pl.is_series ?? false }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }
@@ -764,6 +791,17 @@ export function createMockDb(store: MockStore = createMockStore()): {
           };
           err.code = '23514';
           throw err;
+        }
+
+        if (pl && pl.is_series) {
+          const v = store.videos.find((vid) => vid.id === videoId);
+          if (v && v.owner_id !== pl.owner_id) {
+            const err = new Error('check_violation: SERIES_FOREIGN_ITEM') as Error & {
+              code?: string;
+            };
+            err.code = '23514';
+            throw err;
+          }
         }
 
         const newItem = {
@@ -821,6 +859,199 @@ export function createMockDb(store: MockStore = createMockStore()): {
           }
         }
         return { rows: [], rowCount: deleted ? 1 : 0 };
+      }
+
+      // Check foreign items for series (updatePlaylist)
+      if (
+        sql.includes('from "social"."playlist_items" as "pi"') &&
+        sql.includes('join "social"."videos" as "v"') &&
+        (sql.includes('"v"."owner_id" <>') || sql.includes('v.owner_id <>'))
+      ) {
+        const playlistId = String(params[0]);
+        const ownerId = String(params[1]);
+        const foreignItem = store.playlist_items.find((pi) => {
+          if (pi.playlist_id !== playlistId) return false;
+          const v = store.videos.find((vid) => vid.id === pi.video_id);
+          return v && v.owner_id !== ownerId;
+        });
+        if (foreignItem) {
+          return { rows: [{ owner_id: 'foreign' }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // 5e. CINEMA CATALOGUE & SERIES (Task CIN2 / ADR-035)
+      // Cinema catalogue (kind=all, kind=series, kind=video)
+      if (
+        sql.includes('series_candidates') ||
+        (sql.includes('social.playlists p') &&
+          sql.includes('p.is_series = true') &&
+          sql.includes('count(pi.video_id)::int AS episode_count')) ||
+        (sql.includes('social.videos v') &&
+          sql.includes('NOT EXISTS') &&
+          sql.includes('p.is_series = true'))
+      ) {
+        const isSeriesOnly =
+          sql.includes("'SERIES'::text AS kind") && !sql.includes('series_candidates');
+        const isVideoOnly =
+          sql.includes("'VIDEO'::text AS kind") && !sql.includes('series_candidates');
+
+        // Series candidates
+        const seriesRows: Array<{
+          kind: 'SERIES' | 'VIDEO';
+          id: string;
+          sort_time: Date;
+          sort_time_str: string;
+          title: string | null;
+          description: string | null;
+          owner_id: string | null;
+          episode_count: number | null;
+          first_video_id: string | null;
+          prof_id: string | null;
+          prof_handle: string | null;
+          prof_display_name: string | null;
+          prof_avatar_key: string | null;
+        }> = [];
+
+        if (!isVideoOnly) {
+          for (const p of store.playlists) {
+            if (!p.is_series || p.visibility !== 'PUBLIC') continue;
+            // Playable episodes
+            const playable = store.playlist_items
+              .filter((pi) => pi.playlist_id === p.id)
+              .filter((pi) => {
+                const v = store.videos.find((vid) => vid.id === pi.video_id);
+                return v && v.visibility === 'PUBLIC' && !v.hidden && v.owner_id === p.owner_id;
+              })
+              .sort((a, b) => a.position - b.position || a.video_id.localeCompare(b.video_id));
+
+            if (playable.length === 0) continue;
+
+            const maxAddedAt = playable.reduce(
+              (max, ep) => (ep.added_at > max ? ep.added_at : max),
+              playable[0].added_at,
+            );
+            const prof = store.public_profiles.find((pr) => pr.id === p.owner_id);
+
+            seriesRows.push({
+              kind: 'SERIES',
+              id: p.id,
+              sort_time: maxAddedAt,
+              sort_time_str: maxAddedAt.toISOString(),
+              title: p.title,
+              description: p.description,
+              owner_id: p.owner_id,
+              episode_count: playable.length,
+              first_video_id: playable[0].video_id,
+              prof_id: prof?.id ?? null,
+              prof_handle: prof?.handle ?? null,
+              prof_display_name: prof?.display_name ?? null,
+              prof_avatar_key: prof?.avatar_key ?? null,
+            });
+          }
+        }
+
+        // Video candidates
+        const videoRows: typeof seriesRows = [];
+        if (!isSeriesOnly) {
+          for (const v of store.videos) {
+            if (v.visibility !== 'PUBLIC' || v.hidden) continue;
+            // Check if it's an episode of any public series
+            const inPublicSeries = store.playlists.some((p) => {
+              if (!p.is_series || p.visibility !== 'PUBLIC' || p.owner_id !== v.owner_id)
+                return false;
+              return store.playlist_items.some(
+                (pi) => pi.playlist_id === p.id && pi.video_id === v.id,
+              );
+            });
+            if (inPublicSeries) continue;
+
+            videoRows.push({
+              kind: 'VIDEO',
+              id: v.id,
+              sort_time: v.created_at,
+              sort_time_str: v.created_at.toISOString(),
+              title: null,
+              description: null,
+              owner_id: null,
+              episode_count: null,
+              first_video_id: null,
+              prof_id: null,
+              prof_handle: null,
+              prof_display_name: null,
+              prof_avatar_key: null,
+            });
+          }
+        }
+
+        let combined = [...seriesRows, ...videoRows];
+        // Sort timestamp desc, id desc
+        combined.sort((a, b) => {
+          const tDiff = b.sort_time.getTime() - a.sort_time.getTime();
+          if (tDiff !== 0) return tDiff;
+          return b.id.localeCompare(a.id);
+        });
+
+        // Filter cursor if present
+        const cursorTimeParam = params.find(
+          (p) => typeof p === 'string' && p.includes('T') && (p.includes('Z') || p.includes('+')),
+        ) as string | undefined;
+        const cursorIdParam = params.find(
+          (p) =>
+            typeof p === 'string' &&
+            p.includes('-') &&
+            p !== cursorTimeParam &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(p),
+        ) as string | undefined;
+
+        if (cursorTimeParam && cursorIdParam) {
+          const cTime = new Date(cursorTimeParam).getTime();
+          combined = combined.filter((r) => {
+            const rTime = r.sort_time.getTime();
+            if (rTime < cTime) return true;
+            if (rTime === cTime && r.id < cursorIdParam) return true;
+            return false;
+          });
+        }
+
+        const limitParam = params.find((p) => typeof p === 'number' && p >= 1 && p <= 50);
+        if (typeof limitParam === 'number') {
+          combined = combined.slice(0, limitParam);
+        }
+
+        return { rows: combined, rowCount: combined.length };
+      }
+
+      // Playable episodes query for listSeriesEpisodes / getSeriesEpisode
+      if (
+        sql.includes('SELECT') &&
+        sql.includes('pi.position') &&
+        sql.includes('FROM social.playlist_items pi') &&
+        sql.includes('JOIN social.videos v ON v.id = pi.video_id')
+      ) {
+        const playlistId = String(params[0]);
+        const ownerId = String(params[1]);
+        const pl = store.playlists.find((p) => p.id === playlistId);
+
+        const playable = store.playlist_items
+          .filter((pi) => pi.playlist_id === playlistId)
+          .filter((pi) => {
+            const v = store.videos.find((vid) => vid.id === pi.video_id);
+            return (
+              v &&
+              v.visibility === 'PUBLIC' &&
+              !v.hidden &&
+              v.owner_id === (pl ? pl.owner_id : ownerId)
+            );
+          })
+          .sort((a, b) => a.position - b.position || a.video_id.localeCompare(b.video_id))
+          .map((pi) => ({
+            video_id: pi.video_id,
+            position: String(pi.position),
+            added_at: pi.added_at,
+          }));
+
+        return { rows: playable, rowCount: playable.length };
       }
 
       // 6. SELECT QUERIES
@@ -1430,6 +1661,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
               prof_handle: prof?.handle,
               prof_display_name: prof?.display_name,
               prof_avatar_key: prof?.avatar_key,
+              is_series: pl.is_series ?? false,
             },
           ],
           rowCount: 1,
@@ -1462,6 +1694,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
               prof_handle: prof?.handle,
               prof_display_name: prof?.display_name,
               prof_avatar_key: prof?.avatar_key,
+              is_series: false,
             },
           ],
           rowCount: 1,
@@ -1535,6 +1768,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
             prof_handle: prof?.handle,
             prof_display_name: prof?.display_name,
             prof_avatar_key: prof?.avatar_key,
+            is_series: pl.is_series ?? false,
           };
         });
         return { rows, rowCount: rows.length };
@@ -1547,7 +1781,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
       ) {
         const playlistId = String(params[0]);
         const pl = store.playlists.find((p) => p.id === playlistId);
-        return { rows: pl ? [pl] : [], rowCount: pl ? 1 : 0 };
+        return {
+          rows: pl ? [{ ...pl, is_series: pl.is_series ?? false }] : [],
+          rowCount: pl ? 1 : 0,
+        };
       }
 
       return { rows: [], rowCount: 0 };

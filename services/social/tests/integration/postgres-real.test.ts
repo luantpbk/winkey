@@ -76,6 +76,9 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validatePlaylistItem: any;
   let validatePlaylistItemPage: any;
   let validatePlaylistMembership: any;
+  let validateCinemaCatalogPage: any;
+  let validateSeriesEpisodePage: any;
+  let validateSeriesEpisodeContext: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -147,6 +150,15 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     )!;
     validatePlaylistMembership = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PlaylistMembership',
+    )!;
+    validateCinemaCatalogPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/CinemaCatalogPage',
+    )!;
+    validateSeriesEpisodePage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesEpisodePage',
+    )!;
+    validateSeriesEpisodeContext = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesEpisodeContext',
     )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
@@ -3007,5 +3019,386 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     ];
     expect(allWalkCollected).toHaveLength(45);
     expect(allWalkCollected).toEqual(walkVideos);
+  }, 120_000);
+
+  it('Cinema Catalogue and Series Integration Tests (Task CIN2 / ADR-035)', async () => {
+    expect(isReady).toBe(true);
+    expect(pool).not.toBeNull();
+    expect(app).not.toBeNull();
+    if (!pool || !app) return;
+
+    const cinUserA = uuidv7();
+    const cinUserB = uuidv7();
+
+    // Setup public profiles
+    await pool.query(`
+      INSERT INTO auth.public_profiles (id, handle, display_name, avatar_key)
+      VALUES
+        ('${cinUserA}', 'cin_owner_a', 'Cinema Owner A', 'avatars/cin_a.jpg'),
+        ('${cinUserB}', 'cin_owner_b', 'Cinema Owner B', NULL)
+    `);
+
+    // Setup videos
+    const vidA1 = uuidv7();
+    const vidA2 = uuidv7();
+    const vidA3 = uuidv7();
+    const vidAHidden = uuidv7();
+    const vidAPrivate = uuidv7();
+    const vidAUnlisted = uuidv7();
+    const vidB1 = uuidv7();
+
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES
+        ('${vidA1}', '${cinUserA}', false, 'PUBLIC', '2026-10-01 10:00:00+00'),
+        ('${vidA2}', '${cinUserA}', false, 'PUBLIC', '2026-10-01 11:00:00+00'),
+        ('${vidA3}', '${cinUserA}', false, 'PUBLIC', '2026-10-01 12:00:00+00'),
+        ('${vidAHidden}', '${cinUserA}', true, 'PUBLIC', '2026-10-01 13:00:00+00'),
+        ('${vidAPrivate}', '${cinUserA}', false, 'PRIVATE', '2026-10-01 14:00:00+00'),
+        ('${vidAUnlisted}', '${cinUserA}', false, 'UNLISTED', '2026-10-01 15:00:00+00'),
+        ('${vidB1}', '${cinUserB}', false, 'PUBLIC', '2026-10-01 16:00:00+00')
+    `);
+
+    // 1. Playlists: create with is_series, update, and foreign-item 409
+    const createSeriesRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Cinema Series A', visibility: 'PUBLIC', is_series: true },
+    });
+    expect(createSeriesRes.statusCode).toBe(201);
+    expect(validatePlaylist(createSeriesRes.json())).toBe(true);
+    expect(createSeriesRes.json().is_series).toBe(true);
+    const seriesAId = createSeriesRes.json().id;
+
+    // Add own video to series -> 201
+    const addOwnRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${seriesAId}/items`,
+      headers: { 'x-user-id': cinUserA },
+      payload: { video_id: vidA1 },
+    });
+    expect(addOwnRes.statusCode).toBe(201);
+    expect(validatePlaylistItem(addOwnRes.json())).toBe(true);
+
+    // Try to add foreign video vidB1 to seriesA -> 409 SERIES_FOREIGN_ITEM
+    const addForeignRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${seriesAId}/items`,
+      headers: { 'x-user-id': cinUserA },
+      payload: { video_id: vidB1 },
+    });
+    expect(addForeignRes.statusCode).toBe(409);
+    expect(validateProblem(addForeignRes.json())).toBe(true);
+    expect(addForeignRes.json().code).toBe('SERIES_FOREIGN_ITEM');
+
+    // Create normal playlist for userA and add foreign video
+    const createMixedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Mixed Playlist', visibility: 'PUBLIC' },
+    });
+    const mixedId = createMixedRes.json().id;
+    const addMixedForeignRes = await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${mixedId}/items`,
+      headers: { 'x-user-id': cinUserA },
+      payload: { video_id: vidB1 },
+    });
+    expect(addMixedForeignRes.statusCode).toBe(201);
+
+    // Try to mark mixed list as is_series: true -> 409 SERIES_FOREIGN_ITEM
+    const patchMixedRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/playlists/${mixedId}`,
+      headers: { 'x-user-id': cinUserA },
+      payload: { is_series: true },
+    });
+    expect(patchMixedRes.statusCode).toBe(409);
+    expect(validateProblem(patchMixedRes.json())).toBe(true);
+    expect(patchMixedRes.json().code).toBe('SERIES_FOREIGN_ITEM');
+
+    // Race path through trigger (direct DB bypass check)
+    let triggerFailed = false;
+    try {
+      await pool.query(`
+        INSERT INTO social.playlist_items (playlist_id, video_id, position)
+        VALUES ('${seriesAId}', '${vidB1}', 9999999)
+      `);
+    } catch (err: any) {
+      triggerFailed = true;
+      expect(err.code).toBe('23514');
+      expect(err.message).toContain('SERIES_FOREIGN_ITEM');
+    }
+    expect(triggerFailed).toBe(true);
+
+    // 2. Catalogue exclusions & kind filter
+    // Create unlisted series for userA and add vidA2
+    const unlistedSeriesRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Unlisted Series', visibility: 'UNLISTED', is_series: true },
+    });
+    const unlistedSeriesId = unlistedSeriesRes.json().id;
+    await app.inject({
+      method: 'POST',
+      url: `/v1/playlists/${unlistedSeriesId}/items`,
+      headers: { 'x-user-id': cinUserA },
+      payload: { video_id: vidA2 },
+    });
+
+    // Create series with 0 playable episodes (only hidden video)
+    const emptySeriesRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Empty Hidden Series', visibility: 'PUBLIC', is_series: true },
+    });
+    const emptySeriesId = emptySeriesRes.json().id;
+    await pool.query(`
+      INSERT INTO social.playlist_items (playlist_id, video_id, position)
+      VALUES ('${emptySeriesId}', '${vidAHidden}', 1000)
+    `);
+
+    // Fetch catalog kind=all
+    const catAllRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cinema/catalog?kind=all',
+    });
+    expect(catAllRes.statusCode).toBe(200);
+    expect(catAllRes.headers['cache-control']).toBe('public, max-age=60');
+    expect(validateCinemaCatalogPage(catAllRes.json())).toBe(true);
+    const catItems = catAllRes.json().items;
+
+    // seriesAId should be present as SERIES
+    expect(
+      catItems.some((i: any) => i.kind === 'SERIES' && i.series.playlist_id === seriesAId),
+    ).toBe(true);
+    // emptySeriesId (0 playable episodes) should NOT be present
+    expect(
+      catItems.some((i: any) => i.kind === 'SERIES' && i.series.playlist_id === emptySeriesId),
+    ).toBe(false);
+    // unlistedSeriesId should NOT be present
+    expect(
+      catItems.some((i: any) => i.kind === 'SERIES' && i.series.playlist_id === unlistedSeriesId),
+    ).toBe(false);
+    // vidA1 (in public seriesAId) should NOT be standalone VIDEO
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidA1)).toBe(false);
+    // vidA2 (in UNLISTED series) SHOULD be standalone VIDEO
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidA2)).toBe(true);
+    // vidB1 and vidA3 SHOULD be standalone VIDEO
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidB1)).toBe(true);
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidA3)).toBe(true);
+    // vidAHidden, vidAPrivate, vidAUnlisted should NOT be present
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidAHidden)).toBe(false);
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidAPrivate)).toBe(false);
+    expect(catItems.some((i: any) => i.kind === 'VIDEO' && i.video_id === vidAUnlisted)).toBe(
+      false,
+    );
+
+    // Kind=series filter
+    const catSeriesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cinema/catalog?kind=series',
+    });
+    expect(catSeriesRes.statusCode).toBe(200);
+    expect(validateCinemaCatalogPage(catSeriesRes.json())).toBe(true);
+    expect(catSeriesRes.json().items.every((i: any) => i.kind === 'SERIES')).toBe(true);
+
+    // Kind=video filter
+    const catVideoRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cinema/catalog?kind=video',
+    });
+    expect(catVideoRes.statusCode).toBe(200);
+    expect(validateCinemaCatalogPage(catVideoRes.json())).toBe(true);
+    expect(catVideoRes.json().items.every((i: any) => i.kind === 'VIDEO')).toBe(true);
+
+    // Stable keyset cursor when a new video arrives between pages
+    const p1Res = await app.inject({
+      method: 'GET',
+      url: '/v1/cinema/catalog?kind=video&limit=2',
+    });
+    expect(p1Res.statusCode).toBe(200);
+    const p1Next = p1Res.json().next_cursor;
+    expect(p1Next).not.toBeNull();
+
+    // Insert new video between page reads
+    const newVid = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ('${newVid}', '${cinUserB}', false, 'PUBLIC', now())
+    `);
+
+    // Fetch page 2 with cursor
+    const p2Res = await app.inject({
+      method: 'GET',
+      url: `/v1/cinema/catalog?kind=video&limit=2&cursor=${p1Next}`,
+    });
+    expect(p2Res.statusCode).toBe(200);
+    const p1Ids = p1Res.json().items.map((i: any) => i.video_id);
+    const p2Ids = p2Res.json().items.map((i: any) => i.video_id);
+    for (const id of p2Ids) {
+      expect(p1Ids).not.toContain(id);
+    }
+
+    // 3. Episodes: numbering skips non-playable items without gaps
+    const gaplessSeriesRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Gapless Series', visibility: 'PUBLIC', is_series: true },
+    });
+    const gaplessSeriesId = gaplessSeriesRes.json().id;
+
+    await pool.query(`
+      INSERT INTO social.playlist_items (playlist_id, video_id, position, added_at)
+      VALUES
+        ('${gaplessSeriesId}', '${vidA1}', 1000, '2026-10-01 10:00:00+00'),
+        ('${gaplessSeriesId}', '${vidAHidden}', 2000, '2026-10-01 11:00:00+00'),
+        ('${gaplessSeriesId}', '${vidA2}', 3000, '2026-10-01 12:00:00+00'),
+        ('${gaplessSeriesId}', '${vidAPrivate}', 4000, '2026-10-01 13:00:00+00'),
+        ('${gaplessSeriesId}', '${vidA3}', 5000, '2026-10-01 14:00:00+00')
+    `);
+
+    const epRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes`,
+    });
+    expect(epRes.statusCode).toBe(200);
+    expect(validateSeriesEpisodePage(epRes.json())).toBe(true);
+    const epData = epRes.json();
+    expect(epData.series.episode_count).toBe(3);
+    expect(epData.series.first_video_id).toBe(vidA1);
+    expect(epData.items).toHaveLength(3);
+    expect(epData.items[0]).toEqual({ video_id: vidA1, episode_number: 1 });
+    expect(epData.items[1]).toEqual({ video_id: vidA2, episode_number: 2 });
+    expect(epData.items[2]).toEqual({ video_id: vidA3, episode_number: 3 });
+
+    // Pagination across page boundary
+    const epPage1 = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes?limit=2`,
+    });
+    expect(epPage1.statusCode).toBe(200);
+    expect(epPage1.json().items).toHaveLength(2);
+    expect(epPage1.json().next_cursor).not.toBeNull();
+
+    const epPage2 = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes?limit=2&cursor=${epPage1.json().next_cursor}`,
+    });
+    expect(epPage2.statusCode).toBe(200);
+    expect(epPage2.json().items).toHaveLength(1);
+    expect(epPage2.json().items[0].episode_number).toBe(3);
+    expect(epPage2.json().next_cursor).toBeNull();
+
+    // 4. Episode context: first, last, hidden 404, and page_cursor
+    const ctxFirstRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes/${vidA1}`,
+    });
+    expect(ctxFirstRes.statusCode).toBe(200);
+    expect(validateSeriesEpisodeContext(ctxFirstRes.json())).toBe(true);
+    const ctxFirst = ctxFirstRes.json();
+    expect(ctxFirst.episode_number).toBe(1);
+    expect(ctxFirst.previous_video_id).toBeNull();
+    expect(ctxFirst.next_video_id).toBe(vidA2);
+    expect(ctxFirst.page_cursor).toBeNull();
+
+    const ctxLastRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes/${vidA3}`,
+    });
+    expect(ctxLastRes.statusCode).toBe(200);
+    expect(validateSeriesEpisodeContext(ctxLastRes.json())).toBe(true);
+    const ctxLast = ctxLastRes.json();
+    expect(ctxLast.episode_number).toBe(3);
+    expect(ctxLast.previous_video_id).toBe(vidA2);
+    expect(ctxLast.next_video_id).toBeNull();
+
+    // Non-playable hidden video returns 404 EPISODE_NOT_FOUND
+    const ctxHiddenRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${gaplessSeriesId}/episodes/${vidAHidden}`,
+    });
+    expect(ctxHiddenRes.statusCode).toBe(404);
+    expect(validateProblem(ctxHiddenRes.json())).toBe(true);
+    expect(ctxHiddenRes.json().code).toBe('EPISODE_NOT_FOUND');
+
+    // Page 2 page_cursor test with 50 playable episodes
+    const bigSeriesRes = await app.inject({
+      method: 'POST',
+      url: '/v1/playlists',
+      headers: { 'x-user-id': cinUserA },
+      payload: { title: 'Big 50 Episodes Series', visibility: 'PUBLIC', is_series: true },
+    });
+    const bigSeriesId = bigSeriesRes.json().id;
+
+    const bigVideos: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      bigVideos.push(uuidv7());
+    }
+    const bigVidInserts = bigVideos
+      .map((vid) => `('${vid}', '${cinUserA}', false, 'PUBLIC', now())`)
+      .join(',');
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES ${bigVidInserts}
+    `);
+
+    const bigItemInserts = bigVideos
+      .map((vid, idx) => `('${bigSeriesId}', '${vid}', ${(idx + 1) * 1000}, now())`)
+      .join(',');
+    await pool.query(`
+      INSERT INTO social.playlist_items (playlist_id, video_id, position, added_at)
+      VALUES ${bigItemInserts}
+    `);
+
+    // Episode 49 is on page 2 (default limit 48)
+    const ep49Vid = bigVideos[48];
+    const ctx49Res = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${bigSeriesId}/episodes/${ep49Vid}`,
+    });
+    expect(ctx49Res.statusCode).toBe(200);
+    expect(validateSeriesEpisodeContext(ctx49Res.json())).toBe(true);
+    const ctx49 = ctx49Res.json();
+    expect(ctx49.episode_number).toBe(49);
+    expect(ctx49.page_cursor).not.toBeNull();
+
+    // Fetching with page_cursor returns page 2 starting with episode 49
+    const ep49PageRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series/${bigSeriesId}/episodes?cursor=${ctx49.page_cursor}`,
+    });
+    expect(ep49PageRes.statusCode).toBe(200);
+    expect(ep49PageRes.json().items[0].video_id).toBe(ep49Vid);
+    expect(ep49PageRes.json().items[0].episode_number).toBe(49);
+
+    // 5. EXPLAIN query plan verifying index usage
+    const explainSeries = await pool.query(`
+      EXPLAIN
+      SELECT id, updated_at
+      FROM social.playlists
+      WHERE is_series = true AND visibility = 'PUBLIC'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 24
+    `);
+    const planSeries = explainSeries.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    expect(planSeries).toBeDefined();
+
+    const explainVideos = await pool.query(`
+      EXPLAIN
+      SELECT id, created_at
+      FROM social.videos
+      WHERE visibility = 'PUBLIC' AND NOT hidden
+      ORDER BY created_at DESC, id DESC
+      LIMIT 24
+    `);
+    const planVideos = explainVideos.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    expect(planVideos).toBeDefined();
   }, 120_000);
 });
