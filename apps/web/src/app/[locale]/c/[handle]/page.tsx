@@ -5,6 +5,8 @@ import { setRequestLocale } from 'next-intl/server';
 import type { PublicProfile, VideoSummary, VideoPage } from '@winkey/api-client';
 import { ChannelClientHeader } from './channel-client';
 import { ChannelTabs } from './channel-tabs';
+import { buildPersonSchema } from '../../../../lib/seo/channel-schema';
+import { jsonLd } from '../../../../lib/seo/json-ld';
 
 interface ChannelPageProps {
   params: Promise<{ locale: string; handle: string }>;
@@ -43,13 +45,47 @@ export async function generateMetadata({ params }: ChannelPageProps): Promise<Me
 
   if (!profile) {
     return {
-      title: 'Kênh không tồn tại — Winkey',
+      title: 'Kênh không tồn tại – Winkey',
+      robots: {
+        index: false,
+        follow: false,
+      },
     };
   }
 
+  const channelUrl = `https://winkey.vn/c/${profile.handle}`;
+  const description = `Xem các video mới nhất từ ${profile.display_name} trên Winkey VN.`;
+  const avatarUrl = profile.avatar_url || 'https://winkey.vn/og-default.jpg';
+
   return {
-    title: `${profile.display_name} (@${profile.handle}) — Winkey`,
-    description: `Xem các video mới nhất từ ${profile.display_name} trên Winkey VN.`,
+    title: `${profile.display_name} – Winkey`,
+    description,
+    alternates: {
+      canonical: channelUrl,
+      languages: {
+        vi: `https://winkey.vn/vi/c/${profile.handle}`,
+        en: `https://winkey.vn/en/c/${profile.handle}`,
+      },
+    },
+    openGraph: {
+      type: 'profile',
+      title: `${profile.display_name} – Winkey`,
+      description,
+      url: channelUrl,
+      images: [
+        {
+          url: avatarUrl,
+          alt: profile.display_name,
+        },
+      ],
+      siteName: 'Winkey',
+    },
+    twitter: {
+      card: 'summary',
+      title: `${profile.display_name} – Winkey`,
+      description,
+      images: [avatarUrl],
+    },
   };
 }
 
@@ -67,17 +103,25 @@ export default async function ChannelPage({ params }: ChannelPageProps) {
   }
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
-      {/* Banner */}
-      <div className="h-36 sm:h-52 w-full rounded-2xl overflow-hidden bg-gradient-to-r from-red-900 via-gray-900 to-black relative">
-        <div className="absolute inset-0 bg-black/20" />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: jsonLd(buildPersonSchema(profile)),
+        }}
+      />
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
+        {/* Banner */}
+        <div className="h-36 sm:h-52 w-full rounded-2xl overflow-hidden bg-gradient-to-r from-red-900 via-gray-900 to-black relative">
+          <div className="absolute inset-0 bg-black/20" />
+        </div>
+
+        {/* Profile Header */}
+        <ChannelClientHeader profile={profile} videoCount={channelVideos.length} />
+
+        {/* Interactive Tabs (Videos, Playlists, About) */}
+        <ChannelTabs profile={profile} initialVideos={channelVideos} />
       </div>
-
-      {/* Profile Header */}
-      <ChannelClientHeader profile={profile} videoCount={channelVideos.length} />
-
-      {/* Interactive Tabs (Videos, Playlists, About) */}
-      <ChannelTabs profile={profile} initialVideos={channelVideos} />
-    </div>
+    </>
   );
 }
