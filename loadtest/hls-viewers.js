@@ -1,3 +1,4 @@
+/* global __ENV, console */
 import http from 'k6/http';
 import { sleep } from 'k6';
 import { Counter, Rate } from 'k6/metrics';
@@ -35,7 +36,7 @@ const TARGET_URL = __ENV.TARGET_URL || 'http://127.0.0.1:8080';
 
 export function setup() {
   const target = __ENV.TARGET_URL || 'http://127.0.0.1:8080';
-  let videos = [];
+  const videos = [];
   const urls = [`${target}/v1/videos?sort=newest&limit=50`, `${target}/v1/videos?sort=trending`];
   for (const u of urls) {
     const res = http.get(u);
@@ -46,11 +47,13 @@ export function setup() {
         for (const item of list) {
           if (!item.visibility || item.visibility === 'PUBLIC') videos.push(item);
         }
-      } catch (_) {}
+      } catch {
+        /* ignore */
+      }
     }
   }
   if (videos.length === 0) {
-    videos = [{ id: 'demo-1', hls_url: '/hls/demo/master.m3u8' }];
+    throw new Error('Failed to fetch video pool in setup()');
   }
   return { videos };
 }
@@ -123,7 +126,9 @@ export default function (data) {
   let videoMeta = {};
   try {
     videoMeta = JSON.parse(watchRes.body);
-  } catch (_) {}
+  } catch {
+    /* ignore */
+  }
 
   const hlsUrl = resolveUrl(
     (videoMeta.playback && videoMeta.playback.hls_url) ||

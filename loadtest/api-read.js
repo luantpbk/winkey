@@ -1,3 +1,4 @@
+/* global __ENV */
 import http from 'k6/http';
 import { sleep } from 'k6';
 import { Rate } from 'k6/metrics';
@@ -44,10 +45,12 @@ export function setup() {
       const body = JSON.parse(listRes.body);
       const list = Array.isArray(body) ? body : body.videos || body.items || [];
       videoIds = list.map((item) => item.id).filter(Boolean);
-    } catch (_) {}
+    } catch {
+      /* ignore */
+    }
   }
   if (videoIds.length === 0) {
-    videoIds = ['demo-video-1'];
+    throw new Error('Failed to fetch video pool in setup()');
   }
 
   const cinemaRes = http.get(`${target}/v1/cinema/catalog`);
@@ -57,7 +60,13 @@ export function setup() {
 }
 
 export default function (data) {
-  const videoIds = (data && data.videoIds) || ['demo-video-1'];
+  const videoIds = (data && data.videoIds) || [];
+  if (videoIds.length === 0) {
+    const res = http.get(`${TARGET_URL}/readyz`);
+    httpReqFailed.add(res.status < 200 || res.status >= 400);
+    sleep(1);
+    return;
+  }
   const hasCinema = Boolean(data && data.hasCinema);
   const selectedId = videoIds[Math.floor(Math.random() * videoIds.length)];
 

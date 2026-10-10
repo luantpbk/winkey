@@ -1,3 +1,4 @@
+/* global process */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execFile } from 'node:child_process';
@@ -163,7 +164,7 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
       }),
     );
 
-    const checkScript = `node -e "try { const s = JSON.parse(require('fs').readFileSync('${summaryFile}', 'utf8')); process.exit(s.passed === true ? 0 : 1); } catch (_) { process.exit(1); }"`;
+    const checkScript = `node -e "try { const s = JSON.parse(require('fs').readFileSync('${summaryFile}', 'utf8')); process.exit(s.passed === true ? 0 : 1); } catch { process.exit(1); }"`;
     try {
       execFileSync('sh', ['-c', checkScript], { stdio: 'pipe' });
       assert.fail('Expected script to exit non-zero when passed is false');
