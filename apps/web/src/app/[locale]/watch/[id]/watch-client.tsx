@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Video } from '@winkey/api-client';
-import { Link } from '../../../../i18n/routing';
+import { Link, useRouter, usePathname } from '../../../../i18n/routing';
 import { formatViews, formatRelativeTime } from '../../../../lib/format';
 import { Share2, Flag, Subtitles, Clock, BookmarkPlus, Pencil } from 'lucide-react';
 import { LikeButton } from '../../../../components/social/like-button';
@@ -15,6 +15,8 @@ import { useToast } from '../../../../components/ui/toast';
 import { useAuth } from '../../../../lib/auth/auth-context';
 
 export function WatchClientSection({ video }: { video: Video }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [showSubtitlesDialog, setShowSubtitlesDialog] = useState(false);
@@ -97,7 +99,11 @@ export function WatchClientSection({ video }: { video: Video }) {
             type="button"
             onClick={() => {
               if (!isAuthenticated) {
-                showToast({ title: 'Vui lòng đăng nhập để lưu vào danh sách phát', type: 'info' });
+                const currentPath =
+                  pathname && pathname.startsWith('/watch')
+                    ? `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`
+                    : `/watch/${video.id}${typeof window !== 'undefined' ? window.location.search : ''}`;
+                router.push(`/login?return_to=${encodeURIComponent(currentPath)}`);
                 return;
               }
               setShowSaveDialog(true);

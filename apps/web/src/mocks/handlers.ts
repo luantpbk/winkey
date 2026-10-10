@@ -206,14 +206,68 @@ let dynamicPlaylistItems: { playlist_id: string; item: PlaylistItem }[] = JSON.p
   JSON.stringify(initialMockPlaylistItems),
 );
 
+function getDynamicPlaylists(): Playlist[] {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_playlists');
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+  }
+  return dynamicPlaylists;
+}
+
+function setDynamicPlaylists(playlists: Playlist[]) {
+  dynamicPlaylists = playlists;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem('wk_mock_playlists', JSON.stringify(playlists));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function getDynamicPlaylistItems(): { playlist_id: string; item: PlaylistItem }[] {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = window.sessionStorage.getItem('wk_mock_playlist_items');
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+  }
+  return dynamicPlaylistItems;
+}
+
+function setDynamicPlaylistItems(items: { playlist_id: string; item: PlaylistItem }[]) {
+  dynamicPlaylistItems = items;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem('wk_mock_playlist_items', JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function resetPlaylistMocks() {
   mockPlaylistFull = false;
   mockPlaylistLimit = false;
   mockSeriesForeignItem = false;
   mockCinemaCatalogOverride = null;
   mockSeriesEpisodesOverride = null;
-  dynamicPlaylists = JSON.parse(JSON.stringify(initialMockPlaylists));
-  dynamicPlaylistItems = JSON.parse(JSON.stringify(initialMockPlaylistItems));
+  setDynamicPlaylists(JSON.parse(JSON.stringify(initialMockPlaylists)));
+  setDynamicPlaylistItems(JSON.parse(JSON.stringify(initialMockPlaylistItems)));
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.removeItem('wk_mock_playlists');
+      window.sessionStorage.removeItem('wk_mock_playlist_items');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 let mockStatsRateLimit = false;
@@ -3785,7 +3839,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    let pl = dynamicPlaylists.find((p) => p.kind === 'WATCH_LATER' && p.owner.id === caller.id);
+    const currentPlaylists = getDynamicPlaylists();
+    let pl = currentPlaylists.find((p) => p.kind === 'WATCH_LATER' && p.owner.id === caller.id);
     if (!pl) {
       pl = {
         id: `0192f5e4-7c1a-7b3e-9d2a-w${caller.id.slice(-11)}`,
@@ -3803,7 +3858,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      dynamicPlaylists.unshift(pl);
+      currentPlaylists.unshift(pl);
+      setDynamicPlaylists(currentPlaylists);
     }
 
     return HttpResponse.json(pl);
@@ -3823,11 +3879,12 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
     const videoId = params.video_id as string;
-    const myPlaylists = dynamicPlaylists.filter((p) => p.owner.id === caller.id);
+    const myPlaylists = getDynamicPlaylists().filter((p) => p.owner.id === caller.id);
+    const allPlaylistItems = getDynamicPlaylistItems();
     const matchingIds: string[] = [];
 
     for (const pl of myPlaylists) {
-      const hasItem = dynamicPlaylistItems.some(
+      const hasItem = allPlaylistItems.some(
         (it) => it.playlist_id === pl.id && it.item.video_id === videoId,
       );
       if (hasItem) {
@@ -3843,7 +3900,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     const caller = callerFromRequest(request);
     const isOwner = Boolean(caller && caller.id === channelId);
 
-    let items = dynamicPlaylists.filter((p) => p.owner.id === channelId);
+    let items = getDynamicPlaylists().filter((p) => p.owner.id === channelId);
     if (!isOwner) {
       items = items.filter((p) => p.visibility === 'PUBLIC' && p.kind !== 'WATCH_LATER');
     } else {
@@ -3901,7 +3958,9 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       updated_at: new Date().toISOString(),
     };
 
-    dynamicPlaylists.push(newPl);
+    const currentPlaylists = getDynamicPlaylists();
+    currentPlaylists.push(newPl);
+    setDynamicPlaylists(currentPlaylists);
     return HttpResponse.json(newPl, { status: 201 });
   }),
 
@@ -3920,7 +3979,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     }
     const playlistId = params.playlist_id as string;
     const videoId = params.video_id as string;
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pls = getDynamicPlaylists();
+    const pl = pls.find((p) => p.id === playlistId);
     if (!pl || pl.owner.id !== caller.id) {
       return HttpResponse.json(
         {
@@ -3933,7 +3993,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    const items = dynamicPlaylistItems
+    const allItems = getDynamicPlaylistItems();
+    const items = allItems
       .filter((x) => x.playlist_id === playlistId)
       .sort((a, b) => a.item.position - b.item.position);
 
@@ -3972,6 +4033,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     }
 
     pl.updated_at = new Date().toISOString();
+    setDynamicPlaylists(pls);
+    setDynamicPlaylistItems(allItems);
     return HttpResponse.json(itemEntry.item);
   }),
 
@@ -3990,7 +4053,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     }
     const playlistId = params.playlist_id as string;
     const videoId = params.video_id as string;
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pls = getDynamicPlaylists();
+    const pl = pls.find((p) => p.id === playlistId);
     if (!pl || pl.owner.id !== caller.id) {
       return HttpResponse.json(
         {
@@ -4003,15 +4067,18 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    const initialLength = dynamicPlaylistItems.length;
-    dynamicPlaylistItems = dynamicPlaylistItems.filter(
+    const allItems = getDynamicPlaylistItems();
+    const initialLength = allItems.length;
+    const remainingItems = allItems.filter(
       (x) => !(x.playlist_id === playlistId && x.item.video_id === videoId),
     );
 
-    if (dynamicPlaylistItems.length < initialLength) {
+    if (remainingItems.length < initialLength) {
       pl.item_count = Math.max(0, pl.item_count - 1);
       pl.updated_at = new Date().toISOString();
+      setDynamicPlaylists(pls);
     }
+    setDynamicPlaylistItems(remainingItems);
 
     return new HttpResponse(null, { status: 204 });
   }),
@@ -4019,7 +4086,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
   http.get('*/v1/playlists/:playlist_id/items', async ({ params, request }) => {
     const playlistId = params.playlist_id as string;
     const caller = callerFromRequest(request);
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pl = getDynamicPlaylists().find((p) => p.id === playlistId);
     if (!pl) {
       return HttpResponse.json(
         {
@@ -4045,7 +4112,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    const items = dynamicPlaylistItems
+    const items = getDynamicPlaylistItems()
       .filter((x) => x.playlist_id === playlistId)
       .sort((a, b) => a.item.position - b.item.position)
       .map((x) => x.item);
@@ -4067,7 +4134,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
     const playlistId = params.playlist_id as string;
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pls = getDynamicPlaylists();
+    const pl = pls.find((p) => p.id === playlistId);
     if (!pl || pl.owner.id !== caller.id) {
       return HttpResponse.json(
         {
@@ -4106,7 +4174,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     }
 
     const body = (await request.json()) as { video_id: string };
-    const existing = dynamicPlaylistItems.find(
+    const allItems = getDynamicPlaylistItems();
+    const existing = allItems.find(
       (x) => x.playlist_id === playlistId && x.item.video_id === body.video_id,
     );
 
@@ -4114,7 +4183,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       return HttpResponse.json(existing.item, { status: 200 });
     }
 
-    const existingItems = dynamicPlaylistItems.filter((x) => x.playlist_id === playlistId);
+    const existingItems = allItems.filter((x) => x.playlist_id === playlistId);
     const maxPos =
       existingItems.length > 0 ? Math.max(...existingItems.map((x) => x.item.position)) : 0;
 
@@ -4124,9 +4193,11 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       added_at: new Date().toISOString(),
     };
 
-    dynamicPlaylistItems.push({ playlist_id: playlistId, item: newItem });
+    allItems.push({ playlist_id: playlistId, item: newItem });
+    setDynamicPlaylistItems(allItems);
     pl.item_count = (pl.item_count || 0) + 1;
     pl.updated_at = new Date().toISOString();
+    setDynamicPlaylists(pls);
 
     return HttpResponse.json(newItem, { status: 201 });
   }),
@@ -4134,7 +4205,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
   http.get('*/v1/playlists/:playlist_id', async ({ params, request }) => {
     const playlistId = params.playlist_id as string;
     const caller = callerFromRequest(request);
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pl = getDynamicPlaylists().find((p) => p.id === playlistId);
     if (!pl) {
       return HttpResponse.json(
         {
@@ -4177,7 +4248,8 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
     const playlistId = params.playlist_id as string;
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pls = getDynamicPlaylists();
+    const pl = pls.find((p) => p.id === playlistId);
     if (!pl || pl.owner.id !== caller.id) {
       return HttpResponse.json(
         {
@@ -4222,6 +4294,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     if (body.description !== undefined) pl.description = body.description;
     if (body.visibility !== undefined) pl.visibility = body.visibility;
     pl.updated_at = new Date().toISOString();
+    setDynamicPlaylists(pls);
 
     return HttpResponse.json(pl);
   }),
@@ -4240,7 +4313,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
     const playlistId = params.playlist_id as string;
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pl = getDynamicPlaylists().find((p) => p.id === playlistId);
     if (!pl || pl.owner.id !== caller.id) {
       return HttpResponse.json(
         {
@@ -4264,8 +4337,10 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    dynamicPlaylists = dynamicPlaylists.filter((p) => p.id !== playlistId);
-    dynamicPlaylistItems = dynamicPlaylistItems.filter((x) => x.playlist_id !== playlistId);
+    const remainingPls = getDynamicPlaylists().filter((p) => p.id !== playlistId);
+    const remainingItems = getDynamicPlaylistItems().filter((x) => x.playlist_id !== playlistId);
+    setDynamicPlaylists(remainingPls);
+    setDynamicPlaylistItems(remainingItems);
 
     return new HttpResponse(null, { status: 204 });
   }),
@@ -4546,6 +4621,42 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       : [...mockCinemaCatalogItems];
 
     if (!mockCinemaCatalogOverride) {
+      // Include dynamically created/updated public series with items
+      const currentPlaylists = getDynamicPlaylists();
+      const currentPlaylistItems = getDynamicPlaylistItems();
+      const dynamicSeriesItems: CinemaCatalogItem[] = currentPlaylists
+        .filter((p) => p.is_series && p.visibility === 'PUBLIC' && p.item_count > 0)
+        .map((p) => {
+          const firstItem = currentPlaylistItems.find((it) => it.playlist_id === p.id);
+          const firstVideoId = firstItem?.item.video_id || '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+          const item: CinemaCatalogItem = {
+            kind: 'SERIES',
+            series: {
+              playlist_id: p.id,
+              title: p.title,
+              description: p.description || '',
+              owner: p.owner,
+              episode_count: p.item_count,
+              first_video_id: firstVideoId,
+              updated_at: p.updated_at,
+            },
+          };
+          return item;
+        });
+
+      for (const ds of dynamicSeriesItems) {
+        if (
+          !items.some(
+            (it) =>
+              it.kind === 'SERIES' &&
+              ds.kind === 'SERIES' &&
+              it.series.playlist_id === ds.series.playlist_id,
+          )
+        ) {
+          items.unshift(ds);
+        }
+      }
+
       if (kind === 'series') {
         items = items.filter((it) => it.kind === 'SERIES');
       } else if (kind === 'video') {
@@ -4565,7 +4676,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
     const cursor = url.searchParams.get('cursor');
 
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pl = getDynamicPlaylists().find((p) => p.id === playlistId);
     if (!pl || !pl.is_series || pl.visibility !== 'PUBLIC') {
       return HttpResponse.json(
         {
@@ -4578,9 +4689,18 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    const episodes: SeriesEpisode[] = mockSeriesEpisodesOverride
-      ? [...mockSeriesEpisodesOverride]
-      : [...mockSeriesEpisodes];
+    const playlistItems = getDynamicPlaylistItems().filter((x) => x.playlist_id === playlistId);
+    let episodes: SeriesEpisode[];
+    if (mockSeriesEpisodesOverride) {
+      episodes = [...mockSeriesEpisodesOverride];
+    } else if (playlistId === mockSeriesPlaylist.id || playlistItems.length === 0) {
+      episodes = [...mockSeriesEpisodes];
+    } else {
+      episodes = playlistItems.map((it, idx) => ({
+        episode_number: idx + 1,
+        video_id: it.item.video_id,
+      }));
+    }
 
     const startIndex = cursor ? parseInt(cursor, 10) : 0;
     const pageItems = episodes.slice(startIndex, startIndex + limit);
@@ -4607,7 +4727,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     const playlistId = params.playlist_id as string;
     const videoId = params.video_id as string;
 
-    const pl = dynamicPlaylists.find((p) => p.id === playlistId);
+    const pl = getDynamicPlaylists().find((p) => p.id === playlistId);
     if (!pl || !pl.is_series || pl.visibility !== 'PUBLIC') {
       return HttpResponse.json(
         {
@@ -4620,9 +4740,18 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
-    const episodes: SeriesEpisode[] = mockSeriesEpisodesOverride
-      ? [...mockSeriesEpisodesOverride]
-      : [...mockSeriesEpisodes];
+    const playlistItems = getDynamicPlaylistItems().filter((x) => x.playlist_id === playlistId);
+    let episodes: SeriesEpisode[];
+    if (mockSeriesEpisodesOverride) {
+      episodes = [...mockSeriesEpisodesOverride];
+    } else if (playlistId === mockSeriesPlaylist.id || playlistItems.length === 0) {
+      episodes = [...mockSeriesEpisodes];
+    } else {
+      episodes = playlistItems.map((it, idx) => ({
+        episode_number: idx + 1,
+        video_id: it.item.video_id,
+      }));
+    }
 
     const currentIndex = episodes.findIndex((e) => e.video_id === videoId);
     if (currentIndex === -1) {

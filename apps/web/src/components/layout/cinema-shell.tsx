@@ -21,6 +21,7 @@ import {
   Bell,
   X,
   Play,
+  FolderHeart,
 } from 'lucide-react';
 
 interface CinemaShellProps {
@@ -141,7 +142,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                 {tCin('subscriptions')}
               </Link>
               <Link
-                href="/playlist/watch-later"
+                href="/thu-vien"
                 className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors py-2 border-b-2 border-transparent"
               >
                 {tCin('myList')}
@@ -214,6 +215,15 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                   >
                     <UserIcon className="h-4 w-4 text-[#A3A3AD]" />
                     <span>Kênh của bạn</span>
+                  </Link>
+
+                  <Link
+                    href="/thu-vien"
+                    onClick={() => setShowUserMenu(false)}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[#F4F4F6] hover:bg-white/10 transition"
+                  >
+                    <FolderHeart className="h-4 w-4 text-[#A3A3AD]" />
+                    <span>{tNav('library')}</span>
                   </Link>
 
                   <Link
@@ -319,7 +329,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
             {tCin('explore')}
           </Link>
           <Link
-            href={isAuthenticated ? '/playlist/watch-later' : '/login'}
+            href={isAuthenticated ? '/thu-vien' : '/login?return_to=/thu-vien'}
             className="h-8 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
           >
             {tCin('my')}

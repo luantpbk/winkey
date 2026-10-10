@@ -29,7 +29,9 @@ import {
   AlertTriangle,
   Loader2,
   X,
+  Plus,
 } from 'lucide-react';
+import { AddMyVideosDialog } from '../../../../components/playlist/add-my-videos-dialog';
 
 interface MergedItem {
   item: PlaylistItem;
@@ -64,6 +66,9 @@ export default function PlaylistPage() {
   // Delete playlist confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Add my videos modal
+  const [showAddMyVideosModal, setShowAddMyVideosModal] = useState(false);
 
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -464,40 +469,70 @@ export default function PlaylistPage() {
             </span>
           </div>
 
+          {/* Non-public series notice */}
+          {playlist.is_series && playlist.visibility !== 'PUBLIC' && (
+            <div
+              data-testid="series-non-public-notice"
+              className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-950/60 border border-amber-800/80 text-xs text-amber-300 font-medium leading-relaxed"
+            >
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>
+                Bộ phim đang ở chế độ{' '}
+                {playlist.visibility === 'PRIVATE' ? 'Riêng tư' : 'Không công khai'}, chưa hiện trên
+                trang chủ.
+              </span>
+            </div>
+          )}
+
           {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
-            {firstValidVideo && (
-              <Link
-                href={buildWatchUrl(firstValidVideo.id, 'playlist')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition"
+          <div className="flex flex-col gap-2 pt-2 border-t border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2">
+              {firstValidVideo && (
+                <Link
+                  href={buildWatchUrl(firstValidVideo.id, 'playlist')}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition"
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  <span>Phát tất cả</span>
+                </Link>
+              )}
+
+              {isOwner && playlist.kind !== 'WATCH_LATER' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(true)}
+                    aria-label="Chỉnh sửa danh sách phát"
+                    data-testid="edit-playlist-btn"
+                    className="p-2.5 rounded-full bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    aria-label="Xóa danh sách phát"
+                    data-testid="delete-playlist-btn"
+                    className="p-2.5 rounded-full bg-zinc-800 text-zinc-300 hover:text-red-500 hover:bg-zinc-700 transition"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* + Thêm video của tôi button */}
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setShowAddMyVideosModal(true)}
+                data-testid="add-my-videos-btn"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md transition"
               >
-                <Play className="h-4 w-4 fill-current" />
-                <span>Phát tất cả</span>
-              </Link>
-            )}
-
-            {isOwner && playlist.kind !== 'WATCH_LATER' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(true)}
-                  aria-label="Chỉnh sửa danh sách phát"
-                  data-testid="edit-playlist-btn"
-                  className="p-2.5 rounded-full bg-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-700 transition"
-                >
-                  <Edit2 className="h-4 w-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  aria-label="Xóa danh sách phát"
-                  data-testid="delete-playlist-btn"
-                  className="p-2.5 rounded-full bg-zinc-800 text-zinc-300 hover:text-red-500 hover:bg-zinc-700 transition"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </>
+                <Plus className="h-4 w-4" />
+                <span>+ Thêm video của tôi</span>
+              </button>
             )}
           </div>
         </div>
@@ -514,6 +549,16 @@ export default function PlaylistPage() {
             <p className="text-xs text-zinc-500 mt-1">
               Thêm video bằng nút "Lưu" hoặc "Xem sau" trên trang xem video.
             </p>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setShowAddMyVideosModal(true)}
+                className="mt-4 flex items-center gap-2 px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-lg transition"
+              >
+                <Plus className="h-4 w-4" />
+                <span>+ Thêm video của tôi</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-2" data-testid="playlist-items-list">
@@ -853,6 +898,18 @@ export default function PlaylistPage() {
           </div>
         </div>
       )}
+
+      {/* Add My Videos Dialog */}
+      <AddMyVideosDialog
+        playlistId={playlist.id}
+        isSeries={Boolean(playlist.is_series)}
+        isOpen={showAddMyVideosModal}
+        onClose={() => setShowAddMyVideosModal(false)}
+        onSuccess={() => {
+          void loadPlaylist();
+        }}
+        existingVideoIds={new Set(mergedItems.map((m) => m.item.video_id))}
+      />
     </div>
   );
 }
