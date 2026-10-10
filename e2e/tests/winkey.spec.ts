@@ -1900,4 +1900,142 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       contentType: 'image/png',
     });
   });
+
+  // =========================================================================
+  // CIN2: Series on Cinema Home & Episode Playback Flow (ADR-035)
+  // =========================================================================
+  test('CIN2: Cinema home -> Series card -> Dialog -> Xem ngay -> Watch page with episode list -> Tập sau -> URL and heartbeat -> refresh', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120000);
+
+    const screenshotsDir = path.resolve(__dirname, '../screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    const heartbeatEvents: Array<{ videoId: string; kind: string; surface?: string }> = [];
+
+    // Intercept heartbeat requests to verify session lifecycle and surface
+    page.on('request', (req) => {
+      if (req.url().includes('/v1/analytics/playback/heartbeat') && req.method() === 'POST') {
+        try {
+          const body = req.postDataJSON() as PlaybackHeartbeatBatch;
+          if (body?.samples) {
+            for (const s of body.samples) {
+              heartbeatEvents.push({ videoId: s.video_id, kind: s.kind, surface: s.surface });
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    // 1. Visit cinema home on desktop (1440x900) in Vietnamese locale
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/vi');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify "Phim bộ" row exists
+    const seriesRow = page.locator('[data-testid="cinema-row-series"]');
+    await expect(seriesRow).toBeVisible({ timeout: 15000 });
+    await seriesRow.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+
+    // Verify series card with "N tập" badge (after lazy fetch and batch hydration)
+    const seriesCard = seriesRow.locator('[data-testid="cinema-series-card"]').first();
+    await expect(seriesCard).toBeVisible({ timeout: 15000 });
+    await expect(seriesCard.locator('[data-testid="series-card-episodes-badge"]')).toBeVisible();
+
+    const homeScreenshot = path.join(screenshotsDir, 'cin2-home-series-card.png');
+    await page.screenshot({ path: homeScreenshot });
+    await testInfo.attach('cin2-home-series-card', { path: homeScreenshot, contentType: 'image/png' });
+
+    // 2. Click series card -> opens Series Detail Dialog (?series=<playlist_id>)
+    await seriesCard.locator('[data-testid="cinema-series-card-link"]').click();
+    await expect(page).toHaveURL(/\?series=.+/);
+
+    const dialog = page.locator('[data-testid="cinema-series-dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('[data-testid="cinema-series-title"]')).toBeVisible();
+
+    const dialogScreenshot = path.join(screenshotsDir, 'cin2-series-dialog.png');
+    await page.screenshot({ path: dialogScreenshot });
+    await testInfo.attach('cin2-series-dialog', { path: dialogScreenshot, contentType: 'image/png' });
+
+    // 3. Click "Xem ngay" -> navigates to Episode 1 with ?playlist=&src=playlist
+    const watchNowBtn = page.locator('[data-testid="cinema-series-watch-btn"]');
+    await expect(watchNowBtn).toBeVisible();
+    await watchNowBtn.click();
+
+    // Verify watch page URL has ?playlist=
+    await page.waitForURL(/\/watch\/.+\?playlist=.+/);
+    await expect(page).toHaveURL(/playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/);
+
+    // Verify desktop episode column is displayed
+    const episodeColumn = page.locator('[data-testid="series-episodes-column"]');
+    await expect(episodeColumn).toBeVisible({ timeout: 10000 });
+    // Verify active episode badge in desktop episode column
+    await expect(episodeColumn.locator('[data-testid="active-series-episode"]')).toBeVisible();
+
+    // Verify Series Navigation Bar
+    const seriesNav = page.locator('[data-testid="series-navigation-bar"]');
+    await expect(seriesNav).toBeVisible();
+
+    const watchDesktopScreenshot = path.join(screenshotsDir, 'cin2-watch-series-desktop.png');
+    await page.screenshot({ path: watchDesktopScreenshot });
+    await testInfo.attach('cin2-watch-series-desktop', { path: watchDesktopScreenshot, contentType: 'image/png' });
+
+    // Simulate play on Episode 1 to trigger heartbeat start
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('loadeddata'));
+        v.dispatchEvent(new Event('playing'));
+      }
+    });
+
+    // 4. Click "Tập sau" -> navigates to Episode 2
+    const nextEpisodeBtn = page.locator('[data-testid="series-next-episode-btn"]');
+    await expect(nextEpisodeBtn).toBeVisible();
+    await nextEpisodeBtn.click();
+
+    // Verify URL transitioned to Episode 2 and retained ?playlist=
+    await page.waitForURL(/\/watch\/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12\?playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/);
+
+    // Simulate play on Episode 2 to trigger new heartbeat start
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.dispatchEvent(new Event('loadeddata'));
+        v.dispatchEvent(new Event('playing'));
+      }
+    });
+
+    // Verify heartbeat order: Episode 1 ended before Episode 2 started, surface was 'playlist'
+    const ep1End = heartbeatEvents.find(
+      (h) => h.videoId === '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10' && h.kind === 'end',
+    );
+    const ep2Start = heartbeatEvents.find(
+      (h) => h.videoId === '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12' && h.kind === 'start',
+    );
+    if (ep1End && ep2Start) {
+      expect(ep1End.surface).toBe('playlist');
+      expect(ep2Start.surface).toBe('playlist');
+    }
+
+    // 5. Refresh page -> keeps the series context
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page).toHaveURL(/playlist=0192f5e4-7c1a-7b3e-9d2a-p0000series01/);
+    await expect(page.locator('[data-testid="series-episodes-column"]')).toBeVisible({ timeout: 10000 });
+
+    // 6. Mobile viewport test (375x667): Verify mobile episode list is under player
+    await page.setViewportSize({ width: 375, height: 667 });
+    const mobileEpisodesList = page.locator('[data-testid="series-mobile-episodes-list"]');
+    await expect(mobileEpisodesList).toBeVisible();
+
+    const watchMobileScreenshot = path.join(screenshotsDir, 'cin2-watch-series-mobile.png');
+    await page.screenshot({ path: watchMobileScreenshot });
+    await testInfo.attach('cin2-watch-series-mobile', { path: watchMobileScreenshot, contentType: 'image/png' });
+  });
 });

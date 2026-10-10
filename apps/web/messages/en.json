@@ -48,7 +48,12 @@
     "videoNotFound": "Video not found or is private.",
     "backHome": "Back to Home",
     "ready": "Ready to play",
-    "processing": "Video is processing..."
+    "processing": "Video is processing...",
+    "previousEpisode": "Previous episode",
+    "nextEpisode": "Next episode",
+    "episodesList": "Episode list",
+    "episodeNumber": "Episode {number}",
+    "currentEpisode": "Now playing"
   },
   "channel": {
     "videos": "Videos",
@@ -548,7 +553,11 @@
     "playlistFull": "Playlist is full (maximum 5,000 videos).",
     "playlistLimit": "You have reached the limit of 200 playlists.",
     "tabPlaylists": "Playlists",
-    "noPlaylists": "No playlists found."
+    "noPlaylists": "No playlists found.",
+    "isSeries": "Series",
+    "isSeriesDesc": "Mark this playlist as a series",
+    "seriesForeignItemError": "Series can only contain videos from your own channel.",
+    "seriesBadge": "Series"
   },
   "cinema": {
     "title": "Movies",
@@ -558,6 +567,9 @@
     "continueWatching": "Continue watching",
     "removeFromContinue": "Remove from continue watching",
     "top10Today": "Top 10 today",
+    "seriesRowTitle": "TV Series",
+    "moviesRowTitle": "Movies",
+    "newestCatalogRowTitle": "Recently Added",
     "forYou": "For you",
     "newUpdates": "Recently updated",
     "fromSubscriptions": "From channels you follow",
@@ -570,6 +582,15 @@
     "addedToWatchLater": "Added to Watch later",
     "views": "{count, plural, =0 {0 views} =1 {1 view} other {# views}}",
     "noDescription": "No description available for this video.",
+    "episodeCountBadge": "{count, plural, =0 {0 episodes} =1 {1 episode} other {# episodes}}",
+    "seriesBadge": "Series",
+    "episodesList": "Episode list",
+    "loadMoreEpisodes": "Load more",
+    "episode": "Episode {number}",
+    "previousEpisode": "Previous episode",
+    "nextEpisode": "Next episode",
+    "channel": "Channel: {name}",
+    "episodes": "{count} episodes",
     "home": "Home",
     "trending": "Trending",
     "explore": "Explore",

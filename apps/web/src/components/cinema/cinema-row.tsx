@@ -1,21 +1,29 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { VideoSummary } from '@winkey/api-client';
+import type { VideoSummary, SeriesSummary } from '@winkey/api-client';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from '../../i18n/routing';
 import { CinemaCard } from './cinema-card';
+import { CinemaSeriesCard } from './cinema-series-card';
 import type { WatchSurface } from '../../lib/video/watch-url';
 import { useTranslations } from 'next-intl';
+
+export type CinemaRowItem =
+  | { kind: 'video'; video: VideoSummary }
+  | { kind: 'series'; series: SeriesSummary; coverVideo?: VideoSummary | null };
 
 export interface CinemaRowProps {
   title: string;
   surface: WatchSurface;
   fetchVideos?: () => Promise<VideoSummary[]>;
   initialVideos?: VideoSummary[];
+  fetchItems?: () => Promise<CinemaRowItem[]>;
+  initialItems?: CinemaRowItem[];
   progressMap?: Record<string, number>; // videoId -> progress percentage (0-100)
   onRemoveItem?: (videoId: string) => void;
   onOpenDetail: (videoId: string) => void;
+  onOpenSeries?: (playlistId: string) => void;
   viewAllHref?: string;
   isTop10?: boolean;
   minVideos?: number;
@@ -27,18 +35,27 @@ export function CinemaRow({
   surface,
   fetchVideos,
   initialVideos,
+  fetchItems,
+  initialItems,
   progressMap,
   onRemoveItem,
   onOpenDetail,
+  onOpenSeries,
   viewAllHref,
   isTop10 = false,
   minVideos = 1,
   testId,
 }: CinemaRowProps) {
   const t = useTranslations('cinema');
-  const [videos, setVideos] = useState<VideoSummary[]>(initialVideos || []);
-  const [isLoading, setIsLoading] = useState(!initialVideos && !!fetchVideos);
-  const [hasLoaded, setHasLoaded] = useState(!!initialVideos);
+  const [items, setItems] = useState<CinemaRowItem[]>(() => {
+    if (initialItems) return initialItems;
+    if (initialVideos) return initialVideos.map((v) => ({ kind: 'video' as const, video: v }));
+    return [];
+  });
+  const [isLoading, setIsLoading] = useState(
+    !initialItems && !initialVideos && (!!fetchItems || !!fetchVideos),
+  );
+  const [hasLoaded, setHasLoaded] = useState(!!initialItems || !!initialVideos);
   const [hasError, setHasError] = useState(false);
 
   const rowRef = useRef<HTMLDivElement>(null);
@@ -46,18 +63,22 @@ export function CinemaRow({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // Sync initialVideos if passed
+  // Sync initialItems / initialVideos if passed
   useEffect(() => {
-    if (initialVideos) {
-      setVideos(initialVideos);
+    if (initialItems) {
+      setItems(initialItems);
+      setIsLoading(false);
+      setHasLoaded(true);
+    } else if (initialVideos) {
+      setItems(initialVideos.map((v) => ({ kind: 'video' as const, video: v })));
       setIsLoading(false);
       setHasLoaded(true);
     }
-  }, [initialVideos]);
+  }, [initialItems, initialVideos]);
 
   // Lazy load row data when within 400px of viewport
   useEffect(() => {
-    if (hasLoaded || !fetchVideos) return;
+    if (hasLoaded || (!fetchItems && !fetchVideos)) return;
 
     let isMounted = true;
     const observer = new IntersectionObserver(
@@ -66,10 +87,16 @@ export function CinemaRow({
         if (entry?.isIntersecting) {
           observer.disconnect();
           setIsLoading(true);
-          fetchVideos()
+          const fetchPromise = fetchItems
+            ? fetchItems()
+            : fetchVideos!().then((vids) =>
+                vids.map((v) => ({ kind: 'video' as const, video: v })),
+              );
+
+          fetchPromise
             .then((data) => {
               if (isMounted) {
-                setVideos(data.slice(0, 20));
+                setItems(data.slice(0, 20));
                 setHasLoaded(true);
                 setIsLoading(false);
               }
@@ -94,7 +121,7 @@ export function CinemaRow({
       isMounted = false;
       observer.disconnect();
     };
-  }, [fetchVideos, hasLoaded, title]);
+  }, [fetchItems, fetchVideos, hasLoaded, title]);
 
   // Check scroll buttons visibility
   const updateScrollButtons = useCallback(() => {
@@ -114,7 +141,7 @@ export function CinemaRow({
       el.removeEventListener('scroll', updateScrollButtons);
       window.removeEventListener('resize', updateScrollButtons);
     };
-  }, [videos, updateScrollButtons]);
+  }, [items, updateScrollButtons]);
 
   const handleScroll = (direction: 'left' | 'right') => {
     const el = scrollContainerRef.current;
@@ -128,7 +155,7 @@ export function CinemaRow({
 
   // If load failed, or loaded and fewer than minVideos: hide row completely
   if (hasError) return null;
-  if (hasLoaded && videos.length < minVideos) return null;
+  if (hasLoaded && items.length < minVideos) return null;
 
   const isEditorial = surface === 'playlist';
 
@@ -194,9 +221,28 @@ export function CinemaRow({
                   <div className="h-3 w-3/4 rounded bg-[#24242D] animate-pulse mt-2.5" />
                 </div>
               ))
-            : videos.map((video, idx) => {
+            : items.map((entry, idx) => {
                 const isFirst = idx === 0;
-                const isLast = idx === videos.length - 1;
+                const isLast = idx === items.length - 1;
+
+                if (entry.kind === 'series') {
+                  return (
+                    <div
+                      key={entry.series.playlist_id}
+                      className="shrink-0 snap-start w-[calc((100vw-48px)/2.2)] sm:w-[calc((100vw-72px)/3.5)] lg:w-[calc((100vw-120px)/5.5)] max-w-[280px]"
+                    >
+                      <CinemaSeriesCard
+                        series={entry.series}
+                        coverVideo={entry.coverVideo}
+                        onOpenSeries={onOpenSeries || (() => {})}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                      />
+                    </div>
+                  );
+                }
+
+                const video = entry.video;
                 const progress = progressMap?.[video.id];
 
                 if (isTop10) {

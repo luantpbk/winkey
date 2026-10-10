@@ -6,6 +6,10 @@ import type {
   AdminUser,
   ModerationCase,
   AuditEntry,
+  Playlist,
+  SeriesSummary,
+  SeriesEpisode,
+  CinemaCatalogItem,
 } from '@winkey/api-client';
 
 export const mockUsers: Record<string, User> = {
@@ -485,5 +489,55 @@ export const mockAuditEntries: AuditEntry[] = [
     target_user_id: mockUsers.plain_viewer.id,
     details: {},
     created_at: '2026-09-29T09:15:00Z',
+  },
+];
+
+export const mockSeriesPlaylist: Playlist = {
+  id: '0192f5e4-7c1a-7b3e-9d2a-p0000series01',
+  owner: mockPublicProfiles.winkey_creator,
+  kind: 'REGULAR',
+  title: 'Hành Trình Kiến Trúc Hệ Thống (Phim bộ)',
+  description: 'Series bài giảng kỹ thuật chuyên sâu về Distributed Video Streaming Platform.',
+  visibility: 'PUBLIC',
+  is_series: true,
+  item_count: 3,
+  created_at: '2026-09-10T00:00:00Z',
+  updated_at: '2026-09-25T12:00:00Z',
+};
+
+export const mockSeriesEpisodes: SeriesEpisode[] = [
+  {
+    video_id: mockVideos[0].id, // '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10'
+    episode_number: 1,
+  },
+  {
+    video_id: mockVideos[2].id, // '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c12'
+    episode_number: 2,
+  },
+  {
+    video_id: mockVideos[1].id, // '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11'
+    episode_number: 3,
+  },
+];
+
+export const mockSeriesSummary: SeriesSummary = {
+  playlist_id: mockSeriesPlaylist.id,
+  title: mockSeriesPlaylist.title,
+  description: mockSeriesPlaylist.description,
+  owner: mockSeriesPlaylist.owner,
+  episode_count: 3,
+  first_video_id: mockSeriesEpisodes[0].video_id,
+  updated_at: mockSeriesPlaylist.updated_at,
+};
+
+export const mockCinemaCatalogItems: CinemaCatalogItem[] = [
+  {
+    kind: 'SERIES',
+    series: mockSeriesSummary,
+  },
+  {
+    kind: 'VIDEO',
+    video_id: mockVideos[3].id, // '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c13'
+    added_at: '2026-09-24T16:00:00Z',
   },
 ];

@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 interface CinemaPageProps {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ v?: string; series?: string }>;
 }
 
 async function getHeroInitialVideos(): Promise<{
@@ -101,7 +101,7 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
   const { locale } = await params;
   setRequestLocale(locale);
 
-  const { v: initialVideoId } = await searchParams;
+  const { v: initialVideoId, series: initialSeriesId } = await searchParams;
   const curatorHandle = process.env.CINEMA_CURATOR_HANDLE || '';
 
   const { videos, sortSource } = await fetchInitialHero();
@@ -110,6 +110,7 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
     <CinemaView
       curatorHandle={curatorHandle}
       initialVideoId={initialVideoId}
+      initialSeriesId={initialSeriesId}
       initialHeroVideos={videos}
       initialSortSource={sortSource}
     />

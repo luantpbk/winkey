@@ -58,6 +58,7 @@ export default function PlaylistPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editVisibility, setEditVisibility] = useState<Visibility>('PUBLIC');
+  const [editIsSeries, setEditIsSeries] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Delete playlist confirmation
@@ -100,6 +101,7 @@ export default function PlaylistPage() {
       setEditTitle(pl.title);
       setEditDesc(pl.description || '');
       setEditVisibility(pl.visibility);
+      setEditIsSeries(Boolean(pl.is_series));
 
       // Load first page of items
       const itemsRes = await api.social.GET('/v1/playlists/{playlist_id}/items', {
@@ -275,8 +277,19 @@ export default function PlaylistPage() {
           title: editTitle.trim(),
           description: editDesc.trim(),
           visibility: editVisibility,
+          is_series: editIsSeries,
         },
       });
+
+      if (res.response.status === 409) {
+        const errData = res.error as { code?: string; title?: string } | undefined;
+        const msg =
+          errData?.code === 'SERIES_FOREIGN_ITEM'
+            ? 'Bộ phim chỉ chứa video của chính kênh bạn.'
+            : errData?.title || 'Không thể cập nhật danh sách';
+        showToast({ title: msg, type: 'error' });
+        return;
+      }
 
       if (res.data) {
         setPlaylist(res.data);
@@ -420,6 +433,14 @@ export default function PlaylistPage() {
 
           {/* Badges / Stats */}
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-medium">
+            {playlist.is_series && (
+              <span
+                data-testid="playlist-series-badge"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-950/60 border border-red-800/60 text-red-400 font-semibold"
+              >
+                Bộ phim
+              </span>
+            )}
             <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/60">
               {playlist.visibility === 'PRIVATE' || playlist.kind === 'WATCH_LATER' ? (
                 <>
@@ -747,6 +768,28 @@ export default function PlaylistPage() {
                   <option value="UNLISTED">Không công khai</option>
                   <option value="PRIVATE">Riêng tư</option>
                 </select>
+              </div>
+
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  id="edit-playlist-is-series"
+                  type="checkbox"
+                  checked={editIsSeries}
+                  onChange={(e) => setEditIsSeries(e.target.checked)}
+                  data-testid="edit-playlist-is-series-checkbox"
+                  className="h-4 w-4 mt-0.5 rounded border-zinc-600 bg-zinc-800 text-red-600 focus:ring-red-500 focus:ring-offset-zinc-900"
+                />
+                <div className="flex flex-col">
+                  <label
+                    htmlFor="edit-playlist-is-series"
+                    className="text-xs font-medium text-zinc-300 cursor-pointer select-none"
+                  >
+                    Bộ phim
+                  </label>
+                  <span className="text-[11px] text-zinc-500">
+                    Đánh dấu danh sách phát này là một bộ phim.
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

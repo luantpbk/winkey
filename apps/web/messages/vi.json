@@ -48,7 +48,12 @@
     "videoNotFound": "Video không tồn tại hoặc không ở trạng thái công khai.",
     "backHome": "Về trang chủ",
     "ready": "Sẵn sàng phát",
-    "processing": "Video đang được xử lý..."
+    "processing": "Video đang được xử lý...",
+    "previousEpisode": "Tập trước",
+    "nextEpisode": "Tập sau",
+    "episodesList": "Danh sách tập",
+    "episodeNumber": "Tập {number}",
+    "currentEpisode": "Đang phát"
   },
   "channel": {
     "videos": "Danh sách video",
@@ -548,7 +553,11 @@
     "playlistFull": "Danh sách phát đã đầy (tối đa 5.000 video).",
     "playlistLimit": "Bạn đã đạt giới hạn tối đa 200 danh sách phát.",
     "tabPlaylists": "Danh sách phát",
-    "noPlaylists": "Chưa có danh sách phát nào."
+    "noPlaylists": "Chưa có danh sách phát nào.",
+    "isSeries": "Bộ phim",
+    "isSeriesDesc": "Đánh dấu danh sách này là phim bộ",
+    "seriesForeignItemError": "Bộ phim chỉ chứa video của chính kênh bạn.",
+    "seriesBadge": "Bộ phim"
   },
   "cinema": {
     "title": "Phim",
@@ -558,6 +567,9 @@
     "continueWatching": "Xem tiếp",
     "removeFromContinue": "Xóa khỏi danh sách xem tiếp",
     "top10Today": "Top 10 hôm nay",
+    "seriesRowTitle": "Phim bộ",
+    "moviesRowTitle": "Phim lẻ",
+    "newestCatalogRowTitle": "Mới thêm",
     "forYou": "Dành cho bạn",
     "newUpdates": "Mới cập nhật",
     "fromSubscriptions": "Từ kênh bạn theo dõi",
@@ -570,6 +582,15 @@
     "addedToWatchLater": "Đã thêm vào Xem sau",
     "views": "{count, plural, =0 {0 lượt xem} other {# lượt xem}}",
     "noDescription": "Không có mô tả cho video này.",
+    "episodeCountBadge": "{count, plural, =0 {0 tập} other {# tập}}",
+    "seriesBadge": "Bộ phim",
+    "episodesList": "Danh sách tập",
+    "loadMoreEpisodes": "Tải thêm",
+    "episode": "Tập {number}",
+    "previousEpisode": "Tập trước",
+    "nextEpisode": "Tập sau",
+    "channel": "Kênh: {name}",
+    "episodes": "{count} tập",
     "home": "Trang chủ",
     "trending": "Thịnh hành",
     "explore": "Khám phá",
