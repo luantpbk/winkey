@@ -3171,15 +3171,58 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       VALUES ('${emptySeriesId}', '${vidAHidden}', 1000)
     `);
 
-    // Fetch catalog kind=all
-    const catAllRes = await app.inject({
-      method: 'GET',
-      url: '/v1/cinema/catalog?kind=all',
-    });
-    expect(catAllRes.statusCode).toBe(200);
-    expect(catAllRes.headers['cache-control']).toBe('public, max-age=60');
-    expect(validateCinemaCatalogPage(catAllRes.json())).toBe(true);
-    const catItems = catAllRes.json().items;
+    // Helper to collect the whole catalogue across all pages
+    const collectAllCatalog = async (kind: 'all' | 'series' | 'video') => {
+      const allItems: any[] = [];
+      let cursor: string | null = null;
+      let firstPageData: any = null;
+      let pageCount = 0;
+
+      while (pageCount < 50) {
+        pageCount++;
+        const targetUrl: string = `/v1/cinema/catalog?kind=${kind}&limit=48${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+        const res = await app!.inject({
+          method: 'GET',
+          url: targetUrl,
+        });
+        expect(res.statusCode).toBe(200);
+        if (pageCount === 1) {
+          firstPageData = res.json();
+          expect(res.headers['cache-control']).toBe('public, max-age=60');
+        }
+        const data: any = res.json();
+        expect(validateCinemaCatalogPage(data)).toBe(true);
+        allItems.push(...data.items);
+        if (!data.next_cursor) {
+          break;
+        }
+        cursor = data.next_cursor;
+      }
+      return { allItems, firstPageData };
+    };
+
+    // Fetch whole catalog kind=all
+    const { allItems: catItems, firstPageData: catPage1 } = await collectAllCatalog('all');
+
+    // Verify page 1 is ordered by timestamp desc, then id desc
+    const getItemTimeStr = (item: any) =>
+      item.kind === 'SERIES' ? item.series.updated_at : item.added_at;
+    const getItemId = (item: any) =>
+      item.kind === 'SERIES' ? item.series.playlist_id : item.video_id;
+
+    const page1Items = catPage1.items;
+    for (let i = 0; i < page1Items.length - 1; i++) {
+      const timeComp = getItemTimeStr(page1Items[i]).localeCompare(
+        getItemTimeStr(page1Items[i + 1]),
+      );
+      if (timeComp === 0) {
+        expect(
+          getItemId(page1Items[i]).localeCompare(getItemId(page1Items[i + 1])),
+        ).toBeGreaterThan(0);
+      } else {
+        expect(timeComp).toBeGreaterThan(0);
+      }
+    }
 
     // seriesAId should be present as SERIES
     expect(
@@ -3207,23 +3250,23 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       false,
     );
 
-    // Kind=series filter
-    const catSeriesRes = await app.inject({
-      method: 'GET',
-      url: '/v1/cinema/catalog?kind=series',
-    });
-    expect(catSeriesRes.statusCode).toBe(200);
-    expect(validateCinemaCatalogPage(catSeriesRes.json())).toBe(true);
-    expect(catSeriesRes.json().items.every((i: any) => i.kind === 'SERIES')).toBe(true);
+    // Kind=series filter (collect all pages and run presence/absence checks)
+    const { allItems: seriesItems } = await collectAllCatalog('series');
+    expect(seriesItems.every((i: any) => i.kind === 'SERIES')).toBe(true);
+    expect(seriesItems.some((i: any) => i.series.playlist_id === seriesAId)).toBe(true);
+    expect(seriesItems.some((i: any) => i.series.playlist_id === emptySeriesId)).toBe(false);
+    expect(seriesItems.some((i: any) => i.series.playlist_id === unlistedSeriesId)).toBe(false);
 
-    // Kind=video filter
-    const catVideoRes = await app.inject({
-      method: 'GET',
-      url: '/v1/cinema/catalog?kind=video',
-    });
-    expect(catVideoRes.statusCode).toBe(200);
-    expect(validateCinemaCatalogPage(catVideoRes.json())).toBe(true);
-    expect(catVideoRes.json().items.every((i: any) => i.kind === 'VIDEO')).toBe(true);
+    // Kind=video filter (collect all pages and run presence/absence checks)
+    const { allItems: videoItems } = await collectAllCatalog('video');
+    expect(videoItems.every((i: any) => i.kind === 'VIDEO')).toBe(true);
+    expect(videoItems.some((i: any) => i.video_id === vidA1)).toBe(false);
+    expect(videoItems.some((i: any) => i.video_id === vidA2)).toBe(true);
+    expect(videoItems.some((i: any) => i.video_id === vidB1)).toBe(true);
+    expect(videoItems.some((i: any) => i.video_id === vidA3)).toBe(true);
+    expect(videoItems.some((i: any) => i.video_id === vidAHidden)).toBe(false);
+    expect(videoItems.some((i: any) => i.video_id === vidAPrivate)).toBe(false);
+    expect(videoItems.some((i: any) => i.video_id === vidAUnlisted)).toBe(false);
 
     // Stable keyset cursor when a new video arrives between pages
     const p1Res = await app.inject({
