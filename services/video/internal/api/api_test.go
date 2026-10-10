@@ -612,6 +612,53 @@ func TestPatchValidation(t *testing.T) {
 	}
 }
 
+func TestPatchTags(t *testing.T) {
+	e := newEnv(t, false)
+	v := e.video(alice)
+	path := "/v1/videos/" + v.ID.String()
+
+	// A video without tags serialises "tags": [] (never null).
+	w := e.req(alice, "GET", path, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"tags":[]`) {
+		t.Fatalf("no tags: %d %s", w.Code, w.Body)
+	}
+
+	// Normalisation: trim, collapse spaces, drop empties, drop case/accent duplicates (first wins).
+	w = e.req(alice, "PATCH", path, `{"tags":["  du   lịch ","","Hà Nội","ha noi","phở"]}`)
+	out := decode[videoJSON](t, w)
+	if w.Code != 200 || strings.Join(out.Tags, "|") != "du lịch|Hà Nội|phở" {
+		t.Fatalf("%d %q", w.Code, out.Tags)
+	}
+	// Other fields are untouched by a tags-only update, and a title-only update keeps the tags.
+	if out.Title != v.Title {
+		t.Fatalf("title changed: %q", out.Title)
+	}
+	out = decode[videoJSON](t, e.req(alice, "PATCH", path, `{"title":"T"}`))
+	if len(out.Tags) != 3 {
+		t.Fatalf("tags lost on title update: %q", out.Tags)
+	}
+	// [] clears.
+	out = decode[videoJSON](t, e.req(alice, "PATCH", path, `{"tags":[]}`))
+	if out.Tags == nil || len(out.Tags) != 0 {
+		t.Fatalf("clear: %#v", out.Tags)
+	}
+
+	for name, body := range map[string]string{
+		"eleven tags":  `{"tags":["a","b","c","d","e","f","g","h","i","j","k"]}`,
+		"tag too long": `{"tags":["` + strings.Repeat("x", 31) + `"]}`,
+		"not an array": `{"tags":"a,b"}`,
+		"number item":  `{"tags":[1]}`,
+	} {
+		if w := e.req(alice, "PATCH", path, body); w.Code != 400 {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	// Only the owner may set tags.
+	if w := e.req(bob, "PATCH", path, `{"tags":["x"]}`); w.Code != 403 {
+		t.Errorf("bob: %d", w.Code)
+	}
+}
+
 // --- DELETE -----------------------------------------------------------------------
 
 func TestDelete(t *testing.T) {

@@ -274,6 +274,24 @@ func TestUpdateVideo(t *testing.T) {
 	if err != nil || u.Title != "New" || u.Visibility != "UNLISTED" {
 		t.Fatalf("%+v %v", u, err)
 	}
+	// Tags (TAG1): nil leaves them alone, a list replaces them, an empty list clears them; never nil when read.
+	if len(u.Tags) != 0 || u.Tags == nil {
+		t.Fatalf("new video tags = %#v, want empty non-nil", u.Tags)
+	}
+	tags := []string{"du lịch", "phở"}
+	u, err = st.UpdateVideo(ctx, v.ID, alice.ID, domain.Update{Tags: &tags})
+	if err != nil || len(u.Tags) != 2 || u.Tags[0] != "du lịch" || u.Visibility != "UNLISTED" {
+		t.Fatalf("%+v %v", u, err)
+	}
+	u, err = st.UpdateVideo(ctx, v.ID, alice.ID, domain.Update{Title: strp("Newer")})
+	if err != nil || len(u.Tags) != 2 {
+		t.Fatalf("tags changed by a title-only update: %+v %v", u.Tags, err)
+	}
+	empty := []string{}
+	u, err = st.UpdateVideo(ctx, v.ID, alice.ID, domain.Update{Tags: &empty})
+	if err != nil || len(u.Tags) != 0 || u.Tags == nil {
+		t.Fatalf("clear tags: %#v %v", u.Tags, err)
+	}
 	var updatedAt, createdAt time.Time
 	_ = pg.Pool.QueryRow(ctx, `SELECT updated_at, created_at FROM media.videos WHERE id=$1`, v.ID).Scan(&updatedAt, &createdAt)
 	if !updatedAt.After(createdAt) {

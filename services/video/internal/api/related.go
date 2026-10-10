@@ -195,7 +195,8 @@ func (h *Handler) writeRelated(w http.ResponseWriter, body []byte) {
 // relatedItems runs the three short queries and merges them.
 func (h *Handler) relatedItems(r *http.Request, src domain.Video, limit int) ([]domain.Summary, error) {
 	var similar []domain.Summary
-	if q, ok := RelatedQuery(src.Title); ok {
+	// Tags first: RelatedQuery keeps at most relatedMaxWords words, and the owner's tags are the strongest signal.
+	if q, ok := RelatedQuery(strings.Join(src.Tags, " ") + " " + src.Title); ok {
 		s, err := h.Store.RelatedSimilar(r.Context(), src.ID, q, relatedSimilarMax)
 		if err != nil {
 			return nil, err

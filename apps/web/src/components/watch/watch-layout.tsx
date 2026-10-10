@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { useQuery } from '@tanstack/react-query';
 import type { Video, SeriesEpisodeContext } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { VideoPlayer } from '../video/video-player';
@@ -22,6 +23,19 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
   const router = useRouter();
   const searchParams = useSearchParams();
   const t = useTranslations('watch');
+
+  // Sync / live refresh video from client cache or API
+  const { data: currentVideo = video } = useQuery<Video>({
+    queryKey: ['video', video.id],
+    queryFn: async () => {
+      const res = await api.video.GET('/v1/videos/{video_id}', {
+        params: { path: { video_id: video.id } },
+      });
+      return (res.data as Video) || video;
+    },
+    initialData: video,
+    initialDataUpdatedAt: 0,
+  });
 
   const playlistId = searchParams.get('playlist') || initialPlaylistId || null;
 
@@ -215,11 +229,11 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
 
         {/* Video Title */}
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
-          {video.title}
+          {currentVideo.title}
         </h1>
 
         {/* Client Interactive Section (Owner info, Subscribe, Like, Description) */}
-        <WatchClientSection video={video} />
+        <WatchClientSection video={currentVideo} />
 
         {/* Mobile Episode List (under player and description, on screens < lg) */}
         {isSeriesActive && seriesContext && playlistId && (

@@ -57,6 +57,7 @@ type Video struct {
 	OwnerID      uuid.UUID  `json:"owner_id"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
+	Tags         []string   `json:"tags"` // TAG1 (ADR-036); never nil when read from the store
 	Visibility   string     `json:"visibility"`
 	Status       string     `json:"status"`
 	DurationMs   *int       `json:"duration_ms"`
@@ -286,6 +287,7 @@ type Update struct {
 	Title       *string
 	Description *string
 	Visibility  *string
+	Tags        *[]string // already normalized (NormalizeTags); nil = unchanged, empty = clear
 }
 
 // Store is the persistence port (media.videos and friends, auth.public_profiles).

@@ -7,4 +7,4 @@ resources:
 
 images:
   - name: ghcr.io/luantpbk/winkey-video
-    digest: sha256:5575c19f75934d160b42b0d36c677a826fb462a5878fea9263319e9c858cfdc2
+    digest: sha256:c1bf319b52f7731fbb2ac4a81638b2caad01129cf2fe37f5823a9813b69ae84f

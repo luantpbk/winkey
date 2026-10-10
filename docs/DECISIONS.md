@@ -821,3 +821,29 @@ Astra đã soạn một bản thiết kế (PR #285). Bản đó cần video-svc
 - Antigravity 2: route `/v1/cinema` và `/v1/series`, rồi deploy.
 - Không agent Go nào phải làm gì.
 **Hệ quả.** Có bộ/tập thật mà không cần service mới hay sửa Go. Đổi lại, thứ tự tập phụ thuộc thứ tự chủ danh sách sắp xếp, và độ chính xác của catalogue phụ thuộc độ trễ của event (thường vài giây).
+
+### ADR-036 — Công cụ cho creator và SEO: sửa video, đưa video lên Google, thẻ (tag)
+**Bối cảnh.** Ngày 2026-10-10 user báo ba vấn đề:
+1. Video đã đăng thì không sửa được thông tin.
+2. Không thêm video vào danh sách phát được.
+3. Chưa có thẻ (tag/từ khoá), và chưa có hỗ trợ SEO để video lên Google.
+
+Phần backend đã có `updateVideo` (`PATCH /v1/videos/{id}`: tiêu đề, mô tả, chế độ hiển thị), nhưng web chưa có giao diện dùng nó. Hộp "Lưu" trên trang xem có sẵn trong code. Lỗi "không thêm được" phải tra trên production.
+**Quyết định.**
+- **ST1-web (Antigravity 1):** trang sửa video trong Studio, gọi `updateVideo`. Mở từ danh sách video trong Studio và từ nút "Chỉnh sửa" trên trang xem (chỉ chủ video thấy). Làm trước PL2-web.
+- **SEO1-web (Antigravity 1):** chỉ sửa web, không đổi contract.
+  - Trang xem render phía server với `<title>`, meta description, canonical, Open Graph `video.other` và **JSON-LD `VideoObject`**: `name`, `description`, `thumbnailUrl`, `uploadDate`, `duration` (ISO 8601), `embedUrl`, `interactionStatistic` (lượt xem). Có thêm `BreadcrumbList`.
+  - Video không công khai đặt `noindex`.
+  - `/sitemap.xml` và sitemap video liệt kê video PUBLIC và trang kênh, sinh phía server qua `API_INTERNAL_URL`, tối đa 50 000 URL mỗi file. `/robots.txt` trỏ tới sitemap và chặn `/studio`, `/admin`, `/upload`, `/thu-vien`, `/settings`.
+  - User xác minh tên miền trên Google Search Console bằng bản ghi DNS TXT (Cloudflare), rồi nộp sitemap.
+- **Thẻ (TAG1):** Google **bỏ qua** `<meta name="keywords">`. Thẻ không giúp lên Google; thứ hạng đến từ tiêu đề, mô tả, dữ liệu có cấu trúc, sitemap và lượt xem.
+  - Giá trị thật của thẻ là cho tìm kiếm trong Winkey và cho video liên quan. Cả hai đều nằm ở video-svc (Go), cùng migration `media.videos.tags` và FTS.
+  - Thư mục Go hiện **không có chủ**, nên TAG1 chờ user quyết định có cho Sonnet làm lại không. **Cập nhật 2026-10-10:** user giao luôn phần Go cho kiến trúc sư. TAG1 gồm:
+    - migration 000020: cột `media.videos.tags` (tối đa 10 thẻ), thẻ đưa vào `search_vector` với trọng số A;
+    - `Video.tags` và `UpdateVideoRequest.tags`;
+    - chuẩn hoá thẻ: cắt khoảng trắng, bỏ trùng không phân biệt hoa thường và dấu;
+    - video liên quan ưu tiên thẻ.
+    Giao diện nhập thẻ thuộc ST1-web.
+  - Trong lúc chờ, SEO1 đưa từ khoá vào mô tả, việc này có tác dụng thật.
+- **Lỗi thêm vào danh sách:** Antigravity 2 tra log production của social-svc (`POST /v1/playlists/*/items`, `GET .../playlist-membership`) và gateway, rồi báo nguyên nhân trước khi giao sửa.
+**Hệ quả.** Creator sửa được video và video có thể lên Google mà không cần sửa Go. Thẻ hoãn lại, nhưng ít ảnh hưởng tới SEO.

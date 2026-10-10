@@ -57,7 +57,7 @@ export function VideoStudioHeader({ videoId, video, isLoading }: VideoStudioHead
       {/* Tabs: Chi tiết vs Thống kê */}
       <div className="flex items-center gap-2 border-b border-[#272727] dark:border-[#272727] border-gray-200">
         <Link
-          href={`/studio/videos/${videoId}`}
+          href={`/studio/videos/${videoId}/edit`}
           data-testid="video-tab-details"
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
             isDetails
