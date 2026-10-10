@@ -7,4 +7,4 @@ resources:
 
 images:
   - name: ghcr.io/luantpbk/winkey-social
-    digest: sha256:dc961b73a8c8d8db7d7f5e292abe10705dd4a83ab64dddd963638a5a938693ea
+    digest: sha256:1a7422b0b6b57cb75b83383c0b5c7b1c17cd28f59d1f0a0cba05d823e9d7ebde
