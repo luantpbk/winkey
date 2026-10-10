@@ -369,9 +369,9 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
   });
 
   // =========================================================================
-  // 2. 404 Fallback: Strips playlist from URL with replaceState
+  // 2. 404 vs 5xx / Network Error: 404 strips playlist, 5xx / network keeps it
   // =========================================================================
-  describe('2. 404 Fallback', () => {
+  describe('2. 404 Fallback vs 5xx / Network Errors', () => {
     it('strips playlist from address bar with replaceState on 404 and renders normal watch page', async () => {
       const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
@@ -397,6 +397,8 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
       // Verify replaceState was called to strip playlist
       await waitFor(() => {
         expect(replaceStateSpy).toHaveBeenCalled();
+        const urlArg = replaceStateSpy.mock.lastCall?.[2];
+        expect(urlArg).not.toContain('playlist=');
       });
 
       // Series navigation and series episode column are NOT shown
@@ -407,6 +409,73 @@ describe('CIN2-web: Watch Page with Series Context (ADR-035)', () => {
       await waitFor(() => {
         expect(screen.getByTestId('related-videos-column')).toBeDefined();
       });
+    });
+
+    it('keeps playlist in address bar on 503 (5xx) while hiding series UI and playing video', async () => {
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/series/{playlist_id}/episodes/{video_id}') {
+          return {
+            error: { code: 'SERVICE_UNAVAILABLE', title: 'Service Unavailable' },
+            response: new Response(null, { status: 503 }),
+          } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/videos/{video_id}/related') {
+          return { data: { items: mockBatchVideos }, response: new Response() } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(<WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />);
+
+      // Video title is rendered (video still plays)
+      expect(screen.getByRole('heading', { level: 1, name: mockVideo1.title })).toBeDefined();
+
+      // Series navigation and series episode column are hidden, related videos shown
+      await waitFor(() => {
+        expect(screen.getByTestId('related-videos-column')).toBeDefined();
+      });
+      expect(screen.queryByTestId('series-navigation-bar')).toBeNull();
+      expect(screen.queryByTestId('series-episodes-column')).toBeNull();
+
+      // replaceState was NOT called to remove playlist, address bar retains ?playlist=
+      expect(replaceStateSpy).not.toHaveBeenCalled();
+      expect(window.location.search).toContain('playlist=pl-series-1');
+    });
+
+    it('keeps playlist in address bar on network failure while hiding series UI and playing video', async () => {
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      vi.spyOn(api.social, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/series/{playlist_id}/episodes/{video_id}') {
+          throw new Error('Network error: failed to fetch');
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      vi.spyOn(api.video, 'GET').mockImplementation(async (path: string) => {
+        if (path === '/v1/videos/{video_id}/related') {
+          return { data: { items: mockBatchVideos }, response: new Response() } as any;
+        }
+        return { data: null, response: new Response() } as any;
+      });
+
+      renderWithProviders(<WatchLayout video={mockVideo1} initialPlaylistId="pl-series-1" />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('related-videos-column')).toBeDefined();
+      });
+      expect(screen.queryByTestId('series-navigation-bar')).toBeNull();
+      expect(screen.queryByTestId('series-episodes-column')).toBeNull();
+
+      // replaceState was NOT called to remove playlist
+      expect(replaceStateSpy).not.toHaveBeenCalled();
+      expect(window.location.search).toContain('playlist=pl-series-1');
     });
   });
 

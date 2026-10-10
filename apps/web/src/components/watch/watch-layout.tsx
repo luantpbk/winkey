@@ -49,8 +49,8 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
 
         if (cancelled) return;
 
-        // On 404: play normally without series UI and strip playlist from URL with replaceState
-        if (res.response.status === 404 || res.error) {
+        // Only strip playlist from URL when API explicitly returns 404
+        if (res.response?.status === 404) {
           if (typeof window !== 'undefined') {
             const url = new URL(window.location.href);
             if (url.searchParams.has('playlist')) {
@@ -68,20 +68,15 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
         if (res.data) {
           setSeriesContext(res.data);
           setIsSeriesActive(true);
+        } else {
+          // 5xx or non-404 error: fallback to normal playback, hide series UI, but keep ?playlist= in URL
+          setSeriesContext(null);
+          setIsSeriesActive(false);
         }
       } catch (err) {
         if (!cancelled) {
           console.warn('[WatchLayout] Series context check failed:', err);
-          // On network/error 404, fallback to normal video
-          if (typeof window !== 'undefined') {
-            const url = new URL(window.location.href);
-            if (url.searchParams.has('playlist')) {
-              url.searchParams.delete('playlist');
-              const search = url.searchParams.toString();
-              const newUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
-              window.history.replaceState(window.history.state, '', newUrl);
-            }
-          }
+          // Network errors: fallback to normal playback, hide series UI, but keep ?playlist= in URL
           setSeriesContext(null);
           setIsSeriesActive(false);
         }

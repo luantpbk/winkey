@@ -181,7 +181,7 @@ export function WatchSeriesEpisodesList({
               }`}
             >
               {/* Thumbnail 16:9 */}
-              <div className="relative aspect-video w-32 sm:w-36 shrink-0 rounded-lg overflow-hidden bg-zinc-800">
+              <div className="relative aspect-video w-[120px] shrink-0 rounded-lg overflow-hidden bg-zinc-800">
                 <img
                   src={thumbUrl}
                   alt={video.title}
@@ -202,22 +202,22 @@ export function WatchSeriesEpisodesList({
               </div>
 
               {/* Episode Info */}
-              <div className="flex flex-col flex-1 min-w-0 py-0.5">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col flex-1 min-w-0 py-0.5 justify-center">
+                <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
                   <span
-                    className={`text-xs font-bold ${
+                    className={`text-xs font-bold shrink-0 ${
                       isActive ? 'text-red-500' : 'text-zinc-400 group-hover:text-zinc-200'
                     }`}
                   >
                     {t('episodeNumber', { number: episode.episode_number })}
                   </span>
                   {isActive && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-red-600/30 text-red-400 border border-red-500/30">
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-600/30 text-red-400 border border-red-500/30 shrink-0 whitespace-nowrap">
                       {t('currentEpisode')}
                     </span>
                   )}
                 </div>
-                <h3 className="text-xs sm:text-sm font-semibold text-zinc-200 line-clamp-2 mt-0.5 group-hover:text-white transition">
+                <h3 className="text-xs sm:text-sm font-semibold text-zinc-200 line-clamp-2 mt-0.5 group-hover:text-white transition break-words">
                   {video.title}
                 </h3>
               </div>
