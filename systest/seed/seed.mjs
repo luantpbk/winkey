@@ -607,11 +607,12 @@ async function main() {
   function getOwner(idx) {
     if (CURATOR_INDICES.has(idx)) return curator;
     if (CREATOR2_INDICES.has(idx)) return creator2;
-    return creator3;
+    if (CREATOR3_INDICES.has(idx)) return creator3;
+    throw new Error(`Video index ${idx} has no owner assigned`);
   }
 
   console.log(
-    `[seed] Uploading and transcoding ${VIDEO_DEFINITIONS.length} videos concurrently (concurrency: 4)...`,
+    `[seed] Uploading and transcoding ${VIDEO_DEFINITIONS.length} videos (max 2 concurrent per creator, total <= 6)...`,
   );
   const uploadedVideos = new Array(VIDEO_DEFINITIONS.length);
 
@@ -661,17 +662,23 @@ async function main() {
     };
   }
 
-  const CONCURRENCY = 4;
-  let nextIdx = 0;
-
-  async function worker() {
-    while (nextIdx < VIDEO_DEFINITIONS.length) {
-      const idx = nextIdx++;
-      await processVideo(idx);
+  async function runCreatorQueue(indices, maxConcurrent = 2) {
+    let next = 0;
+    async function worker() {
+      while (next < indices.length) {
+        const idx = indices[next++];
+        await processVideo(idx);
+      }
     }
+    const workers = Array.from({ length: Math.min(maxConcurrent, indices.length) }, () => worker());
+    await Promise.all(workers);
   }
 
-  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+  await Promise.all([
+    runCreatorQueue(Array.from(CURATOR_INDICES), 2),
+    runCreatorQueue(Array.from(CREATOR2_INDICES), 2),
+    runCreatorQueue(Array.from(CREATOR3_INDICES), 2),
+  ]);
 
   // 5. Create 4 Playlists
   console.log('[seed] Creating 4 playlists...');

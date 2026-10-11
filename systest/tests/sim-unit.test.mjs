@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { comparePerf } from '../perf-budget.mjs';
 import { parseTap, parsePlaywright, buildSummaryMarkdown } from '../build-summary.mjs';
 
@@ -126,6 +127,96 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
       assert.equal(simulateUploadCount(20).status, 201);
       assert.equal(simulateUploadCount(21).status, 429);
       assert.equal(simulateUploadCount(21).code, 'UPLOAD_QUOTA_EXCEEDED');
+    });
+
+    it('guarantees no creator ever exceeds 2 concurrent in-flight uploads and total concurrent <= 6', async () => {
+      const CURATOR_INDICES = new Set([0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 18, 19, 20, 37]);
+      const TOTAL_CLIPS = 40;
+      const otherIndices = [];
+      for (let i = 0; i < TOTAL_CLIPS; i++) {
+        if (!CURATOR_INDICES.has(i)) {
+          otherIndices.push(i);
+        }
+      }
+      const CREATOR2_INDICES = new Set(otherIndices.slice(0, 13));
+      const CREATOR3_INDICES = new Set(otherIndices.slice(13));
+
+      function getOwnerHandle(idx) {
+        if (CURATOR_INDICES.has(idx)) return 'sim_curator';
+        if (CREATOR2_INDICES.has(idx)) return 'sim_creator2';
+        if (CREATOR3_INDICES.has(idx)) return 'sim_creator3';
+        throw new Error(`Video index ${idx} has no owner assigned`);
+      }
+
+      // Check that all 40 indices have a valid owner and unassigned throws
+      for (let i = 0; i < TOTAL_CLIPS; i++) {
+        assert.ok(getOwnerHandle(i));
+      }
+      assert.throws(() => getOwnerHandle(999), /no owner assigned/);
+
+      // Simulation of concurrent worker queues
+      const activePerOwner = { sim_curator: 0, sim_creator2: 0, sim_creator3: 0 };
+      const maxPerOwner = { sim_curator: 0, sim_creator2: 0, sim_creator3: 0 };
+      let currentTotalActive = 0;
+      let maxTotalActive = 0;
+      const completedIndices = new Set();
+      const uploadedVideos = new Array(TOTAL_CLIPS);
+
+      async function processMockVideo(idx) {
+        const owner = getOwnerHandle(idx);
+        activePerOwner[owner]++;
+        currentTotalActive++;
+        maxPerOwner[owner] = Math.max(maxPerOwner[owner], activePerOwner[owner]);
+        maxTotalActive = Math.max(maxTotalActive, currentTotalActive);
+
+        // Invariant: at no point in time can an owner have > 2 concurrent uploads
+        assert.ok(
+          activePerOwner[owner] <= 2,
+          `Owner ${owner} exceeded 2 concurrent uploads: ${activePerOwner[owner]}`,
+        );
+
+        // Small simulated async delay with slight jitter
+        await sleep(2 + (idx % 3));
+
+        uploadedVideos[idx] = { id: `v-${idx}`, owner };
+        completedIndices.add(idx);
+
+        activePerOwner[owner]--;
+        currentTotalActive--;
+      }
+
+      async function runCreatorQueue(indices, maxConcurrent = 2) {
+        let next = 0;
+        async function worker() {
+          while (next < indices.length) {
+            const idx = indices[next++];
+            await processMockVideo(idx);
+          }
+        }
+        const workers = Array.from({ length: Math.min(maxConcurrent, indices.length) }, () =>
+          worker(),
+        );
+        await Promise.all(workers);
+      }
+
+      await Promise.all([
+        runCreatorQueue(Array.from(CURATOR_INDICES), 2),
+        runCreatorQueue(Array.from(CREATOR2_INDICES), 2),
+        runCreatorQueue(Array.from(CREATOR3_INDICES), 2),
+      ]);
+
+      // All videos must be processed
+      assert.equal(completedIndices.size, TOTAL_CLIPS);
+      assert.equal(uploadedVideos.length, TOTAL_CLIPS);
+      for (let i = 0; i < TOTAL_CLIPS; i++) {
+        assert.equal(uploadedVideos[i].id, `v-${i}`);
+      }
+
+      // Max concurrent per owner must never exceed 2
+      assert.ok(maxPerOwner.sim_curator <= 2, `sim_curator max: ${maxPerOwner.sim_curator}`);
+      assert.ok(maxPerOwner.sim_creator2 <= 2, `sim_creator2 max: ${maxPerOwner.sim_creator2}`);
+      assert.ok(maxPerOwner.sim_creator3 <= 2, `sim_creator3 max: ${maxPerOwner.sim_creator3}`);
+      assert.ok(maxTotalActive <= 6, `total concurrent max: ${maxTotalActive}`);
     });
   });
 
