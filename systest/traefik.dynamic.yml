@@ -1,0 +1,112 @@
+http:
+  routers:
+    # 1. Auth public endpoints (no forwardAuth): registration, login, refresh, well-known
+    # NOTE: /v1/auth/verify is internal for gateway forwardAuth only and NOT publicly routed (contract)
+    auth-public:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/auth/register`) || PathPrefix(`/v1/auth/login`) || PathPrefix(`/v1/auth/refresh`) || PathPrefix(`/.well-known`)'
+      service: 'auth-svc'
+      middlewares: ['strip-user-headers']
+      priority: 100
+
+    # 2. Auth protected endpoints (users, profile management, admin)
+    auth-protected:
+      entryPoints: ['web']
+      rule: '(PathPrefix(`/v1/auth`) && !Path(`/v1/auth/verify`)) || PathPrefix(`/v1/users`) || PathPrefix(`/v1/admin`)'
+      service: 'auth-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 90
+
+    # 3. Upload service routes
+    upload:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/uploads`)'
+      service: 'upload-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 80
+
+    # 4. Social service routes (comments, likes, channels, subscriptions, reports, moderation, notifications, playlists, cinema, series, watch-later)
+    # Higher priority (85) than video router (80) so /v1/videos/{id}/comments, /like, /playlist-membership route to social-svc
+    social:
+      entryPoints: ['web']
+      rule: 'PathRegexp(`^/v1/videos/[^/]+/(comments|like|playlist-membership)$`) || PathPrefix(`/v1/comments`) || PathPrefix(`/v1/channels`) || PathPrefix(`/v1/reports`) || PathPrefix(`/v1/moderation`) || PathPrefix(`/v1/notifications`) || PathPrefix(`/v1/playlists`) || PathPrefix(`/v1/cinema`) || PathPrefix(`/v1/series`) || Path(`/v1/me/subscriptions`) || Path(`/v1/me/watch-later`)'
+      service: 'social-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 85
+
+    # 5. Video, Studio, Feed, Search & Playback routes
+    video:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`) || PathPrefix(`/v1/tags`)'
+      service: 'video-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 80
+
+    # 6. Realtime service routes (WebSocket & ticket issuance)
+    realtime:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/realtime`)'
+      service: 'realtime-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 80
+
+    # 7. Smoke test route for header stripping verification
+    smoke-test:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/smoke/whoami`)'
+      service: 'whoami-svc'
+      middlewares: ['strip-user-headers']
+      priority: 80
+
+    # 8. Web Next.js fallback
+    web:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/`) && !PathPrefix(`/v1`) && !PathPrefix(`/smoke`)'
+      service: 'web-svc'
+      priority: 10
+
+  middlewares:
+    # IMPORTANT: Strips spoofed client headers BEFORE any forwardAuth or upstream forwarding
+    strip-user-headers:
+      headers:
+        customRequestHeaders:
+          X-User-Id: ''
+          X-User-Roles: ''
+
+    # ForwardAuth to auth-svc GET /v1/auth/verify
+    auth-verify:
+      forwardAuth:
+        address: 'http://auth-svc:3001/v1/auth/verify'
+        authResponseHeaders:
+          - 'X-User-Id'
+          - 'X-User-Roles'
+
+  services:
+    auth-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://auth-svc:3001'
+    upload-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://upload-svc:3002'
+    video-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://video-svc:3003'
+    social-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://social-svc:3004'
+    realtime-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://realtime-svc:8003'
+    whoami-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://whoami:80'
+    web-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://web-svc:3000'

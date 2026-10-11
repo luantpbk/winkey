@@ -36,6 +36,58 @@ To run the suite against an already running stack without rebuilding or wiping d
 
 ---
 
+## Simulated Users Pipeline (`--sim`, ADR-038)
+
+SIM1 runs full product journeys with simulated personas against the real frontend and backend microservices (no MSW mocks).
+
+### Running Simulated Users
+
+```bash
+# Full reset, seed, personas & load profile:
+./systest/run.sh --sim --reset
+
+# Fast run on existing stack:
+./systest/run.sh --sim
+```
+
+- **Runtime Duration**: ~15–20 minutes.
+- **Workflow**:
+  1. Bootstraps complete stack including real `web-svc` with Traefik routing `/` to Next.js.
+  2. Seeds 20 users (`sim_u01`..`sim_u20`), 1 curator (`sim_curator`), 1 moderator (`sim_mod`), 40 clips with diacritics & tags, 4 playlists, 2 series.
+  3. Executes Playwright persona journeys:
+     - `anon-viewer`: Cinema rows, series, tag SEO (`h1`, canonical, CollectionPage JSON-LD, `robots` index/noindex), 308 redirect for unslugified diacritics, video playback, series episode navigation with private skip, search, sitemap validation.
+     - `member`: Invite-only registration, login, "Lưu" (playlist save), page reload cookie-refresh path, clock fast-forward 16m refresh test, concurrent two-tab refresh deduplication via `navigator.locks`, return_to redirect on sign-out, comments and likes.
+     - `creator`: UI video upload, Studio metadata/tags edit, "Bộ phim" series creation, video deletion.
+     - `moderator`: Report handling, hiding content, owner studio notice, public 404, restoration.
+  4. Runs localhost-only k6 concurrency simulation (`hls-viewers` 100 VUs + `api-mix` 20 VUs) generating `perf.json`.
+  5. Validates relative performance budget (`systest/perf-budget.mjs`, >20% p95 regression = fail).
+
+### Reading Reports & Artifacts
+
+All run outputs are archived in `systest/.run/report/`:
+- `summary.md`: Markdown summary of overall status, persona results, and execution parameters.
+- `perf.json`: Endpoint p50/p95 response times, error rates, and rebuffer metrics.
+- `playwright-artifacts/`: Traces, videos, and screenshots captured automatically on any test failure.
+
+### Adding a Persona for a New Feature
+
+1. Create a new test file: `systest/personas/<feature>.spec.ts`.
+2. Add a new project definition in `systest/playwright.config.ts`.
+3. Assert on user-facing visual and interactive outcomes using Playwright matchers (`expect(locator)...`).
+4. Read seeded entities dynamically from `systest/.run/seed-manifest.json`.
+
+---
+
+## Unit Testing
+
+Run hermetic unit tests verifying manifest schema validation, relative performance budget math, and localhost guard:
+
+```bash
+node --test systest/tests/sim-unit.test.mjs
+```
+
+---
+
 ## Scenarios & Proven Behavior
 
 | Scenario | Name | Description & Verification |

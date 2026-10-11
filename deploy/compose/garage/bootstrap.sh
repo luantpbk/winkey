@@ -53,13 +53,13 @@ echo "Setting up access key 'winkey-dev'..."
 KEY_NAME="winkey-dev"
 KEY_INFO=""
 for i in $(seq 1 30); do
-    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info "$KEY_NAME" 2>&1) && {
-        if echo "$KEY_INFO" | grep -q "Key ID:"; then
+    KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key info --show-secret "$KEY_NAME" 2>&1) && {
+        if echo "$KEY_INFO" | grep -q "Key ID:" && echo "$KEY_INFO" | grep -q "Secret key:"; then
             break
         fi
     } || true
     KEY_INFO=$(/usr/local/bin/garage -c "$GARAGE_CONFIG" key create "$KEY_NAME" 2>&1) && {
-        if echo "$KEY_INFO" | grep -q "Key ID:"; then
+        if echo "$KEY_INFO" | grep -q "Key ID:" && echo "$KEY_INFO" | grep -q "Secret key:"; then
             break
         fi
     } || true
@@ -74,6 +74,12 @@ fi
 
 ACCESS_KEY=$(echo "$KEY_INFO" | grep -i "Key ID:" | awk '{print $NF}' | tr -d '[:space:]')
 SECRET_KEY=$(echo "$KEY_INFO" | grep -i "Secret key:" | awk '{print $NF}' | tr -d '[:space:]')
+
+if [ -z "$ACCESS_KEY" ] || [ -z "$SECRET_KEY" ]; then
+    echo "ERROR: Failed to extract ACCESS_KEY or SECRET_KEY for $KEY_NAME" >&2
+    echo "Last key info output: $KEY_INFO" >&2
+    exit 1
+fi
 
 echo "Exporting credentials to ${ENV_OUTPUT_DIR}/.generated.env..."
 cat <<EOF > "${ENV_OUTPUT_DIR}/.generated.env"
@@ -111,13 +117,20 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# 5. Put CORS on winkey-raw: AllowedOrigins http://localhost:3000, AllowedMethods PUT/GET/HEAD, AllowedHeaders *, ExposeHeaders ETag, MaxAge 3600
+# 5. Put CORS on winkey-raw: AllowedOrigins http://localhost:3000, http://127.0.0.1:8080, AllowedMethods PUT/GET/HEAD, AllowedHeaders *, ExposeHeaders ETag, MaxAge 3600
 echo "Configuring CORS on winkey-raw..."
 cat <<EOF > /tmp/cors.json
 {
   "CORSRules": [
     {
       "AllowedOrigins": ["http://localhost:3000"],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    },
+    {
+      "AllowedOrigins": ["http://127.0.0.1:8080"],
       "AllowedMethods": ["PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["ETag"],
@@ -131,12 +144,21 @@ export AWS_ACCESS_KEY_ID="$ACCESS_KEY"
 export AWS_SECRET_ACCESS_KEY="$SECRET_KEY"
 export AWS_DEFAULT_REGION="garage"
 
+CORS_APPLIED=0
 for i in $(seq 1 30); do
-    if aws --endpoint-url="http://${GARAGE_HOST}:3900" s3api put-bucket-cors --bucket winkey-raw --cors-configuration file:///tmp/cors.json 2>/dev/null; then
+    if CORS_OUT=$(aws --endpoint-url="http://${GARAGE_HOST}:3900" --region garage s3api put-bucket-cors --bucket winkey-raw --cors-configuration file:///tmp/cors.json 2>&1); then
         echo "CORS applied to winkey-raw successfully."
+        CORS_APPLIED=1
         break
+    else
+        echo "Attempt $i applying CORS: $CORS_OUT"
     fi
     sleep 1
 done
+
+if [ "$CORS_APPLIED" -ne 1 ]; then
+    echo "ERROR: Failed to apply CORS to winkey-raw" >&2
+    exit 1
+fi
 
 echo "Garage bootstrap completed successfully."

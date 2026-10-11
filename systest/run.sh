@@ -3,30 +3,40 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export REPO_ROOT
 RUN_DIR="${SCRIPT_DIR}/.run"
 KEYS_DIR="${RUN_DIR}/keys"
 LOGS_DIR="${RUN_DIR}/logs"
 CLIP_PATH="${RUN_DIR}/clip.mp4"
 
 RESET=0
+SIM=0
 
 for arg in "$@"; do
   case "$arg" in
     --reset)
       RESET=1
       ;;
+    --sim)
+      SIM=1
+      ;;
     *)
       ;;
   esac
 done
 
-mkdir -p "${KEYS_DIR}" "${LOGS_DIR}"
+if [ "${SIM}" -eq 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+  echo "[systest] ERROR: 'pnpm' command not found. Please install pnpm (version 12.6.0) before running in --sim mode." >&2
+  exit 1
+fi
+
+mkdir -p "${KEYS_DIR}" "${LOGS_DIR}" "${RUN_DIR}/report"
 
 if [ "${RESET}" -eq 1 ]; then
   echo "[systest] Resetting dev stack and volumes..."
   docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" down -v --remove-orphans || true
   rm -rf "${RUN_DIR:?}"/*
-  mkdir -p "${KEYS_DIR}" "${LOGS_DIR}"
+  mkdir -p "${KEYS_DIR}" "${LOGS_DIR}" "${RUN_DIR}/report"
 fi
 
 # 1. Secret Generation (openssl)
@@ -44,12 +54,26 @@ if [ ! -f "${KEYS_DIR}/media_link_secret.txt" ]; then
   openssl rand -hex 32 > "${KEYS_DIR}/media_link_secret.txt"
 fi
 
+if [ ! -f "${KEYS_DIR}/invite_code.txt" ]; then
+  echo "sim-invite-$(openssl rand -hex 8)" > "${KEYS_DIR}/invite_code.txt"
+fi
+
 export JWT_PRIVATE_KEY
 JWT_PRIVATE_KEY="$(cat "${KEYS_DIR}/jwt_private.pem")"
 export COOKIE_SECRET
 COOKIE_SECRET="$(cat "${KEYS_DIR}/cookie_secret.txt" | tr -d '[:space:]')"
 export MEDIA_LINK_SECRET
 MEDIA_LINK_SECRET="$(cat "${KEYS_DIR}/media_link_secret.txt" | tr -d '[:space:]')"
+export INVITE_CODE
+INVITE_CODE="$(cat "${KEYS_DIR}/invite_code.txt" | tr -d '[:space:]')"
+
+if [ "${SIM}" -eq 1 ]; then
+  export REGISTRATION_MODE="invite"
+  export INVITE_CODES="${INVITE_CODE}"
+else
+  export REGISTRATION_MODE="${REGISTRATION_MODE:-open}"
+  export INVITE_CODES="${INVITE_CODES:-}"
+fi
 
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
@@ -112,20 +136,79 @@ for port in 3002 3003 8084; do
   fi
 done
 
+# In --sim mode, also poll web-svc:3000/healthz and gateway :8080/healthz
+if [ "${SIM}" -eq 1 ]; then
+  echo "[systest] Polling web-svc and gateway health..."
+  for _ in $(seq 1 60); do
+    if curl -s "http://127.0.0.1:3000/healthz" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
-# 5. Execute Node 22 system test suite
-echo "[systest] Running end-to-end black box test suite..."
 SUITE_EXIT=0
-export CLIP_PATH="${CLIP_PATH}"
 
-node --test "${SCRIPT_DIR}/suite/index.mjs" || SUITE_EXIT=$?
+# 5. Execute 12-scenario API test suite (runs in both default and --sim mode)
+echo "[systest] Running 12-scenario API test suite..."
+export CLIP_PATH="${CLIP_PATH}"
+set +e
+node --test "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
+SUITE_EXIT=${PIPESTATUS[0]}
+set -e
+
+if [ "${SIM}" -eq 1 ]; then
+  echo "==================================================================="
+  echo "         SIM1: SIMULATED USERS PIPELINE (ADR-038)                  "
+  echo "==================================================================="
+
+  # Step A: Seed
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Resetting auth rate limits before seed..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
+    echo "[systest] Running deterministic Vietnamese seed (20 users, 40 videos)..."
+    node "${SCRIPT_DIR}/seed/seed.mjs" || SUITE_EXIT=$?
+  fi
+
+  # Step B: Playwright Personas
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Resetting auth rate limits before personas..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
+    echo "[systest] Restarting web-svc to clear in-memory sitemap cache..."
+    docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" restart web-svc
+    for _ in $(seq 1 60); do
+      if curl -s "http://127.0.0.1:3000/healthz" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    echo "[systest] Running Playwright persona journeys against real stack..."
+    pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
+  fi
+
+  # Step C: Simulated Concurrency (k6)
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Running concurrent simulation profile..."
+    "${REPO_ROOT}/loadtest/sim-profile.sh" || SUITE_EXIT=$?
+  fi
+
+  # Step D: Performance Budget Comparison
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Checking relative performance budget..."
+    node "${SCRIPT_DIR}/perf-budget.mjs" || SUITE_EXIT=$?
+  fi
+
+  # Step E: Generate summary.md
+  node "${SCRIPT_DIR}/build-summary.mjs" || true
+fi
 
 # 6. Dump app container logs on failure
 if [ "${SUITE_EXIT}" -ne 0 ]; then
   echo "[systest] Suite failed! Dumping logs to ${LOGS_DIR}..."
-  for app in auth-svc upload-svc video-svc social-svc realtime-svc transcoder traefik postgres; do
+  for app in auth-svc upload-svc video-svc social-svc realtime-svc transcoder traefik postgres web-svc; do
     docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" logs "${app}" > "${LOGS_DIR}/${app}.log" 2>&1 || true
   done
 fi
 
 exit "${SUITE_EXIT}"
+

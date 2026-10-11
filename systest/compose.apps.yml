@@ -21,6 +21,8 @@ services:
       TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,172.16.0.0/12
       MAIL_TRANSPORT: smtp
       SMTP_URL: smtp://mailpit:1025
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-open}
+      INVITE_CODES: ${INVITE_CODES:-}
     healthcheck:
       test:
         [
@@ -211,3 +213,38 @@ services:
         condition: service_completed_successfully
       nats-bootstrap:
         condition: service_completed_successfully
+
+  traefik:
+    volumes:
+      - ${REPO_ROOT:-../../}/systest/traefik.dynamic.yml:/etc/traefik/dynamic.yml:ro
+
+  web-svc:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    container_name: web-svc
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: '0.0.0.0'
+      API_INTERNAL_URL: http://traefik:8080
+      PUBLIC_ORIGIN: http://127.0.0.1:8080
+      CINEMA_CURATOR_HANDLE: sim_curator
+      NEXT_PUBLIC_ANALYTICS_ENABLED: 'true'
+    healthcheck:
+      test:
+        ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:3000/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    depends_on:
+      traefik:
+        condition: service_healthy
+      auth-svc:
+        condition: service_healthy
+      video-svc:
+        condition: service_started
+      social-svc:
+        condition: service_healthy

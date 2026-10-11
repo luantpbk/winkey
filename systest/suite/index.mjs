@@ -13,6 +13,25 @@ const AUTH_URL = process.env.AUTH_URL || 'http://127.0.0.1:3001';
 const MAILPIT_URL = process.env.MAILPIT_URL || 'http://127.0.0.1:8025';
 const CLIP_PATH = process.env.CLIP_PATH || path.join(process.cwd(), 'systest/.run/clip.mp4');
 
+let INVITE_CODE = process.env.INVITE_CODE || '';
+if (!INVITE_CODE) {
+  try {
+    const keyFile = path.join(process.cwd(), 'systest/.run/keys/invite_code.txt');
+    if (fs.existsSync(keyFile)) {
+      INVITE_CODE = fs.readFileSync(keyFile, 'utf8').trim();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function authBody(payload) {
+  if (INVITE_CODE && !payload.invite_code) {
+    return { ...payload, invite_code: INVITE_CODE };
+  }
+  return payload;
+}
+
 async function waitForMail(recipientEmail, subjectSubstring = '', maxWaitMs = 10000) {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
@@ -136,12 +155,14 @@ describe('Winkey System Integration Test Suite', () => {
     const regA = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: `creator_${nonce}@example.com`,
-        password: 'Password123!',
-        handle: `creator_${nonce}`,
-        display_name: 'Creator A',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `creator_${nonce}@example.com`,
+          password: 'Password123!',
+          handle: `creator_${nonce}`,
+          display_name: 'Creator A',
+        }),
+      ),
     });
     const resA = await checkRes(regA, 201, 'Register Creator A');
     creatorToken = resA.json.access_token;
@@ -153,12 +174,14 @@ describe('Winkey System Integration Test Suite', () => {
     const regB = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: `viewer_${nonce}@example.com`,
-        password: 'Password123!',
-        handle: `viewer_${nonce}`,
-        display_name: 'Viewer B',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `viewer_${nonce}@example.com`,
+          password: 'Password123!',
+          handle: `viewer_${nonce}`,
+          display_name: 'Viewer B',
+        }),
+      ),
     });
     const resB = await checkRes(regB, 201, 'Register Viewer B');
     viewerToken = resB.json.access_token;
@@ -185,7 +208,51 @@ describe('Winkey System Integration Test Suite', () => {
       'X-User-Id was not stripped by gateway',
     );
 
-    recordResult('S2', 'auth & identity stripping', 'PASSED', Date.now() - startTime);
+    // 5. Rate limiting: 5 registrations/hour per IP -> 6th returns 429 (RATE_LIMIT_EXCEEDED)
+    const rlIp = '10.42.0.244';
+    for (let i = 1; i <= 5; i++) {
+      const regRl = await fetch(`${AUTH_URL}/v1/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': rlIp,
+        },
+        body: JSON.stringify(
+          authBody({
+            email: `rl_${nonce}_${i}@example.com`,
+            password: 'Password123!',
+            handle: `rl_${nonce}_${i}`,
+            display_name: `RL User ${i}`,
+          }),
+        ),
+      });
+      await checkRes(regRl, 201, `Rate limit test registration #${i}`);
+    }
+
+    const regRl6 = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': rlIp,
+      },
+      body: JSON.stringify(
+        authBody({
+          email: `rl_${nonce}_6@example.com`,
+          password: 'Password123!',
+          handle: `rl_${nonce}_6`,
+          display_name: 'RL User 6',
+        }),
+      ),
+    });
+    const checkRl6 = await checkRes(regRl6, 429, 'Rate limit test 6th registration');
+    assert.equal(checkRl6.json?.code, 'RATE_LIMIT_EXCEEDED');
+
+    recordResult(
+      'S2',
+      'auth, identity stripping & rate limiting',
+      'PASSED',
+      Date.now() - startTime,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -591,12 +658,14 @@ describe('Winkey System Integration Test Suite', () => {
     const regM = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: `mod_${nonce}@example.com`,
-        password: 'Password123!',
-        handle: `mod_${nonce}`,
-        display_name: 'Moderator M',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `mod_${nonce}@example.com`,
+          password: 'Password123!',
+          handle: `mod_${nonce}`,
+          display_name: 'Moderator M',
+        }),
+      ),
     });
     const resM = await checkRes(regM, 201, 'Register Moderator M');
     moderatorToken = resM.json.access_token;
@@ -979,12 +1048,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.131',
       },
-      body: JSON.stringify({
-        email: `user_b_n1_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `user_b_n1_${Date.now().toString(36)}`,
-        display_name: 'User B',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `user_b_n1_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `user_b_n1_${Date.now().toString(36)}`,
+          display_name: 'User B',
+        }),
+      ),
     });
     const userB = (await checkRes(regB, 201, 'Register User B')).json;
     const tokenB = userB.access_token;
@@ -996,12 +1067,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.132',
       },
-      body: JSON.stringify({
-        email: `user_c_n1_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `user_c_n1_${Date.now().toString(36)}`,
-        display_name: 'User C',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `user_c_n1_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `user_c_n1_${Date.now().toString(36)}`,
+          display_name: 'User C',
+        }),
+      ),
     });
     const userC = (await checkRes(regC, 201, 'Register User C')).json;
     const tokenC = userC.access_token;
@@ -1359,12 +1432,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.141',
       },
-      body: JSON.stringify({
-        email: `viewer_active_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `viewer_active_${Date.now()}`,
-        display_name: 'Active Viewer',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `viewer_active_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `viewer_active_${Date.now()}`,
+          display_name: 'Active Viewer',
+        }),
+      ),
     });
     const activeViewerToken = (await checkRes(activeViewerReg, 201, 'Register active viewer')).json
       .access_token;
@@ -1502,12 +1577,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.151',
       },
-      body: JSON.stringify({
-        email: `user_q_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `user_q_${Date.now()}`,
-        display_name: 'User Q',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `user_q_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `user_q_${Date.now()}`,
+          display_name: 'User Q',
+        }),
+      ),
     });
     const userQToken = (await checkRes(regQ, 201, 'Register User Q')).json.access_token;
 
@@ -1587,12 +1664,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.152',
       },
-      body: JSON.stringify({
-        email: `user_r_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `user_r_${Date.now()}`,
-        display_name: 'User R',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `user_r_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `user_r_${Date.now()}`,
+          display_name: 'User R',
+        }),
+      ),
     });
     const userRToken = (await checkRes(regR, 201, 'Register User R')).json.access_token;
 
@@ -1647,12 +1726,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.153',
       },
-      body: JSON.stringify({
-        email: `user_s_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `user_s_${Date.now()}`,
-        display_name: 'User S',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `user_s_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `user_s_${Date.now()}`,
+          display_name: 'User S',
+        }),
+      ),
     });
     const userSToken = (await checkRes(regS, 201, 'Register User S')).json.access_token;
     const maxSizeBytes = 21474836480; // 20 GiB
@@ -1768,12 +1849,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.161',
       },
-      body: JSON.stringify({
-        email: `active_a6_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `active_a6_${Date.now()}`,
-        display_name: 'Active A6 User',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `active_a6_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `active_a6_${Date.now()}`,
+          display_name: 'Active A6 User',
+        }),
+      ),
     });
     const activeUserData = (await checkRes(regActive, 201, 'Register Active A6 user')).json;
 
@@ -1832,12 +1915,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.162',
       },
-      body: JSON.stringify({
-        email: `fresh_verif_${Date.now()}@example.com`,
-        password: 'Password123!',
-        handle: `fresh_verif_${Date.now()}`,
-        display_name: 'Fresh Verif User',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: `fresh_verif_${Date.now()}@example.com`,
+          password: 'Password123!',
+          handle: `fresh_verif_${Date.now()}`,
+          display_name: 'Fresh Verif User',
+        }),
+      ),
     });
     const freshVerifData = (await checkRes(regFreshVerif, 201, 'Register Fresh Verif User')).json;
 
@@ -1933,12 +2018,14 @@ describe('Winkey System Integration Test Suite', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.181',
       },
-      body: JSON.stringify({
-        email: mailUserEmail,
-        password: initialPassword,
-        handle: `mail_${nonce}`,
-        display_name: 'Mail Flow User',
-      }),
+      body: JSON.stringify(
+        authBody({
+          email: mailUserEmail,
+          password: initialPassword,
+          handle: `mail_${nonce}`,
+          display_name: 'Mail Flow User',
+        }),
+      ),
     });
     const regResObj = await checkRes(regRes, 201, 'Register Mail Flow User');
     const userToken = regResObj.json.access_token;
