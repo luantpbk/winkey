@@ -13,15 +13,36 @@ const (
 	EncoderX264  = "x264"
 )
 
+// Rate-control modes (ADR-039).
+const (
+	// RateControlABR is the original ADR-006 mode: every rendition targets the
+	// rung bitrate (-b:v) whatever the content. It is the zero value.
+	RateControlABR = "abr"
+	// RateControlCappedCRF encodes at constant quality (x264 -crf, NVENC -cq)
+	// with the rung's ABR average bitrate as the -maxrate ceiling: simple
+	// content uses far fewer bits, complex content costs about what ABR did.
+	RateControlCappedCRF = "capped_crf"
+)
+
+// Default constant-quality levels for RateControlCappedCRF (ADR-039).
+const (
+	DefaultX264CRF = 21
+	DefaultNVENCCQ = 23
+)
+
 // HLSPlan describes one HLS CMAF encode.
 type HLSPlan struct {
 	Input      string // local file; the only protocol allowed is file
 	OutDir     string // playlists and segments are written here: master.m3u8, <name>/index.m3u8, ...
 	Encoder    string // EncoderNVENC or EncoderX264
 	X264Preset string // default "veryfast"
-	Renditions []Rendition
-	FPS        string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
-	HasAudio   bool
+	// RateControl is RateControlABR (zero value) or RateControlCappedCRF.
+	RateControl string
+	X264CRF     int // capped_crf with x264; 0 means DefaultX264CRF
+	NVENCCQ     int // capped_crf with NVENC; 0 means DefaultNVENCCQ
+	Renditions  []Rendition
+	FPS         string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
+	HasAudio    bool
 	// NoHWDecode makes NVENC runs decode on the CPU (no -hwaccel cuda). It is
 	// the hook for a possible HWACCEL_DECODE=false when NVDEC is unavailable or
 	// slow on a shared GPU; it is not wired to configuration yet.
@@ -93,18 +114,38 @@ func BuildHLSArgs(p HLSPlan) []string {
 	}
 	a = append(a, "-map_metadata", "-1", "-map_chapters", "-1")
 
+	capped := p.RateControl == RateControlCappedCRF
 	switch p.Encoder {
 	case EncoderNVENC:
 		a = append(a, "-c:v", "h264_nvenc", "-profile:v", "high", "-preset", "p5", "-tune", "hq",
 			"-rc", "vbr", "-spatial-aq", "1", "-bf", "3", "-no-scenecut", "1", "-forced-idr", "1")
+		if capped {
+			// Lookahead and temporal AQ let constant quality spend bits where
+			// they are visible; both run on the NVENC block, not the CPU.
+			a = append(a, "-rc-lookahead", "20", "-temporal-aq", "1")
+		}
 	default:
 		a = append(a, "-c:v", "libx264", "-profile:v", "high", "-preset", preset, "-sc_threshold", "0")
 	}
 	for i, r := range p.Renditions {
 		s := ":v:" + strconv.Itoa(i)
+		switch {
+		case capped && p.Encoder == EncoderNVENC:
+			// -b:v 0 lets -cq drive the rate; -maxrate/-bufsize stay the ceiling.
+			a = append(a, "-cq"+s, strconv.Itoa(orDefault(p.NVENCCQ, DefaultNVENCCQ)), "-b"+s, "0")
+		case capped:
+			a = append(a, "-crf"+s, strconv.Itoa(orDefault(p.X264CRF, DefaultX264CRF)))
+		default:
+			a = append(a, "-b"+s, fmt.Sprintf("%dk", r.TargetK))
+		}
+		// The capped ceiling is the old ABR average (TargetK), so complex
+		// content costs about what it did before and simple content far less.
+		maxrate := r.MaxrateK
+		if capped {
+			maxrate = r.TargetK
+		}
 		a = append(a,
-			"-b"+s, fmt.Sprintf("%dk", r.TargetK),
-			"-maxrate"+s, fmt.Sprintf("%dk", r.MaxrateK),
+			"-maxrate"+s, fmt.Sprintf("%dk", maxrate),
 			"-bufsize"+s, fmt.Sprintf("%dk", r.BufsizeK))
 	}
 	a = append(a, "-force_key_frames", "expr:gte(t,n_forced*2)")
@@ -127,6 +168,13 @@ func BuildHLSArgs(p HLSPlan) []string {
 		"-var_stream_map", strings.Join(vsm, " "),
 		out+"/%v/index.m3u8")
 	return a
+}
+
+func orDefault(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
 }
 
 func chain(r Rendition, fps string) string {
