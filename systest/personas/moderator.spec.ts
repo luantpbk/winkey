@@ -57,7 +57,6 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     request,
     browser,
   }) => {
-
     // 1. Member reports video
     const reportRes = await request.post('/v1/reports', {
       headers: { Authorization: `Bearer ${memberToken}` },

@@ -30,14 +30,15 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
       data: { email: creatorEmail, password: PASSWORD },
     });
     if (!res.ok()) {
-      throw new Error(`[persona:creator] Failed to login curator (${creatorEmail}): HTTP ${res.status()}`);
+      throw new Error(
+        `[persona:creator] Failed to login curator (${creatorEmail}): HTTP ${res.status()}`,
+      );
     }
     const data = await res.json();
     creatorToken = data.access_token;
   });
 
   test('upload clip through upload UI -> wait for READY (<= 180s)', async ({ page }) => {
-
     // Login creator
     await page.goto('/login');
     await page.fill('input[name="email"], input[id="email"]', creatorEmail);

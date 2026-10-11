@@ -559,9 +559,18 @@ not ok 1 - auth
     it('playwright.config.ts uses CommonJS __dirname without import.meta.url', () => {
       const configPath = path.resolve(testDir, '../playwright.config.ts');
       const content = fs.readFileSync(configPath, 'utf8');
-      assert.ok(!content.includes('import.meta'), 'playwright.config.ts must not contain import.meta');
-      assert.ok(!content.includes('fileURLToPath'), 'playwright.config.ts must not contain fileURLToPath');
-      assert.ok(!content.includes("from 'node:url'"), 'playwright.config.ts must not import node:url');
+      assert.ok(
+        !content.includes('import.meta'),
+        'playwright.config.ts must not contain import.meta',
+      );
+      assert.ok(
+        !content.includes('fileURLToPath'),
+        'playwright.config.ts must not contain fileURLToPath',
+      );
+      assert.ok(
+        !content.includes("from 'node:url'"),
+        'playwright.config.ts must not import node:url',
+      );
       assert.ok(content.includes('__dirname'), 'playwright.config.ts must use __dirname');
     });
 
