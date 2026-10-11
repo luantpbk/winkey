@@ -216,7 +216,6 @@ services:
 
   traefik:
     volumes:
-      - ../deploy/compose/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik.dynamic.yml:/etc/traefik/dynamic.yml:ro
 
   web-svc:
