@@ -4,6 +4,10 @@ name: synthetic
 "on":
   schedule:
     - cron: '*/10 * * * *'
+  pull_request:
+    paths:
+      - 'deploy/synthetic/**'
+      - '.github/workflows/synthetic.yml'
   workflow_dispatch:
 
 permissions:
