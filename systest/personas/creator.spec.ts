@@ -39,6 +39,7 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
   });
 
   test('upload clip through upload UI -> wait for READY (<= 180s)', async ({ page }) => {
+    test.setTimeout(180000);
     // Login creator
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(creatorEmail);
@@ -80,19 +81,49 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     await page.locator('input[type="password"]').fill(PASSWORD);
     await page.locator('main form button[type="submit"]').click();
 
+    // Collect all video IDs that belong to series so we do not edit an episode of a series
+    const seriesVideoIds = new Set<string>();
+    for (const s of manifest.series || []) {
+      for (const epId of s.episode_ids || []) {
+        if (epId) seriesVideoIds.add(epId);
+      }
+    }
+
+    // Also avoid the first 5 public videos checked in /sitemap.xml
+    const sitemapVideoIds = new Set<string>(
+      (manifest.videos || [])
+        .filter((v: any) => v.visibility === 'PUBLIC')
+        .slice(0, 5)
+        .map((v: any) => v.id),
+    );
+
+    // Pick first safe PUBLIC video owned by curator
+    const safeVideos = (manifest.videos || []).filter(
+      (v: any) =>
+        v.visibility === 'PUBLIC' &&
+        v.owner_handle === manifest.curator.handle &&
+        !seriesVideoIds.has(v.id) &&
+        !sitemapVideoIds.has(v.id),
+    );
+    const targetVideo = safeVideos[0];
+    if (!targetVideo) {
+      throw new Error('[persona:creator] No PUBLIC video owned by curator found for studio edit');
+    }
+
     // Find a video in studio
     await page.goto('/studio');
     await expect(page.locator('body')).toBeVisible();
 
-    // Click edit on a READY video item
-    const readyRow = page.locator('tr:has-text("Sẵn sàng"), tr:has-text("READY")').first();
-    const editBtn = (await readyRow.isVisible())
-      ? readyRow.locator('a[href*="/edit"]').first()
-      : page
-          .locator('a[href*="/edit"], [data-testid^="edit-video-"], button[aria-label*="Sửa"]')
-          .first();
-    await expect(editBtn).toBeVisible({ timeout: 15000 });
-    await editBtn.click();
+    const targetEditBtn = page
+      .locator(
+        `a[href*="/studio/videos/${targetVideo.id}/edit"], [data-testid="edit-video-${targetVideo.id}"]`,
+      )
+      .first();
+    if (await targetEditBtn.isVisible()) {
+      await targetEditBtn.click();
+    } else {
+      await page.goto(`/studio/videos/${targetVideo.id}/edit`);
+    }
 
     await page.waitForURL(/\/studio\/videos\/[^/]+\/edit/, { timeout: 15000 });
     const videoId = page.url().match(/\/studio\/videos\/([^/]+)\/edit/)?.[1];
@@ -214,13 +245,15 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
         .map((v: any) => v.id),
     );
 
-    const targetVideo = manifest.videos?.find(
+    const safeVideos = (manifest.videos || []).filter(
       (v: any) =>
         v.visibility === 'PUBLIC' &&
         v.owner_handle === manifest.curator.handle &&
         !seriesVideoIds.has(v.id) &&
         !sitemapVideoIds.has(v.id),
     );
+    // Use last safe video so delete doesn't conflict with studio edit
+    const targetVideo = safeVideos.length > 1 ? safeVideos[safeVideos.length - 1] : safeVideos[0];
     if (!targetVideo) {
       throw new Error('[persona:creator] No PUBLIC video owned by curator found to test delete');
     }

@@ -102,15 +102,6 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
       throw new Error('[persona:anon-viewer] Missing public video in seed-manifest.json');
     }
 
-    let masterLoaded = false;
-    let segmentLoaded = false;
-
-    page.on('response', (res) => {
-      const url = res.url();
-      if (url.includes('master.m3u8')) masterLoaded = true;
-      if (url.includes('.m4s') || url.includes('.ts')) segmentLoaded = true;
-    });
-
     await page.goto(`/watch/${firstPublicVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
 
@@ -133,8 +124,18 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
       }
     });
 
-    // Wait for video to attempt playback or ready state and HLS requests
-    await expect.poll(() => masterLoaded && segmentLoaded, { timeout: 20000 }).toBe(true);
+    // Wait for player to reach playing (readyState >= 2 || !paused || currentTime > 0)
+    await expect
+      .poll(
+        async () => {
+          return await page.evaluate(() => {
+            const v = document.querySelector('video');
+            return v ? v.currentTime > 0 || (!v.paused && v.readyState >= 2) : false;
+          });
+        },
+        { timeout: 20000 },
+      )
+      .toBe(true);
   });
 
   test('series navigation: watch episode 1, "Tập tiếp" button or key n -> episode 2; PRIVATE episode is skipped', async ({

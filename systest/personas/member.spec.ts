@@ -311,7 +311,10 @@ test.describe.serial('Persona: member (The "Lưu" Refresh-Token Regression, ADR-
     }
 
     // 1. Like / Unlike
-    const likeBtn = page.locator('button[aria-label*="Thích"], button:has-text("Thích")').first();
+    const likeBtn = page
+      .getByRole('button', { name: /thích/i })
+      .or(page.locator('button[aria-pressed]'))
+      .first();
     if (await likeBtn.isVisible()) {
       await likeBtn.click();
       await page.waitForTimeout(1000);
