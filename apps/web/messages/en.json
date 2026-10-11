@@ -198,6 +198,7 @@
       "tags": "Tags",
       "tagsPlaceholder": "Add tag (press Enter or comma)",
       "tagsHelper": "Thẻ giúp người xem tìm video trong Winkey.",
+      "tagsSeoHelper": "Tags used on at least 2 public videos will get their own page on Google.",
       "tagTooLong": "Each tag cannot exceed 30 characters",
       "tooManyTags": "At most 10 tags",
       "saveChanges": "Save changes",
@@ -673,5 +674,12 @@
     "termsTitle": "Terms of Service – Winkey",
     "privacyTitle": "Privacy Policy – Winkey",
     "communityTitle": "Community Guidelines – Winkey"
+  },
+  "tag": {
+    "title": "{name} – Videos about {name} | Winkey",
+    "intro": "{count} videos about {name} on Winkey",
+    "noVideos": "No public videos found for this tag.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading more..."
   }
 }

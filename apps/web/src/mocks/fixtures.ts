@@ -139,6 +139,8 @@ export const mockVideos: Video[] = [
     like_count: 8940,
     published_at: '2026-09-15T10:00:00Z',
     created_at: '2026-09-15T08:30:00Z',
+    tags: ['Phim ngắn', 'Công nghệ', 'Học lập trình'],
+    tag_slugs: ['phim-ngan', 'cong-nghe', 'hoc-lap-trinh'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
       thumbnail_url:
@@ -182,6 +184,8 @@ export const mockVideos: Video[] = [
     like_count: 6300,
     published_at: '2026-09-20T14:30:00Z',
     created_at: '2026-09-20T13:00:00Z',
+    tags: ['Công nghệ', 'Học lập trình'],
+    tag_slugs: ['cong-nghe', 'hoc-lap-trinh'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
       thumbnail_url:
@@ -207,6 +211,8 @@ export const mockVideos: Video[] = [
     like_count: 3200,
     published_at: '2026-09-22T08:00:00Z',
     created_at: '2026-09-22T06:00:00Z',
+    tags: ['Phim ngắn'],
+    tag_slugs: ['phim-ngan'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
       thumbnail_url:

@@ -1,4 +1,4 @@
-import type { VideoSummary, VideoPage } from '@winkey/api-client';
+import type { VideoSummary, VideoPage, TagSummary, TagList } from '@winkey/api-client';
 
 export function xmlEscape(str?: string | null): string {
   if (!str) return '';
@@ -64,14 +64,52 @@ export async function fetchPublicVideosForSitemap(
 }
 
 /**
+ * Fetches most used tags with min_videos=2 and limit=1000 for sitemap inclusion (ADR-037).
+ */
+export async function fetchTagsForSitemap(apiBaseUrl: string): Promise<TagSummary[]> {
+  const url = new URL(`${apiBaseUrl}/v1/tags`);
+  url.searchParams.set('min_videos', '2');
+  url.searchParams.set('limit', '1000');
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch tags for sitemap: HTTP ${res.status}`);
+  }
+
+  const data: TagList = await res.json();
+  return data.items || [];
+}
+
+/**
  * Generates Google-compliant XML sitemap including static routes, creator channels,
- * and VideoObject-compatible <video:video> elements. Capped at 50,000 URLs.
+ * VideoObject-compatible <video:video> elements, and tag URLs. Capped at 50,000 URLs.
  */
 export function generateSitemapXml(
   videos: VideoSummary[],
-  siteBaseUrl = 'https://winkey.vn',
-  maxUrls = 50000,
+  tagsOrSiteBaseUrl: TagSummary[] | string = [],
+  siteBaseUrlOrMaxUrls: string | number = 'https://winkey.vn',
+  maxUrlsArg = 50000,
 ): string {
+  let tags: TagSummary[] = [];
+  let siteBaseUrl = 'https://winkey.vn';
+  let maxUrls = 50000;
+
+  if (Array.isArray(tagsOrSiteBaseUrl)) {
+    tags = tagsOrSiteBaseUrl;
+    siteBaseUrl =
+      typeof siteBaseUrlOrMaxUrls === 'string' ? siteBaseUrlOrMaxUrls : 'https://winkey.vn';
+    maxUrls = typeof maxUrlsArg === 'number' ? maxUrlsArg : 50000;
+  } else if (typeof tagsOrSiteBaseUrl === 'string') {
+    siteBaseUrl = tagsOrSiteBaseUrl;
+    if (typeof siteBaseUrlOrMaxUrls === 'number') {
+      maxUrls = siteBaseUrlOrMaxUrls;
+    }
+  }
+
   const urls: string[] = [];
 
   // 1. Static high-priority pages
@@ -108,7 +146,18 @@ export function generateSitemapXml(
     }
   }
 
-  // 3. Video pages with <video:video> extension tags
+  // 3. Tag landing pages (SEO2 / ADR-037): min_videos >= 2
+  for (const tag of tags) {
+    if (urls.length >= maxUrls) break;
+    urls.push(`  <url>
+    <loc>${siteBaseUrl}/tag/${xmlEscape(tag.slug)}</loc>
+    <lastmod>${tag.latest_published_at}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.6</priority>
+  </url>`);
+  }
+
+  // 4. Video pages with <video:video> extension tags
   for (const video of videos) {
     if (urls.length >= maxUrls) break;
     const watchUrl = `${siteBaseUrl}/watch/${video.id}`;
@@ -191,8 +240,11 @@ export async function getCachedSitemapXml(
 
   // Start single-flight fetch
   inFlightSitemapPromise = (async () => {
-    const videos = await fetchPublicVideosForSitemap(apiBaseUrl, 50000);
-    const xml = generateSitemapXml(videos, siteBaseUrl);
+    const [videos, tags] = await Promise.all([
+      fetchPublicVideosForSitemap(apiBaseUrl, 50000),
+      fetchTagsForSitemap(apiBaseUrl),
+    ]);
+    const xml = generateSitemapXml(videos, tags, siteBaseUrl);
     sitemapCache = {
       xml,
       expiresAt: Date.now() + SITEMAP_CACHE_TTL_MS,

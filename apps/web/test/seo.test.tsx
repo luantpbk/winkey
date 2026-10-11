@@ -532,11 +532,11 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
 
       const res1 = await getSitemapRoute();
       expect(res1.status).toBe(200);
-      expect(fetchCount).toBe(1);
+      expect(fetchCount).toBe(2); // 1 for videos + 1 for tags
 
       const res2 = await getSitemapRoute();
       expect(res2.status).toBe(200);
-      expect(fetchCount).toBe(1); // Cache hit, no second fetch
+      expect(fetchCount).toBe(2); // Cache hit, no second fetch
 
       const xml1 = await res1.text();
       const xml2 = await res2.text();

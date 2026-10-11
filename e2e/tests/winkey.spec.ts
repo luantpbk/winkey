@@ -2308,4 +2308,92 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       contentType: 'image/png',
     });
   });
+
+  test('SEO2-web: Watch page tag chip -> Tag landing page -> Video card -> Watch page (desktop & mobile)', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120000);
+    const screenshotsDir = path.join(__dirname, '..', 'screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    const watchVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+
+    // === 1. DESKTOP FLOW ===
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/watch/${watchVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Locate tag chips
+    const tagChipsContainer = page.locator('[data-testid="watch-tag-chips"]');
+    await expect(tagChipsContainer).toBeVisible({ timeout: 15000 });
+
+    const phimNganChip = tagChipsContainer.locator('a[href*="/tag/phim-ngan"]').first();
+    await expect(phimNganChip).toBeVisible();
+    await expect(phimNganChip).toContainText('#Phim ngắn');
+
+    // Click tag chip -> navigate to tag page
+    await phimNganChip.click();
+    await page.waitForURL(/\/tag\/phim-ngan/, { timeout: 30000, waitUntil: 'domcontentloaded' });
+
+    // Verify tag page h1, intro, and video grid
+    const tagHeading = page.locator('h1').first();
+    await expect(tagHeading).toBeVisible({ timeout: 15000 });
+    await expect(tagHeading).toContainText('#Phim ngắn');
+
+    const videoGrid = page.locator('[data-testid="tag-video-grid"]');
+    await expect(videoGrid).toBeVisible({ timeout: 15000 });
+
+    // Take desktop tag page screenshot
+    const tagDesktopScreenshot = path.join(screenshotsDir, 'seo2-tag-page-desktop.png');
+    await page.screenshot({ path: tagDesktopScreenshot });
+    await testInfo.attach('seo2-tag-page-desktop', {
+      path: tagDesktopScreenshot,
+      contentType: 'image/png',
+    });
+
+    // Click first video title in grid -> navigate back to watch page
+    const firstVideoCardLink = videoGrid.locator('a[href*="/watch/"]').first();
+    await expect(firstVideoCardLink).toBeVisible({ timeout: 15000 });
+    await firstVideoCardLink.click();
+
+    await page.waitForURL(/\/watch\//, { timeout: 30000, waitUntil: 'domcontentloaded' });
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
+
+    // === 2. MOBILE FLOW ===
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto(`/watch/${watchVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    const mobileTagChips = page.locator('[data-testid="watch-tag-chips"]');
+    await expect(mobileTagChips).toBeVisible({ timeout: 15000 });
+
+    const mobilePhimNganChip = mobileTagChips.locator('a[href*="/tag/phim-ngan"]').first();
+    await expect(mobilePhimNganChip).toBeVisible({ timeout: 15000 });
+    await mobilePhimNganChip.click();
+
+    await page.waitForURL(/\/tag\/phim-ngan/, { timeout: 30000, waitUntil: 'domcontentloaded' });
+
+    const mobileTagHeading = page.locator('h1').first();
+    await expect(mobileTagHeading).toBeVisible({ timeout: 15000 });
+    await expect(mobileTagHeading).toContainText('#Phim ngắn');
+
+    // Take mobile tag page screenshot
+    const tagMobileScreenshot = path.join(screenshotsDir, 'seo2-tag-page-mobile.png');
+    await page.screenshot({ path: tagMobileScreenshot });
+    await testInfo.attach('seo2-tag-page-mobile', {
+      path: tagMobileScreenshot,
+      contentType: 'image/png',
+    });
+
+    // Click video card link on mobile -> navigate to watch page
+    const mobileVideoCardLink = page
+      .locator('[data-testid="tag-video-grid"]')
+      .locator('a[href*="/watch/"]')
+      .first();
+    await expect(mobileVideoCardLink).toBeVisible({ timeout: 15000 });
+    await mobileVideoCardLink.click();
+
+    await page.waitForURL(/\/watch\//, { timeout: 30000, waitUntil: 'domcontentloaded' });
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
+  });
 });

@@ -198,6 +198,7 @@
       "tags": "Thẻ",
       "tagsPlaceholder": "Thêm thẻ (nhấn Enter hoặc dấu phẩy)",
       "tagsHelper": "Thẻ giúp người xem tìm video trong Winkey.",
+      "tagsSeoHelper": "Thẻ dùng cho ít nhất 2 video công khai sẽ có trang riêng trên Google.",
       "tagTooLong": "Mỗi thẻ không được vượt quá 30 ký tự",
       "tooManyTags": "Tối đa 10 thẻ",
       "saveChanges": "Lưu thay đổi",
@@ -673,5 +674,12 @@
     "termsTitle": "Điều khoản sử dụng – Winkey",
     "privacyTitle": "Chính sách quyền riêng tư – Winkey",
     "communityTitle": "Quy tắc cộng đồng – Winkey"
+  },
+  "tag": {
+    "title": "{name} – Video về {name} | Winkey",
+    "intro": "{count} video về {name} trên Winkey",
+    "noVideos": "Chưa có video nào với thẻ này.",
+    "loadMore": "Xem thêm",
+    "loadingMore": "Đang tải thêm..."
   }
 }
