@@ -6,6 +6,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseHttpErrorRate } from '../deploy/lt2/watchdog.mjs';
+import { processNdjson, buildTelemetryPayload, StreamTailer } from './telemetry-feeder.mjs';
 
 function computeSummary(data) {
   const stallNoseek =
@@ -296,5 +298,252 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
     assert.equal(content.reason, 'Simulated memory threshold breach on edge-1');
 
     fs.rmSync(runDir, { recursive: true, force: true });
+  });
+
+  describe('Issue #322: k6 mount and telemetry feeder tests', () => {
+    it('feeder parses sample NDJSON and produces watchdog-valid telemetry (isPreflight: false)', () => {
+      const nowSec = 1791695732;
+      const nowMs = nowSec * 1000;
+
+      const sampleApiNdjson = [
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 5000).toISOString(), value: 1, tags: { status: '200' } },
+          metric: 'http_reqs',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 5000).toISOString(), value: 0, tags: { status: '200' } },
+          metric: 'http_req_failed',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 2000).toISOString(), value: 1, tags: { status: '500' } },
+          metric: 'http_reqs',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 2000).toISOString(), value: 1, tags: { status: '500' } },
+          metric: 'http_req_failed',
+        }),
+      ].join('\n');
+
+      const sampleHlsNdjson = [
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 4000).toISOString(), value: 1, tags: { status: '200' } },
+          metric: 'http_reqs',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 4000).toISOString(), value: 0, tags: { status: '200' } },
+          metric: 'http_req_failed',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 1000).toISOString(), value: 1, tags: { status: '200' } },
+          metric: 'http_reqs',
+        }),
+        JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(nowMs - 1000).toISOString(), value: 0, tags: { status: '200' } },
+          metric: 'http_req_failed',
+        }),
+      ].join('\n');
+
+      const apiCounts = processNdjson(sampleApiNdjson, nowMs, 60000);
+      assert.deepEqual(apiCounts, { requests: 2, failed: 1 });
+
+      const hlsCounts = processNdjson(sampleHlsNdjson, nowMs, 60000);
+      assert.deepEqual(hlsCounts, { requests: 2, failed: 0 });
+
+      const payload = buildTelemetryPayload(apiCounts, hlsCounts, nowSec, 60);
+      assert.equal(payload.timestamp, nowSec);
+      assert.equal(payload.windowSec, 60);
+
+      const parsed = parseHttpErrorRate(payload, { isPreflight: false, nowSec });
+      assert.equal(
+        parsed.error,
+        undefined,
+        `Telemetry should be valid for watchdog: ${parsed.reason}`,
+      );
+      assert.equal(parsed.totalRequests, 4);
+      assert.equal(parsed.failedRequests, 1);
+      assert.equal(parsed.rate, 0.25);
+      assert.equal(parsed.workloads.api_mix.requests, 2);
+      assert.equal(parsed.workloads.api_mix.failed, 1);
+      assert.equal(parsed.workloads.hls_viewers.requests, 2);
+      assert.equal(parsed.workloads.hls_viewers.failed, 0);
+
+      // Verify timestamp freshness update
+      const updatedSec = nowSec + 10;
+      const updatedPayload = buildTelemetryPayload(apiCounts, hlsCounts, updatedSec, 60);
+      const parsedUpdated = parseHttpErrorRate(updatedPayload, {
+        isPreflight: false,
+        nowSec: updatedSec,
+      });
+      assert.equal(parsedUpdated.error, undefined);
+      assert.equal(parsedUpdated.timestamp, updatedSec);
+    });
+
+    it('StreamTailer reads appended NDJSON files and respects rolling 60s window', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailer-test-'));
+      const logFile = path.join(tmpDir, 'stream.ndjson');
+
+      try {
+        const tailer = new StreamTailer(logFile);
+        tailer.poll(); // File doesn't exist yet, should not throw
+        assert.deepEqual(tailer.getCounts(60000), { requests: 0, failed: 0 });
+
+        const now = Date.now();
+        // Point older than 60s (stale)
+        const oldPoint = JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(now - 70000).toISOString(), value: 1 },
+          metric: 'http_reqs',
+        });
+        // Points within 60s (active)
+        const activePoint1 = JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(now - 20000).toISOString(), value: 1 },
+          metric: 'http_reqs',
+        });
+        const activeFail = JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(now - 20000).toISOString(), value: 1 },
+          metric: 'http_req_failed',
+        });
+        const activePoint2 = JSON.stringify({
+          type: 'Point',
+          data: { time: new Date(now - 5000).toISOString(), value: 1 },
+          metric: 'http_reqs',
+        });
+
+        fs.writeFileSync(logFile, `${oldPoint}\n${activePoint1}\n${activeFail}\n`);
+        tailer.poll();
+
+        const counts1 = tailer.getCounts(60000, now);
+        // oldPoint is excluded by 60s window
+        assert.deepEqual(counts1, { requests: 1, failed: 1 });
+
+        // Append more points incrementally
+        fs.appendFileSync(logFile, `${activePoint2}\n`);
+        tailer.poll();
+
+        const counts2 = tailer.getCounts(60000, now);
+        assert.deepEqual(counts2, { requests: 2, failed: 1 });
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('verifies lt2-run.sh k6 volume mount (-v ...:/work -w /work) and user permissions', () => {
+      const runSh = fs.readFileSync(path.join(process.cwd(), 'loadtest/lt2-run.sh'), 'utf8');
+
+      assert.ok(
+        runSh.includes('-v "${REPO_ROOT}/loadtest:/work"'),
+        'lt2-run.sh must mount ${REPO_ROOT}/loadtest at /work',
+      );
+      assert.ok(
+        runSh.includes('-w /work'),
+        'lt2-run.sh must specify container working directory -w /work',
+      );
+      assert.ok(
+        runSh.includes('-u "$(id -u):$(id -g)"'),
+        'lt2-run.sh must run with user id -u $(id -u):$(id -g) to keep results writable',
+      );
+      assert.ok(
+        runSh.includes('--out json=/work/results/hls.ndjson'),
+        'lt2-run.sh must pass --out json for hls-viewers',
+      );
+      assert.ok(
+        runSh.includes('--out json=/work/results/api.ndjson'),
+        'lt2-run.sh must pass --out json for api-read',
+      );
+      assert.ok(
+        runSh.includes('telemetry-feeder.mjs'),
+        'lt2-run.sh must launch telemetry-feeder.mjs',
+      );
+      assert.doesNotMatch(
+        runSh,
+        /-v "\$\(pwd\):\/loadtest"/,
+        'lt2-run.sh must not use the broken $(pwd):/loadtest mount',
+      );
+      assert.doesNotMatch(
+        runSh,
+        /run \/loadtest\/hls-viewers\.js/,
+        'lt2-run.sh must run hls-viewers.js relative to /work',
+      );
+    });
+
+    it('runs lt2-run.sh with telemetry feeder and k6 mount against local stub target', async () => {
+      // Check if Docker daemon is running
+      const dockerCheck = spawnSync('docker', ['info']);
+      if (dockerCheck.status !== 0) {
+        // Skip live container execution if Docker daemon is unavailable locally (runs in CI)
+        return;
+      }
+
+      const server = http.createServer((req, res) => {
+        if (req.url?.includes('MemAvailable')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              status: 'success',
+              data: {
+                resultType: 'vector',
+                result: [
+                  {
+                    metric: { __name: 'node_memory_MemAvailable_bytes' },
+                    value: [Date.now() / 1000, '4294967296'],
+                  },
+                ],
+              },
+            }),
+          );
+        } else if (req.url?.includes('/v1/videos')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify([{ id: 'test-clip-1', visibility: 'PUBLIC' }]));
+        } else if (req.url?.includes('/v1/cinema/catalog')) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify([]));
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('OK');
+        }
+      });
+
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = server.address().port;
+      const targetUrl = `http://127.0.0.1:${port}`;
+      const fakeMetrics = `http://127.0.0.1:${port}/metrics`;
+
+      try {
+        const res = spawnSync('./loadtest/lt2-run.sh', [], {
+          env: {
+            ...process.env,
+            TARGET_URL: targetUrl,
+            EDGE_METRICS_URL: fakeMetrics,
+            LEGACY_SITES: `${targetUrl}/1,${targetUrl}/2,${targetUrl}/3,${targetUrl}/4`,
+            VUS: '1',
+            DURATION: '2s',
+          },
+          encoding: 'utf8',
+          timeout: 45000,
+        });
+
+        const combinedOutput = (res.stdout || '') + (res.stderr || '');
+        // Verify k6 does NOT complain about missing moduleSpecifier /loadtest/...
+        assert.doesNotMatch(
+          combinedOutput,
+          /The moduleSpecifier .* couldn't be found/,
+          'k6 should find its scripts under /work',
+        );
+        // Verify telemetry feeder started
+        assert.match(combinedOutput, /Starting error telemetry feeder/);
+      } finally {
+        server.close();
+      }
+    });
   });
 });
