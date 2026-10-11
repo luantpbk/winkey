@@ -87,6 +87,9 @@ func templateFor(path string) string {
 	if p == "/v1/videos/batch" {
 		return p
 	}
+	if strings.HasPrefix(p, "/v1/tags/") {
+		return "/v1/tags/{tag}"
+	}
 	if videoPath.MatchString(p) {
 		return "/v1/videos/{video_id}"
 	}

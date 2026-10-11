@@ -57,7 +57,8 @@ type Video struct {
 	OwnerID      uuid.UUID  `json:"owner_id"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
-	Tags         []string   `json:"tags"` // TAG1 (ADR-036); never nil when read from the store
+	Tags         []string   `json:"tags"`      // TAG1 (ADR-036); never nil when read from the store
+	TagSlugs     []string   `json:"tag_slugs"` // SEO2 (ADR-037): media.videos.tag_slugs, aligned with Tags
 	Visibility   string     `json:"visibility"`
 	Status       string     `json:"status"`
 	DurationMs   *int       `json:"duration_ms"`
@@ -231,6 +232,7 @@ type Position struct {
 // FeedQuery asks for READY + PUBLIC videos, newest published first.
 type FeedQuery struct {
 	OwnerID *uuid.UUID
+	Tag     string // SEO2: a tag slug or tag text; the database derives the slug ("" = no tag filter)
 	After   *Position
 	Limit   int // the store returns up to Limit rows; callers pass pageSize+1
 }
@@ -349,6 +351,18 @@ type Store interface {
 	SearchVideos(ctx context.Context, q SearchQuery) (SearchResult, error)
 	// SuggestTitles returns up to limit distinct titles of public videos for a search box.
 	SuggestTitles(ctx context.Context, q string, limit int) ([]string, error)
+	// ListTags ranks the tags of public videos by video count (task SEO2).
+	ListTags(ctx context.Context, limit, minVideos int) ([]Tag, error)
+	// GetTag returns one tag by slug or tag text; ErrNotFound when no public video carries it (task SEO2).
+	GetTag(ctx context.Context, tag string) (Tag, error)
+}
+
+// Tag is one tag of the public videos (task SEO2, ADR-037). Name is the spelling most of those videos use.
+type Tag struct {
+	Slug              string
+	Name              string
+	VideoCount        int
+	LatestPublishedAt time.Time
 }
 
 // Cache is the optional read cache for GET /v1/videos/{id}.

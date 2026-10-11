@@ -50,6 +50,13 @@ tags:
       (`Hà Nội` = `ha noi`), plus trigram similarity on the title for typos. Only videos that the public
       feed would show are returned (PUBLIC, READY, not hidden, owner active), whoever calls.
       Gateway: `/v1/search` and `/v1/search/suggest` go to video-svc.
+  - name: tag-pages
+    description: |
+      Tag landing pages (task SEO2, ADR-037). A tag's `slug` is computed by PostgreSQL from the tag text (folded:
+      lower-case, Vietnamese diacritics removed, đ → d; every run of characters other than `a-z0-9` becomes `-`;
+      leading/trailing `-` trimmed), so `Phim ngắn`, `phim  NGẮN` and `phim-ngan` share the slug `phim-ngan`. Only
+      videos that the public feed would show count (PUBLIC, READY, not hidden, owner active).
+      Gateway: `/v1/tags` goes to video-svc.
   - name: analytics
     description: |
       Player QoE and watch-time samples (task R1, ADR-022), forwarded to ClickHouse on gpu-01 through the
@@ -66,6 +73,10 @@ paths:
         total; the cursor pages through that ranking. The ranking may be empty (no recent views): the client
         then shows the newest feed. `owner_id` together with `sort=trending` → `400` `INVALID_SORT`.
         Trending responses carry `Cache-Control: public, max-age=60`.
+
+        Task SEO2 (ADR-037) — `tag` restricts the newest feed to videos carrying that tag (matched on its slug, see
+        the `tag-pages` group); it can be combined with `owner_id`. `tag` together with `sort=trending` → `400`
+        `INVALID_SORT`. Tag responses carry `Cache-Control: public, max-age=60`.
       security:
         - {}
         - bearerAuth: []
@@ -86,6 +97,17 @@ paths:
             type: string
             enum: [newest, trending]
             default: newest
+        - name: tag
+          in: query
+          required: false
+          description: |
+            Task SEO2: a tag slug (`phim-ngan`) or tag text (`Phim ngắn`); the database derives the slug. Trimmed;
+            empty after trimming → `400` `VALIDATION_ERROR`. An input whose slug is empty (only punctuation) matches
+            no video. The cursor is bound to the `tag` value it was issued for.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
       responses:
         '200':
           description: One page of videos.
@@ -739,6 +761,83 @@ paths:
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
+  /v1/tags:
+    get:
+      tags: [tag-pages]
+      operationId: listTags
+      summary: The most used tags of public videos (task SEO2), for the sitemap and tag lists. Optional auth.
+      description: |
+        Tags ranked by `video_count` DESC, then `slug` ASC. A top-N ranking, not a paged list: there is no cursor,
+        and `limit` (default 100, max 1000) caps the result. `min_videos` (default 1) drops tags used by fewer
+        public videos. `Cache-Control: public, max-age=300`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: min_videos
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1
+      responses:
+        '200':
+          description: The ranking (possibly empty).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagList'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/tags/{tag}:
+    get:
+      tags: [tag-pages]
+      operationId: getTag
+      summary: One tag's landing-page header (task SEO2). Optional auth.
+      description: |
+        `tag` is a slug or tag text; video-svc derives the slug and returns the canonical one, so the web can
+        redirect `/tag/Phim%20ng%E1%BA%AFn` to `/tag/phim-ngan`. `404` when no public video carries the tag (or the
+        slug is empty). `Cache-Control: public, max-age=60`. List the videos with `listVideos?tag=<slug>`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: tag
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        '200':
+          description: The tag.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagSummary'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -871,6 +970,16 @@ components:
             type: string
             minLength: 1
             maxLength: 30
+        tag_slugs:
+          type: array
+          maxItems: 10
+          description: |
+            Task SEO2 (ADR-037): the slug of each entry of `tags`, same order and length, for `/tag/<slug>` links. An
+            entry is `""` when its tag has no slug (only punctuation or non-Latin script); show that tag without a
+            link. video-svc always sends it; optional in the schema so older clients stay valid.
+          items:
+            type: string
+            maxLength: 100
         playback:
           description: Null until the video is `READY`.
           oneOf:
@@ -1069,6 +1178,33 @@ components:
           maxItems: 50
           items:
             $ref: '#/components/schemas/VideoSummary'
+
+    TagSummary:
+      type: object
+      required: [slug, name, video_count, latest_published_at]
+      properties:
+        slug:
+          type: string
+          description: Canonical slug, `^[a-z0-9]+(-[a-z0-9]+)*$`.
+        name:
+          type: string
+          description: The spelling used by the most public videos with this slug (ties → alphabetical first).
+        video_count:
+          type: integer
+          description: Number of public videos carrying the tag.
+        latest_published_at:
+          type: string
+          format: date-time
+          description: Newest `published_at` among those videos (sitemap `lastmod`).
+
+    TagList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagSummary'
 
     VideoPage:
       type: object

@@ -92,6 +92,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Post("/v1/playback/heartbeats", h.recordPlaybackHeartbeats)
 		r.Get("/v1/search", h.searchVideos)
 		r.Get("/v1/search/suggest", h.suggestSearch)
+		r.Get("/v1/tags", h.listTags)
+		r.Get("/v1/tags/{tag}", h.getTag)
 		r.Get("/v1/feed/recommended", h.getRecommendedFeed)
 	})
 	r.Group(func(r chi.Router) { // identity required
@@ -129,6 +131,11 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 				httpx.FieldError{Field: "sort", Message: "trending has no per-channel ranking"})
 			return
 		}
+		if q.Has("tag") {
+			httpx.BadRequest(w, r, "INVALID_SORT", "sort=trending cannot be combined with tag",
+				httpx.FieldError{Field: "sort", Message: "trending has no per-tag ranking"})
+			return
+		}
 		h.listTrending(w, r, limit)
 		return
 	default:
@@ -147,6 +154,13 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 		}
 		owner, scope = &id, "owner="+id.String()
 	}
+	tag, ok := parseTag(w, r, q) // task SEO2
+	if !ok {
+		return
+	}
+	if tag != "" {
+		scope += "|tag=" + tag
+	}
 	after, ok := h.parseCursor(w, r, q, cursorFeed, scope)
 	if !ok {
 		return
@@ -154,7 +168,7 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 
 	// One query per page: the owner profiles come with it (join on
 	// auth.public_profiles), so there is no per-item lookup.
-	rows, err := h.Store.ListFeed(r.Context(), domain.FeedQuery{OwnerID: owner, After: after, Limit: limit + 1})
+	rows, err := h.Store.ListFeed(r.Context(), domain.FeedQuery{OwnerID: owner, Tag: tag, After: after, Limit: limit + 1})
 	if err != nil {
 		h.fail(w, r, "list feed", err)
 		return
@@ -167,6 +181,9 @@ func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		out.Items = append(out.Items, h.summary(s))
+	}
+	if tag != "" {
+		w.Header().Set("Cache-Control", cacheTag)
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
