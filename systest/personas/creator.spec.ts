@@ -40,6 +40,14 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
   test('upload clip through upload UI -> wait for READY (<= 240s)', async ({ page }) => {
     test.setTimeout(240_000);
+    page.on('console', (msg) => {
+      console.log(`[creator:upload console] [${msg.type()}] ${msg.text()}`);
+    });
+    page.on('requestfailed', (req) => {
+      console.log(
+        `[creator:upload requestfailed] ${req.method()} ${req.url()}: ${req.failure()?.errorText}`,
+      );
+    });
     // Login creator
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(creatorEmail);
