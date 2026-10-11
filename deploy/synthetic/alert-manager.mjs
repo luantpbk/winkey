@@ -19,9 +19,10 @@ const GITHUB_API_URL = process.env.GITHUB_API_URL || 'https://api.github.com';
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || '';
 const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com';
 const GITHUB_RUN_ID = process.env.GITHUB_RUN_ID || '';
-const RUN_URL = GITHUB_REPOSITORY && GITHUB_RUN_ID
-  ? `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}`
-  : '';
+const RUN_URL =
+  GITHUB_REPOSITORY && GITHUB_RUN_ID
+    ? `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}`
+    : '';
 
 const STATE_DIR = path.resolve('.synthetic-state');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
@@ -31,11 +32,15 @@ const STATE_FILE = path.join(STATE_DIR, 'state.json');
  */
 async function githubApi(endpoint, options = {}) {
   if (!GITHUB_TOKEN || !GITHUB_REPOSITORY) {
-    console.warn('[alert-manager] GITHUB_TOKEN or GITHUB_REPOSITORY not set; skipping GitHub API call.');
+    console.warn(
+      '[alert-manager] GITHUB_TOKEN or GITHUB_REPOSITORY not set; skipping GitHub API call.',
+    );
     return null;
   }
 
-  const url = endpoint.startsWith('http') ? endpoint : `${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}${endpoint}`;
+  const url = endpoint.startsWith('http')
+    ? endpoint
+    : `${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}${endpoint}`;
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -49,7 +54,9 @@ async function githubApi(endpoint, options = {}) {
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`GitHub API ${options.method || 'GET'} ${url} returned ${res.status}: ${errorText}`);
+    throw new Error(
+      `GitHub API ${options.method || 'GET'} ${url} returned ${res.status}: ${errorText}`,
+    );
   }
 
   if (res.status === 204) {
@@ -153,11 +160,12 @@ async function main() {
     process.exit(1);
   }
 
-  const rawLines = fs.readFileSync(logFile, 'utf-8')
+  const rawLines = fs
+    .readFileSync(logFile, 'utf-8')
     .replace(/^\uFEFF/, '')
     .replace(/\0/g, '')
     .split('\n')
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean);
 
   const parsedResults = [];
@@ -181,7 +189,7 @@ async function main() {
   if (!state.consecutiveFailures) state.consecutiveFailures = {};
   if (typeof state.consecutiveGreens !== 'number') state.consecutiveGreens = 0;
 
-  const failedResults = parsedResults.filter(r => r.status === 'FAIL');
+  const failedResults = parsedResults.filter((r) => r.status === 'FAIL');
   const isAllGreen = failedResults.length === 0;
 
   const openIssues = await getOpenSyntheticIssues();
@@ -193,21 +201,27 @@ async function main() {
     }
     state.consecutiveGreens += 1;
 
-    console.log(`[alert-manager] All checks passed. Consecutive greens: ${state.consecutiveGreens}`);
+    console.log(
+      `[alert-manager] All checks passed. Consecutive greens: ${state.consecutiveGreens}`,
+    );
 
     // If there are open synthetic issues, notify and check auto-close threshold (3 green runs)
     for (const issue of openIssues) {
       if (state.consecutiveGreens >= 3) {
-        console.log(`[alert-manager] Auto-closing issue #${issue.number} (${issue.title}) after ${state.consecutiveGreens} green runs.`);
+        console.log(
+          `[alert-manager] Auto-closing issue #${issue.number} (${issue.title}) after ${state.consecutiveGreens} green runs.`,
+        );
         await closeIssue(
           issue.number,
-          `### :white_check_mark: Alert Resolved\n\nAll synthetic checks have passed successfully for **${state.consecutiveGreens} consecutive runs**.\nLatest run: [Run #${GITHUB_RUN_ID || 'local'}](${RUN_URL})\n\nAuto-closing issue.`
+          `### :white_check_mark: Alert Resolved\n\nAll synthetic checks have passed successfully for **${state.consecutiveGreens} consecutive runs**.\nLatest run: [Run #${GITHUB_RUN_ID || 'local'}](${RUN_URL})\n\nAuto-closing issue.`,
         );
       } else {
-        console.log(`[alert-manager] Posting green run notice on issue #${issue.number} (${state.consecutiveGreens}/3).`);
+        console.log(
+          `[alert-manager] Posting green run notice on issue #${issue.number} (${state.consecutiveGreens}/3).`,
+        );
         await commentIssue(
           issue.number,
-          `### :white_check_mark: Green Run Detected (${state.consecutiveGreens}/3)\n\nSynthetic monitoring run [Run #${GITHUB_RUN_ID || 'local'}](${RUN_URL}) passed.\nWaiting for 3 consecutive green runs to auto-close.`
+          `### :white_check_mark: Green Run Detected (${state.consecutiveGreens}/3)\n\nSynthetic monitoring run [Run #${GITHUB_RUN_ID || 'local'}](${RUN_URL}) passed.\nWaiting for 3 consecutive green runs to auto-close.`,
         );
       }
     }
@@ -221,14 +235,17 @@ async function main() {
       const count = state.consecutiveFailures[checkName];
       console.log(`[alert-manager] Check '${checkName}' failed (consecutive failures: ${count}).`);
 
-      const matchingIssue = openIssues.find(i =>
-        i.title.toLowerCase().includes(`[synthetic] ${checkName.toLowerCase()} failing`) ||
-        i.title.toLowerCase().includes(`[synthetic]`) && i.title.toLowerCase().includes(checkName.toLowerCase())
+      const matchingIssue = openIssues.find(
+        (i) =>
+          i.title.toLowerCase().includes(`[synthetic] ${checkName.toLowerCase()} failing`) ||
+          (i.title.toLowerCase().includes(`[synthetic]`) &&
+            i.title.toLowerCase().includes(checkName.toLowerCase())),
       );
 
       if (count >= 2 || matchingIssue) {
         const title = `[synthetic] ${checkName} failing`;
-        const bodyContent = `### :rotating_light: Synthetic Monitoring Alert: \`${checkName}\` Failing\n\n` +
+        const bodyContent =
+          `### :rotating_light: Synthetic Monitoring Alert: \`${checkName}\` Failing\n\n` +
           `- **Check:** \`${checkName}\`\n` +
           `- **Consecutive Failures:** ${count}\n` +
           `- **Latest Run:** [Run #${GITHUB_RUN_ID || 'local'}](${RUN_URL})\n` +
@@ -238,19 +255,25 @@ async function main() {
           `*This alert is automatically managed by .github/workflows/synthetic.yml. It will auto-close after 3 consecutive green runs.*`;
 
         if (matchingIssue) {
-          console.log(`[alert-manager] Updating existing issue #${matchingIssue.number} for check '${checkName}'.`);
+          console.log(
+            `[alert-manager] Updating existing issue #${matchingIssue.number} for check '${checkName}'.`,
+          );
           await commentIssue(matchingIssue.number, bodyContent);
         } else {
-          console.log(`[alert-manager] Opening new issue '${title}' after ${count} consecutive failures.`);
+          console.log(
+            `[alert-manager] Opening new issue '${title}' after ${count} consecutive failures.`,
+          );
           await createIssue(title, bodyContent);
         }
       } else {
-        console.log(`[alert-manager] First failure for check '${checkName}'; waiting for 2nd failure before alerting.`);
+        console.log(
+          `[alert-manager] First failure for check '${checkName}'; waiting for 2nd failure before alerting.`,
+        );
       }
     }
 
     // Reset counters for checks that passed
-    for (const passed of parsedResults.filter(r => r.status === 'PASS')) {
+    for (const passed of parsedResults.filter((r) => r.status === 'PASS')) {
       state.consecutiveFailures[passed.name] = 0;
     }
   }
@@ -274,7 +297,7 @@ async function main() {
 
       md += `\n**Consecutive Green Runs:** ${state.consecutiveGreens}/3\n`;
       if (failedResults.length > 0) {
-        md += `\n> [!CAUTION]\n> Failed checks: ${failedResults.map(f => `\`${f.name}\` (x${state.consecutiveFailures[f.name] || 1})`).join(', ')}\n`;
+        md += `\n> [!CAUTION]\n> Failed checks: ${failedResults.map((f) => `\`${f.name}\` (x${state.consecutiveFailures[f.name] || 1})`).join(', ')}\n`;
       }
 
       fs.appendFileSync(summaryPath, md, 'utf-8');
@@ -288,7 +311,7 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('[alert-manager] Fatal error:', err);
   process.exit(1);
 });

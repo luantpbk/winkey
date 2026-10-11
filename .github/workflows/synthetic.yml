@@ -1,7 +1,7 @@
 ---
 name: synthetic
 
-"on":
+'on':
   schedule:
     - cron: '*/10 * * * *'
   pull_request:
