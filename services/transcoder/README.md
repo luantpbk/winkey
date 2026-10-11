@@ -9,7 +9,7 @@ It follows ADR-003 and ADR-015: **standalone binary + FFmpeg, no inbound ports f
 2. Download the raw object to `SCRATCH_DIR/{video}-a{attempt}/` (8 × 16 MiB ranged parts); start a parallel copy to `ARCHIVE_DIR/{owner}/{video}/source` if set; join it before READY and before scratch removal (an archive failure is logged, it does not fail the video). Scratch is always removed.
 3. `ffprobe`: needs a video stream and duration > 0; rejects > 12 h or larger than 8K as `INVALID_INPUT` (non-retryable). Reads rotation, SAR, pixel format/bit depth, average frame rate, audio presence.
 4. Ladder (ADR-006, matched on the **short edge**, never upscaled, ≥ 1 rendition): 1080p 5000k/5350k/7500k · 720p 2800k/2996k/4200k · 480p 1400k/1498k/2100k (target/maxrate/bufsize). A source below 480p yields one rendition at its own size with the 480p bitrate scaled by pixel count (floor 300k).
-5. **One** ffmpeg process: `filter_complex split` → per rendition `scale, fps=<avg, ≤ 60>, format=yuv420p, setsar=1`; HLS fMP4, 4 s segments, keyframe every 2 s, `independent_segments+temp_file` so completed segments are atomically renamed; AAC 128k/48k/stereo (silent track via `anullsrc` + `-shortest` when the source has none). NVENC: `-hwaccel cuda` without `-hwaccel_output_format`, `h264_nvenc -profile:v high -preset p5 -tune hq -rc vbr -spatial-aq 1 -bf 3 -no-scenecut 1 -forced-idr 1`. x264: `libx264 -profile:v high -preset $X264_PRESET -sc_threshold 0`. If NVENC fails at runtime the **same attempt retries once with x264** and records `encoder='x264'`. Before retrying, the segment scanner is cancelled, all in-flight uploads are joined, and only this run's attempted HLS object keys are deleted. A failed delete follows the normal storage-failure/redelivery path; x264 never starts in a dirty prefix.
+5. **One** ffmpeg process: `filter_complex split` → per rendition `scale, fps=<avg, ≤ 60>, format=yuv420p, setsar=1`; HLS fMP4, 4 s segments, keyframe every 2 s, `independent_segments+temp_file` so completed segments are atomically renamed; AAC 128k/48k/stereo (silent track via `anullsrc` + `-shortest` when the source has none). NVENC: `-hwaccel cuda` without `-hwaccel_output_format`, `h264_nvenc -profile:v high -preset p5 -tune hq -rc vbr -spatial-aq 1 -bf 3 -no-scenecut 1 -forced-idr 1`. x264: `libx264 -profile:v high -preset $X264_PRESET -sc_threshold 0`. Rate control (ADR-039, `RATE_CONTROL`): `capped_crf` sets `-crf:v:N $X264_CRF` / `-cq:v:N $NVENC_CQ -b:v:N 0` with `-maxrate:v:N` = the rung's ABR bitrate; `abr` (default) sets `-b:v:N` = the rung bitrate with the ADR-006 maxrate. If NVENC fails at runtime the **same attempt retries once with x264** and records `encoder='x264'`. Before retrying, the segment scanner is cancelled, all in-flight uploads are joined, and only this run's attempted HLS object keys are deleted. A failed delete follows the normal storage-failure/redelivery path; x264 never starts in a dirty prefix.
    Security: `-protocol_whitelist file,pipe`, local input only, timeout `max(10m, 3 × duration)`, container images run as non-root, metadata/chapters are stripped.
    Progress: `-progress pipe:1`, parsed from `out_time_us`.
 6. Poster: `v/{id}/a{n}/thumb/poster.jpg` at 10 % of the duration, at most 1280 px wide (never upscaled).
@@ -52,6 +52,18 @@ Messages keep their payload (same `event_id`; the transcoder is idempotent) and 
 
 S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; the transcoder never presigns).
 
+## Quality bench (ADR-039)
+
+`cmd/quality-bench` runs the exact production ffmpeg arguments on real sources and reports size and VMAF per rendition, so rate-control changes are decided on measurements:
+
+```bash
+go run ./cmd/quality-bench -encoder nvenc -ffmpeg "$FFMPEG_PATH" -ffprobe "$FFPROBE_PATH" \
+  -vmaf-ffmpeg /path/to/ffmpeg-with-libvmaf -settings abr,capped_crf:21,capped_crf:23,capped_crf:25 \
+  -json bench.json source1.mp4 source2.mov > bench.md
+```
+
+The first setting is the baseline for the "Size vs" column. VMAF is computed at the source size (the rendition is upscaled like a player would do); `VMAF p5` is the 5th-percentile frame score.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -64,6 +76,9 @@ S3 access goes through the shared client `libs/go/s3x` (internal endpoint only; 
 | `S3_RAW_BUCKET` / `S3_MEDIA_BUCKET` | `winkey-raw` / `winkey-media` | |
 | `ENCODER` | `auto` | `auto` = NVENC if a 1-frame test encode works at startup, else x264; or `nvenc` / `x264` |
 | `X264_PRESET` | `veryfast` | |
+| `RATE_CONTROL` | `abr` | ADR-039. `capped_crf` = constant quality (x264 `-crf`, NVENC `-cq` with `-b:v 0`, `-rc-lookahead 20 -temporal-aq 1`) with the rung's ABR bitrate as the `-maxrate` ceiling: simple content gets much smaller, complex content stays at about the old ABR size (measured +1–6 % on 10 s clips, from the initial VBV buffer). `abr` = original fixed-bitrate ladder. **Default stays `abr` until `NVENC_CQ` is calibrated on gpu-01 with `cmd/quality-bench`**; then gpu-01 sets `capped_crf` |
+| `X264_CRF` | `21` | quality level for `capped_crf` with x264 (1–51, lower = better/bigger) |
+| `NVENC_CQ` | `23` | quality level for `capped_crf` with NVENC (1–51, lower = better/bigger) |
 | `HWACCEL_DECODE` | `true` | NVENC only. `false` = decode on the CPU, encode on the GPU. **gpu-01 uses `false` with `WORKER_CONCURRENCY=1`**: with the miner running, `-hwaccel cuda` decode measured 3.0x realtime vs 5.6x with CPU decode (docs/INFRASTRUCTURE.md section 6) |
 | `WORKER_CONCURRENCY` | auto | 2 with NVENC (GeForce allows ~8 sessions, each job uses 3), 1 with x264 |
 | `UPLOAD_PARALLELISM` | `8` | parallel uploads per job; **gpu-01 uses `16`** for R2 |

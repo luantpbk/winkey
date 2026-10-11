@@ -923,3 +923,44 @@ Hiện trạng:
 - Mỗi lần chạy `sim` tốn khoảng 30 phút × 3 runner miễn phí. Nightly vẫn giữ để bắt lỗi hồi quy.
 - **Bootstrap 2026-10-11:** workflow `.github/workflows/sim.yml` (kiến trúc sư viết để chạy ngay) dùng 12 kịch bản systest có sẵn, seed, rồi k6 100 người xem + đọc API 3 phút trên stack tạm. Antigravity 4 bổ sung persona, Antigravity 2 tiếp quản workflow.
 - Giám sát production cho biết sự cố trong vòng 20 phút.
+
+### ADR-039 — Nén theo nội dung (capped CRF) và AV1 cho video nhiều lượt xem (ENC1)
+**Bối cảnh.** Ngày 2026-10-12 user hỏi cách nén nhỏ hơn mà không giảm chất lượng, giống YouTube. Hiện trạng (ADR-006): chỉ H.264, bitrate cố định theo ladder (1080p 5000k / 720p 2800k / 480p 1400k), x264 `veryfast`, NVENC `p5 hq`. Một video gần như tĩnh tốn gần bằng một video nhiều chuyển động. GPU của gpu-01 là **RTX 5060 Ti 16 GB** (Blackwell), có NVENC AV1.
+
+**Quyết định.**
+1. **Giai đoạn 1: capped CRF (đã code, task ENC1).**
+   - `RATE_CONTROL=capped_crf`: x264 `-crf:v:N $X264_CRF` (mặc định 21), NVENC `-cq:v:N $NVENC_CQ -b:v:N 0 -rc-lookahead 20 -temporal-aq 1` (mặc định 23).
+   - Trần `-maxrate:v:N` = bitrate ABR cũ của rung (`TargetK`), `-bufsize` giữ nguyên. Nội dung đơn giản dùng ít bit hơn nhiều; nội dung phức tạp chạm trần nên tốn xấp xỉ như ABR.
+   - Không đổi contract, migration, layout HLS hay player. Master playlist vẫn có `BANDWIDTH` (ffmpeg lấy từ `-maxrate`), nên hls.js ABR vẫn chạy.
+   - `RATE_CONTROL=abr` giữ đúng hành vi cũ và là **mặc định trong code cho tới khi `NVENC_CQ` được hiệu chỉnh trên gpu-01**. Sau đó gpu-01 đặt `capped_crf`, không cần build lại.
+2. **Đo bằng VMAF trước khi bật.** `services/transcoder/cmd/quality-bench` chạy đúng tham số ffmpeg production trên video nguồn thật, rồi in dung lượng, kbps, VMAF trung bình và VMAF p5 cho từng rendition. Tiêu chí bật capped_crf:
+   - 1080p không giảm quá 1 điểm VMAF so với ABR.
+   - Rendition thấp hơn không giảm quá 3 điểm. Khoảng 6 điểm VMAF mới thành một mức khác biệt nhìn thấy được (JND).
+   - Tổng dung lượng trên bộ video mẫu giảm ít nhất 20 %.
+3. **Giai đoạn 2: AV1 cho video nhiều lượt xem (task ENC2, chưa làm).**
+   - Thêm bản AV1 (`av1_nvenc` trên RTX 5060 Ti) bên cạnh H.264, chỉ cho video vượt ngưỡng lượt xem (giống YouTube), encode lại nền vào giờ thấp điểm.
+   - Cần: FFmpeg 8.x trên gpu-01 (bản 7.1 BtbN đang ghim chưa có `av1_nvenc`, xem ADR-006); master playlist nhiều codec (`CODECS="av01..."`); tên rendition mới (ví dụ `1080p-av1`), nên phải đổi contract `^[0-9]{3,4}p$` và có migration (`media.video_renditions.codec`).
+   - Thiết kế riêng sau khi giai đoạn 1 chạy ổn trên production.
+
+**Số đo 2026-10-12 (x264 `veryfast`, 4 clip tổng hợp 1080p dài 10 s, VMAF tính ở 1080p).** Mạng của môi trường làm việc chặn tải video mẫu, nên đây là clip ffmpeg tạo ra, chỉ để định hướng. Hiệu chỉnh thật phải chạy trên video nguồn thật ở gpu-01.
+
+| Clip | Rendition | ABR kbps / VMAF | capped_crf:21 kbps / VMAF | Dung lượng |
+|---|---|---|---|---:|
+| gần như tĩnh | 1080p | 484 / 97.75 | 143 / 97.33 | −70 % |
+| gần như tĩnh | 720p | 1202 / 90.43 | 165 / 89.38 | −86 % |
+| gần như tĩnh | 480p | 964 / 81.83 | 146 / 79.81 | −85 % |
+| đồ hoạ chuyển động | 1080p | 5011 / 94.26 | 5291 / 94.62 | +6 % |
+| đồ hoạ chuyển động | 720p | 2802 / 87.20 | 1843 / 85.64 | −34 % |
+| đồ hoạ chuyển động | 480p | 1400 / 79.27 | 683 / 76.08 | −51 % |
+| chi tiết cao (mandelbrot) | 1080p | 5210 / 78.39 | 5265 / 78.43 | +1 % |
+| chi tiết cao (mandelbrot) | 720p | 2883 / 70.00 | 2904 / 70.06 | +1 % |
+| chi tiết cao (mandelbrot) | 480p | 1431 / 58.37 | 1346 / 57.97 | −6 % |
+
+- Clip nhiễu ngẫu nhiên từng điểm ảnh ("film grain" tổng hợp) cho VMAF khoảng 12 ở mọi chế độ, nên bị loại khỏi bảng. Cả hai chế độ đều chạm trần như nhau (+3–4 %).
+- Ở nội dung phức tạp, capped_crf vượt ABR 1–6 % trên clip 10 s. Phần vượt này đến từ bộ đệm VBV ban đầu (`bufsize` = 1,5 × `maxrate`), nên với video dài vài phút trở lên thì gần như bằng 0.
+- Ở rendition thấp, VMAF giảm 1–3 điểm, dưới 1 JND. 1080p giữ nguyên chất lượng.
+
+**Hệ quả.**
+- Video ít chuyển động (vlog, nói chuyện, slide, hoạt hình phẳng) nhỏ đi 30–85 %. Video phức tạp giữ nguyên kích thước và chất lượng. Lưu trữ R2, băng thông edge và thời gian bắt đầu phát đều giảm theo.
+- Video cũ không bị encode lại. Chỉ video tải lên sau khi bật mới dùng capped_crf.
+- Thêm 3 biến môi trường (`RATE_CONTROL`, `X264_CRF`, `NVENC_CQ`). Rollback chỉ cần đặt `RATE_CONTROL=abr` rồi khởi động lại transcoder.

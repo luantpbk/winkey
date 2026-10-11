@@ -115,7 +115,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Store: &store.Postgres{Pool: pool}, Objects: s3, Events: natsEvents{nc}, Tools: tools, Log: log,
 		Cfg: job.Config{
 			ScratchDir: cfg.ScratchDir, ArchiveDir: cfg.ArchiveDir, MediaBucket: cfg.S3MediaBucket,
-			Encoder: encoder, X264Preset: cfg.X264Preset, NoHWDecode: !cfg.HWAccelDecode, UploadParallelism: cfg.UploadParallelism,
+			Encoder: encoder, X264Preset: cfg.X264Preset,
+			RateControl: cfg.RateControl, X264CRF: cfg.X264CRF, NVENCCQ: cfg.NVENCCQ,
+			NoHWDecode: !cfg.HWAccelDecode, UploadParallelism: cfg.UploadParallelism,
 			WorkerID: host,
 		},
 	}

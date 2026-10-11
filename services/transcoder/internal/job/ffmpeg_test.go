@@ -99,6 +99,63 @@ func TestHLSOutputWithRealFFmpeg(t *testing.T) {
 	}
 }
 
+// TestCappedCRFWithRealFFmpeg checks ADR-039 on real ffmpeg output: the
+// capped constant-quality mode still produces a valid master (BANDWIDTH comes
+// from the -maxrate ceiling, so hls.js ABR keeps working), and it never costs
+// noticeably more than the fixed-bitrate ladder (ceiling = old ABR average).
+func TestCappedCRFWithRealFFmpeg(t *testing.T) {
+	tools := testutil.ToolsFromEnv(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	src := testutil.MakeClip(t, tools, dir, testutil.ClipLandscape)
+	info, err := tools.Probe(ctx, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := media.Select(info.DisplayW, info.DisplayH)
+
+	encode := func(mode string) int64 {
+		out := filepath.Join(dir, mode, "hls")
+		err := tools.RunHLS(ctx, media.HLSPlan{
+			Input: src, OutDir: out, Encoder: media.EncoderX264, X264Preset: "ultrafast",
+			RateControl: mode, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+		}, info.DurationSec, func(float64) {})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if err := media.VerifyOutput(out, rs); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		raw, err := os.ReadFile(filepath.Join(out, media.MasterPlaylist))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, v := range media.ParseMaster(string(raw)) {
+			// ffmpeg writes BANDWIDTH as peak video rate x 1.1 plus audio.
+			if ceiling := (rs[i].MaxrateK*11/10 + 128) * 1000; v.Bandwidth > ceiling+1000 {
+				t.Errorf("%s %s: BANDWIDTH %d above the -maxrate ceiling %d", mode, rs[i].Name, v.Bandwidth, ceiling)
+			}
+		}
+		var total int64
+		err = filepath.Walk(out, func(_ string, fi os.FileInfo, err error) error {
+			if err == nil && !fi.IsDir() && strings.HasSuffix(fi.Name(), ".m4s") {
+				total += fi.Size()
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return total
+	}
+
+	abr, capped := encode(media.RateControlABR), encode(media.RateControlCappedCRF)
+	t.Logf("segment bytes: abr=%d capped_crf=%d (%.0f%%)", abr, capped, 100*float64(capped)/float64(abr))
+	if capped > abr*105/100 {
+		t.Fatalf("capped_crf used %d bytes, abr %d: it must not cost more than ABR", capped, abr)
+	}
+}
+
 func TestProbeRejectsGarbage(t *testing.T) {
 	tools := testutil.ToolsFromEnv(t)
 	p := filepath.Join(t.TempDir(), "junk")

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -29,6 +30,12 @@ type Config struct {
 	WorkerConcurrency int    `env:"WORKER_CONCURRENCY"`
 	Encoder           string `env:"ENCODER" default:"auto"` // auto | nvenc | x264
 	X264Preset        string `env:"X264_PRESET" default:"veryfast"`
+	// RateControl (ADR-039): capped_crf encodes at constant quality with the
+	// ladder bitrate as a ceiling; abr is the original fixed-bitrate ladder and
+	// stays the default until NVENC_CQ is calibrated on gpu-01.
+	RateControl string `env:"RATE_CONTROL" default:"abr"`
+	X264CRF     int    `env:"X264_CRF" default:"21"` // capped_crf with x264 (lower = better, 18-28)
+	NVENCCQ     int    `env:"NVENC_CQ" default:"23"` // capped_crf with NVENC (lower = better, 19-30)
 	// HWAccelDecode: with NVENC, decode on the GPU (-hwaccel cuda, the default). Set
 	// false to decode on the CPU and only encode on the GPU; measured ~2x faster
 	// on gpu-01 while the GPU is shared with a miner (docs/INFRASTRUCTURE.md section 6).
@@ -59,6 +66,14 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	var c Config
 	if err := libconfig.LoadFrom(&c, lookup); err != nil {
 		return c, err
+	}
+	switch c.RateControl {
+	case "capped_crf", "abr":
+	default:
+		return c, fmt.Errorf("RATE_CONTROL must be capped_crf or abr, got %q", c.RateControl)
+	}
+	if c.X264CRF < 1 || c.X264CRF > 51 || c.NVENCCQ < 1 || c.NVENCCQ > 51 {
+		return c, fmt.Errorf("X264_CRF and NVENC_CQ must be in 1..51")
 	}
 	if c.ScratchDir == "" {
 		c.ScratchDir = filepath.Join(os.TempDir(), "winkey-scratch")

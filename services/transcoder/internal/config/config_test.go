@@ -72,3 +72,25 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+// ADR-039: abr stays the default until NVENC_CQ is calibrated on gpu-01.
+func TestRateControl(t *testing.T) {
+	c, err := load(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.RateControl != "abr" || c.X264CRF != 21 || c.NVENCCQ != 23 {
+		t.Fatalf("defaults: %q %d %d", c.RateControl, c.X264CRF, c.NVENCCQ)
+	}
+	c, err = load(t, map[string]string{"RATE_CONTROL": "capped_crf", "X264_CRF": "20", "NVENC_CQ": "25"})
+	if err != nil || c.RateControl != "capped_crf" || c.X264CRF != 20 || c.NVENCCQ != 25 {
+		t.Fatalf("overrides: %+v %v", c, err)
+	}
+	for _, bad := range []map[string]string{
+		{"RATE_CONTROL": "crf"}, {"X264_CRF": "0"}, {"X264_CRF": "52"}, {"NVENC_CQ": "99"},
+	} {
+		if _, err := load(t, bad); err == nil {
+			t.Errorf("%v must fail fast", bad)
+		}
+	}
+}

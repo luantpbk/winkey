@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,61 @@ func TestGoldenX264Silent(t *testing.T) {
 func TestGoldenNVENCSingle(t *testing.T) {
 	golden(t, "nvenc_single_360p", BuildHLSArgs(plan(EncoderNVENC, 640, 360, true)))
 }
+
+func cappedPlan(enc string) HLSPlan {
+	p := plan(enc, 1920, 1080, true)
+	p.RateControl = RateControlCappedCRF
+	return p
+}
+
+func TestGoldenNVENCCappedCRF(t *testing.T) {
+	golden(t, "nvenc_landscape_capped_crf", BuildHLSArgs(cappedPlan(EncoderNVENC)))
+}
+func TestGoldenX264CappedCRF(t *testing.T) {
+	golden(t, "x264_landscape_capped_crf", BuildHLSArgs(cappedPlan(EncoderX264)))
+}
+
+// ADR-039: capped_crf replaces the per-rendition target by a quality level
+// and uses the old ABR average as the -maxrate ceiling.
+func TestCappedCRFKeepsCeilingAndDropsTarget(t *testing.T) {
+	for _, enc := range []string{EncoderNVENC, EncoderX264} {
+		abr := BuildHLSArgs(plan(enc, 1920, 1080, true))
+		capped := BuildHLSArgs(cappedPlan(enc))
+		cs := strings.Join(capped, " ")
+		for i, r := range Select(1920, 1080) {
+			v := ":v:" + string(rune('0'+i))
+			for _, want := range []string{"-maxrate" + v + " " + itoa(r.TargetK) + "k", "-bufsize" + v + " " + itoa(r.BufsizeK) + "k"} {
+				if !strings.Contains(cs, want) {
+					t.Errorf("%s: missing ceiling %q", enc, want)
+				}
+			}
+			if strings.Contains(cs, "-b"+v+" "+itoa(r.TargetK)+"k") {
+				t.Errorf("%s: capped_crf must not set the ABR target for %s", enc, r.Name)
+			}
+		}
+		if enc == EncoderX264 && !strings.Contains(cs, "-crf:v:0 21") {
+			t.Errorf("x264 default CRF missing: %s", cs)
+		}
+		if enc == EncoderNVENC && (!strings.Contains(cs, "-cq:v:0 23") || !strings.Contains(cs, "-b:v:0 0")) {
+			t.Errorf("nvenc default CQ missing: %s", cs)
+		}
+		if strings.Join(abr[:8], " ") != strings.Join(capped[:8], " ") {
+			t.Errorf("%s: capped_crf must not change the input arguments", enc)
+		}
+	}
+	p := cappedPlan(EncoderX264)
+	p.X264CRF = 19
+	if !strings.Contains(strings.Join(BuildHLSArgs(p), " "), "-crf:v:2 19") {
+		t.Error("X264CRF override ignored")
+	}
+	p = cappedPlan(EncoderNVENC)
+	p.NVENCCQ = 26
+	if !strings.Contains(strings.Join(BuildHLSArgs(p), " "), "-cq:v:1 26") {
+		t.Error("NVENCCQ override ignored")
+	}
+}
+
+func itoa(v int) string { return strconv.Itoa(v) }
 
 func TestNoHWDecodeDropsHwaccelOnly(t *testing.T) {
 	p := plan(EncoderNVENC, 1920, 1080, true)

@@ -29,6 +29,9 @@ type Config struct {
 	MediaBucket       string
 	Encoder           string // resolved: media.EncoderNVENC or media.EncoderX264
 	X264Preset        string
+	RateControl       string // media.RateControlABR or media.RateControlCappedCRF (ADR-039)
+	X264CRF           int
+	NVENCCQ           int
 	NoHWDecode        bool // NVENC with CPU decode instead of -hwaccel cuda (benchmarks; possible HWACCEL_DECODE=false)
 	UploadParallelism int  // default 8
 	WorkerID          string
@@ -332,6 +335,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 		start := time.Now()
 		err := p.Tools.RunHLS(rctx, media.HLSPlan{
 			Input: source, OutDir: hlsDir, Encoder: enc, X264Preset: p.Cfg.X264Preset,
+			RateControl: p.Cfg.RateControl, X264CRF: p.Cfg.X264CRF, NVENCCQ: p.Cfg.NVENCCQ,
 			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: p.Cfg.NoHWDecode,
 		}, info.DurationSec, func(pct float64) {
 			rep.report(ctx, StageTranscoding, progressTranscode+(progressUpload-progressTranscode)*pct/100)
