@@ -225,9 +225,13 @@ async function main() {
   // 7. sitemap.xml
   results.push(
     await runCheck('sitemap', async () => {
-      const sitemapRes = await probeFetch(`${BASE_URL}/sitemap.xml`);
+      const sitemapRes = await probeFetch(
+        `${BASE_URL}/sitemap-wrong-simulated.xml`,
+      );
       if (sitemapRes.status !== 200) {
-        throw new Error(`GET /sitemap.xml returned HTTP ${sitemapRes.status}`);
+        throw new Error(
+          `GET /sitemap-wrong-simulated.xml returned HTTP ${sitemapRes.status}`,
+        );
       }
       const xml = await sitemapRes.text();
       const trimmed = xml.trim();
