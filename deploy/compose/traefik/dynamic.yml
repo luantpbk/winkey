@@ -37,7 +37,7 @@ http:
     # 5. Video, Studio, Feed, Search & Playback routes
     video:
       entryPoints: ['web']
-      rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`)'
+      rule: 'PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`) || PathPrefix(`/v1/tags`)'
       service: 'video-svc'
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
