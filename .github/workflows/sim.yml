@@ -123,6 +123,40 @@ jobs:
             fi
           fi
 
+      - name: LT2 production harness end-to-end (lt2-run.sh + telemetry feeder + watchdog)
+        # Exercises the exact script used on production LT2 nights against this ephemeral stack. The watchdog reads
+        # this runner's real MemAvailable (labelled node="edge-1" by the stub) and four local "legacy sites".
+        env:
+          TARGET_URL: http://127.0.0.1:8080
+          VUS: '100'
+          DURATION: 2m
+          EDGE_METRICS_URL: http://127.0.0.1:9799/metrics?q=MemAvailable
+          LEGACY_SITES: http://127.0.0.1:9799/1,http://127.0.0.1:9799/2,http://127.0.0.1:9799/3,http://127.0.0.1:9799/4
+        run: |
+          cat > /tmp/stub.mjs <<'EOF'
+          import http from 'node:http';
+          import fs from 'node:fs';
+          http.createServer((req, res) => {
+            if (req.url.includes('MemAvailable')) {
+              const kb = Number(/MemAvailable:\s+(\d+)/.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ status: 'success', data: { resultType: 'vector',
+                result: [{ metric: { __name__: 'node_memory_MemAvailable_bytes', node: 'edge-1' }, value: [Date.now() / 1000, String(kb * 1024)] }] } }));
+            } else {
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.end('OK');
+            }
+          }).listen(9799, '127.0.0.1');
+          EOF
+          nohup node /tmp/stub.mjs >/tmp/stub.log 2>&1 &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:9799/ >/dev/null && break; sleep 0.5; done
+          mkdir -p loadtest/results/lt2 && rm -f loadtest/results/lt2-summary.json
+          ./loadtest/lt2-run.sh 2>&1 | tee loadtest/results/lt2/lt2-run.log
+          rc=${PIPESTATUS[0]}
+          grep -E "\[WATCHDOG\]|WATCHDOG ABORT|LT2 SUMMARY|Summary" loadtest/results/lt2/lt2-run.log | tail -n 20 || true
+          test -f loadtest/results/lt2-summary.json && cp loadtest/results/lt2-summary.json loadtest/results/lt2/lt2-summary.json
+          exit "$rc"
+
       - name: Output summary to step summary
         if: always()
         run: |
