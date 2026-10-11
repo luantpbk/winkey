@@ -9,9 +9,15 @@ export const options = {
   scenarios: {
     api_read: {
       executor: 'ramping-vus',
-      startVUs: __ENV.VUS ? Math.max(1, Math.floor(parseInt(__ENV.VUS, 10) * 0.05)) : 3,
+      startVUs: 1,
       stages: __ENV.VUS
         ? [
+            {
+              duration:
+                __ENV.RAMP_DURATION ||
+                (__ENV.DURATION && /^[0-9]+s$/.test(__ENV.DURATION) ? '1s' : '1m'),
+              target: Math.max(1, Math.floor(parseInt(__ENV.VUS, 10) * 0.05)),
+            },
             {
               duration: __ENV.DURATION || '1m',
               target: Math.max(1, Math.floor(parseInt(__ENV.VUS, 10) * 0.05)),
