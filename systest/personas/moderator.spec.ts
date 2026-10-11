@@ -71,8 +71,8 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
 
     // 2. Moderator logs into admin panel and hides video
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', manifest.moderator.email);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(manifest.moderator.email);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
@@ -101,8 +101,8 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
     await ownerPage.goto('/login');
-    await ownerPage.fill('input[name="email"], input[id="email"]', manifest.curator.email);
-    await ownerPage.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
+    await ownerPage.locator('input[type="password"]').fill(PASSWORD);
     await ownerPage.click('button[type="submit"]');
 
     await ownerPage.goto('/studio');
@@ -110,7 +110,7 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
       timeout: 15000,
     });
     // Owner sees hidden notice
-    await expect(ownerPage.locator('text=Bị ẩn, text=HIDDEN, text=vi phạm').first()).toBeVisible({
+    await expect(ownerPage.getByText(/Bị ẩn|HIDDEN|vi phạm/).first()).toBeVisible({
       timeout: 15000,
     });
     await ownerContext.close();

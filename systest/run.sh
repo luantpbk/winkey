@@ -174,6 +174,14 @@ if [ "${SIM}" -eq 1 ]; then
   if [ "${SUITE_EXIT}" -eq 0 ]; then
     echo "[systest] Resetting auth rate limits before personas..."
     "${SCRIPT_DIR}/reset-ratelimits.sh" || true
+    echo "[systest] Restarting web-svc to clear in-memory sitemap cache..."
+    docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" restart web-svc
+    for _ in $(seq 1 60); do
+      if curl -s "http://127.0.0.1:3000/healthz" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
     echo "[systest] Running Playwright persona journeys against real stack..."
     pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
   fi

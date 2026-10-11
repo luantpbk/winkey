@@ -34,13 +34,13 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
   }) => {
     // 1. Attempt register WITHOUT invite code -> must show INVITE_REQUIRED message or 403
     await page.goto('/register');
-    await page.fill('input[name="handle"], input[id="handle"]', memberHandle);
-    await page.fill('input[name="email"], input[id="email"]', memberEmail);
-    await page.fill('input[name="display_name"], input[id="display_name"]', 'Thành Viên Test');
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[placeholder*="nguyenvana"]').fill(memberHandle);
+    await page.locator('input[type="email"]').fill(memberEmail);
+    await page.locator('input[placeholder="Nguyễn Văn A"]').fill('Thành Viên Test');
+    await page.locator('input[type="password"]').fill(PASSWORD);
 
     // Leave invite code empty if input exists
-    const inviteInput = page.locator('input[name="invite_code"], input[id="invite_code"]');
+    const inviteInput = page.locator('#invite-code-input, input[placeholder*="Mã mời"]');
     if (await inviteInput.isVisible()) {
       await inviteInput.fill('');
     }
@@ -50,9 +50,8 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     // Expect INVITE_REQUIRED or error notice
     await expect(
       page
-        .locator(
-          'text=INVITE_REQUIRED, text=Mã mời không hợp lệ, text=Yêu cầu mã mời, [role="alert"]',
-        )
+        .locator('[role="alert"], [data-testid="invite-error-msg"]')
+        .or(page.getByText(/INVITE_REQUIRED|Mã mời không hợp lệ|Yêu cầu mã mời/))
         .first(),
     ).toBeVisible({ timeout: 10000 });
 
@@ -76,8 +75,8 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
     // 3. Login
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', memberEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(memberEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
 
     // Should land on home or authenticated view
@@ -87,8 +86,8 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
   test('"Lưu" -> add to new playlist -> appears in /thu-vien', async ({ page }) => {
     // Login member
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', memberEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(memberEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
@@ -105,7 +104,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await saveBtn.first().click();
 
     // Dialog should open
-    const dialog = page.locator('[role="dialog"], text=Lưu video vào');
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
     await expect(dialog.first()).toBeVisible({ timeout: 10000 });
 
     // Create new playlist if button visible
@@ -135,7 +134,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     // Verify in /thu-vien
     await page.goto('/thu-vien');
     await expect(page.locator('body')).toBeVisible();
-    await expect(page.locator(`text=${playlistTitle}, text=Xem sau`).first()).toBeVisible({
+    await expect(page.getByText(playlistTitle).or(page.getByText('Xem sau')).first()).toBeVisible({
       timeout: 15000,
     });
   });
@@ -156,7 +155,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     );
     await saveBtn.first().click();
 
-    const dialog = page.locator('[role="dialog"], text=Lưu video vào');
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
     await expect(dialog.first()).toBeVisible({ timeout: 10000 });
     await page.keyboard.press('Escape');
   });
@@ -182,7 +181,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
     // Must NOT be redirected to login, and save dialog opens smoothly
     expect(page.url()).not.toContain('/login');
-    const dialog = page.locator('[role="dialog"], text=Lưu video vào');
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
     await expect(dialog.first()).toBeVisible({ timeout: 10000 });
     await page.keyboard.press('Escape');
   });
@@ -214,10 +213,12 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
     await Promise.all([save1.click(), save2.click()]);
 
-    await expect(page1.locator('[role="dialog"], text=Lưu video vào').first()).toBeVisible({
+    const d1 = page1.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
+    const d2 = page2.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
+    await expect(d1.first()).toBeVisible({
       timeout: 10000,
     });
-    await expect(page2.locator('[role="dialog"], text=Lưu video vào').first()).toBeVisible({
+    await expect(d2.first()).toBeVisible({
       timeout: 10000,
     });
 
@@ -234,6 +235,8 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
     const targetVideo = getPublicVideo();
     const watchUrl = `/watch/${targetVideo.id}?playlist=test-pl&src=home`;
+    // On load, stripWatchSurfaceFromAddressBar() keeps ?playlist=test-pl and removes src=home
+    const expectedReturnTo = `/watch/${targetVideo.id}?playlist=test-pl`;
 
     await anonPage.goto(watchUrl);
     await expect(anonPage.locator('h1')).toBeVisible();
@@ -248,11 +251,11 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await anonPage.waitForURL((url) => url.pathname.includes('/login'), { timeout: 10000 });
     const loginUrl = anonPage.url();
     expect(loginUrl).toContain('return_to');
-    expect(loginUrl).toContain(encodeURIComponent(watchUrl));
+    expect(loginUrl).toContain(encodeURIComponent(expectedReturnTo));
 
     // Log in
-    await anonPage.fill('input[name="email"], input[id="email"]', memberEmail);
-    await anonPage.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await anonPage.locator('input[type="email"]').fill(memberEmail);
+    await anonPage.locator('input[type="password"]').fill(PASSWORD);
     await anonPage.click('button[type="submit"]');
 
     // Must return to the exact watch page URL
@@ -268,8 +271,8 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
   test('comment, reply, like, unlike: counts update', async ({ page }) => {
     // Log in member
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', memberEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(memberEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 

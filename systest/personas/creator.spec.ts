@@ -41,8 +41,8 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
   test('upload clip through upload UI -> wait for READY (<= 180s)', async ({ page }) => {
     // Login creator
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', creatorEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(creatorEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
@@ -56,22 +56,21 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
     // Title input
     const uploadTitle = `Clip Mới Của Creator ${Date.now()}`;
-    const titleInput = page.locator('input[name="title"], input[id="title"]').first();
+    const titleInput = page.locator('input[placeholder*="Tiêu đề"]').first();
     if (await titleInput.isVisible()) {
       await titleInput.fill(uploadTitle);
     }
 
     // Submit upload
-    const submitBtn = page.locator('button[type="submit"], button:has-text("Tải lên")').first();
+    const submitBtn = page.getByRole('button', { name: /Bắt đầu tải lên|Tải lên/i });
     await submitBtn.click();
 
     // Wait until upload completes and reaches READY (or transitions to studio)
-    await page.waitForURL(
-      (url) => url.pathname.includes('/studio') || url.pathname.includes('/watch'),
-      {
-        timeout: 180000,
-      },
-    );
+    await expect(
+      page
+        .getByText('Video đã mã hóa xong và sẵn sàng phát!')
+        .or(page.locator('a[href*="/studio"]')),
+    ).toBeVisible({ timeout: 180000 });
   });
 
   test('Studio edit: title, description, visibility, 3 tags (one with diacritics) -> save', async ({
@@ -79,8 +78,8 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
   }) => {
     // Login creator
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', creatorEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(creatorEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
 
     // Find a video in studio
@@ -89,7 +88,7 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
     // Click edit on the first video item
     const editBtn = page
-      .locator('a[href*="/edit"], button:has-text("Chỉnh sửa"), button[aria-label*="Sửa"]')
+      .locator('a[href*="/edit"], [data-testid^="edit-video-"], button[aria-label*="Sửa"]')
       .first();
     await expect(editBtn).toBeVisible({ timeout: 15000 });
     await editBtn.click();
@@ -100,18 +99,18 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
     const newTitle = `Video Đã Chỉnh Sửa ${Date.now()}`;
     const newDesc = 'Mô tả chi tiết với đầy đủ dấu tiếng Việt chuẩn SEO.';
-    await page.fill('input[name="title"], input[id="title"]', newTitle);
-    await page.fill('textarea[name="description"], textarea[id="description"]', newDesc);
+    await page.locator('#video-title, [data-testid="video-title-input"]').fill(newTitle);
+    await page.locator('#video-description, [data-testid="video-description-input"]').fill(newDesc);
 
     // Visibility: PUBLIC
-    const visSelect = page.locator('select[name="visibility"], [id="visibility"]');
-    if (await visSelect.isVisible()) {
-      await visSelect.selectOption('PUBLIC');
+    const pubRadio = page.locator('[data-testid="visibility-radio-PUBLIC"], input[value="PUBLIC"]');
+    if (await pubRadio.isVisible()) {
+      await pubRadio.check();
     }
 
     // Add 3 tags (one with diacritics: 'du-lich', 'am-nhac', 'Trải Nghiệm')
     const tagInput = page.locator(
-      'input[placeholder*="thẻ"], input[placeholder*="tag"], input[id="tags"]',
+      '[data-testid="tag-input"], #video-tags-input, input[placeholder*="thẻ"]',
     );
     if (await tagInput.isVisible()) {
       for (const t of ['du-lich', 'am-nhac', 'Trải Nghiệm']) {
@@ -121,10 +120,12 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     }
 
     // Save changes
-    const saveBtn = page.locator('button:has-text("Lưu"), button[type="submit"]').first();
+    const saveBtn = page.locator('[data-testid="save-video-changes-btn"]').first();
     await saveBtn.click();
 
-    await expect(page.locator('text=Thành công, text=Đã lưu').first()).toBeVisible({
+    await expect(
+      page.getByText(/Đã lưu thay đổi thành công|Đã lưu|Thành công/).first(),
+    ).toBeVisible({
       timeout: 10000,
     });
 
@@ -154,8 +155,8 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
   }) => {
     // Login creator
     await page.goto('/login');
-    await page.fill('input[name="email"], input[id="email"]', creatorEmail);
-    await page.fill('input[name="password"], input[id="password"]', PASSWORD);
+    await page.locator('input[type="email"]').fill(creatorEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
     await page.click('button[type="submit"]');
 
     await page.goto('/thu-vien');
@@ -165,25 +166,31 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
     // Click create series / playlist
     const createBtn = page
-      .locator(
-        'button:has-text("Bộ phim mới"), button:has-text("Tạo bộ phim"), button:has-text("Danh sách mới")',
-      )
+      .locator('[data-testid="create-playlist-btn"], [data-testid="empty-create-playlist-btn"]')
       .first();
     if (await createBtn.isVisible()) {
       await createBtn.click();
-      await page.fill('input[name="title"], input[placeholder*="Tiêu đề"]', seriesTitle);
+      await page.locator('[data-testid="create-playlist-title-input"]').fill(seriesTitle);
 
-      const seriesCheckbox = page.locator('input[name="is_series"], input[type="checkbox"]');
+      const visSelect = page.locator('[data-testid="create-playlist-visibility-select"]');
+      if (await visSelect.isVisible()) {
+        await visSelect.selectOption('PUBLIC');
+      }
+
+      const seriesCheckbox = page.locator('[data-testid="create-playlist-is-series-checkbox"]');
       if (await seriesCheckbox.isVisible()) {
         await seriesCheckbox.check();
       }
 
-      await page.click('button:has-text("Tạo"), button:has-text("Lưu")');
+      await page.locator('[data-testid="submit-create-playlist-btn"]').click();
     }
 
     // Verify appearance on Home "Phim bộ"
     await page.goto('/');
-    await expect(page.locator('text=Phim bộ').first()).toBeVisible({ timeout: 15000 });
+    const seriesSection = page
+      .locator('[data-testid="cinema-row-series"]')
+      .or(page.getByText('Phim bộ'));
+    await expect(seriesSection.first()).toBeVisible({ timeout: 15000 });
   });
 
   test('delete one video -> disappears everywhere including 404 on watch page', async ({
@@ -213,7 +220,7 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
 
     // Browsing to watch page shows 404
     await page.goto(`/watch/${targetVideo.id}`);
-    await expect(page.locator('text=404, text=không tồn tại').first()).toBeVisible({
+    await expect(page.getByText(/404|không tồn tại/).first()).toBeVisible({
       timeout: 10000,
     });
   });

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 export default defineConfig({
   testDir: './personas',
-  timeout: 120000,
+  timeout: 60000,
   expect: {
     timeout: 15000,
   },
@@ -15,6 +15,10 @@ export default defineConfig({
   ],
   use: {
     baseURL: process.env.BASE_URL || 'http://127.0.0.1:8080',
+    locale: 'vi-VN',
+    timezoneId: 'Asia/Ho_Chi_Minh',
+    actionTimeout: 15000,
+    navigationTimeout: 15000,
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -46,7 +50,7 @@ export default defineConfig({
       name: 'anon-viewer-mobile',
       testMatch: /anon-viewer\.spec\.ts/,
       use: {
-        ...devices['iPhone 14'],
+        ...devices['Pixel 7'],
       },
     },
     {

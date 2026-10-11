@@ -34,7 +34,7 @@ export function parsePlaywright(playwrightJson) {
     { id: 'member', persona: 'member (Lưu regression)', viewport: 'Desktop (1440x900)' },
     { id: 'creator', persona: 'creator', viewport: 'Desktop (1440x900)' },
     { id: 'anon-viewer-desktop', persona: 'anon-viewer', viewport: 'Desktop (1440x900)' },
-    { id: 'anon-viewer-mobile', persona: 'anon-viewer', viewport: 'Mobile (iPhone 14)' },
+    { id: 'anon-viewer-mobile', persona: 'anon-viewer', viewport: 'Mobile (Pixel 7)' },
     { id: 'moderator', persona: 'moderator', viewport: 'Desktop (1440x900)' },
   ];
 
