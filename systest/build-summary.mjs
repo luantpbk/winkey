@@ -133,6 +133,7 @@ export function buildSummaryMarkdown({
   playwrightJson = null,
   perfJson = null,
   baselineJson = null,
+  isBaselineRun = false,
   dateStr = new Date().toISOString(),
 }) {
   const tap = parseTap(tapContent);
@@ -141,12 +142,13 @@ export function buildSummaryMarkdown({
   let budgetStatus = 'NOT RUN';
   let budgetViolations = [];
   if (perfJson) {
-    if (baselineJson) {
+    if (baselineJson && !isBaselineRun) {
       const cmp = comparePerf(perfJson, baselineJson);
       budgetStatus = cmp.passed ? 'PASSED' : 'FAILED';
       budgetViolations = cmp.violations || [];
     } else {
-      budgetStatus = perfJson.http_req_failed < 0.01 ? 'PASSED (baseline set)' : 'FAILED';
+      budgetStatus =
+        perfJson.http_req_failed < 0.01 ? 'PASSED (baseline run, not compared)' : 'FAILED';
       if (perfJson.http_req_failed >= 0.01) {
         budgetViolations.push(
           `Error rate ${(perfJson.http_req_failed * 100).toFixed(2)}% >= 1.00%`,
@@ -269,11 +271,16 @@ function main() {
     }
   }
 
+  const isBaselineRun =
+    fs.existsSync(path.join(reportDir, '.is-baseline-run')) ||
+    Boolean(perfJson && baselineJson && perfJson.timestamp === baselineJson.timestamp);
+
   const md = buildSummaryMarkdown({
     tapContent,
     playwrightJson,
     perfJson,
     baselineJson,
+    isBaselineRun,
   });
 
   fs.mkdirSync(reportDir, { recursive: true });

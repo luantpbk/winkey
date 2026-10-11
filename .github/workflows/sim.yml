@@ -176,19 +176,21 @@ jobs:
             echo "### sim run ${{ matrix.run }}"
             if [ -f systest/.run/report/summary.md ]; then
               cat systest/.run/report/summary.md
+            elif [ -f systest/.run/report/perf.json ]; then
+              echo '```json'; cat systest/.run/report/perf.json; echo; echo '```'
+              node -e "
+                const p = require('./systest/.run/report/perf.json');
+                const failRate = ((p.http_req_failed || 0) * 100).toFixed(2);
+                const reb = ((p.rebuffer_ratio_noseek || 0) * 100).toFixed(2);
+                console.log('- HLS rebuffer ratio: ' + reb + '%, HTTP failed: ' + failRate + '%');
+                if (p.endpoints) {
+                  for (const [ep, m] of Object.entries(p.endpoints)) {
+                    console.log('  - ' + ep + ': p50=' + (m.p50 || 0).toFixed(1) + 'ms, p95=' + (m.p95 || 0).toFixed(1) + 'ms');
+                  }
+                }
+              "
             elif [ -f loadtest/results/lt2-summary.json ]; then
               echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
-              for f in hls api; do
-                if [ -f "loadtest/results/$f-k6.json" ]; then
-                  node -e "
-                    const m = require('./loadtest/results/$f-k6.json').metrics;
-                    const d = m.http_req_duration || {};
-                    const f = m.http_req_failed || {};
-                    const failRate = ((f.value ?? f.rate ?? 0) * 100).toFixed(2);
-                    console.log('- $f: reqs=' + (m.http_reqs?.count ?? '?') + ', failed=' + failRate + '%, p95=' + (d['p(95)'] ?? '?') + 'ms');
-                  "
-                fi
-              done
             else
               echo "No summary generated (earlier step failed)."
             fi

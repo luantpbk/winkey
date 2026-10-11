@@ -334,7 +334,32 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
     it('allows valid local targets (localhost, 127.0.0.1, [::1])', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k6-shim-'));
       const k6Shim = path.join(tmpDir, 'k6');
-      fs.writeFileSync(k6Shim, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const dummySummary = JSON.stringify({
+        metrics: {
+          http_reqs: { count: 10 },
+          http_req_failed: { value: 0 },
+          http_req_duration: { 'p(95)': 50, med: 20 },
+        },
+      });
+      fs.writeFileSync(
+        k6Shim,
+        `#!/bin/sh
+target=""
+for arg in "$@"; do
+  if [ "$prev" = "--summary-export" ]; then
+    target="$arg"
+  fi
+  prev="$arg"
+done
+if [ -n "$target" ]; then
+  cat <<'EOF' > "$target"
+${dummySummary}
+EOF
+fi
+exit 0
+`,
+        { mode: 0o755 },
+      );
       try {
         for (const target of [
           'http://127.0.0.1:8080',
@@ -357,6 +382,50 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
           );
           assert.doesNotMatch(res.stderr, /refuses/);
         }
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('fails when k6 summary JSON is missing or http_reqs.count is 0', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k6-zero-'));
+      const k6Shim = path.join(tmpDir, 'k6');
+      const emptySummary = JSON.stringify({
+        metrics: {
+          http_reqs: { count: 0 },
+        },
+      });
+      fs.writeFileSync(
+        k6Shim,
+        `#!/bin/sh
+target=""
+for arg in "$@"; do
+  if [ "$prev" = "--summary-export" ]; then
+    target="$arg"
+  fi
+  prev="$arg"
+done
+if [ -n "$target" ]; then
+  cat <<'EOF' > "$target"
+${emptySummary}
+EOF
+fi
+exit 0
+`,
+        { mode: 0o755 },
+      );
+      try {
+        const res = spawnSync(scriptPath, [], {
+          env: {
+            ...process.env,
+            TARGET_URL: 'http://127.0.0.1:8080',
+            REPORT_DIR: tmpDir,
+            PATH: `${tmpDir}:${process.env.PATH}`,
+          },
+          encoding: 'utf8',
+        });
+        assert.equal(res.status, 1);
+        assert.match(res.stderr || res.stdout, /http_reqs\.count is 0/);
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -555,6 +624,36 @@ not ok 1 - auth
       assert.match(md, /rebuffer ratio \(non-seek\) 0\.20%/);
       assert.match(md, /GET \/v1\/videos.*12\.0 ms.*25\.0 ms/);
       assert.match(md, /\*\*Status\*\*: \*\*PASSED\*\*/);
+    });
+
+    it('plainly marks baseline run as baseline run, not compared in summary.md', () => {
+      const md = buildSummaryMarkdown({
+        tapContent: '# tests 18\n# pass 18\n# fail 0',
+        playwrightJson: {
+          suites: [
+            {
+              specs: [
+                { tests: [{ projectName: 'member', status: 'expected' }] },
+                { tests: [{ projectName: 'creator', status: 'expected' }] },
+                { tests: [{ projectName: 'anon-viewer-desktop', status: 'expected' }] },
+                { tests: [{ projectName: 'anon-viewer-mobile', status: 'expected' }] },
+                { tests: [{ projectName: 'moderator', status: 'expected' }] },
+              ],
+            },
+          ],
+        },
+        perfJson: {
+          rebuffer_ratio_noseek: 0,
+          http_req_failed: 0,
+          endpoints: {
+            'GET /v1/videos': { p50: 12.0, p95: 25.0 },
+          },
+        },
+        baselineJson: null,
+        isBaselineRun: true,
+      });
+
+      assert.match(md, /PASSED \(baseline run, not compared\)/);
     });
   });
 

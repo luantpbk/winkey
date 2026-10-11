@@ -44,27 +44,55 @@ RAW_HLS_JSON="${REPORT_DIR}/k6-hls.json"
 RAW_API_JSON="${REPORT_DIR}/k6-api.json"
 
 # Check if k6 is installed natively or use docker
-RUN_K6="docker run --rm --network host -v ${REPO_ROOT}:/app -w /app ${K6_IMAGE}"
 if command -v k6 >/dev/null 2>&1; then
   RUN_K6="k6"
+  EXPORT_HLS_JSON="${RAW_HLS_JSON}"
+  EXPORT_API_JSON="${RAW_API_JSON}"
+else
+  RUN_K6="docker run --rm --network host -u $(id -u):$(id -g) -v ${REPO_ROOT}:/app -w /app ${K6_IMAGE}"
+  # When running in docker with ${REPO_ROOT} mounted at /app, use container-relative path
+  EXPORT_HLS_JSON="/app/systest/.run/report/k6-hls.json"
+  EXPORT_API_JSON="/app/systest/.run/report/k6-api.json"
 fi
 
 # Run k6 in background or sequence
 echo "[sim-profile] Executing HLS viewers load..."
+rc_hls=0
 ${RUN_K6} run \
   -e TARGET_URL="${TARGET_URL}" \
   -e VUS="${HLS_VUS}" \
   -e DURATION="${HLS_DURATION}" \
-  --summary-export "${RAW_HLS_JSON}" \
-  loadtest/hls-viewers.js || true
+  --summary-export "${EXPORT_HLS_JSON}" \
+  loadtest/hls-viewers.js || rc_hls=$?
+
+echo "[sim-profile] HLS viewers load exited with code ${rc_hls}"
+if [ "${rc_hls}" -ne 0 ] && [ "${rc_hls}" -ne 99 ]; then
+  echo "ERROR: k6 hls-viewers failed (rc=${rc_hls})" >&2
+  exit "${rc_hls}"
+fi
+if [ ! -f "${RAW_HLS_JSON}" ]; then
+  echo "ERROR: ${RAW_HLS_JSON} missing" >&2
+  exit 1
+fi
 
 echo "[sim-profile] Executing API mix load..."
+rc_api=0
 ${RUN_K6} run \
   -e TARGET_URL="${TARGET_URL}" \
   -e VUS="${API_VUS}" \
   -e DURATION="${API_DURATION}" \
-  --summary-export "${RAW_API_JSON}" \
-  loadtest/api-mix.js || true
+  --summary-export "${EXPORT_API_JSON}" \
+  loadtest/api-mix.js || rc_api=$?
+
+echo "[sim-profile] API mix load exited with code ${rc_api}"
+if [ "${rc_api}" -ne 0 ] && [ "${rc_api}" -ne 99 ]; then
+  echo "ERROR: k6 api-mix failed (rc=${rc_api})" >&2
+  exit "${rc_api}"
+fi
+if [ ! -f "${RAW_API_JSON}" ]; then
+  echo "ERROR: ${RAW_API_JSON} missing" >&2
+  exit 1
+fi
 
 # Parse k6 summary exports into perf.json
 node -e '
@@ -75,29 +103,71 @@ const hlsPath = "'"${RAW_HLS_JSON}"'";
 const apiPath = "'"${RAW_API_JSON}"'";
 const outPath = "'"${PERF_JSON}"'";
 
-let hlsData = {};
-let apiData = {};
-try { if (fs.existsSync(hlsPath)) hlsData = JSON.parse(fs.readFileSync(hlsPath, "utf8")); } catch {}
-try { if (fs.existsSync(apiPath)) apiData = JSON.parse(fs.readFileSync(apiPath, "utf8")); } catch {}
+if (!fs.existsSync(hlsPath)) {
+  console.error("ERROR: k6-hls.json does not exist at " + hlsPath);
+  process.exit(1);
+}
+if (!fs.existsSync(apiPath)) {
+  console.error("ERROR: k6-api.json does not exist at " + apiPath);
+  process.exit(1);
+}
+
+let hlsData;
+let apiData;
+try {
+  hlsData = JSON.parse(fs.readFileSync(hlsPath, "utf8"));
+} catch (err) {
+  console.error("ERROR: Failed to parse k6-hls.json: " + err.message);
+  process.exit(1);
+}
+try {
+  apiData = JSON.parse(fs.readFileSync(apiPath, "utf8"));
+} catch (err) {
+  console.error("ERROR: Failed to parse k6-api.json: " + err.message);
+  process.exit(1);
+}
 
 const hlsMetrics = hlsData.metrics || {};
 const apiMetrics = apiData.metrics || {};
 
-const stallNoseek = (hlsMetrics.stall_ms_noseek && hlsMetrics.stall_ms_noseek.values.count) || 0;
-const watchMs = (hlsMetrics.watch_ms && hlsMetrics.watch_ms.values.count) || 0;
-const rebufferRatioNoseek = stallNoseek / (watchMs + stallNoseek || 1);
+const hlsReqs = (hlsMetrics.http_reqs && (hlsMetrics.http_reqs.count ?? hlsMetrics.http_reqs.values?.count)) || 0;
+const apiReqs = (apiMetrics.http_reqs && (apiMetrics.http_reqs.count ?? apiMetrics.http_reqs.values?.count)) || 0;
 
-const hlsFailed = (hlsMetrics.http_req_failed && hlsMetrics.http_req_failed.values.rate) || 0;
-const apiFailed = (apiMetrics.http_req_failed && apiMetrics.http_req_failed.values.rate) || 0;
-const overallFailed = Math.max(hlsFailed, apiFailed);
+if (hlsReqs === 0) {
+  console.error("ERROR: k6-hls.json http_reqs.count is 0");
+  process.exit(1);
+}
+if (apiReqs === 0) {
+  console.error("ERROR: k6-api.json http_reqs.count is 0");
+  process.exit(1);
+}
+
+const countOf = (metric) => {
+  if (!metric) return 0;
+  return metric.count ?? metric.values?.count ?? 0;
+};
+
+const rateOf = (metric) => {
+  if (!metric) return 0;
+  return metric.value ?? metric.rate ?? metric.values?.rate ?? 0;
+};
 
 const dur = (metric) => {
-  if (!metric || !metric.values) return { p50: 0, p95: 0 };
+  if (!metric) return { p50: 0, p95: 0 };
+  const v = metric.values || metric;
   return {
-    p50: metric.values["p(50)"] || metric.values.med || 0,
-    p95: metric.values["p(95)"] || 0,
+    p50: v["p(50)"] || v.med || 0,
+    p95: v["p(95)"] || 0,
   };
 };
+
+const stallNoseek = countOf(hlsMetrics.stall_ms_noseek);
+const watchMs = countOf(hlsMetrics.watch_ms);
+const rebufferRatioNoseek = stallNoseek / (watchMs + stallNoseek || 1);
+
+const hlsFailed = rateOf(hlsMetrics.http_req_failed);
+const apiFailed = rateOf(apiMetrics.http_req_failed);
+const overallFailed = Math.max(hlsFailed, apiFailed);
 
 const defaultDur = dur(apiMetrics.http_req_duration);
 

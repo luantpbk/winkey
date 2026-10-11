@@ -77,6 +77,7 @@ function main() {
     );
     fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
     fs.writeFileSync(baselinePath, JSON.stringify(current, null, 2));
+    fs.writeFileSync(path.join(path.dirname(baselinePath), '.is-baseline-run'), 'true');
     process.exit(0);
   }
 
