@@ -158,7 +158,7 @@ if [ "${SIM}" -eq 1 ]; then
   # Step B: Playwright Personas
   if [ "${SUITE_EXIT}" -eq 0 ]; then
     echo "[systest] Running Playwright persona journeys against real stack..."
-    pnpm --filter winkey-e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
+    pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
   fi
 
   # Step C: Simulated Concurrency (k6)
@@ -186,9 +186,9 @@ if [ "${SIM}" -eq 1 ]; then
 
 | Persona | Viewports | Result |
 |---|---|---|
-| anon-viewer | Desktop (1440x900) & Mobile | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
 | member (Lưu regression) | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
 | creator | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
+| anon-viewer | Desktop (1440x900) & Mobile | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
 | moderator | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
 
 ## Performance Budget

@@ -26,20 +26,6 @@ export default defineConfig({
   outputDir: path.join(__dirname, '.run/report/playwright-artifacts'),
   projects: [
     {
-      name: 'anon-viewer-desktop',
-      testMatch: /anon-viewer\.spec\.ts/,
-      use: {
-        viewport: { width: 1440, height: 900 },
-      },
-    },
-    {
-      name: 'anon-viewer-mobile',
-      testMatch: /anon-viewer\.spec\.ts/,
-      use: {
-        ...devices['iPhone 14'],
-      },
-    },
-    {
       name: 'member',
       testMatch: /member\.spec\.ts/,
       use: {
@@ -51,6 +37,20 @@ export default defineConfig({
       testMatch: /creator\.spec\.ts/,
       use: {
         viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'anon-viewer-desktop',
+      testMatch: /anon-viewer\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'anon-viewer-mobile',
+      testMatch: /anon-viewer\.spec\.ts/,
+      use: {
+        ...devices['iPhone 14'],
       },
     },
     {
