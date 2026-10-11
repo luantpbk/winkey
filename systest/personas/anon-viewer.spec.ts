@@ -129,7 +129,7 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
       const v = document.querySelector('video');
       if (v) {
         v.muted = true;
-        return v.play().catch(() => {});
+        v.play().catch(() => {});
       }
     });
 

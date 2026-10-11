@@ -65,12 +65,10 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     const submitBtn = page.getByRole('button', { name: /Bắt đầu tải lên|Tải lên/i });
     await submitBtn.click();
 
-    // Wait until upload completes and reaches READY (or transitions to studio)
-    await expect(
-      page
-        .getByText('Video đã mã hóa xong và sẵn sàng phát!')
-        .or(page.locator('a[href*="/studio"]')),
-    ).toBeVisible({ timeout: 180000 });
+    // Wait until upload completes and reaches READY (<= 180s)
+    await expect(page.getByText('Video đã mã hóa xong và sẵn sàng phát!')).toBeVisible({
+      timeout: 180000,
+    });
   });
 
   test('Studio edit: title, description, visibility, 3 tags (one with diacritics) -> save', async ({
@@ -86,10 +84,13 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     await page.goto('/studio');
     await expect(page.locator('body')).toBeVisible();
 
-    // Click edit on the first video item
-    const editBtn = page
-      .locator('a[href*="/edit"], [data-testid^="edit-video-"], button[aria-label*="Sửa"]')
-      .first();
+    // Click edit on a READY video item
+    const readyRow = page.locator('tr:has-text("Sẵn sàng"), tr:has-text("READY")').first();
+    const editBtn = (await readyRow.isVisible())
+      ? readyRow.locator('a[href*="/edit"]').first()
+      : page
+          .locator('a[href*="/edit"], [data-testid^="edit-video-"], button[aria-label*="Sửa"]')
+          .first();
     await expect(editBtn).toBeVisible({ timeout: 15000 });
     await editBtn.click();
 

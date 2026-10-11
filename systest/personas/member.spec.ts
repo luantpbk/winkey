@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -24,14 +24,24 @@ function getPublicVideo() {
   return video;
 }
 
-test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', () => {
+test.describe.serial('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', () => {
+  let context: BrowserContext;
+  let page: Page;
+
   const memberHandle = `mem_${Date.now().toString(36)}`;
   const memberEmail = `${memberHandle}@winkey.test`;
   const playlistTitle = `Danh sách của ${memberHandle}`;
 
-  test('register with invite code (assert fail without invite code), then login', async ({
-    page,
-  }) => {
+  test.beforeAll(async ({ browser }) => {
+    context = await browser.newContext();
+    page = await context.newPage();
+  });
+
+  test.afterAll(async () => {
+    await context?.close();
+  });
+
+  test('register with invite code (assert fail without invite code), then login', async () => {
     // 1. Attempt register WITHOUT invite code -> must show INVITE_REQUIRED message or 403
     await page.goto('/register');
     await page.locator('input[placeholder*="nguyenvana"]').fill(memberHandle);
@@ -96,14 +106,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
   });
 
-  test('"Lưu" -> add to new playlist -> appears in /thu-vien', async ({ page }) => {
-    // Login member
-    await page.goto('/login');
-    await page.locator('input[type="email"]').fill(memberEmail);
-    await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.locator('main form button[type="submit"]').click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-
+  test('"Lưu" -> add to new playlist -> appears in /thu-vien', async () => {
     const targetVideo = getPublicVideo();
 
     // Navigate to watch page
@@ -155,7 +158,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     });
   });
 
-  test('reload page (forces refresh-cookie path) -> "Lưu" again succeeds', async ({ page }) => {
+  test('reload page (forces refresh-cookie path) -> "Lưu" again succeeds', async () => {
     // Member session in cookies
     const targetVideo = getPublicVideo();
     await page.goto(`/watch/${targetVideo.id}`);
@@ -176,70 +179,72 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.keyboard.press('Escape');
   });
 
-  test('clock fast-forward 16 min (access token expired) -> "Lưu" still succeeds via background refresh', async ({
-    page,
-  }) => {
-    // Install fake clock
-    await page.clock.install();
+  test('clock fast-forward 16 min (access token expired) -> "Lưu" still succeeds via background refresh', async () => {
+    const clockPage = await context.newPage();
+    try {
+      // Install fake clock on dedicated page
+      await clockPage.clock.install();
 
-    const targetVideo = getPublicVideo();
-    await page.goto(`/watch/${targetVideo.id}`);
-    await expect(page.locator('h1')).toBeVisible();
+      const targetVideo = getPublicVideo();
+      await clockPage.goto(`/watch/${targetVideo.id}`);
+      await expect(clockPage.locator('h1')).toBeVisible();
 
-    // Fast-forward 16 minutes (access token TTL is 15 minutes)
-    await page.clock.fastForward(16 * 60 * 1000);
+      // Fast-forward 16 minutes (access token TTL is 15 minutes)
+      await clockPage.clock.fastForward(16 * 60 * 1000);
 
-    // Click "Lưu" - customFetch should catch 401, invoke refreshAccessToken() via cookie, and succeed!
-    const saveBtn = page.locator(
-      'button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")',
-    );
-    await saveBtn.first().click();
+      // Click "Lưu" - customFetch should catch 401, invoke refreshAccessToken() via cookie, and succeed!
+      const saveBtn = clockPage.locator(
+        'button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")',
+      );
+      await saveBtn.first().click();
 
-    // Must NOT be redirected to login, and save dialog opens smoothly
-    expect(page.url()).not.toContain('/login');
-    const dialog = page.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
-    await expect(dialog.first()).toBeVisible({ timeout: 10000 });
-    await page.keyboard.press('Escape');
+      // Must NOT be redirected to login, and save dialog opens smoothly
+      expect(clockPage.url()).not.toContain('/login');
+      const dialog = clockPage.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
+      await expect(dialog.first()).toBeVisible({ timeout: 10000 });
+      await clockPage.keyboard.press('Escape');
+    } finally {
+      await clockPage.close();
+    }
   });
 
-  test('two tabs at once after token expiry -> both succeed with navigator.locks refresh dedupe', async ({
-    context,
-  }) => {
+  test('two tabs at once after token expiry -> both succeed with navigator.locks refresh dedupe', async () => {
     const page1 = await context.newPage();
     const page2 = await context.newPage();
+    try {
+      await page1.clock.install();
+      await page2.clock.install();
 
-    await page1.clock.install();
-    await page2.clock.install();
+      const targetVideo = getPublicVideo();
+      await page1.goto(`/watch/${targetVideo.id}`);
+      await page2.goto(`/watch/${targetVideo.id}`);
 
-    const targetVideo = getPublicVideo();
-    await page1.goto(`/watch/${targetVideo.id}`);
-    await page2.goto(`/watch/${targetVideo.id}`);
+      // Fast forward both 16 mins
+      await page1.clock.fastForward(16 * 60 * 1000);
+      await page2.clock.fastForward(16 * 60 * 1000);
 
-    // Fast forward both 16 mins
-    await page1.clock.fastForward(16 * 60 * 1000);
-    await page2.clock.fastForward(16 * 60 * 1000);
+      // Trigger actions simultaneously on both tabs
+      const save1 = page1
+        .locator('button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")')
+        .first();
+      const save2 = page2
+        .locator('button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")')
+        .first();
 
-    // Trigger actions simultaneously on both tabs
-    const save1 = page1
-      .locator('button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")')
-      .first();
-    const save2 = page2
-      .locator('button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")')
-      .first();
+      await Promise.all([save1.click(), save2.click()]);
 
-    await Promise.all([save1.click(), save2.click()]);
-
-    const d1 = page1.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
-    const d2 = page2.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
-    await expect(d1.first()).toBeVisible({
-      timeout: 10000,
-    });
-    await expect(d2.first()).toBeVisible({
-      timeout: 10000,
-    });
-
-    await page1.close();
-    await page2.close();
+      const d1 = page1.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
+      const d2 = page2.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
+      await expect(d1.first()).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(d2.first()).toBeVisible({
+        timeout: 10000,
+      });
+    } finally {
+      await page1.close();
+      await page2.close();
+    }
   });
 
   test('signed-out: "Lưu" redirects to /login?return_to=... and returns after login', async ({
@@ -247,54 +252,63 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
   }) => {
     // Isolated clean incognito context (signed out)
     const anonContext = await browser.newContext();
-    const anonPage = await anonContext.newPage();
+    try {
+      const anonPage = await anonContext.newPage();
 
-    const targetVideo = getPublicVideo();
-    const watchUrl = `/watch/${targetVideo.id}?playlist=test-pl&src=home`;
-    // On load, stripWatchSurfaceFromAddressBar() keeps ?playlist=test-pl and removes src=home
-    const expectedReturnTo = `/watch/${targetVideo.id}?playlist=test-pl`;
+      const targetVideo = getPublicVideo();
+      const watchUrl = `/watch/${targetVideo.id}?playlist=test-pl&src=home`;
+      // On load, stripWatchSurfaceFromAddressBar() keeps ?playlist=test-pl and removes src=home
+      const expectedReturnTo = `/watch/${targetVideo.id}?playlist=test-pl`;
 
-    await anonPage.goto(watchUrl);
-    await expect(anonPage.locator('h1')).toBeVisible();
+      await anonPage.goto(watchUrl);
+      await expect(anonPage.locator('h1')).toBeVisible();
 
-    // Click "Lưu" while unauthenticated
-    const saveBtn = anonPage.locator(
-      'button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")',
-    );
-    await saveBtn.first().click();
+      // Click "Lưu" while unauthenticated
+      const saveBtn = anonPage.locator(
+        'button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")',
+      );
+      await saveBtn.first().click();
 
-    // Assert redirected to /login?return_to=...
-    await anonPage.waitForURL((url) => url.pathname.includes('/login'), { timeout: 10000 });
-    const loginUrl = anonPage.url();
-    expect(loginUrl).toContain('return_to');
-    expect(loginUrl).toContain(encodeURIComponent(expectedReturnTo));
+      // Assert redirected to /login?return_to=...
+      await anonPage.waitForURL((url) => url.pathname.includes('/login'), { timeout: 10000 });
+      const loginUrl = anonPage.url();
+      expect(loginUrl).toContain('return_to');
+      expect(loginUrl).toContain(encodeURIComponent(expectedReturnTo));
 
-    // Log in
-    await anonPage.locator('input[type="email"]').fill(memberEmail);
-    await anonPage.locator('input[type="password"]').fill(PASSWORD);
-    await anonPage.locator('main form button[type="submit"]').click();
+      // Log in with member credentials registered in test 1
+      await anonPage.locator('input[type="email"]').fill(memberEmail);
+      await anonPage.locator('input[type="password"]').fill(PASSWORD);
+      await anonPage.locator('main form button[type="submit"]').click();
 
-    // Must return to the exact watch page URL
-    await anonPage.waitForURL((url) => url.pathname.includes(`/watch/${targetVideo.id}`), {
-      timeout: 10000,
-    });
-    expect(anonPage.url()).toContain(`watch/${targetVideo.id}`);
-    expect(anonPage.url()).toContain('playlist=test-pl');
-
-    await anonContext.close();
+      // Must return to the exact watch page URL
+      await anonPage.waitForURL((url) => url.pathname.includes(`/watch/${targetVideo.id}`), {
+        timeout: 10000,
+      });
+      expect(anonPage.url()).toContain(`watch/${targetVideo.id}`);
+      expect(anonPage.url()).toContain('playlist=test-pl');
+    } finally {
+      await anonContext.close();
+    }
   });
 
-  test('comment, reply, like, unlike: counts update', async ({ page }) => {
-    // Log in member
-    await page.goto('/login');
-    await page.locator('input[type="email"]').fill(memberEmail);
-    await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.locator('main form button[type="submit"]').click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-
+  test('comment, reply, like, unlike: counts update', async () => {
     const targetVideo = getPublicVideo();
     await page.goto(`/watch/${targetVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
+
+    // Ensure session is active
+    const avatar = page.locator(
+      'button[aria-label="User profile menu"], [data-testid="user-menu"]',
+    );
+    if (!(await avatar.isVisible())) {
+      await page.goto('/login');
+      await page.locator('input[type="email"]').fill(memberEmail);
+      await page.locator('input[type="password"]').fill(PASSWORD);
+      await page.locator('main form button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+      await page.goto(`/watch/${targetVideo.id}`);
+      await expect(page.locator('h1')).toBeVisible();
+    }
 
     // 1. Like / Unlike
     const likeBtn = page.locator('button[aria-label*="Thích"], button:has-text("Thích")').first();

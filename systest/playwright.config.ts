@@ -22,6 +22,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      args: ['--autoplay-policy=no-user-gesture-required'],
+    },
   },
   outputDir: path.join(__dirname, '.run/report/playwright-artifacts'),
   projects: [
