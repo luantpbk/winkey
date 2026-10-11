@@ -8,8 +8,6 @@ import { useAuth } from '../../../lib/auth/auth-context';
 import { getSafeReturnTo } from '../../../lib/auth/return-to';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 
-export { getSafeReturnTo };
-
 function LoginForm() {
   const t = useTranslations('auth');
   const router = useRouter();

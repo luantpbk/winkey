@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import LoginPage, { getSafeReturnTo } from '../src/app/[locale]/login/page';
+import LoginPage from '../src/app/[locale]/login/page';
+import { getSafeReturnTo } from '../src/lib/auth/return-to';
 import viMessages from '../messages/vi.json';
 
 // Mock routing
