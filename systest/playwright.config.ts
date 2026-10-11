@@ -1,0 +1,64 @@
+import { defineConfig, devices } from '@playwright/test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export default defineConfig({
+  testDir: './personas',
+  timeout: 120000,
+  expect: {
+    timeout: 15000,
+  },
+  retries: 0,
+  workers: 1, // Sequential persona execution against real stack
+  reporter: [
+    ['list'],
+    ['json', { outputFile: path.join(__dirname, '.run/report/playwright-results.json') }],
+  ],
+  use: {
+    baseURL: process.env.BASE_URL || 'http://127.0.0.1:8080',
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
+  outputDir: path.join(__dirname, '.run/report/playwright-artifacts'),
+  projects: [
+    {
+      name: 'anon-viewer-desktop',
+      testMatch: /anon-viewer\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'anon-viewer-mobile',
+      testMatch: /anon-viewer\.spec\.ts/,
+      use: {
+        ...devices['iPhone 14'],
+      },
+    },
+    {
+      name: 'member',
+      testMatch: /member\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'creator',
+      testMatch: /creator\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'moderator',
+      testMatch: /moderator\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+  ],
+});
