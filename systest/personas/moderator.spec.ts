@@ -119,6 +119,7 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
     await ownerPage.locator('input[type="password"]').fill(PASSWORD);
     await ownerPage.locator('main form button[type="submit"]').click();
+    await ownerPage.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     await ownerPage.goto('/studio');
     await expect(ownerPage.locator(`text=${targetVideo.title}`).first()).toBeVisible({

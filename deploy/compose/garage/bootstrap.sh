@@ -123,7 +123,14 @@ cat <<EOF > /tmp/cors.json
 {
   "CORSRules": [
     {
-      "AllowedOrigins": ["http://localhost:3000", "http://127.0.0.1:8080"],
+      "AllowedOrigins": ["http://localhost:3000"],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    },
+    {
+      "AllowedOrigins": ["http://127.0.0.1:8080"],
       "AllowedMethods": ["PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["ETag"],
