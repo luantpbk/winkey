@@ -48,10 +48,6 @@ SUMMARY_FILE="${RESULTS_DIR}/lt2-summary.json"
 EDGE_METRICS_URL="${EDGE_METRICS_URL:-http://100.88.247.70:8428/api/v1/query?query=node_memory_MemAvailable_bytes%7Binstance%3D%22100.113.240.3%3A9100%22%7D}"
 K6_IMAGE="grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603"
 
-if command -v docker >/dev/null 2>&1; then
-  docker pull "${K6_IMAGE}" 2>/dev/null || true
-fi
-
 echo "Starting error telemetry feeder..."
 node "${SCRIPT_DIR}/telemetry-feeder.mjs" \
   --output "${TELEMETRY_FILE}" \
