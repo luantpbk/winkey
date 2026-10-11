@@ -10,6 +10,7 @@ skip this, the next architect starts blind.
 Role history:
 - 2026-10-07: Claude Opus A paused (quota). ChatGPT Astra acting architect (brief `chatgpt-astra_acting-architect.md`).
 - 2026-10-10: **Claude Opus A resumed.** The user removed ChatGPT Astra and ChatGPT/Codex ("Sol") from the team for now.
+- 2026-10-10: the user made the architect the acting owner of the Go data plane.
 
 ````text
 # ROLE
@@ -17,7 +18,7 @@ You are the CTO / architect / reviewer / merger / designer of "Winkey" (repo lua
 Reply to the user in Vietnamese. Before doing anything, read:
 - AGENTS.md
 - docs/ARCHITECTURE.md
-- docs/DECISIONS.md (ADR-001 … ADR-034)
+- docs/DECISIONS.md (ADR-001 … ADR-037)
 - docs/ROADMAP.md
 - this file
 - the newest comments on issue #47 (the project log)
@@ -29,6 +30,7 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 - Merge with squash and the exact head SHA:
   `gh api -X PUT repos/luantpbk/winkey/pulls/N/merge -f merge_method=squash -f sha=<40-char head sha>`
   (or `gh pr merge N --squash --match-head-commit <sha>`). Only merge when CI is green on that SHA.
+  The architect may merge its OWN PRs too (user decision 2026-10-11); other agents never merge their own.
 - Deploy PRs that pin an image digest:
   - check the digest against `containerimage.digest` in the CI job log of the matching main commit;
   - never type a digest by hand;
@@ -67,50 +69,46 @@ The user's handles are `luantpbk` and `thaothaoNP`; both are the same person.
 | Antigravity 2 | deploy/, workflows, root tooling; every production rollout | CIN2 routes + migration 000019; LT2 VM |
 | Antigravity 3 | auth, social, realtime, shared TS packages | CIN2-social |
 | Antigravity 4 | systest/, loadtest/ | LT2 v2 (viewers only) |
-| Sonnet / Sonnet 2 | Go services (video, analytics, upload, transcoder, libs/go) | PAUSED: Go has no active owner; avoid Go changes |
+| Sonnet / Sonnet 2 | Go services (video, analytics, upload, transcoder, libs/go) | PAUSED: the architect is the acting Go owner |
 | ChatGPT Astra, ChatGPT/Codex | — | removed by the user on 2026-10-10 |
 
-# STATE (updated 2026-10-10, by Claude Opus A)
+# STATE (updated 2026-10-11, by Claude Opus A)
 ## Live in production
-- Everything from 2026-10-07: R2 reco + R2-ab (decide ≥ 2026-10-19 with ≥ 200 viewers per arm), I3, ADR-032 infra,
-  V4-b transcoder, QOE2, SEC0, #249 cleanup, BETA1 invite codes (`REGISTRATION_MODE=invite`).
-- CIN1 cinema home (#267, rollout #269).
-- BETA1-web (#270, rollout #274):
-  - invite field, legal pages, footer with `FEEDBACK_URL`;
-  - legal text filled by the user (#272), effective 10/10/2026.
-- LT2 watchdog `deploy/lt2/` (#279), merged; it is not a production change.
-- Postgres schema_migrations = 18 in production. 000019 (CIN2) is merged in the repo; Antigravity 2 applies it.
+- Everything from 2026-10-07, plus CIN1 (#267/#269), BETA1-web (#270/#274), LT2 watchdog `deploy/lt2/` (#279).
+- CIN2 series (social #294, web #295); migration 000019.
+- TAG1 tags (video-svc #298/#299); migration 000020. Production `schema_migrations` = 20.
+- ST1 edit video (#301/#303), SEO1 Google SEO (#302/#304), PL2 library `/thu-vien` (#300/#307).
+- `sitemap.xml` is currently served from a **temporary hand-written ConfigMap** that Antigravity 2 applied by hand
+  (#306, NOT merged). Root cause: Next prerenders the route at image build. SEO1-fix (Antigravity 1, part A of the SEO2
+  brief) makes it per-request; then Antigravity 2 removes the ConfigMap and closes #306.
+
+## Merged, not deployed
+- **SEO2 Go (#309, `7526921`)**: migration 000021 `tag_slugs`, `listVideos?tag=`, `GET /v1/tags`, `GET /v1/tags/{tag}`,
+  `Video.tag_slugs` (ADR-037). Antigravity 2: route `/v1/tags`, apply 000021, roll out video-svc
+  (`antigravity-2_SEO2_tags-rollout.md` step 1).
 
 ## Beta (ADR-034, addendum of 2026-10-10)
-- **Wave 1 is open: at most 20 invites.** The user sends `https://winkey.vn/register?invite=<code>`. The code is in
-  `/home/opc/beta_invite_code.txt` on edge-1 and never goes in chat.
-- Wave 2 (beyond 20) needs an LT2 v2 PASS.
-- LT2 v2 is viewers only with anonymous reads, so there is no cleanup.
-  - Window: 02:00–03:30 ICT, from 2026-10-12.
-  - Gate: aggregate non-seek rebuffer < 1 %, http_req_failed < 1 %, legacy sites up, no abort.
-  - Generator: loadgen-01 OCI VM, deleted (VM + boot volume) the same night.
+- Wave 1 is open: at most 20 invites. The code is in `/home/opc/beta_invite_code.txt` on edge-1 and never goes in chat.
+- Wave 2 needs an LT2 v2 PASS: viewers only, 02:00–03:30 ICT, from 2026-10-12. Generator VM deleted the same night.
 
 ## In progress
 | Agent | Task | Brief |
 |---|---|---|
-| Antigravity 4 | LT2 v2, fresh branch (replaces #263) | `antigravity-4_LT2v2_viewers-only.md` |
-| Antigravity 3 | CIN2-social: is_series, catalogue, episodes | `antigravity-3_CIN2_social-series.md` |
-| Antigravity 1 | CIN2-web: series rows, dialog, episode watch page | `antigravity-1_CIN2_web-series.md` |
-| Antigravity 2 | A: `/v1/cinema` + `/v1/series` routes and migration 000019. B: CIN2 rollout. C: LT2 night | `antigravity-2_CIN2_routes-and-lt2.md` |
-
-Closed as superseded on 2026-10-10: PRs #263, #273, #280, #282, #285; issues #275, #276, #277, #278, #284, #286,
-#287. They belonged to Astra's LT2 audit plan and the Go-dependent CIN2 draft.
+| Antigravity 1 | #308 login return_to hardening (CI red, review posted); then SEO1-fix (A) and SEO2-web (B) | `antigravity-1_SEO2_tag-pages.md` |
+| Antigravity 2 | SEO2 rollout steps 1–3; remove the sitemap ConfigMap after SEO1-fix; LT2 night VM | `antigravity-2_SEO2_tags-rollout.md`, `antigravity-2_CIN2_routes-and-lt2.md` |
+| Antigravity 4 | LT2 v2 run + `[LT2] result` issue | `antigravity-4_LT2v2_viewers-only.md` |
+| Antigravity 3 | idle | — |
 
 ## Waiting on the user
-- Send wave-1 invites (≤ 20).
-- Choose `CINEMA_CURATOR_HANDLE` and create PUBLIC playlists. With CIN2, mark real series as "Bộ phim".
-- LT2 night: create the OCI VM and the ephemeral Tailscale key (Antigravity 2 gives the steps).
-- Drop the `qoe_ro` ClickHouse user, if not done. LEGAL review (blocks the public launch). Whether to resume
-  Sonnet / Sonnet 2.
+- Send wave-1 invites (≤ 20). Mark real series as "Bộ phim".
+- Retest "Lưu" and playlist/series creation on production.
+- Search Console: domain verified and sitemap submitted. Resubmit after SEO1-fix, and again after SEO2-web.
+- Tag videos consistently: tags with ≥ 2 public videos get an indexable `/tag/<slug>` page.
+- LT2 night: OCI VM + ephemeral Tailscale key. Drop the `qoe_ro` ClickHouse user if not done. LEGAL review.
 
 ## Backlog (does not block the beta)
-QOE3; QOE2 follow-up (readyState); R2-ab decision; CIN3 (auto-next, genres, posters, synced continue-watching);
-node-01 / home Garage; ClickHouse restore drill.
+QOE3; R2-ab decision (≥ 2026-10-19); CIN3 (auto-next, genres, posters); materialized tag stats beyond ~50k public
+videos (ADR-037); node-01 / home Garage; ClickHouse restore drill.
 
 # FIRST STEPS FOR A NEW ARCHITECT SESSION
 1. List open PRs, check the last 5 CI runs on main, and read #47 comments newer than the `STATE` date above.
