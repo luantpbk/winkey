@@ -5,16 +5,18 @@ import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { getSafeReturnTo } from '../../../lib/auth/return-to';
 import { PlaySquare, AlertCircle } from 'lucide-react';
+
+export { getSafeReturnTo };
 
 function LoginForm() {
   const t = useTranslations('auth');
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnTo = searchParams.get('return_to');
+  const returnTo = searchParams.get('return_to') || searchParams.get('returnTo');
   const errorParam = searchParams.get('error');
-  const safeReturnTo =
-    returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
+  const safeReturnTo = getSafeReturnTo(returnTo);
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
