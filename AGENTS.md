@@ -24,6 +24,8 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 2. **Contracts are law.** Implement `contracts/openapi/*.yaml` and `contracts/events/*.schema.json` exactly. Never edit them. If a contract is wrong or missing something, stop and open an issue labeled `contract-change` explaining why.
 3. **Never write migrations.** Schema changes go through the architect (`db/migrations`).
 4. **One task per branch and per PR.** Branch: `agent/<agent>/<task-id>-<slug>` (for example `agent/sonnet/v2-transcoder`). Open the PR against `main`. Never push to `main`, never force-push a shared branch, never merge your own PR.
+   Exception (user decision 2026-10-11): the architect (Claude Opus), as reviewer and merger, may merge its own PRs once
+   CI is green on the exact head SHA. No other agent may.
 5. **No secrets in git.** Config comes from environment variables only. Commit a `.env.example` with dummy values.
 6. **Multi-arch.** Edge nodes are **arm64**. Every image must build for `linux/amd64,linux/arm64`, except `transcoder-nvenc` (amd64 only).
 7. **Never skip, disable or weaken a test to get CI green.**
