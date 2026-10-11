@@ -163,9 +163,14 @@ export class StreamTailer {
 
   getCounts(windowMs = 60000, nowMs = Date.now()) {
     const cutoff = nowMs - windowMs;
-    // Prune stale points older than window cutoff
-    while (this.points.length > 0 && this.points[0].time < cutoff) {
-      this.points.shift();
+    // Fast prune: advance an index cursor past points older than window cutoff (O(n) at 1000 VUs)
+    let firstValidIdx = 0;
+    while (firstValidIdx < this.points.length && this.points[firstValidIdx].time < cutoff) {
+      firstValidIdx++;
+    }
+
+    if (firstValidIdx > 0) {
+      this.points = this.points.slice(firstValidIdx);
     }
 
     let requests = 0;
