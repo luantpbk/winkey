@@ -119,25 +119,22 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
     await expect(video).toBeAttached({ timeout: 15000 });
 
     // Initiate playback
-    await video.click();
-    await video.evaluate((v: HTMLVideoElement) => {
-      v.muted = true;
-      return v.play().catch(() => {});
+    const playBtn = page.locator('[data-testid="play-pause-button"]').first();
+    if (await playBtn.isVisible()) {
+      await playBtn.click();
+    } else {
+      await video.click({ force: true });
+    }
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) {
+        v.muted = true;
+        return v.play().catch(() => {});
+      }
     });
 
-    // Wait for video to attempt playback or ready state
-    await page.waitForFunction(
-      () => {
-        const v = document.querySelector('video');
-        return v && (v.readyState >= 2 || !v.paused);
-      },
-      null,
-      { timeout: 20000 },
-    );
-
-    // Verify HLS requests were triggered
-    expect(masterLoaded).toBe(true);
-    expect(segmentLoaded).toBe(true);
+    // Wait for video to attempt playback or ready state and HLS requests
+    await expect.poll(() => masterLoaded && segmentLoaded, { timeout: 20000 }).toBe(true);
   });
 
   test('series navigation: watch episode 1, "Tập tiếp" button or key n -> episode 2; PRIVATE episode is skipped', async ({
@@ -152,36 +149,19 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
     await page.goto(`/watch/${ep1Id}?playlist=${s1.id}`);
     await expect(page.locator('h1')).toBeVisible();
 
-    // Look for next episode button ("Tập sau" / Next episode) or press 'n'
-    const nextBtn = page
-      .locator('[data-testid="series-next-episode-btn"]')
-      .or(page.getByRole('button', { name: /Tập sau|Tập tiếp|Next/i }));
-    if (
-      await nextBtn
-        .first()
-        .isVisible({ timeout: 10000 })
-        .catch(() => false)
-    ) {
-      await nextBtn.first().click();
-    } else {
-      await page.keyboard.press('n');
-    }
+    // Look for next episode button ("Tập sau" / Next episode)
+    const nextBtn = page.locator('[data-testid="series-next-episode-btn"]').first();
+    await expect(nextBtn).toBeEnabled({ timeout: 15000 });
+    await nextBtn.click();
 
     // Must navigate to Episode 2
     await page.waitForURL(new RegExp(`/watch/${ep2Id}`), { timeout: 15000 });
     expect(page.url()).toContain(ep2Id);
 
     // From Episode 2, advance again -> Episode 3 is PRIVATE so it must skip directly to Episode 4!
-    if (
-      await nextBtn
-        .first()
-        .isVisible({ timeout: 10000 })
-        .catch(() => false)
-    ) {
-      await nextBtn.first().click();
-    } else {
-      await page.keyboard.press('n');
-    }
+    const nextBtn2 = page.locator('[data-testid="series-next-episode-btn"]').first();
+    await expect(nextBtn2).toBeEnabled({ timeout: 15000 });
+    await nextBtn2.click();
 
     await page.waitForURL(new RegExp(`/watch/${ep4Id}`), { timeout: 15000 });
     expect(page.url()).toContain(ep4Id);

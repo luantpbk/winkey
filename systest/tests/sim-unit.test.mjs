@@ -342,7 +342,12 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
           'http://[::1]:8080',
         ]) {
           const res = spawnSync(scriptPath, [], {
-            env: { ...process.env, TARGET_URL: target, PATH: `${tmpDir}:${process.env.PATH}` },
+            env: {
+              ...process.env,
+              TARGET_URL: target,
+              REPORT_DIR: tmpDir,
+              PATH: `${tmpDir}:${process.env.PATH}`,
+            },
             encoding: 'utf8',
           });
           assert.equal(

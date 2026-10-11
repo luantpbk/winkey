@@ -46,7 +46,22 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     }
     modToken = (await mRes.json()).access_token;
 
-    targetVideo = manifest.videos?.find((v: any) => v.visibility === 'PUBLIC');
+    const seriesVideoIds = new Set<string>();
+    for (const s of manifest.series || []) {
+      for (const epId of s.episode_ids || []) {
+        if (epId) seriesVideoIds.add(epId);
+      }
+    }
+    targetVideo = manifest.videos?.find(
+      (v: any) =>
+        v.visibility === 'PUBLIC' &&
+        v.owner_handle === manifest.curator.handle &&
+        !seriesVideoIds.has(v.id) &&
+        v.id !== manifest.videos[0]?.id,
+    );
+    if (!targetVideo) {
+      targetVideo = manifest.videos?.find((v: any) => v.visibility === 'PUBLIC');
+    }
     if (!targetVideo) {
       throw new Error('[persona:moderator] No PUBLIC video found in seed-manifest.json');
     }
@@ -73,7 +88,7 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(manifest.moderator.email);
     await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.click('button[type="submit"]');
+    await page.locator('main form button[type="submit"]').click();
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Open Admin panel
@@ -103,7 +118,7 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     await ownerPage.goto('/login');
     await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
     await ownerPage.locator('input[type="password"]').fill(PASSWORD);
-    await ownerPage.click('button[type="submit"]');
+    await ownerPage.locator('main form button[type="submit"]').click();
 
     await ownerPage.goto('/studio');
     await expect(ownerPage.locator(`text=${targetVideo.title}`).first()).toBeVisible({

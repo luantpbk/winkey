@@ -45,20 +45,33 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
       await inviteInput.fill('');
     }
 
-    await page.click('button[type="submit"]');
+    const termsCheckbox = page.locator('#terms-agreement-checkbox, input[type="checkbox"]').first();
+    if (await termsCheckbox.isVisible()) {
+      await termsCheckbox.check();
+    }
+
+    await page.locator('main form button[type="submit"]').click();
 
     // Expect INVITE_REQUIRED or error notice
     await expect(
       page
         .locator('[role="alert"], [data-testid="invite-error-msg"]')
-        .or(page.getByText(/INVITE_REQUIRED|Mã mời không hợp lệ|Yêu cầu mã mời/))
+        .or(
+          page.getByText(
+            /INVITE_REQUIRED|Mã mời không hợp lệ|Yêu cầu mã mời|Winkey đang thử nghiệm kín|Bạn cần mã mời/,
+          ),
+        )
         .first(),
     ).toBeVisible({ timeout: 10000 });
 
     // 2. Register WITH valid invite code
     if (await inviteInput.isVisible()) {
       await inviteInput.fill(INVITE_CODE);
-      await page.click('button[type="submit"]');
+      if (await termsCheckbox.isVisible()) {
+        await termsCheckbox.check();
+      }
+      await page.locator('main form button[type="submit"]').click();
+      await page.waitForURL((url) => !url.pathname.includes('/register'), { timeout: 10000 });
     } else {
       // Or API register directly if invite code wasn't exposed on form
       const res = await page.request.post('/v1/auth/register', {
@@ -77,7 +90,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(memberEmail);
     await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.click('button[type="submit"]');
+    await page.locator('main form button[type="submit"]').click();
 
     // Should land on home or authenticated view
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
@@ -88,7 +101,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(memberEmail);
     await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.click('button[type="submit"]');
+    await page.locator('main form button[type="submit"]').click();
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     const targetVideo = getPublicVideo();
@@ -113,7 +126,10 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     );
     if (await newPlaylistBtn.isVisible()) {
       await newPlaylistBtn.click();
-      await page.fill('input[placeholder*="Tiêu đề"], input[name="title"]', playlistTitle);
+      await page.fill(
+        'input[data-testid="new-playlist-title-input"], #new-playlist-title, input[placeholder*="tên danh sách"], input[placeholder*="Tiêu đề"], input[name="title"]',
+        playlistTitle,
+      );
       await page.click('button:has-text("Tạo")');
     } else {
       // Or toggle an existing checkbox
@@ -256,7 +272,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     // Log in
     await anonPage.locator('input[type="email"]').fill(memberEmail);
     await anonPage.locator('input[type="password"]').fill(PASSWORD);
-    await anonPage.click('button[type="submit"]');
+    await anonPage.locator('main form button[type="submit"]').click();
 
     // Must return to the exact watch page URL
     await anonPage.waitForURL((url) => url.pathname.includes(`/watch/${targetVideo.id}`), {
@@ -273,7 +289,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(memberEmail);
     await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.click('button[type="submit"]');
+    await page.locator('main form button[type="submit"]').click();
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     const targetVideo = getPublicVideo();
@@ -292,9 +308,9 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
     // 2. Comment
     const commentInput = page
-      .locator('textarea[placeholder*="Bình luận"], input[placeholder*="Bình luận"]')
+      .locator('textarea[placeholder*="Bình luận"], textarea[placeholder*="bình luận"], textarea')
       .first();
-    if (await commentInput.isVisible()) {
+    if (await commentInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       const commentText = `Bình luận thử nghiệm lúc ${Date.now()}`;
       await commentInput.fill(commentText);
       const postBtn = page.locator('button:has-text("Bình luận"), button:has-text("Gửi")').first();

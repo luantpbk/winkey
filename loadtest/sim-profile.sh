@@ -131,7 +131,7 @@ const perf = {
   },
 };
 
-fs.writeFileSync(outPath, JSON.stringify(perf, null, 2));
+fs.writeFileSync(outPath, JSON.stringify(perf, null, 2) + "\n");
 console.log("[sim-profile] perf.json written to " + outPath);
 '
 

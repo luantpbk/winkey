@@ -278,6 +278,10 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
       assert.fail('Expected script to exit non-zero when passed is false');
     } catch (err) {
       assert.equal(err.status, 1);
+    } finally {
+      if (fs.existsSync(summaryFile)) {
+        fs.unlinkSync(summaryFile);
+      }
     }
   });
 
