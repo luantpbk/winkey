@@ -12,9 +12,20 @@ export const options = {
   scenarios: {
     hls_viewers: {
       executor: 'ramping-vus',
-      startVUs: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 50,
+      startVUs: 1,
       stages: __ENV.VUS
-        ? [{ duration: __ENV.DURATION || '1m', target: parseInt(__ENV.VUS, 10) }]
+        ? [
+            {
+              duration:
+                __ENV.RAMP_DURATION ||
+                (__ENV.DURATION && /^[0-9]+s$/.test(__ENV.DURATION) ? '1s' : '1m'),
+              target: parseInt(__ENV.VUS, 10),
+            },
+            {
+              duration: __ENV.DURATION || '1m',
+              target: parseInt(__ENV.VUS, 10),
+            },
+          ]
         : [
             { duration: '5m', target: 50 },
             { duration: '5m', target: 200 },

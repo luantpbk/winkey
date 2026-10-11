@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 if ! command -v node >/dev/null 2>&1; then
   if [ -x "/tmp/node/bin/node" ]; then
     export PATH="/tmp/node/bin:${PATH}"
@@ -32,29 +35,35 @@ mkdir -p "${RUN_DIR}"
 ABORT_FILE="${RUN_DIR}/abort.signal"
 WATCHDOG_LOG="${RUN_DIR}/watchdog.log"
 TELEMETRY_FILE="${RUN_DIR}/telemetry.json"
-SUMMARY_FILE="results/lt2-summary.json"
-
-cat <<EOF > "${TELEMETRY_FILE}"
-{
-  "version": "1.0",
-  "timestamp": $(date +%s),
-  "windowSec": 60,
-  "workloads": {
-    "api_mix": { "requests": 0, "failed": 0 },
-    "hls_viewers": { "requests": 0, "failed": 0 }
-  }
-}
-EOF
+RESULTS_DIR="${REPO_ROOT}/loadtest/results"
+mkdir -p "${RESULTS_DIR}"
+chmod 777 "${RESULTS_DIR}" 2>/dev/null || true
+HLS_NDJSON="${RESULTS_DIR}/hls.ndjson"
+API_NDJSON="${RESULTS_DIR}/api.ndjson"
+rm -f "${HLS_NDJSON}" "${API_NDJSON}"
+touch "${HLS_NDJSON}" "${API_NDJSON}" 2>/dev/null || true
+chmod 666 "${HLS_NDJSON}" "${API_NDJSON}" 2>/dev/null || true
+SUMMARY_FILE="${RESULTS_DIR}/lt2-summary.json"
 
 EDGE_METRICS_URL="${EDGE_METRICS_URL:-http://100.88.247.70:8428/api/v1/query?query=node_memory_MemAvailable_bytes%7Binstance%3D%22100.113.240.3%3A9100%22%7D}"
+K6_IMAGE="grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603"
+
+echo "Starting error telemetry feeder..."
+node "${SCRIPT_DIR}/telemetry-feeder.mjs" \
+  --output "${TELEMETRY_FILE}" \
+  --api-stream "${API_NDJSON}" \
+  --hls-stream "${HLS_NDJSON}" \
+  --interval 10 &
+FEEDER_PID=$!
 
 echo "Starting platform safety watchdog..."
-./deploy/lt2/watchdog.sh \
+"${REPO_ROOT}/deploy/lt2/watchdog.sh" \
   --run-id "${RUN_ID}" \
   --pid $$ \
   --abort-file "${ABORT_FILE}" \
   --metrics-url "${EDGE_METRICS_URL}" \
-  --error-source "${TELEMETRY_FILE}" > "${WATCHDOG_LOG}" 2>&1 &
+  --error-source "${TELEMETRY_FILE}" \
+  --interval 10 > "${WATCHDOG_LOG}" 2>&1 &
 WATCHDOG_PID=$!
 
 K6_HLS_CONTAINER="winkey-lt2-hls-${RUN_ID}"
@@ -65,6 +74,9 @@ cleanup() {
   trap - SIGINT SIGTERM EXIT
   echo "Cleaning up containers and processes..."
   docker stop "${K6_HLS_CONTAINER}" "${K6_API_CONTAINER}" 2>/dev/null || true
+  if [ -n "${FEEDER_PID:-}" ] && kill -0 "${FEEDER_PID}" 2>/dev/null; then
+    kill "${FEEDER_PID}" 2>/dev/null || true
+  fi
   if [ -n "${WATCHDOG_PID:-}" ] && kill -0 "${WATCHDOG_PID}" 2>/dev/null; then
     kill "${WATCHDOG_PID}" 2>/dev/null || true
   fi
@@ -114,23 +126,24 @@ if [ "${PREFLIGHT_PASSED}" -ne 1 ]; then
 fi
 echo "Watchdog preflight PASSED."
 
-K6_IMAGE="grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603"
-mkdir -p results
-
 echo "Starting k6 hls-viewers container..."
 docker run --rm --name "${K6_HLS_CONTAINER}" --net=host \
-  -v "$(pwd):/loadtest" \
+  -u "$(id -u):$(id -g)" \
+  -v "${REPO_ROOT}/loadtest:/work" \
+  -w /work \
   -e TARGET_URL="${TARGET_URL}" \
   -e VUS="${VUS:-}" -e DURATION="${DURATION:-}" \
-  "${K6_IMAGE}" run /loadtest/hls-viewers.js &
+  "${K6_IMAGE}" run --out json=/work/results/hls.ndjson hls-viewers.js &
 HLS_PID=$!
 
 echo "Starting k6 api-read container..."
 docker run --rm --name "${K6_API_CONTAINER}" --net=host \
-  -v "$(pwd):/loadtest" \
+  -u "$(id -u):$(id -g)" \
+  -v "${REPO_ROOT}/loadtest:/work" \
+  -w /work \
   -e TARGET_URL="${TARGET_URL}" \
   -e VUS="${VUS:-}" -e DURATION="${DURATION:-}" \
-  "${K6_IMAGE}" run /loadtest/api-read.js &
+  "${K6_IMAGE}" run --out json=/work/results/api.ndjson api-read.js &
 API_PID=$!
 
 HLS_EXIT=0
