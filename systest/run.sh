@@ -159,12 +159,16 @@ if [ "${SIM}" -eq 1 ]; then
 
   # Step A: Seed
   if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Resetting auth rate limits before seed..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
     echo "[systest] Running deterministic Vietnamese seed (20 users, 40 videos)..."
     node "${SCRIPT_DIR}/seed/seed.mjs" || SUITE_EXIT=$?
   fi
 
   # Step B: Playwright Personas
   if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Resetting auth rate limits before personas..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
     echo "[systest] Running Playwright persona journeys against real stack..."
     pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
   fi

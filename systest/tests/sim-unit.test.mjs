@@ -198,6 +198,52 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
     });
   });
 
+  describe('Local Valkey Rate Limit Reset Guard (reset-ratelimits.sh)', () => {
+    const resetScript = path.resolve(process.cwd(), 'systest/reset-ratelimits.sh');
+
+    it('strictly refuses external TARGET_URL (https://winkey.vn)', () => {
+      const res = spawnSync(resetScript, [], {
+        env: { ...process.env, TARGET_URL: 'https://winkey.vn' },
+        encoding: 'utf8',
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /reset-ratelimits refuses non-local TARGET_URL/);
+    });
+
+    it('strictly refuses sneaky subdomain (http://localhost.evil.example)', () => {
+      const res = spawnSync(resetScript, [], {
+        env: { ...process.env, TARGET_URL: 'http://localhost.evil.example' },
+        encoding: 'utf8',
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /reset-ratelimits refuses non-local TARGET_URL/);
+    });
+
+    it('strictly refuses wildcard DNS suffix (http://127.0.0.1.nip.io)', () => {
+      const res = spawnSync(resetScript, [], {
+        env: { ...process.env, TARGET_URL: 'http://127.0.0.1.nip.io' },
+        encoding: 'utf8',
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /reset-ratelimits refuses non-local TARGET_URL/);
+    });
+
+    it('allows valid local targets (localhost, 127.0.0.1, [::1])', () => {
+      for (const target of [
+        'http://127.0.0.1:8080',
+        'http://localhost:8080',
+        'http://[::1]:8080',
+      ]) {
+        const res = spawnSync(resetScript, [], {
+          env: { ...process.env, TARGET_URL: target },
+          encoding: 'utf8',
+        });
+        assert.equal(res.status, 0, `Target should be allowed: ${target}, got: ${res.stderr}`);
+        assert.doesNotMatch(res.stderr, /refuses/);
+      }
+    });
+  });
+
   describe('Summary Report Builder (build-summary.mjs)', () => {
     it('parses TAP logs with passed and failed counts', () => {
       const tapPassed = `

@@ -208,7 +208,51 @@ describe('Winkey System Integration Test Suite', () => {
       'X-User-Id was not stripped by gateway',
     );
 
-    recordResult('S2', 'auth & identity stripping', 'PASSED', Date.now() - startTime);
+    // 5. Rate limiting: 5 registrations/hour per IP -> 6th returns 429 (RATE_LIMIT_EXCEEDED)
+    const rlIp = '10.42.0.244';
+    for (let i = 1; i <= 5; i++) {
+      const regRl = await fetch(`${AUTH_URL}/v1/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-For': rlIp,
+        },
+        body: JSON.stringify(
+          authBody({
+            email: `rl_${nonce}_${i}@example.com`,
+            password: 'Password123!',
+            handle: `rl_${nonce}_${i}`,
+            display_name: `RL User ${i}`,
+          }),
+        ),
+      });
+      await checkRes(regRl, 201, `Rate limit test registration #${i}`);
+    }
+
+    const regRl6 = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': rlIp,
+      },
+      body: JSON.stringify(
+        authBody({
+          email: `rl_${nonce}_6@example.com`,
+          password: 'Password123!',
+          handle: `rl_${nonce}_6`,
+          display_name: 'RL User 6',
+        }),
+      ),
+    });
+    const checkRl6 = await checkRes(regRl6, 429, 'Rate limit test 6th registration');
+    assert.equal(checkRl6.json?.code, 'RATE_LIMIT_EXCEEDED');
+
+    recordResult(
+      'S2',
+      'auth, identity stripping & rate limiting',
+      'PASSED',
+      Date.now() - startTime,
+    );
   });
 
   // ---------------------------------------------------------------------------

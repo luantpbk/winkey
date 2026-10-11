@@ -2,6 +2,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const RESET_SCRIPT = path.resolve(SCRIPT_DIR, '..', 'reset-ratelimits.sh');
+
+let regCounter = 0;
+
+function resetRateLimits() {
+  if (fs.existsSync(RESET_SCRIPT)) {
+    try {
+      execSync(`"${RESET_SCRIPT}"`, { stdio: 'pipe' });
+    } catch (err) {
+      console.warn(`[seed] reset-ratelimits.sh warning: ${err.message}`);
+    }
+  }
+}
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 const SEED_NUM = parseInt(process.env.SEED || '42', 10);
@@ -47,8 +63,14 @@ async function request(url, options = {}) {
 
 // Register or login user
 async function ensureUser(handle, email, displayName, inviteCode = INVITE_CODE) {
+  // Rate limit avoidance: auth-svc allows 5 registrations/hour per IP
+  regCounter++;
+  if (regCounter % 4 === 1) {
+    resetRateLimits();
+  }
+
   // 1. Try register
-  const regRes = await request(`${GATEWAY_URL}/v1/auth/register`, {
+  let regRes = await request(`${GATEWAY_URL}/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -59,6 +81,24 @@ async function ensureUser(handle, email, displayName, inviteCode = INVITE_CODE) 
       invite_code: inviteCode,
     }),
   });
+
+  if (regRes.status === 429) {
+    console.warn(
+      `[seed] Registration rate-limited (429) for ${handle}, resetting rate limits and retrying...`,
+    );
+    resetRateLimits();
+    regRes = await request(`${GATEWAY_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        handle,
+        email,
+        display_name: displayName,
+        password: PASSWORD,
+        invite_code: inviteCode,
+      }),
+    });
+  }
 
   if (regRes.status === 201 && regRes.json?.access_token) {
     return { token: regRes.json.access_token, user: regRes.json.user };
