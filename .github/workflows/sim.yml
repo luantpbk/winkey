@@ -1,0 +1,104 @@
+# Simulated-user run on an ephemeral full stack (ADR-038, bootstrap of SIM1).
+# Three independent stacks run in parallel; all three must pass ("3 green runs" without waiting for nights).
+# Owner after bootstrap: Antigravity 2 (extends it with the SIM1 personas, perf budget and nightly schedule).
+name: sim
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/sim.yml'
+      - 'systest/**'
+      - 'loadtest/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sim-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  stack:
+    name: sim run ${{ matrix.run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+
+      - name: Compose env
+        run: cp deploy/compose/.env.example deploy/compose/.env
+
+      - name: System tests (12 scenarios, real services)
+        run: ./systest/run.sh --reset
+
+      - name: Seed load-test data (20 users, 5 videos)
+        env:
+          NUM_USERS: '20'
+          NUM_VIDEOS: '5'
+        run: ./loadtest/seed.sh
+
+      - name: Load on the ephemeral stack (100 HLS viewers + API reads, 3 min)
+        # k6 runs directly here (not through lt2-run.sh): this stack is ephemeral and local, so the production
+        # watchdog does not apply. lt2-run.sh has two bugs found by this workflow (issue linked in PR #320):
+        # it mounts the repo root as /loadtest, and its error telemetry file is never updated during the run.
+        env:
+          K6_IMAGE: grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603
+        run: |
+          mkdir -p loadtest/results && chmod 777 loadtest/results
+          common=(--rm --net=host -u "$(id -u):$(id -g)" -v "$PWD/loadtest:/work" -w /work
+                  -e TARGET_URL=http://127.0.0.1:8080 -e VUS=100 -e DURATION=3m)
+          docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/hls-k6.json hls-viewers.js > loadtest/results/hls.log 2>&1 &
+          hls=$!
+          docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/api-k6.json api-read.js > loadtest/results/api.log 2>&1 &
+          api=$!
+          rc_hls=0; rc_api=0
+          wait "$hls" || rc_hls=$?
+          wait "$api" || rc_api=$?
+          tail -n 60 loadtest/results/hls.log; tail -n 60 loadtest/results/api.log
+          echo "k6 exit codes: hls=$rc_hls api=$rc_api"
+          test -f loadtest/results/lt2-summary.json
+          node -e "const s=require('./loadtest/results/lt2-summary.json'); console.log(JSON.stringify(s)); process.exit(s.passed===true?0:1)"
+          test "$rc_hls" -eq 0 && test "$rc_api" -eq 0
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### sim run ${{ matrix.run }}"
+            if [ -f loadtest/results/lt2-summary.json ]; then
+              echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
+              for f in hls api; do
+                if [ -f "loadtest/results/$f-k6.json" ]; then node -e "const m=require('./loadtest/results/$f-k6.json').metrics; const d=m.http_req_duration||{}; const f=m.http_req_failed||{}; console.log('- $f: http_reqs=' + (m.http_reqs?.count ?? '?') + ', failed=' + ((f.value ?? f.rate ?? 0)*100).toFixed(2) + '%, p95=' + (d['p(95)'] ?? '?') + ' ms, avg=' + (d.avg ?? '?') + ' ms')"; fi
+              done
+            else
+              echo "no load summary (an earlier step failed)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p systest/.run/logs
+          docker compose -f deploy/compose/dev.yml -f systest/compose.apps.yml logs --no-color > systest/.run/logs/compose.log 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-run-${{ matrix.run }}
+          path: |
+            systest/.run/logs/
+            loadtest/results/
+          retention-days: 14
+          if-no-files-found: ignore
