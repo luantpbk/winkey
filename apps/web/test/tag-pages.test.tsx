@@ -239,10 +239,7 @@ describe('SEO2-web: Tag Landing Pages & Discoverability (ADR-037)', () => {
       expect(meta.title).toBe('Phim ngắn – Video về Phim ngắn | Winkey');
       expect(meta.description).toContain('Xem 5 video về Phim ngắn trên Winkey');
       expect(meta.alternates?.canonical).toBe('https://winkey.vn/tag/phim-ngan');
-      expect(meta.alternates?.languages).toEqual({
-        vi: 'https://winkey.vn/tag/phim-ngan',
-        en: 'https://winkey.vn/en/tag/phim-ngan',
-      });
+      expect(meta.alternates?.languages).toBeUndefined();
       expect(meta.robots).toEqual({ index: true, follow: true });
       const ogImages = meta.openGraph?.images as Array<{ url: string }> | undefined;
       expect(ogImages?.[0]).toEqual(expect.objectContaining({ url: mockVideo1.thumbnail_url }));
@@ -382,6 +379,84 @@ describe('SEO2-web: Tag Landing Pages & Discoverability (ADR-037)', () => {
       ).rejects.toThrow('NEXT_NOT_FOUND');
 
       expect(mockNotFound).toHaveBeenCalled();
+    });
+
+    it('throws an error (500) when getTag encounters 503 instead of calling notFound', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+      } as Response);
+
+      await expect(
+        TagPage({
+          params: Promise.resolve({ locale: 'vi', slug: 'phim-ngan' }),
+        }),
+      ).rejects.toThrow('Failed to fetch tag: HTTP 503');
+
+      expect(mockNotFound).not.toHaveBeenCalled();
+    });
+
+    it('throws an error (500) on network error in getTag instead of calling notFound', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      await expect(
+        TagPage({
+          params: Promise.resolve({ locale: 'vi', slug: 'phim-ngan' }),
+        }),
+      ).rejects.toThrow('Network error');
+
+      expect(mockNotFound).not.toHaveBeenCalled();
+    });
+
+    it('throws an error (500) when getTagVideos encounters 500 or 502', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/v1/tags/phim-ngan')) {
+          return {
+            ok: true,
+            json: async () => mockTagPhimNgan,
+          } as Response;
+        }
+        if (url.includes('/v1/videos?tag=phim-ngan')) {
+          return {
+            ok: false,
+            status: 500,
+          } as Response;
+        }
+        return { ok: false, status: 404 } as Response;
+      });
+
+      await expect(
+        TagPage({
+          params: Promise.resolve({ locale: 'vi', slug: 'phim-ngan' }),
+        }),
+      ).rejects.toThrow('Failed to fetch tag videos: HTTP 500');
+
+      expect(mockNotFound).not.toHaveBeenCalled();
+    });
+
+    it('safely decodes percent-encoded slug param and 308 permanentRedirects to canonical slug without double-encoding', async () => {
+      let fetchedTagUrl = '';
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        fetchedTagUrl = url;
+        if (url.includes('/v1/tags/')) {
+          return {
+            ok: true,
+            json: async () => mockTagPhimNgan, // canonical slug is 'phim-ngan'
+          } as Response;
+        }
+        return { ok: false, status: 404 } as Response;
+      });
+
+      await expect(
+        TagPage({
+          params: Promise.resolve({ locale: 'vi', slug: 'Phim%20ng%E1%BA%AFn' }),
+        }),
+      ).rejects.toThrow('NEXT_REDIRECT:/tag/phim-ngan');
+
+      // The fetch URL must NOT be double-encoded as Phim%2520...
+      expect(fetchedTagUrl).toContain('/v1/tags/Phim%20ng%E1%BA%AFn');
+      expect(fetchedTagUrl).not.toContain('%25');
+      expect(mockPermanentRedirect).toHaveBeenCalledWith('/tag/phim-ngan');
     });
   });
 

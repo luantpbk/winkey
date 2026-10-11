@@ -14,30 +14,40 @@ interface TagPageProps {
   params: Promise<{ locale: string; slug: string }>;
 }
 
-async function getTag(slug: string): Promise<TagSummary | null> {
-  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+function safeDecodeURIComponent(s: string): string {
   try {
-    const res = await fetch(`${baseUrl}/v1/tags/${encodeURIComponent(slug)}`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return await res.json();
+    return decodeURIComponent(s);
   } catch {
-    return null;
+    return s;
   }
 }
 
-async function getTagVideos(slug: string, limit = 24): Promise<VideoPage | null> {
+async function getTag(slug: string): Promise<TagSummary | null> {
+  const decoded = safeDecodeURIComponent(slug);
   const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
-  try {
-    const res = await fetch(`${baseUrl}/v1/videos?tag=${encodeURIComponent(slug)}&limit=${limit}`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+  const res = await fetch(`${baseUrl}/v1/tags/${encodeURIComponent(decoded)}`, {
+    cache: 'no-store',
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Failed to fetch tag: HTTP ${res.status}`);
   }
+  return await res.json();
+}
+
+async function getTagVideos(slug: string, limit = 24): Promise<VideoPage> {
+  const decoded = safeDecodeURIComponent(slug);
+  const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  const res = await fetch(
+    `${baseUrl}/v1/videos?tag=${encodeURIComponent(decoded)}&limit=${limit}`,
+    {
+      cache: 'no-store',
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to fetch tag videos: HTTP ${res.status}`);
+  }
+  return await res.json();
 }
 
 function formatTagDescription(
@@ -60,7 +70,8 @@ function formatTagDescription(
 }
 
 export async function generateMetadata({ params }: TagPageProps): Promise<Metadata> {
-  const { locale, slug } = await params;
+  const { locale, slug: rawSlug } = await params;
+  const slug = safeDecodeURIComponent(rawSlug);
   const tag = await getTag(slug);
 
   if (!tag) {
@@ -71,7 +82,7 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
   }
 
   const videosPage = await getTagVideos(tag.slug, 24);
-  const videoItems = videosPage?.items || [];
+  const videoItems = videosPage.items || [];
   const firstVideo = videoItems[0];
   const thumbUrl = firstVideo?.thumbnail_url || 'https://winkey.vn/og-default.jpg';
 
@@ -95,10 +106,6 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
     description,
     alternates: {
       canonical: canonicalUrl,
-      languages: {
-        vi: `https://winkey.vn/tag/${tag.slug}`,
-        en: `https://winkey.vn/en/tag/${tag.slug}`,
-      },
     },
     robots,
     openGraph: {
@@ -125,9 +132,10 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
 }
 
 export default async function TagPage({ params }: TagPageProps) {
-  const { locale, slug } = await params;
+  const { locale, slug: rawSlug } = await params;
   setRequestLocale(locale);
 
+  const slug = safeDecodeURIComponent(rawSlug);
   const tag = await getTag(slug);
 
   if (!tag) {
@@ -140,7 +148,7 @@ export default async function TagPage({ params }: TagPageProps) {
   }
 
   const videosPage = await getTagVideos(tag.slug, 24);
-  const initialVideos = videosPage?.items || [];
+  const initialVideos = videosPage.items || [];
 
   const t = await getTranslations('tag');
   const titles = initialVideos
