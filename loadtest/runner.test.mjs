@@ -5,6 +5,7 @@ import { execFileSync, execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
+import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 import { parseHttpErrorRate } from '../deploy/lt2/watchdog.mjs';
 import { processNdjson, buildTelemetryPayload, StreamTailer } from './telemetry-feeder.mjs';
@@ -436,6 +437,62 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     });
+
+    it(
+      'StreamTailer stays fast at production rates (regression: shift() pruning froze the feeder)',
+      { timeout: 30000 },
+      () => {
+        // 3000 req/s for 2 minutes, 15 k6 metric lines per request, as the sim workflow produced in PR #329.
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tailer-perf-'));
+        const logFile = path.join(tmpDir, 'stream.ndjson');
+        const others = ['http_req_duration', 'http_req_waiting', 'data_received', 'iterations'];
+        try {
+          const now = Date.now();
+          const perSecond = 3000;
+          const lines = [];
+          for (let s = 120; s > 0; s--) {
+            const time = new Date(now - s * 1000 + 500).toISOString();
+            const req = JSON.stringify({
+              type: 'Point',
+              metric: 'http_reqs',
+              data: { time, value: 1, tags: { status: '200' } },
+            });
+            const ok = JSON.stringify({
+              type: 'Point',
+              metric: 'http_req_failed',
+              data: { time, value: 0 },
+            });
+            const noise = others.map((m) =>
+              JSON.stringify({ type: 'Point', metric: m, data: { time, value: 1 } }),
+            );
+            for (let i = 0; i < perSecond; i++) lines.push(req, ok, ...noise);
+          }
+          fs.writeFileSync(logFile, lines.join('\n') + '\n');
+
+          const tailer = new StreamTailer(logFile);
+          const t0 = performance.now();
+          tailer.poll();
+          const counts = tailer.getCounts(60000, now);
+          const again = tailer.getCounts(60000, now + 10000); // the next tick prunes 10 s more
+          const elapsed = performance.now() - t0;
+
+          // 60 s window = 60 full seconds of 3000 requests (the bucket holding the cutoff is included)
+          assert.ok(
+            counts.requests >= 60 * perSecond && counts.requests <= 61 * perSecond,
+            `requests=${counts.requests}`,
+          );
+          assert.equal(counts.failed, 0);
+          assert.ok(
+            again.requests >= 50 * perSecond && again.requests <= 51 * perSecond,
+            `requests=${again.requests}`,
+          );
+          assert.ok(tailer.buckets.size <= 61, `buckets=${tailer.buckets.size}`);
+          assert.ok(elapsed < 5000, `poll + 2 getCounts took ${elapsed.toFixed(0)} ms`);
+        } finally {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+      },
+    );
 
     it('verifies lt2-run.sh k6 volume mount (-v ...:/work -w /work) and user permissions', () => {
       const runSh = fs.readFileSync(path.join(process.cwd(), 'loadtest/lt2-run.sh'), 'utf8');

@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 export function parseNdjsonLine(line) {
   const trimmed = line ? line.trim() : '';
   if (!trimmed || !trimmed.startsWith('{')) return null;
+  // k6 writes ~15 metric lines per request; only these two matter. Skip the rest before JSON.parse.
+  if (!trimmed.includes('"http_reqs"') && !trimmed.includes('"http_req_failed"')) return null;
 
   try {
     const item = JSON.parse(trimmed);
@@ -110,13 +112,33 @@ export function writeTelemetryFile(outputPath, payload) {
 
 /**
  * Stateful byte-offset tailer for a single NDJSON log stream.
+ *
+ * Counts are kept in per-second buckets (requests, failed), not as individual points: at production rates k6 emits
+ * thousands of requests per second, and pruning a point array with shift() is O(n) per call, which froze the event
+ * loop and let the telemetry go stale (found by the sim workflow, PR #329). Buckets keep memory and pruning bounded
+ * by the window length.
  */
 export class StreamTailer {
   constructor(filePath) {
     this.filePath = filePath ? path.resolve(filePath) : '';
     this.offset = 0;
     this.remainder = '';
-    this.points = [];
+    this.buckets = new Map(); // epoch second -> { requests, failed }
+  }
+
+  add(parsed) {
+    const sec = Math.floor(parsed.time / 1000);
+    let b = this.buckets.get(sec);
+    if (!b) {
+      b = { requests: 0, failed: 0 };
+      this.buckets.set(sec, b);
+    }
+    if (parsed.isReq) {
+      b.requests++;
+    }
+    if (parsed.metric === 'http_req_failed' && parsed.isFail) {
+      b.failed++;
+    }
   }
 
   poll() {
@@ -130,7 +152,7 @@ export class StreamTailer {
         // File truncated or rotated: reset
         this.offset = 0;
         this.remainder = '';
-        this.points = [];
+        this.buckets.clear();
       }
       if (stats.size === this.offset) {
         return;
@@ -153,7 +175,7 @@ export class StreamTailer {
       for (const line of lines) {
         const parsed = parseNdjsonLine(line);
         if (parsed) {
-          this.points.push(parsed);
+          this.add(parsed);
         }
       }
     } catch {
@@ -162,23 +184,17 @@ export class StreamTailer {
   }
 
   getCounts(windowMs = 60000, nowMs = Date.now()) {
-    const cutoff = nowMs - windowMs;
-    // Prune stale points older than window cutoff
-    while (this.points.length > 0 && this.points[0].time < cutoff) {
-      this.points.shift();
-    }
-
+    const cutoffSec = Math.floor((nowMs - windowMs) / 1000);
     let requests = 0;
     let failed = 0;
-    for (const p of this.points) {
-      if (p.isReq) {
-        requests++;
+    for (const [sec, b] of this.buckets) {
+      if (sec < cutoffSec) {
+        this.buckets.delete(sec); // prune buckets older than the window
+        continue;
       }
-      if (p.metric === 'http_req_failed' && p.isFail) {
-        failed++;
-      }
+      requests += b.requests;
+      failed += b.failed;
     }
-
     failed = Math.min(failed, requests);
     return { requests, failed };
   }
