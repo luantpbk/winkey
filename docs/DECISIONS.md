@@ -913,12 +913,13 @@ Hiện trạng:
    - hỏng hai lần liên tiếp thì mở hoặc cập nhật một issue `[synthetic] …`.
 - **LT2 trên production** vẫn còn, nhưng chỉ là **cổng năng lực cuối cùng** (băng thông NIC, cache nginx của edge-1 chỉ đo được ở production). Nó không còn chặn việc lặp phát triển.
 - **Người dùng thật** (beta, ADR-034) chỉ mời thêm khi cả hai điều kiện đúng:
-  - suite persona xanh 3 đêm liên tiếp;
+  - suite persona xanh trên **3 lần chạy độc lập** (workflow `sim`: 3 stack song song trong một lần chạy, khoảng 30 phút). **Cập nhật 2026-10-11 (user):** không chờ 3 đêm;
   - LT2 PASS.
   Đây là quyết định của user. Mã mời đợt 1 đã gửi thì vẫn giữ.
 
 **Hệ quả.**
 - Lỗi giữa các service (auth ↔ web ↔ social ↔ video) lộ ra trong CI thay vì do người dùng báo.
 - Mỗi tính năng mới phải kèm hoặc cập nhật một hành trình persona.
-- CI nightly tốn khoảng 25–35 phút runner miễn phí.
+- Mỗi lần chạy `sim` tốn khoảng 30 phút × 3 runner miễn phí. Nightly vẫn giữ để bắt lỗi hồi quy.
+- **Bootstrap 2026-10-11:** workflow `.github/workflows/sim.yml` (kiến trúc sư viết để chạy ngay) dùng 12 kịch bản systest có sẵn, seed, rồi k6 100 người xem + đọc API 3 phút trên stack tạm. Antigravity 4 bổ sung persona, Antigravity 2 tiếp quản workflow.
 - Giám sát production cho biết sự cố trong vòng 20 phút.

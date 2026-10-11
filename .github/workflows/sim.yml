@@ -1,0 +1,107 @@
+# Simulated-user run on an ephemeral full stack (ADR-038, bootstrap of SIM1).
+# Three independent stacks run in parallel; all three must pass ("3 green runs" without waiting for nights).
+# Owner after bootstrap: Antigravity 2 (extends it with the SIM1 personas, perf budget and nightly schedule).
+name: sim
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/sim.yml'
+      - 'systest/**'
+      - 'loadtest/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sim-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  stack:
+    name: sim run ${{ matrix.run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+
+      - name: Compose env
+        run: cp deploy/compose/.env.example deploy/compose/.env
+
+      - name: System tests (12 scenarios, real services)
+        run: ./systest/run.sh --reset
+
+      - name: Seed load-test data (20 users, 5 videos)
+        env:
+          NUM_USERS: '20'
+          NUM_VIDEOS: '5'
+        run: ./loadtest/seed.sh
+
+      - name: Local watchdog stubs (runner RAM as the metric, legacy sites as a local 200)
+        run: |
+          cat > /tmp/stub.mjs <<'EOF'
+          import http from 'node:http';
+          import fs from 'node:fs';
+          http.createServer((req, res) => {
+            if (req.url.includes('MemAvailable')) {
+              const kb = Number(/MemAvailable:\s+(\d+)/.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ status: 'success', data: { resultType: 'vector',
+                result: [{ metric: { __name__: 'node_memory_MemAvailable_bytes' }, value: [Date.now() / 1000, String(kb * 1024)] }] } }));
+            } else {
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.end('OK');
+            }
+          }).listen(9799, '127.0.0.1');
+          EOF
+          nohup node /tmp/stub.mjs >/tmp/stub.log 2>&1 &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:9799/ >/dev/null && break; sleep 0.5; done
+
+      - name: Load on the ephemeral stack (100 HLS viewers + API reads, 3 min)
+        env:
+          TARGET_URL: http://127.0.0.1:8080
+          VUS: '100'
+          DURATION: 3m
+          EDGE_METRICS_URL: http://127.0.0.1:9799/metrics?q=MemAvailable
+          LEGACY_SITES: http://127.0.0.1:9799/1,http://127.0.0.1:9799/2,http://127.0.0.1:9799/3,http://127.0.0.1:9799/4
+        run: ./loadtest/lt2-run.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### sim run ${{ matrix.run }}"
+            if [ -f loadtest/results/lt2-summary.json ]; then
+              echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
+            else
+              echo "no load summary (an earlier step failed)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p systest/.run/logs
+          docker compose -f deploy/compose/dev.yml -f systest/compose.apps.yml logs --no-color > systest/.run/logs/compose.log 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-run-${{ matrix.run }}
+          path: |
+            systest/.run/logs/
+            loadtest/results/
+          retention-days: 14
+          if-no-files-found: ignore

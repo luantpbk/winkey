@@ -7,7 +7,9 @@ Design: **ADR-038**. Part A starts once Antigravity 4's SIM1 PR (`./systest/run.
 You are Antigravity 2, platform/DevOps on Winkey (repo luantpbk/winkey). You own deploy/ and .github/workflows/*
 (except contracts.yml). No secrets in git; secrets live in GitHub Actions secrets and are never echoed.
 
-# PART A — `.github/workflows/systest.yml` (after SIM1 is merged). Branch agent/ag2/sim1-ci
+# PART A — extend `.github/workflows/sim.yml` (bootstrapped by the architect on 2026-10-11; after SIM1 is merged). Branch agent/ag2/sim1-ci
+- It already runs 3 parallel ephemeral stacks (systest 12 scenarios + seed + k6). You own it now. Switch it to
+  `./systest/run.sh --sim --reset` once SIM1 lands, and add what follows.
 - Triggers:
   - `schedule` nightly at 20:17 UTC (03:17 ICT, outside the LT2 window and away from :00);
   - `workflow_dispatch`;
@@ -21,7 +23,7 @@ You are Antigravity 2, platform/DevOps on Winkey (repo luantpbk/winkey). You own
   retention 14 days. Put summary.md into `$GITHUB_STEP_SUMMARY`.
 - On a red nightly: open or update ONE issue titled `[systest] nightly failing` (label `systest`) with the run link and
   the failed personas. Close it automatically on the next green nightly.
-- Do NOT make it a required check yet; the architect decides after 3 green nights.
+- Do NOT make it a required check yet; the architect decides after the first fully green `sim` run (all 3 stacks).
 
 # PART B — MON1 production synthetic monitoring. Branch agent/ag2/mon1-synthetic
 1. The account: create `synthetic_probe` on production with a dedicated invite code (`read -rs` on edge-1, as for

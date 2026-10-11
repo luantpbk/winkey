@@ -1,7 +1,8 @@
 # Kickoff — Antigravity 4 · SIM1: simulated users on an ephemeral stack (ADR-038)
 
 Design: **ADR-038**. Goal: test the whole product any time, with simulated users instead of real ones, and catch
-cross-service bugs (like the "Lưu" refresh-token 401) before production. Antigravity 2 wires it into CI (separate brief).
+cross-service bugs (like the "Lưu" refresh-token 401) before production. Antigravity 2 wires it into CI (separate brief). The workflow `.github/workflows/sim.yml` already runs the existing
+systest + seed + k6 on 3 parallel stacks; your `run.sh --sim` replaces its middle steps.
 
 ````text
 # ROLE
