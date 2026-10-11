@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export REPO_ROOT
 RUN_DIR="${SCRIPT_DIR}/.run"
 KEYS_DIR="${RUN_DIR}/keys"
 LOGS_DIR="${RUN_DIR}/logs"

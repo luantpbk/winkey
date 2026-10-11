@@ -216,7 +216,7 @@ services:
 
   traefik:
     volumes:
-      - ./traefik.dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ${REPO_ROOT:-../../}/systest/traefik.dynamic.yml:/etc/traefik/dynamic.yml:ro
 
   web-svc:
     build:
