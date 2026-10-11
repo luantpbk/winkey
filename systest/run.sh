@@ -143,17 +143,24 @@ fi
 
 SUITE_EXIT=0
 
+# 5. Execute 12-scenario API test suite (runs in both default and --sim mode)
+echo "[systest] Running 12-scenario API test suite..."
+export CLIP_PATH="${CLIP_PATH}"
+set +e
+node --test "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
+SUITE_EXIT=${PIPESTATUS[0]}
+set -e
+
 if [ "${SIM}" -eq 1 ]; then
   echo "==================================================================="
   echo "         SIM1: SIMULATED USERS PIPELINE (ADR-038)                  "
   echo "==================================================================="
 
-  REPORT_DIR="${RUN_DIR}/report"
-  SUMMARY_MD="${REPORT_DIR}/summary.md"
-
   # Step A: Seed
-  echo "[systest] Running deterministic Vietnamese seed (20 users, 40 videos)..."
-  node "${SCRIPT_DIR}/seed/seed.mjs" || SUITE_EXIT=$?
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Running deterministic Vietnamese seed (20 users, 40 videos)..."
+    node "${SCRIPT_DIR}/seed/seed.mjs" || SUITE_EXIT=$?
+  fi
 
   # Step B: Playwright Personas
   if [ "${SUITE_EXIT}" -eq 0 ]; then
@@ -174,36 +181,7 @@ if [ "${SIM}" -eq 1 ]; then
   fi
 
   # Step E: Generate summary.md
-  cat <<EOF > "${SUMMARY_MD}"
-# SIM1 Local Run Summary (ADR-038)
-
-- **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-- **Status**: $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" )
-- **Stack**: Ephemeral Docker Compose with real web-svc (Traefik gateway http://127.0.0.1:8080)
-- **Seed**: 20 users, 1 curator, 1 moderator, 40 short videos (16:9 & 9:16), 4 playlists, 2 series
-
-## Persona Journeys (Playwright)
-
-| Persona | Viewports | Result |
-|---|---|---|
-| member (Lưu regression) | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
-| creator | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
-| anon-viewer | Desktop (1440x900) & Mobile | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
-| moderator | Desktop (1440x900) | $( [ "${SUITE_EXIT}" -eq 0 ] && echo "PASSED" || echo "FAILED" ) |
-
-## Performance Budget
-
-See \`systest/.run/report/perf.json\` for endpoint p50/p95 percentiles.
-Threshold: Relative p95 regression <= 20%, error rate < 1.0%.
-EOF
-
-  echo "[systest] SIM1 report generated at ${SUMMARY_MD}"
-
-else
-  # 5. Execute Node 22 system test suite
-  echo "[systest] Running end-to-end black box test suite..."
-  export CLIP_PATH="${CLIP_PATH}"
-  node --test "${SCRIPT_DIR}/suite/index.mjs" || SUITE_EXIT=$?
+  node "${SCRIPT_DIR}/build-summary.mjs" || true
 fi
 
 # 6. Dump app container logs on failure

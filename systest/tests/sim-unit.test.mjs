@@ -2,8 +2,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { comparePerf } from '../perf-budget.mjs';
+import { parseTap, parsePlaywright, buildSummaryMarkdown } from '../build-summary.mjs';
 
 describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', () => {
   describe('Seed Manifest Validation', () => {
@@ -123,9 +126,27 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
   describe('Localhost Guard in loadtest/sim-profile.sh', () => {
     const scriptPath = path.resolve(process.cwd(), 'loadtest/sim-profile.sh');
 
-    it('strictly refuses external TARGET_URL (winkey.vn)', () => {
+    it('strictly refuses external TARGET_URL (https://winkey.vn)', () => {
       const res = spawnSync(scriptPath, [], {
         env: { ...process.env, TARGET_URL: 'https://winkey.vn' },
+        encoding: 'utf8',
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr || res.stdout, /sim-profile is strictly for localhost\/127\.0\.0\.1/);
+    });
+
+    it('strictly refuses sneaky subdomain (http://localhost.evil.example)', () => {
+      const res = spawnSync(scriptPath, [], {
+        env: { ...process.env, TARGET_URL: 'http://localhost.evil.example' },
+        encoding: 'utf8',
+      });
+      assert.equal(res.status, 1);
+      assert.match(res.stderr || res.stdout, /sim-profile is strictly for localhost\/127\.0\.0\.1/);
+    });
+
+    it('strictly refuses wildcard DNS suffix (http://127.0.0.1.nip.io)', () => {
+      const res = spawnSync(scriptPath, [], {
+        env: { ...process.env, TARGET_URL: 'http://127.0.0.1.nip.io' },
         encoding: 'utf8',
       });
       assert.equal(res.status, 1);
@@ -141,13 +162,153 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
       assert.match(res.stderr || res.stdout, /sim-profile is strictly for localhost\/127\.0\.0\.1/);
     });
 
-    it('strictly refuses public IP target', () => {
+    it('strictly refuses public IP target (http://103.20.12.5:8080)', () => {
       const res = spawnSync(scriptPath, [], {
         env: { ...process.env, TARGET_URL: 'http://103.20.12.5:8080' },
         encoding: 'utf8',
       });
       assert.equal(res.status, 1);
       assert.match(res.stderr || res.stdout, /sim-profile is strictly for localhost\/127\.0\.0\.1/);
+    });
+
+    it('allows valid local targets (localhost, 127.0.0.1, [::1])', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'k6-shim-'));
+      const k6Shim = path.join(tmpDir, 'k6');
+      fs.writeFileSync(k6Shim, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      try {
+        for (const target of [
+          'http://127.0.0.1:8080',
+          'http://localhost:8080',
+          'http://[::1]:8080',
+        ]) {
+          const res = spawnSync(scriptPath, [], {
+            env: { ...process.env, TARGET_URL: target, PATH: `${tmpDir}:${process.env.PATH}` },
+            encoding: 'utf8',
+          });
+          assert.equal(
+            res.status,
+            0,
+            `Target should be allowed: ${target}, got stderr: ${res.stderr}`,
+          );
+          assert.doesNotMatch(res.stderr, /refuses/);
+        }
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('Summary Report Builder (build-summary.mjs)', () => {
+    it('parses TAP logs with passed and failed counts', () => {
+      const tapPassed = `
+TAP version 13
+ok 1 - auth
+ok 2 - video
+# tests 18
+# suites 1
+# pass 18
+# fail 0
+# duration_ms 4200.5
+`;
+      const resPass = parseTap(tapPassed);
+      assert.equal(resPass.status, 'PASSED');
+      assert.equal(resPass.total, 18);
+      assert.equal(resPass.pass, 18);
+      assert.equal(resPass.fail, 0);
+
+      const tapFailed = `
+not ok 1 - auth
+# tests 18
+# pass 17
+# fail 1
+`;
+      const resFail = parseTap(tapFailed);
+      assert.equal(resFail.status, 'FAILED');
+      assert.equal(resFail.total, 18);
+      assert.equal(resFail.fail, 1);
+
+      const resEmpty = parseTap('');
+      assert.equal(resEmpty.status, 'NOT RUN');
+    });
+
+    it('marks all personas NOT RUN when Playwright output is missing', () => {
+      const personas = parsePlaywright(null);
+      assert.equal(personas.length, 5);
+      for (const p of personas) {
+        assert.equal(p.status, 'NOT RUN');
+      }
+    });
+
+    it('accurately maps Playwright JSON project results per persona and viewport', () => {
+      const mockPlaywrightJson = {
+        suites: [
+          {
+            title: 'personas/member.spec.ts',
+            specs: [
+              {
+                title: 'member login',
+                tests: [
+                  { projectName: 'member', status: 'expected', results: [{ status: 'passed' }] },
+                ],
+              },
+            ],
+          },
+          {
+            title: 'personas/creator.spec.ts',
+            specs: [
+              {
+                title: 'creator upload',
+                tests: [
+                  { projectName: 'creator', status: 'unexpected', results: [{ status: 'failed' }] },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const personas = parsePlaywright(mockPlaywrightJson);
+      const member = personas.find((p) => p.id === 'member');
+      const creator = personas.find((p) => p.id === 'creator');
+      const anonDesk = personas.find((p) => p.id === 'anon-viewer-desktop');
+
+      assert.equal(member.status, 'PASSED');
+      assert.equal(creator.status, 'FAILED');
+      assert.equal(anonDesk.status, 'NOT RUN');
+    });
+
+    it('builds complete markdown summary with TAP count, personas table, and k6 metrics', () => {
+      const md = buildSummaryMarkdown({
+        tapContent: '# tests 18\n# pass 18\n# fail 0',
+        playwrightJson: {
+          suites: [
+            {
+              specs: [
+                { tests: [{ projectName: 'member', status: 'expected' }] },
+                { tests: [{ projectName: 'creator', status: 'expected' }] },
+                { tests: [{ projectName: 'anon-viewer-desktop', status: 'expected' }] },
+                { tests: [{ projectName: 'anon-viewer-mobile', status: 'expected' }] },
+                { tests: [{ projectName: 'moderator', status: 'expected' }] },
+              ],
+            },
+          ],
+        },
+        perfJson: {
+          rebuffer_ratio_noseek: 0.002,
+          http_req_failed: 0.001,
+          endpoints: {
+            'GET /v1/videos': { p50: 12.0, p95: 25.0 },
+          },
+        },
+        dateStr: '2026-10-11T06:00:00Z',
+      });
+
+      assert.match(md, /# SIM1 Local Run Summary/);
+      assert.match(md, /18 passed, 0 failed, 18 total/);
+      assert.match(md, /member \(Lưu regression\).*PASSED/);
+      assert.match(md, /rebuffer ratio \(non-seek\) 0\.20%/);
+      assert.match(md, /GET \/v1\/videos.*12\.0 ms.*25\.0 ms/);
+      assert.match(md, /\*\*Status\*\*: \*\*PASSED\*\*/);
     });
   });
 });

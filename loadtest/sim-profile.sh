@@ -9,12 +9,22 @@ mkdir -p "${REPORT_DIR}"
 
 TARGET_URL="${TARGET_URL:-http://127.0.0.1:8080}"
 
-# STRICT Localhost Guard: refuse any TARGET_URL that is not localhost / 127.0.0.1
-case "${TARGET_URL}" in
-  http://localhost*|http://127.0.0.1*|http://\[::1\]*|https://localhost*|https://127.0.0.1*)
+# STRICT Localhost Guard: parse hostname exactly using Node.js URL parser (ADR-038)
+host=$(node -e '
+  try {
+    const u = new URL(process.argv[1]);
+    if (u.protocol !== "http:" && u.protocol !== "https:") process.exit(1);
+    console.log(u.hostname);
+  } catch {
+    process.exit(1);
+  }
+' "${TARGET_URL}") || { echo "ERROR: sim-profile refuses ${TARGET_URL} (bad TARGET_URL)" >&2; exit 1; }
+
+case "${host}" in
+  localhost|127.0.0.1|'[::1]'|::1)
     ;;
   *)
-    echo "ERROR: sim-profile is strictly for localhost/127.0.0.1. Refusing TARGET_URL: ${TARGET_URL}" >&2
+    echo "ERROR: sim-profile is strictly for localhost/127.0.0.1. sim-profile refuses ${TARGET_URL}" >&2
     exit 1
     ;;
 esac
