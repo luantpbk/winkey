@@ -10,6 +10,7 @@ A lightweight, zero-dependency Node 22 synthetic probe runs every 10 minutes (`*
 - **Timeout:** 3 minutes workflow timeout, 8 seconds per HTTP request.
 - **User-Agent:** `WinkeySynthetic/1.0` (tracked in Nginx access logs).
 - **Secrets:** `PROBE_EMAIL` and `PROBE_PASSWORD` configured as GitHub Actions repository secrets and masked with `::add-mask::`.
+- **Status:** Verified on production edge-1.
 
 ## Checks Performed
 
