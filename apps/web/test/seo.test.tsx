@@ -8,7 +8,14 @@ import {
 } from '../src/lib/seo/video-schema';
 import { buildPersonSchema } from '../src/lib/seo/channel-schema';
 import { buildWebSiteSchema } from '../src/lib/seo/website-schema';
-import { xmlEscape, fetchPublicVideosForSitemap, generateSitemapXml } from '../src/lib/seo/sitemap';
+import {
+  xmlEscape,
+  fetchPublicVideosForSitemap,
+  generateSitemapXml,
+  resetSitemapCacheForTesting,
+  setSitemapCacheForTesting,
+} from '../src/lib/seo/sitemap';
+import { GET as getSitemapRoute } from '../src/app/sitemap.xml/route';
 import { jsonLd } from '../src/lib/seo/json-ld';
 import robots from '../src/app/robots';
 import { generateMetadata as generateWatchMetadata } from '../src/app/[locale]/watch/[id]/page';
@@ -62,6 +69,16 @@ const mockProfile: PublicProfile = {
   handle: 'winkey_creator',
   display_name: 'Winkey Official Creator',
   avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+};
+
+const mockPublicVideoSummary: VideoSummary = {
+  id: mockPublicVideo.id,
+  title: mockPublicVideo.title,
+  duration_ms: mockPublicVideo.duration_ms || 724000,
+  view_count: mockPublicVideo.view_count,
+  published_at: mockPublicVideo.published_at!,
+  owner: mockPublicVideo.owner,
+  thumbnail_url: mockPublicVideo.playback!.thumbnail_url!,
 };
 
 describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => {
@@ -334,6 +351,196 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         `<video:publication_date>${mockPublicVideo.published_at}</video:publication_date>`,
       );
       expect(xml).toContain(`https://winkey.vn/watch/${mockPublicVideo.id}`);
+    });
+
+    it('uses real description in video:description when present, and falls back to title', () => {
+      const videoWithDesc: VideoSummary = {
+        id: 'vid-with-desc',
+        title: 'Video Title',
+        duration_ms: 60000,
+        view_count: 10,
+        published_at: '2026-09-01T00:00:00Z',
+        owner: mockPublicVideo.owner,
+        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        description: 'Mô tả chi tiết của video từ API',
+      } as unknown as VideoSummary;
+
+      const videoWithoutDesc: VideoSummary = {
+        id: 'vid-no-desc',
+        title: 'Chỉ có tiêu đề',
+        duration_ms: 60000,
+        view_count: 10,
+        published_at: '2026-09-01T00:00:00Z',
+        owner: mockPublicVideo.owner,
+        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+      };
+
+      const xml = generateSitemapXml([videoWithDesc, videoWithoutDesc]);
+      expect(xml).toContain(
+        '<video:description>Mô tả chi tiết của video từ API</video:description>',
+      );
+      expect(xml).toContain('<video:description>Chỉ có tiêu đề</video:description>');
+    });
+
+    it('throws on non-OK page during pagination and never returns partial list', async () => {
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('cursor=page-2')) {
+          return {
+            ok: false,
+            status: 500,
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ id: 'v1', title: 'Video 1', visibility: 'PUBLIC' }],
+            next_cursor: 'page-2',
+          }),
+        } as Response;
+      });
+
+      await expect(fetchPublicVideosForSitemap('http://localhost:8080', 50000)).rejects.toThrow(
+        'HTTP 500',
+      );
+    });
+
+    it('generates well-formed sitemap XML ending with </urlset> with all public videos from a 2-page mock', async () => {
+      resetSitemapCacheForTesting();
+
+      const page1Videos = [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
+          title: 'Video 1',
+          visibility: 'PUBLIC',
+          duration_ms: 60000,
+          view_count: 10,
+          published_at: '2026-09-01T00:00:00Z',
+          owner: mockPublicVideo.owner,
+          thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        },
+      ];
+      const page2Videos = [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c20',
+          title: 'Video 2',
+          visibility: 'PUBLIC',
+          duration_ms: 120000,
+          view_count: 20,
+          published_at: '2026-09-02T00:00:00Z',
+          owner: mockPublicVideo.owner,
+          thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        },
+      ];
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('cursor=cursor-2')) {
+          return {
+            ok: true,
+            json: async () => ({ items: page2Videos, next_cursor: null }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({ items: page1Videos, next_cursor: 'cursor-2' }),
+        } as Response;
+      });
+
+      const res = await getSitemapRoute();
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
+      expect(res.headers.get('Cache-Control')).toBe(
+        'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400',
+      );
+
+      const xml = await res.text();
+      expect(xml.trim().endsWith('</urlset>')).toBe(true);
+
+      // Verify well-formed XML using DOMParser
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(xml, 'application/xml');
+      expect(doc.querySelector('parsererror')).toBeNull();
+
+      // Verify all public videos from both pages appear
+      expect(xml).toContain('https://winkey.vn/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+      expect(xml).toContain('https://winkey.vn/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c20');
+    });
+
+    it('returns 503 with Retry-After: 600 when page 2 fails and there is no cache', async () => {
+      resetSitemapCacheForTesting();
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('cursor=fail')) {
+          return {
+            ok: false,
+            status: 502,
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            items: [mockPublicVideoSummary],
+            next_cursor: 'fail',
+          }),
+        } as Response;
+      });
+
+      const res = await getSitemapRoute();
+      expect(res.status).toBe(503);
+      expect(res.headers.get('Retry-After')).toBe('600');
+    });
+
+    it('serves stale cached XML when page 2 fails and a prior cache exists', async () => {
+      const staleXml = generateSitemapXml([mockPublicVideoSummary], 'https://winkey.vn');
+      setSitemapCacheForTesting(staleXml, Date.now() - 5000); // expired cache
+
+      global.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('cursor=fail')) {
+          return {
+            ok: false,
+            status: 500,
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ ...mockPublicVideoSummary, id: 'new-id' }],
+            next_cursor: 'fail',
+          }),
+        } as Response;
+      });
+
+      const res = await getSitemapRoute();
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      expect(xml).toBe(staleXml);
+    });
+
+    it('reuses cache within the 15-minute TTL without triggering duplicate API fetches', async () => {
+      resetSitemapCacheForTesting();
+
+      let fetchCount = 0;
+      global.fetch = vi.fn().mockImplementation(async () => {
+        fetchCount++;
+        return {
+          ok: true,
+          json: async () => ({
+            items: [mockPublicVideoSummary],
+            next_cursor: null,
+          }),
+        } as Response;
+      });
+
+      const res1 = await getSitemapRoute();
+      expect(res1.status).toBe(200);
+      expect(fetchCount).toBe(1);
+
+      const res2 = await getSitemapRoute();
+      expect(res2.status).toBe(200);
+      expect(fetchCount).toBe(1); // Cache hit, no second fetch
+
+      const xml1 = await res1.text();
+      const xml2 = await res2.text();
+      expect(xml1).toBe(xml2);
     });
   });
 
