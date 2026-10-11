@@ -23,7 +23,7 @@ export default defineConfig({
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: {
-      args: ['--autoplay-policy=no-user-gesture-required'],
+      args: ['--autoplay-policy=no-user-gesture-required', '--disable-web-security'],
     },
   },
   outputDir: path.join(__dirname, '.run/report/playwright-artifacts'),
