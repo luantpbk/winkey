@@ -50,6 +50,8 @@ jobs:
         run: ./loadtest/seed.sh
 
       - name: Local watchdog stubs (runner RAM as the metric, legacy sites as a local 200)
+        # The watchdog only trusts a series labelled node="edge-1". Here the "edge" is this runner, which hosts the
+        # whole ephemeral stack, so its real MemAvailable is the right fail-closed signal.
         run: |
           cat > /tmp/stub.mjs <<'EOF'
           import http from 'node:http';
@@ -59,7 +61,7 @@ jobs:
               const kb = Number(/MemAvailable:\s+(\d+)/.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ status: 'success', data: { resultType: 'vector',
-                result: [{ metric: { __name__: 'node_memory_MemAvailable_bytes' }, value: [Date.now() / 1000, String(kb * 1024)] }] } }));
+                result: [{ metric: { __name__: 'node_memory_MemAvailable_bytes', node: 'edge-1' }, value: [Date.now() / 1000, String(kb * 1024)] }] } }));
             } else {
               res.writeHead(200, { 'Content-Type': 'text/html' });
               res.end('OK');
