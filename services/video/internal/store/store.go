@@ -29,7 +29,7 @@ var _ domain.Store = (*Postgres)(nil)
 // videoCols joins the owner profile (LEFT: a suspended/deleted owner has no
 // row in the view) and reads everything GetVideo/UpdateVideo return.
 const videoSelect = `
-	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.visibility::text, v.status::text,
+	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.tag_slugs, v.visibility::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
 	       v.hls_master_key, v.thumbnail_key, v.storyboard_key,
 	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
@@ -40,7 +40,7 @@ const videoSelect = `
 func scanVideo(row pgx.Row) (domain.Video, error) {
 	var v domain.Video
 	var ownerActive bool
-	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.Visibility, &v.Status,
+	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.TagSlugs, &v.Visibility, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
 		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey,
 		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
@@ -49,6 +49,9 @@ func scanVideo(row pgx.Row) (domain.Video, error) {
 	v.Owner.Missing = !ownerActive
 	if v.Tags == nil {
 		v.Tags = []string{}
+	}
+	if v.TagSlugs == nil {
+		v.TagSlugs = []string{}
 	}
 	return v, err
 }
@@ -176,6 +179,11 @@ func feedSQL(q domain.FeedQuery) (string, []any) {
 	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
 	if q.OwnerID != nil {
 		sb.WriteString(" AND v.owner_id = " + arg(*q.OwnerID))
+	}
+	if q.Tag != "" { // SEO2: an empty slug (punctuation only) matches nothing, not the '' entries
+		t := arg(q.Tag)
+		sb.WriteString(" AND public.winkey_tag_slug(" + t + "::text) <> ''" +
+			" AND v.tag_slugs @> ARRAY[public.winkey_tag_slug(" + t + "::text)]")
 	}
 	if q.After != nil {
 		sb.WriteString(" AND (v.published_at, v.id) < (" + arg(q.After.T) + ", " + arg(q.After.ID) + ")")

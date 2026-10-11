@@ -847,3 +847,37 @@ Phần backend đã có `updateVideo` (`PATCH /v1/videos/{id}`: tiêu đề, mô
   - Trong lúc chờ, SEO1 đưa từ khoá vào mô tả, việc này có tác dụng thật.
 - **Lỗi thêm vào danh sách:** Antigravity 2 tra log production của social-svc (`POST /v1/playlists/*/items`, `GET .../playlist-membership`) và gateway, rồi báo nguyên nhân trước khi giao sửa.
 **Hệ quả.** Creator sửa được video và video có thể lên Google mà không cần sửa Go. Thẻ hoãn lại, nhưng ít ảnh hưởng tới SEO.
+
+### ADR-037 — SEO theo thẻ: trang `/tag/<slug>` cho Google (SEO2)
+**Bối cảnh.** Ngày 2026-10-11 user yêu cầu: khi người dùng tìm trên Google bằng từ khoá trùng với thẻ của video, video phải có cơ hội hiện lên. Theo ADR-036, thẻ chỉ phục vụ tìm kiếm và video liên quan trong Winkey: trang xem không hiển thị thẻ, JSON-LD và sitemap cũng không có. Google bỏ qua meta keywords. Cách duy nhất để xếp hạng theo một từ khoá là có **một trang thật, lập chỉ mục được, nói về đúng từ khoá đó**, và được liên kết nội bộ.
+
+Cùng ngày phát hiện thêm: `sitemap.xml` được Next prerender lúc build image (`revalidate = 3600`). Trong CI không có API, nên image chứa sitemap rỗng. Antigravity 2 đã chữa tạm trên production bằng một ConfigMap viết tay (#306, bị từ chối vì sitemap sẽ đứng yên mãi).
+
+**Quyết định.**
+- **Slug do PostgreSQL tính, ở một chỗ duy nhất** (migration 000021):
+  - Cột sinh `media.videos.tag_slugs = public.winkey_tag_slugs(tags)`, thẳng hàng với `tags`.
+  - Slug = `winkey_fold` (chữ thường, bỏ dấu, đ → d), mỗi chuỗi ký tự ngoài `a-z0-9` thành `-`, cắt `-` hai đầu. Ví dụ `Phim ngắn`, `phim  NGẮN` và `phim-ngan` cùng là `phim-ngan`.
+  - Thẻ không có chữ Latin hay chữ số thì slug là `''`, không có trang.
+  - Có partial GIN index cùng điều kiện với feed công khai.
+  - Go và web **không** tự cài lại thuật toán bỏ dấu, nên không thể lệch nhau.
+- **API video-svc** (contract `video.v1.yaml`, nhóm `tag-pages`):
+  - `listVideos?tag=`: nhận slug hoặc chữ; ghép được với `owner_id`, không ghép với `trending`; cursor gắn với tag.
+  - `GET /v1/tags`: xếp hạng top-N theo `video_count`, `limit` ≤ 1000, `min_videos`, không có cursor. Dùng cho sitemap.
+  - `GET /v1/tags/{tag}`: trả slug chuẩn, tên phổ biến nhất, số video, ngày đăng mới nhất; `404` nếu không có video công khai.
+  - `Video.tag_slugs` để web dựng link.
+  - Gateway: `/v1/tags` vào video-svc.
+- **Web (Antigravity 1):**
+  - **SEO1-fix (làm trước):** `sitemap.xml` render lúc có request (`dynamic = 'force-dynamic'`), dữ liệu API cache trong bộ nhớ 15 phút. API lỗi thì trả 503, hoặc bản cũ nếu còn. Không bao giờ trả sitemap thiếu video.
+  - **SEO2-web:**
+    - Trang `/tag/[slug]`, render phía server: `<title>` và `<h1>` chứa đúng tên thẻ, đoạn giới thiệu, lưới video với tiêu đề là link chữ, canonical `/tag/<slug>`.
+    - Nếu đường dẫn không phải slug chuẩn thì redirect 308 về slug chuẩn.
+    - JSON-LD `CollectionPage` + `ItemList` + `BreadcrumbList`.
+    - `index` khi thẻ có ≥ 2 video công khai, `noindex,follow` khi chỉ có 1 (tránh trang mỏng); không có video thì 404.
+    - Trang xem: thẻ hiện thành link chữ `#Tên` tới `/tag/<slug>`; JSON-LD `VideoObject.keywords`.
+    - Sitemap thêm các thẻ có ≥ 2 video.
+- **Không làm:** meta keywords; trang cho thẻ chỉ có 1 video được index; thêm `<video:tag>` vào sitemap (giá trị thấp).
+
+**Hệ quả.**
+- Mỗi thẻ được dùng nhiều trở thành một trang đích có thể xếp hạng cho từ khoá đó, và liên kết nội bộ hai chiều giữa trang thẻ và trang xem.
+- Thứ hạng vẫn phụ thuộc chất lượng tiêu đề, mô tả và lượt xem; trang thẻ chỉ cho Google một trang phù hợp để xếp hạng, không bảo đảm vị trí.
+- `listTags` gom thẻ của mọi video công khai mỗi lần gọi; ở quy mô beta thì ổn. Khi quá khoảng 50 000 video công khai, chuyển sang bảng tổng hợp (materialized view làm mới định kỳ).

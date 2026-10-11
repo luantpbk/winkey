@@ -39,6 +39,7 @@ type videoJSON struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Tags        []string      `json:"tags"`
+	TagSlugs    []string      `json:"tag_slugs"`
 	Owner       profileJSON   `json:"owner"`
 	Visibility  string        `json:"visibility"`
 	Status      string        `json:"status"`
@@ -133,7 +134,8 @@ func moderation(state string, reason *string, at *time.Time) *moderationJSON {
 // (owner, moderator, admin only).
 func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	out := videoJSON{
-		ID: v.ID.String(), Title: v.Title, Description: v.Description, Tags: v.Tags, Owner: h.profile(v.Owner),
+		ID: v.ID.String(), Title: v.Title, Description: v.Description, Tags: v.Tags, TagSlugs: v.TagSlugs,
+		Owner:      h.profile(v.Owner),
 		Visibility: v.Visibility, Status: v.Status, DurationMs: v.DurationMs, Width: v.Width, Height: v.Height,
 		ViewCount: v.ViewCount, LikeCount: v.LikeCount, PublishedAt: utcPtr(v.PublishedAt), CreatedAt: v.CreatedAt.UTC(),
 	}
@@ -142,6 +144,9 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	}
 	if out.Tags == nil { // e.g. a cache entry written before TAG1
 		out.Tags = []string{}
+	}
+	if out.TagSlugs == nil || len(out.TagSlugs) != len(out.Tags) { // a cache entry written before SEO2: no links until it is refreshed
+		out.TagSlugs = make([]string, len(out.Tags))
 	}
 	if who.SeesModeration(v) {
 		out.Moderation = moderation(v.ModerationState, v.ModerationReason, v.ModeratedAt)

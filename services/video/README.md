@@ -8,7 +8,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 |---|---|---|
 | `GET /v1/videos?sort=trending` | optional | The trending ranking (task R2-a): see *Trending*. `limit`, `cursor`; `owner_id` together with it is `400 INVALID_SORT`; `Cache-Control: public, max-age=60`. |
 | `GET /v1/videos` | optional | Public feed: **READY + PUBLIC** only, newest first, keyset pagination on `(published_at DESC, id DESC)` (partial index `media.videos_public_feed`). `limit` 1-100 (default 24), `cursor`, `owner_id` (channel page). UNLISTED and PRIVATE videos are never listed, not even for their owner (the studio is for that). |
-| `GET /v1/videos/{id}` | optional | Watch page. Visibility below. `Cache-Control: public, max-age=30` for PUBLIC READY, `private, no-store` otherwise. `playback` is `null` unless READY. |
+| `GET /v1/videos/{id}` | optional | Watch page. `tags` and `tag_slugs` (SEO2: same order and length; `""` = no link). Visibility below. `Cache-Control: public, max-age=30` for PUBLIC READY, `private, no-store` otherwise. `playback` is `null` unless READY. |
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`, `tags` (TAG1: ≤ 10 tags of ≤ 30 characters, normalized, `[]` clears); unknown fields and `{}` → 400. When the visibility **actually changes** it also enqueues `video.visibility_changed`: see *Events*. |
 | `DELETE /v1/videos/{id}` | required | Owner, moderator or admin. **One transaction**: delete the row (cascades to renditions and jobs) + enqueue `video.deleted` (`raw_bucket`, `raw_key`, `media_bucket`, `media_prefix = v/{id}/`). The transcoder's media janitor purges the objects. |
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
@@ -22,6 +22,9 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `POST /v1/playback/heartbeats` | optional | Player QoE and watch-time samples (task R1, ADR-022): see *Playback analytics*. `202 {accepted}`, `400`, `413`, `429`. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
 | `GET /v1/search/suggest?q=` | optional | Up to 8 distinct title suggestions (task SR1): see *Search*. `200 {items}`, `400`, `429`. |
+| `GET /v1/videos?tag=` | optional | Task SEO2 (ADR-037): the newest feed restricted to one tag, given as slug (`phim-ngan`) or text (`Phim ngắn`). Combines with `owner_id`; with `sort=trending` → `400 INVALID_SORT`; the cursor is bound to the tag. `Cache-Control: public, max-age=60`. |
+| `GET /v1/tags` | optional | Task SEO2: tags of public videos ranked by `video_count` DESC, `slug` ASC. `limit` 1..1000 (default 100), `min_videos` (default 1). No cursor. `Cache-Control: public, max-age=300`. |
+| `GET /v1/tags/{tag}` | optional | Task SEO2: one tag (`slug`, most used `name`, `video_count`, `latest_published_at`); text resolves to the canonical slug. `404` when no public video carries it. `Cache-Control: public, max-age=60`. |
 
 ### Visibility (who sees what by id)
 
@@ -430,3 +433,13 @@ R2-perf SQL bound and EXPLAIN regression (2,105 eligible videos, hand-built firs
 ```bash
 WINKEY_REQUIRE_DOCKER=1 go test ./internal/store -run TestRecommendationCandidateLimitAndExplain -count=1 -v
 ```
+
+## Tags and tag pages (TAG1, SEO2)
+
+Owners set up to 10 tags (`PATCH`, normalized by `domain.NormalizeTags`). The **slug** of each tag is computed by
+PostgreSQL, never in Go: `media.videos.tag_slugs` is a generated column, `public.winkey_tag_slugs(tags)` (migration
+000021). It is `winkey_fold` (lower-case, unaccent, đ → d), runs of characters other than `a-z0-9` replaced by `-`,
+`-` trimmed; aligned with `tags` (`''` when a tag has no Latin letter or digit). `listVideos?tag=`, `listTags` and
+`getTag` accept a slug or the text and derive the slug with `public.winkey_tag_slug` in SQL, so `Phim ngắn`,
+`phim  NGẮN` and `phim-ngan` are the same tag. Lookups use the partial GIN index `media.videos_tag_slugs_gin`.
+`listTags` aggregates all public videos' tags per request; fine at beta scale (cached 5 min by clients), see ADR-037.

@@ -2,11 +2,16 @@ package api
 
 import (
 	"context"
+	"regexp"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/luantpbk/winkey/services/video/internal/domain"
 )
@@ -93,6 +98,9 @@ func (s *memStore) ListFeed(_ context.Context, q domain.FeedQuery) ([]domain.Sum
 		if q.OwnerID != nil && v.OwnerID != *q.OwnerID {
 			continue
 		}
+		if q.Tag != "" && (testSlug(q.Tag) == "" || !slices.Contains(v.TagSlugs, testSlug(q.Tag))) {
+			continue
+		}
 		if q.After != nil && !less(*v.PublishedAt, v.ID, q.After.T, q.After.ID) {
 			continue
 		}
@@ -155,6 +163,7 @@ func (s *memStore) UpdateVideo(_ context.Context, id, ownerID uuid.UUID, u domai
 	}
 	if u.Tags != nil {
 		v.Tags = *u.Tags
+		v.TagSlugs = testSlugs(v.Tags) // the generated column tag_slugs
 	}
 	s.videos[id] = v
 	return v, nil
@@ -459,4 +468,102 @@ func (s *memStore) VideosForPlayback(_ context.Context, ids []uuid.UUID) ([]doma
 		}
 	}
 	return out, nil
+}
+
+// --- tags (SEO2) ---------------------------------------------------------------
+
+var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+// testSlug mirrors public.winkey_tag_slug (migration 000021) for the inputs these tests use.
+func testSlug(s string) string {
+	var b strings.Builder
+	for _, r := range norm.NFD.String(strings.ToLower(s)) {
+		switch {
+		case unicode.Is(unicode.Mn, r):
+		case r == 'đ':
+			b.WriteRune('d')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.Trim(nonSlug.ReplaceAllString(b.String(), "-"), "-")
+}
+
+func testSlugs(tags []string) []string {
+	out := make([]string, len(tags))
+	for i, t := range tags {
+		out[i] = testSlug(t)
+	}
+	return out
+}
+
+func (s *memStore) tagStats(only string) []domain.Tag {
+	type acc struct {
+		videos map[uuid.UUID]bool
+		names  map[string]int
+		latest time.Time
+	}
+	by := map[string]*acc{}
+	for _, v := range s.videos {
+		if v.Status != domain.StatusReady || v.Visibility != domain.VisPublic || v.Owner.Missing || v.Hidden() {
+			continue
+		}
+		for i, slug := range v.TagSlugs {
+			if slug == "" || (only != "" && slug != only) {
+				continue
+			}
+			a := by[slug]
+			if a == nil {
+				a = &acc{videos: map[uuid.UUID]bool{}, names: map[string]int{}}
+				by[slug] = a
+			}
+			a.videos[v.ID] = true
+			a.names[v.Tags[i]]++
+			if v.PublishedAt.After(a.latest) {
+				a.latest = *v.PublishedAt
+			}
+		}
+	}
+	out := []domain.Tag{}
+	for slug, a := range by {
+		name, best := "", 0
+		for n, c := range a.names {
+			if c > best || (c == best && n < name) {
+				name, best = n, c
+			}
+		}
+		out = append(out, domain.Tag{Slug: slug, Name: name, VideoCount: len(a.videos), LatestPublishedAt: a.latest})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].VideoCount != out[j].VideoCount {
+			return out[i].VideoCount > out[j].VideoCount
+		}
+		return out[i].Slug < out[j].Slug
+	})
+	return out
+}
+
+func (s *memStore) ListTags(_ context.Context, limit, minVideos int) ([]domain.Tag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []domain.Tag{}
+	for _, t := range s.tagStats("") {
+		if t.VideoCount >= minVideos && len(out) < limit {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (s *memStore) GetTag(_ context.Context, tag string) (domain.Tag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slug := testSlug(tag)
+	if slug == "" {
+		return domain.Tag{}, domain.ErrNotFound
+	}
+	if ts := s.tagStats(slug); len(ts) == 1 {
+		return ts[0], nil
+	}
+	return domain.Tag{}, domain.ErrNotFound
 }

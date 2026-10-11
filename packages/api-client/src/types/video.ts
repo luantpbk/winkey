@@ -13,6 +13,10 @@ export interface paths {
          *     total; the cursor pages through that ranking. The ranking may be empty (no recent views): the client
          *     then shows the newest feed. `owner_id` together with `sort=trending` → `400` `INVALID_SORT`.
          *     Trending responses carry `Cache-Control: public, max-age=60`.
+         *
+         *     Task SEO2 (ADR-037) — `tag` restricts the newest feed to videos carrying that tag (matched on its slug, see
+         *     the `tag-pages` group); it can be combined with `owner_id`. `tag` together with `sort=trending` → `400`
+         *     `INVALID_SORT`. Tag responses carry `Cache-Control: public, max-age=60`.
          */
         get: operations["listVideos"];
         put?: never;
@@ -435,6 +439,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The most used tags of public videos (task SEO2), for the sitemap and tag lists. Optional auth.
+         * @description Tags ranked by `video_count` DESC, then `slug` ASC. A top-N ranking, not a paged list: there is no cursor,
+         *     and `limit` (default 100, max 1000) caps the result. `min_videos` (default 1) drops tags used by fewer
+         *     public videos. `Cache-Control: public, max-age=300`.
+         */
+        get: operations["listTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tags/{tag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One tag's landing-page header (task SEO2). Optional auth.
+         * @description `tag` is a slug or tag text; video-svc derives the slug and returns the canonical one, so the web can
+         *     redirect `/tag/Phim%20ng%E1%BA%AFn` to `/tag/phim-ngan`. `404` when no public video carries the tag (or the
+         *     slug is empty). `Cache-Control: public, max-age=60`. List the videos with `listVideos?tag=<slug>`.
+         */
+        get: operations["getTag"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -496,6 +544,12 @@ export interface components {
              *     videos. video-svc always sends it (empty array when none); optional in the schema so older clients stay valid.
              */
             tags?: string[];
+            /**
+             * @description Task SEO2 (ADR-037): the slug of each entry of `tags`, same order and length, for `/tag/<slug>` links. An
+             *     entry is `""` when its tag has no slug (only punctuation or non-Latin script); show that tag without a
+             *     link. video-svc always sends it; optional in the schema so older clients stay valid.
+             */
+            tag_slugs?: string[];
             /** @description Null until the video is `READY`. */
             playback: components["schemas"]["Playback"] | null;
             moderation?: components["schemas"]["VideoModeration"];
@@ -583,6 +637,22 @@ export interface components {
         };
         VideoBatch: {
             items: components["schemas"]["VideoSummary"][];
+        };
+        TagSummary: {
+            /** @description Canonical slug, `^[a-z0-9]+(-[a-z0-9]+)*$`. */
+            slug: string;
+            /** @description The spelling used by the most public videos with this slug (ties → alphabetical first). */
+            name: string;
+            /** @description Number of public videos carrying the tag. */
+            video_count: number;
+            /**
+             * Format: date-time
+             * @description Newest `published_at` among those videos (sitemap `lastmod`).
+             */
+            latest_published_at: string;
+        };
+        TagList: {
+            items: components["schemas"]["TagSummary"][];
         };
         VideoPage: {
             items: components["schemas"]["VideoSummary"][];
@@ -842,6 +912,12 @@ export interface operations {
                 owner_id?: components["schemas"]["Uuid"];
                 /** @description `newest` (default) or `trending` (task R2-a). */
                 sort?: "newest" | "trending";
+                /**
+                 * @description Task SEO2: a tag slug (`phim-ngan`) or tag text (`Phim ngắn`); the database derives the slug. Trimmed;
+                 *     empty after trimming → `400` `VALIDATION_ERROR`. An input whose slug is empty (only punctuation) matches
+                 *     no video. The cursor is bound to the `tag` value it was issued for.
+                 */
+                tag?: string;
             };
             header?: never;
             path?: never;
@@ -1385,6 +1461,55 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listTags: {
+        parameters: {
+            query?: {
+                limit?: number;
+                min_videos?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ranking (possibly empty). */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    getTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag. */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSummary"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
 }
