@@ -881,3 +881,44 @@ Cùng ngày phát hiện thêm: `sitemap.xml` được Next prerender lúc build
 - Mỗi thẻ được dùng nhiều trở thành một trang đích có thể xếp hạng cho từ khoá đó, và liên kết nội bộ hai chiều giữa trang thẻ và trang xem.
 - Thứ hạng vẫn phụ thuộc chất lượng tiêu đề, mô tả và lượt xem; trang thẻ chỉ cho Google một trang phù hợp để xếp hạng, không bảo đảm vị trí.
 - `listTags` gom thẻ của mọi video công khai mỗi lần gọi; ở quy mô beta thì ổn. Khi quá khoảng 50 000 video công khai, chuyển sang bảng tổng hợp (materialized view làm mới định kỳ).
+
+### ADR-038 — Kiểm thử bằng người dùng giả lập trước người dùng thật (SIM1)
+**Bối cảnh.** Ngày 2026-10-11 user yêu cầu: test sớm, không phải chờ khung đêm, và giả lập người dùng thay vì mời người thật. Chỉ khi hệ thống hoàn thiện mới test với người dùng thật.
+
+Hiện trạng:
+- Kiểm thử đầy đủ duy nhất là LT2 trên production (chỉ 02:00–03:30, chỉ người xem, 1 lần/đêm).
+- `systest/` dựng toàn bộ stack bằng Docker và chạy 12 kịch bản API, nhưng không chạy tự động, không có web, không có hành trình qua giao diện thật.
+- Unit test của web chạy với MSW (API giả), nên không bắt được lỗi giữa các service. Ví dụ lỗi "Lưu" do refresh token 401 chỉ lộ ra trên production.
+
+**Quyết định.** Ba lớp, chạy bất cứ lúc nào, không cần người thật:
+1. **Stack giả lập (staging tạm thời) trong CI.**
+   - `systest` thêm `web-svc` thật, dựng trên runner GitHub `ubuntu-latest`.
+   - Chạy theo lịch mỗi đêm, khi bấm tay (`workflow_dispatch`), và trên PR có nhãn `systest` hoặc đụng `services/**`, `apps/web/**`, `db/migrations/**`.
+   - Stack bị huỷ sau mỗi lần chạy: không dọn dữ liệu, không ảnh hưởng production.
+2. **Người dùng giả lập (persona) trên stack đó:**
+   - **Seed** dữ liệu thực tế: khoảng 20 tài khoản, 40 video ngắn (ffmpeg `testsrc`, tiêu đề và thẻ tiếng Việt có dấu), danh sách phát, 2 bộ phim nhiều tập.
+   - **Hành trình qua trình duyệt thật** (Playwright, không MSW), mỗi persona một kịch bản:
+     - *Người xem ẩn danh:* trang chủ → trang thẻ → xem → tập tiếp theo → tìm kiếm không dấu.
+     - *Người xem đăng nhập:* đăng ký bằng mã mời → "Lưu" vào danh sách → **làm mới phiên** (access token hết hạn giả lập) → "Lưu" tiếp → bình luận, thích.
+     - *Creator:* tải video → chờ READY → sửa tiêu đề và thẻ → tạo "Bộ phim" → thêm tập → công khai → thấy ở trang chủ và trang thẻ.
+     - *Kiểm duyệt viên:* báo cáo → ẩn → khôi phục.
+     Kèm kiểm tra SEO trên HTML thật: canonical, JSON-LD, sitemap hợp lệ.
+   - **Tải đồng thời** trên stack giả lập: k6 `api-mix` và `hls-viewers` với nhiều tài khoản giả, có ghi (bình luận, thích). Không có khung giờ vì không phải production.
+   - Kết quả là **ngân sách hiệu năng tương đối**: p95 API, tỉ lệ lỗi, thời gian transcode, so với lần chạy trước. Một lần chạy chậm hơn quá 20 % thì báo đỏ. Số tuyệt đối trên runner không đại diện cho edge-1.
+3. **Giám sát tổng hợp trên production (synthetic monitoring)**, chỉ đọc, mỗi 10 phút, bất kể giờ:
+   - trang chủ, một trang xem, `master.m3u8` và một segment, `/tag/<slug>`, `sitemap.xml` (xmllint), `/v1/tags`, `/healthz`;
+   - một tài khoản thăm dò `synthetic_probe` (mã mời riêng, mật khẩu trong GitHub Secret) để **đăng nhập rồi làm mới phiên**, phát hiện lỗi kiểu "Lưu";
+   - không bao giờ ghi lên production, không phát đủ lâu để tính lượt xem;
+   - User-Agent `WinkeySynthetic/1.0`;
+   - hỏng hai lần liên tiếp thì mở hoặc cập nhật một issue `[synthetic] …`.
+- **LT2 trên production** vẫn còn, nhưng chỉ là **cổng năng lực cuối cùng** (băng thông NIC, cache nginx của edge-1 chỉ đo được ở production). Nó không còn chặn việc lặp phát triển.
+- **Người dùng thật** (beta, ADR-034) chỉ mời thêm khi cả hai điều kiện đúng:
+  - suite persona xanh 3 đêm liên tiếp;
+  - LT2 PASS.
+  Đây là quyết định của user. Mã mời đợt 1 đã gửi thì vẫn giữ.
+
+**Hệ quả.**
+- Lỗi giữa các service (auth ↔ web ↔ social ↔ video) lộ ra trong CI thay vì do người dùng báo.
+- Mỗi tính năng mới phải kèm hoặc cập nhật một hành trình persona.
+- CI nightly tốn khoảng 25–35 phút runner miễn phí.
+- Giám sát production cho biết sự cố trong vòng 20 phút.
