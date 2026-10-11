@@ -2,14 +2,19 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const manifestPath = path.resolve(process.cwd(), 'systest/.run/seed-manifest.json');
-let manifest: any = null;
-if (fs.existsSync(manifestPath)) {
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch {
-    /* ignore */
-  }
+const manifestPath = path.resolve(__dirname, '../.run/seed-manifest.json');
+if (!fs.existsSync(manifestPath)) {
+  throw new Error(
+    `[persona:anon-viewer] Missing seed-manifest.json at ${manifestPath}. Run seed before running personas.`,
+  );
+}
+const manifest: any = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+if (!manifest.series?.[0]) {
+  throw new Error('[persona:anon-viewer] Missing series in seed-manifest.json');
+}
+if (!manifest.videos || manifest.videos.length === 0) {
+  throw new Error('[persona:anon-viewer] Missing videos in seed-manifest.json');
 }
 
 test.describe('Persona: anon-viewer (ADR-038)', () => {
@@ -22,10 +27,8 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
     const seriesSection = page.locator('text=Phim bộ');
     await expect(seriesSection.first()).toBeVisible({ timeout: 15000 });
 
-    if (manifest?.series?.[0]) {
-      const firstSeriesTitle = manifest.series[0].title;
-      await expect(page.locator(`text=${firstSeriesTitle}`).first()).toBeVisible();
-    }
+    const firstSeriesTitle = manifest.series[0].title;
+    await expect(page.locator(`text=${firstSeriesTitle}`).first()).toBeVisible();
   });
 
   test('open tag chip -> /tag/<slug>: h1, canonical, CollectionPage JSON-LD, robots index', async ({
@@ -92,9 +95,10 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
   test('video playback: HLS master and first segment load, player reaches playing', async ({
     page,
   }) => {
-    test.skip(!manifest?.videos?.[0], 'Requires seeded videos');
     const firstPublicVideo = manifest.videos.find((v: any) => v.visibility === 'PUBLIC');
-    test.skip(!firstPublicVideo, 'Requires public seeded video');
+    if (!firstPublicVideo) {
+      throw new Error('[persona:anon-viewer] Missing public video in seed-manifest.json');
+    }
 
     let masterLoaded = false;
     let segmentLoaded = false;
@@ -130,7 +134,6 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
   test('series navigation: watch episode 1, "Tập tiếp" button or key n -> episode 2; PRIVATE episode is skipped', async ({
     page,
   }) => {
-    test.skip(!manifest?.series?.[0], 'Requires seeded series');
     const s1 = manifest.series[0];
     const ep1Id = s1.episode_ids[0];
     const ep2Id = s1.episode_ids[1];
@@ -185,17 +188,15 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
     expect(xml.trim()).toMatch(/<\/urlset>$/);
 
     // Must contain PUBLIC videos
-    if (manifest?.videos) {
-      const publicVideos = manifest.videos.filter((v: any) => v.visibility === 'PUBLIC');
-      for (const pv of publicVideos.slice(0, 5)) {
-        expect(xml).toContain(`/watch/${pv.id}`);
-      }
+    const publicVideos = manifest.videos.filter((v: any) => v.visibility === 'PUBLIC');
+    for (const pv of publicVideos.slice(0, 5)) {
+      expect(xml).toContain(`/watch/${pv.id}`);
+    }
 
-      // Must NOT contain UNLISTED or PRIVATE videos
-      const privateOrUnlisted = manifest.videos.filter((v: any) => v.visibility !== 'PUBLIC');
-      for (const nonPublic of privateOrUnlisted) {
-        expect(xml).not.toContain(`/watch/${nonPublic.id}`);
-      }
+    // Must NOT contain UNLISTED or PRIVATE videos
+    const privateOrUnlisted = manifest.videos.filter((v: any) => v.visibility !== 'PUBLIC');
+    for (const nonPublic of privateOrUnlisted) {
+      expect(xml).not.toContain(`/watch/${nonPublic.id}`);
     }
 
     // Must contain tags with >= 2 videos (e.g. du-lich)

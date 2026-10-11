@@ -2,18 +2,27 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const manifestPath = path.resolve(process.cwd(), 'systest/.run/seed-manifest.json');
-let manifest: any = null;
-if (fs.existsSync(manifestPath)) {
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch {
-    /* ignore */
-  }
+const manifestPath = path.resolve(__dirname, '../.run/seed-manifest.json');
+if (!fs.existsSync(manifestPath)) {
+  throw new Error(
+    `[persona:member] Missing seed-manifest.json at ${manifestPath}. Run seed before running personas.`,
+  );
 }
+const manifest: any = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
-const INVITE_CODE = manifest?.invite_code || process.env.INVITE_CODE || 'sim-invite-2026-auth-ok';
+const INVITE_CODE = manifest.invite_code;
+if (!INVITE_CODE) {
+  throw new Error('[persona:member] seed-manifest.json is missing invite_code');
+}
 const PASSWORD = 'Password123!';
+
+function getPublicVideo() {
+  const video = manifest.videos?.find((v: any) => v.visibility === 'PUBLIC');
+  if (!video) {
+    throw new Error('[persona:member] No PUBLIC video found in seed-manifest.json');
+  }
+  return video;
+}
 
 test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', () => {
   const memberHandle = `mem_${Date.now().toString(36)}`;
@@ -83,9 +92,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
 
     // Navigate to watch page
     await page.goto(`/watch/${targetVideo.id}`);
@@ -135,9 +142,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
 
   test('reload page (forces refresh-cookie path) -> "Lưu" again succeeds', async ({ page }) => {
     // Member session in cookies
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
     await page.goto(`/watch/${targetVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
 
@@ -162,9 +167,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     // Install fake clock
     await page.clock.install();
 
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
     await page.goto(`/watch/${targetVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
 
@@ -193,9 +196,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page1.clock.install();
     await page2.clock.install();
 
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
     await page1.goto(`/watch/${targetVideo.id}`);
     await page2.goto(`/watch/${targetVideo.id}`);
 
@@ -231,9 +232,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     const anonContext = await browser.newContext();
     const anonPage = await anonContext.newPage();
 
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
     const watchUrl = `/watch/${targetVideo.id}?playlist=test-pl&src=home`;
 
     await anonPage.goto(watchUrl);
@@ -274,9 +273,7 @@ test.describe('Persona: member (The "Lưu" Refresh-Token Regression, ADR-038)', 
     await page.click('button[type="submit"]');
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC') || {
-      id: 'test-video',
-    };
+    const targetVideo = getPublicVideo();
     await page.goto(`/watch/${targetVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
 

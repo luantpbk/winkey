@@ -2,39 +2,41 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const manifestPath = path.resolve(process.cwd(), 'systest/.run/seed-manifest.json');
-let manifest: any = null;
-if (fs.existsSync(manifestPath)) {
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch {
-    /* ignore */
-  }
+const manifestPath = path.resolve(__dirname, '../.run/seed-manifest.json');
+if (!fs.existsSync(manifestPath)) {
+  throw new Error(
+    `[persona:creator] Missing seed-manifest.json at ${manifestPath}. Run seed before running personas.`,
+  );
+}
+const manifest: any = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+if (!manifest.curator?.email) {
+  throw new Error('[persona:creator] Missing curator in seed-manifest.json');
 }
 
 const PASSWORD = 'Password123!';
-const testClipPath = path.resolve(process.cwd(), 'systest/.run/seed_clip_16x9.mp4');
+const testClipPath = path.resolve(__dirname, '../.run/seed_clip_16x9.mp4');
+if (!fs.existsSync(testClipPath)) {
+  throw new Error(`[persona:creator] Missing test clip at ${testClipPath}`);
+}
 
 test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038)', () => {
   let creatorEmail = '';
   let creatorToken = '';
 
   test.beforeAll(async ({ request }) => {
-    // If manifest has curator, use curator
-    if (manifest?.curator) {
-      creatorEmail = manifest.curator.email;
-      const res = await request.post('/v1/auth/login', {
-        data: { email: creatorEmail, password: PASSWORD },
-      });
-      if (res.ok()) {
-        const data = await res.json();
-        creatorToken = data.access_token;
-      }
+    creatorEmail = manifest.curator.email;
+    const res = await request.post('/v1/auth/login', {
+      data: { email: creatorEmail, password: PASSWORD },
+    });
+    if (!res.ok()) {
+      throw new Error(`[persona:creator] Failed to login curator (${creatorEmail}): HTTP ${res.status()}`);
     }
+    const data = await res.json();
+    creatorToken = data.access_token;
   });
 
   test('upload clip through upload UI -> wait for READY (<= 180s)', async ({ page }) => {
-    test.skip(!fs.existsSync(testClipPath), 'Requires test clip file');
 
     // Login creator
     await page.goto('/login');
@@ -188,8 +190,15 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     request,
   }) => {
     // Use API or UI to delete video
-    const targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC');
-    test.skip(!targetVideo, 'Requires video to delete');
+    const targetVideo = manifest.videos?.find(
+      (v: any) =>
+        v.visibility === 'PUBLIC' &&
+        v.owner_handle === manifest.curator.handle &&
+        v.id !== manifest.videos[0].id,
+    );
+    if (!targetVideo) {
+      throw new Error('[persona:creator] No PUBLIC video owned by curator found to test delete');
+    }
 
     // Delete video via API with creator token
     const delRes = await request.delete(`/v1/videos/${targetVideo.id}`, {

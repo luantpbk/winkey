@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { comparePerf } from '../perf-budget.mjs';
 import { parseTap, parsePlaywright, buildSummaryMarkdown } from '../build-summary.mjs';
@@ -549,6 +550,46 @@ not ok 1 - auth
       assert.match(md, /rebuffer ratio \(non-seek\) 0\.20%/);
       assert.match(md, /GET \/v1\/videos.*12\.0 ms.*25\.0 ms/);
       assert.match(md, /\*\*Status\*\*: \*\*PASSED\*\*/);
+    });
+  });
+
+  describe('Playwright Config & Personas Manifest Resolution (Issue #321)', () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+
+    it('playwright.config.ts uses CommonJS __dirname without import.meta.url', () => {
+      const configPath = path.resolve(testDir, '../playwright.config.ts');
+      const content = fs.readFileSync(configPath, 'utf8');
+      assert.ok(!content.includes('import.meta'), 'playwright.config.ts must not contain import.meta');
+      assert.ok(!content.includes('fileURLToPath'), 'playwright.config.ts must not contain fileURLToPath');
+      assert.ok(!content.includes("from 'node:url'"), 'playwright.config.ts must not import node:url');
+      assert.ok(content.includes('__dirname'), 'playwright.config.ts must use __dirname');
+    });
+
+    it('personas/*.spec.ts resolve manifest relative to __dirname and throw on missing manifest', () => {
+      const personasDir = path.resolve(testDir, '../personas');
+      const files = fs.readdirSync(personasDir).filter((f) => f.endsWith('.spec.ts'));
+      assert.ok(files.length >= 4, 'Must have at least 4 persona spec files');
+
+      for (const file of files) {
+        const fullPath = path.join(personasDir, file);
+        const content = fs.readFileSync(fullPath, 'utf8');
+        assert.ok(
+          content.includes("path.resolve(__dirname, '../.run/seed-manifest.json')"),
+          `${file} must resolve manifest with path.resolve(__dirname, '../.run/seed-manifest.json')`,
+        );
+        assert.ok(
+          content.includes('throw new Error'),
+          `${file} must throw on missing manifest or required data`,
+        );
+        assert.ok(
+          !content.includes("|| { id: 'test-video' }"),
+          `${file} must not have fallback dummy video ID`,
+        );
+        assert.ok(
+          !content.includes("|| 'sim-invite-2026-auth-ok'"),
+          `${file} must not have fallback dummy invite code`,
+        );
+      }
     });
   });
 });

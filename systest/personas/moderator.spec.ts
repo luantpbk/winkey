@@ -2,14 +2,22 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const manifestPath = path.resolve(process.cwd(), 'systest/.run/seed-manifest.json');
-let manifest: any = null;
-if (fs.existsSync(manifestPath)) {
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch {
-    /* ignore */
-  }
+const manifestPath = path.resolve(__dirname, '../.run/seed-manifest.json');
+if (!fs.existsSync(manifestPath)) {
+  throw new Error(
+    `[persona:moderator] Missing seed-manifest.json at ${manifestPath}. Run seed before running personas.`,
+  );
+}
+const manifest: any = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+if (!manifest.users?.[0]?.email) {
+  throw new Error('[persona:moderator] Missing users[0].email in seed-manifest.json');
+}
+if (!manifest.moderator?.email) {
+  throw new Error('[persona:moderator] Missing moderator.email in seed-manifest.json');
+}
+if (!manifest.curator?.email) {
+  throw new Error('[persona:moderator] Missing curator.email in seed-manifest.json');
 }
 
 const PASSWORD = 'Password123!';
@@ -21,28 +29,27 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
 
   test.beforeAll(async ({ request }) => {
     // 1. Member login token
-    if (manifest?.users?.[0]) {
-      const uRes = await request.post('/v1/auth/login', {
-        data: { email: manifest.users[0].email, password: PASSWORD },
-      });
-      if (uRes.ok()) {
-        const data = await uRes.json();
-        memberToken = data.access_token;
-      }
+    const uRes = await request.post('/v1/auth/login', {
+      data: { email: manifest.users[0].email, password: PASSWORD },
+    });
+    if (!uRes.ok()) {
+      throw new Error(`[persona:moderator] Failed to login member: HTTP ${uRes.status()}`);
     }
+    memberToken = (await uRes.json()).access_token;
 
-    // 3. Moderator login token
-    if (manifest?.moderator) {
-      const mRes = await request.post('/v1/auth/login', {
-        data: { email: manifest.moderator.email, password: PASSWORD },
-      });
-      if (mRes.ok()) {
-        const data = await mRes.json();
-        modToken = data.access_token;
-      }
+    // 2. Moderator login token
+    const mRes = await request.post('/v1/auth/login', {
+      data: { email: manifest.moderator.email, password: PASSWORD },
+    });
+    if (!mRes.ok()) {
+      throw new Error(`[persona:moderator] Failed to login moderator: HTTP ${mRes.status()}`);
     }
+    modToken = (await mRes.json()).access_token;
 
-    targetVideo = manifest?.videos?.find((v: any) => v.visibility === 'PUBLIC');
+    targetVideo = manifest.videos?.find((v: any) => v.visibility === 'PUBLIC');
+    if (!targetVideo) {
+      throw new Error('[persona:moderator] No PUBLIC video found in seed-manifest.json');
+    }
   });
 
   test('member reports video -> moderator hides it -> owner sees notice, public gets 404 -> restore', async ({
@@ -50,7 +57,6 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     request,
     browser,
   }) => {
-    test.skip(!targetVideo, 'Requires target video');
 
     // 1. Member reports video
     const reportRes = await request.post('/v1/reports', {
