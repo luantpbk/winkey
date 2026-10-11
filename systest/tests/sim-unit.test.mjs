@@ -403,6 +403,41 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
     });
   });
 
+  describe('Early pnpm Dependency Guard in run.sh', () => {
+    const runScript = path.resolve(process.cwd(), 'systest/run.sh');
+
+    it('immediately aborts with clear error message when pnpm is missing in PATH', () => {
+      const tmpBin = fs.mkdtempSync(path.join(os.tmpdir(), 'winkey-no-pnpm-'));
+      try {
+        for (const bin of ['bash', 'dirname', 'uname', 'mkdir']) {
+          const binPath = `/bin/${bin}`;
+          const usrBinPath = `/usr/bin/${bin}`;
+          if (fs.existsSync(binPath)) {
+            try {
+              fs.symlinkSync(binPath, path.join(tmpBin, bin));
+            } catch {
+              /* ignore */
+            }
+          } else if (fs.existsSync(usrBinPath)) {
+            try {
+              fs.symlinkSync(usrBinPath, path.join(tmpBin, bin));
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        const res = spawnSync(runScript, ['--sim'], {
+          env: { PATH: tmpBin },
+          encoding: 'utf8',
+        });
+        assert.equal(res.status, 1);
+        assert.match(res.stderr, /'pnpm' command not found/);
+      } finally {
+        fs.rmSync(tmpBin, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('Summary Report Builder (build-summary.mjs)', () => {
     it('parses TAP logs with passed and failed counts', () => {
       const tapPassed = `

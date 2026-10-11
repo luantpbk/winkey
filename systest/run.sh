@@ -25,6 +25,11 @@ for arg in "$@"; do
   esac
 done
 
+if [ "${SIM}" -eq 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+  echo "[systest] ERROR: 'pnpm' command not found. Please install pnpm (version 12.6.0) before running in --sim mode." >&2
+  exit 1
+fi
+
 mkdir -p "${KEYS_DIR}" "${LOGS_DIR}" "${RUN_DIR}/report"
 
 if [ "${RESET}" -eq 1 ]; then
