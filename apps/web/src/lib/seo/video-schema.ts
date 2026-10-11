@@ -10,6 +10,7 @@ export interface VideoObjectSchema {
   duration: string;
   embedUrl: string;
   url: string;
+  keywords?: string;
   interactionStatistic: {
     '@type': 'InteractionCounter';
     interactionType: {
@@ -81,7 +82,7 @@ export function buildVideoObjectSchema(
   const channelUrl = `${baseUrl}/c/${video.owner.handle}`;
   const uploadDate = video.published_at || video.created_at;
 
-  return {
+  const schema: VideoObjectSchema = {
     '@context': 'https://schema.org',
     '@type': 'VideoObject',
     name: video.title,
@@ -104,6 +105,12 @@ export function buildVideoObjectSchema(
       url: channelUrl,
     },
   };
+
+  if (video.tags && video.tags.length > 0) {
+    schema.keywords = video.tags.join(', ');
+  }
+
+  return schema;
 }
 
 /**

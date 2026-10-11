@@ -58,6 +58,8 @@ export type VideoStats = VideoComponents['schemas']['VideoStats'];
 export type ChannelStatsDay = VideoComponents['schemas']['ChannelStatsDay'];
 export type ChannelStatsTopVideo = VideoComponents['schemas']['ChannelStatsTopVideo'];
 export type ChannelStats = VideoComponents['schemas']['ChannelStats'];
+export type TagSummary = VideoComponents['schemas']['TagSummary'];
+export type TagList = VideoComponents['schemas']['TagList'];
 
 export type Comment = SocialComponents['schemas']['Comment'];
 export type CommentPage = SocialComponents['schemas']['CommentPage'];

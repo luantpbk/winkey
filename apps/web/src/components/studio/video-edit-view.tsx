@@ -607,6 +607,9 @@ export function VideoEditView() {
               <p data-testid="tags-helper-text" className="text-xs text-gray-500">
                 {t('tagsHelper')}
               </p>
+              <p data-testid="tags-seo-helper-text" className="text-xs text-gray-500">
+                {t('tagsSeoHelper')}
+              </p>
               {fieldErrors.tags && (
                 <p data-testid="tags-error" className="text-xs text-red-500 mt-1">
                   {fieldErrors.tags}

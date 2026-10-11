@@ -55,6 +55,7 @@ import type {
   SeriesEpisode,
   SeriesEpisodeContext,
   SeriesSummary,
+  TagSummary,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -1547,6 +1548,7 @@ export const handlers = [
     const url = new URL(request.url);
     const ownerId = url.searchParams.get('owner_id');
     const sort = url.searchParams.get('sort');
+    const tag = url.searchParams.get('tag');
     const cursor = url.searchParams.get('cursor');
     const limit = parseInt(url.searchParams.get('limit') || '20', 10);
 
@@ -1558,6 +1560,19 @@ export const handlers = [
           status: 400,
           code: 'INVALID_SORT',
           detail: 'owner_id cannot be combined with sort=trending',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (tag && sort === 'trending') {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Invalid Sort',
+          status: 400,
+          code: 'INVALID_SORT',
+          detail: 'tag cannot be combined with sort=trending',
         },
         { status: 400 },
       );
@@ -1622,6 +1637,14 @@ export const handlers = [
     if (ownerId) {
       filtered = filtered.filter((v) => v.owner.id === ownerId);
     }
+    if (tag) {
+      const tagLower = tag.toLowerCase();
+      filtered = filtered.filter(
+        (v) =>
+          v.tag_slugs?.some((s) => s.toLowerCase() === tagLower) ||
+          v.tags?.some((t) => t.toLowerCase() === tagLower),
+      );
+    }
 
     const startIndex = cursor ? parseInt(cursor, 10) : 0;
     const items: VideoSummary[] = filtered.slice(startIndex, startIndex + limit).map((v) => ({
@@ -1644,6 +1667,145 @@ export const handlers = [
       next_cursor: nextCursor,
     };
     return HttpResponse.json(page);
+  }),
+
+  http.get('*/v1/tags', async ({ request }) => {
+    const url = new URL(request.url);
+    const minVideos = parseInt(url.searchParams.get('min_videos') || '1', 10);
+    const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+
+    const allVideos = getDynamicVideos().filter(
+      (v) => v.status === 'READY' && v.visibility === 'PUBLIC',
+    );
+
+    const tagMap = new Map<
+      string,
+      {
+        slug: string;
+        names: Map<string, number>;
+        video_count: number;
+        latest_published_at: string;
+      }
+    >();
+
+    for (const v of allVideos) {
+      const vTags = v.tags || [];
+      const vSlugs = v.tag_slugs || [];
+      for (let i = 0; i < vTags.length; i++) {
+        const name = vTags[i];
+        const slug = vSlugs[i];
+        if (!slug) continue;
+
+        let entry = tagMap.get(slug);
+        if (!entry) {
+          entry = {
+            slug,
+            names: new Map(),
+            video_count: 0,
+            latest_published_at: v.published_at || v.created_at,
+          };
+          tagMap.set(slug, entry);
+        }
+
+        entry.video_count++;
+        entry.names.set(name, (entry.names.get(name) || 0) + 1);
+        const pub = v.published_at || v.created_at;
+        if (pub > entry.latest_published_at) {
+          entry.latest_published_at = pub;
+        }
+      }
+    }
+
+    const items: TagSummary[] = Array.from(tagMap.values())
+      .filter((e) => e.video_count >= minVideos)
+      .map((e) => {
+        const sortedNames = Array.from(e.names.entries()).sort(
+          (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+        );
+        return {
+          slug: e.slug,
+          name: sortedNames[0]?.[0] || e.slug,
+          video_count: e.video_count,
+          latest_published_at: e.latest_published_at,
+        };
+      })
+      .sort((a, b) => b.video_count - a.video_count || a.slug.localeCompare(b.slug))
+      .slice(0, limit);
+
+    return HttpResponse.json(
+      { items },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=300',
+        },
+      },
+    );
+  }),
+
+  http.get('*/v1/tags/:tag', async ({ params }) => {
+    const rawTag = (params.tag as string) || '';
+    const decoded = decodeURIComponent(rawTag);
+    const tagLower = decoded.toLowerCase();
+
+    const allVideos = getDynamicVideos().filter(
+      (v) => v.status === 'READY' && v.visibility === 'PUBLIC',
+    );
+
+    const matchingVideos = allVideos.filter(
+      (v) =>
+        v.tag_slugs?.some((s) => s.toLowerCase() === tagLower) ||
+        v.tags?.some((t) => t.toLowerCase() === tagLower),
+    );
+
+    if (matchingVideos.length === 0) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Tag Not Found',
+          status: 404,
+          code: 'TAG_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const names = new Map<string, number>();
+    let canonicalSlug = '';
+    let latestPub = '';
+
+    for (const v of matchingVideos) {
+      const vTags = v.tags || [];
+      const vSlugs = v.tag_slugs || [];
+      for (let i = 0; i < vTags.length; i++) {
+        const name = vTags[i];
+        const slug = vSlugs[i];
+        if (slug.toLowerCase() === tagLower || name.toLowerCase() === tagLower) {
+          if (!canonicalSlug) canonicalSlug = slug;
+          names.set(name, (names.get(name) || 0) + 1);
+          const pub = v.published_at || v.created_at;
+          if (!latestPub || pub > latestPub) {
+            latestPub = pub;
+          }
+        }
+      }
+    }
+
+    const sortedNames = Array.from(names.entries()).sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    );
+
+    const tagSummary: TagSummary = {
+      slug: canonicalSlug || rawTag,
+      name: sortedNames[0]?.[0] || decoded,
+      video_count: matchingVideos.length,
+      latest_published_at: latestPub || new Date().toISOString(),
+    };
+
+    return HttpResponse.json(tagSummary, {
+      headers: {
+        'Cache-Control': 'public, max-age=60',
+      },
+    });
   }),
 
   http.get('*/v1/feed/subscriptions', async ({ request }) => {

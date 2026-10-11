@@ -174,6 +174,39 @@ export function WatchClientSection({ video }: { video: Video }) {
         >
           {isExpanded ? 'Thu gọn' : 'Xem thêm'}
         </button>
+
+        {/* Tags */}
+        {video.tags && video.tags.length > 0 && (
+          <div
+            data-testid="watch-tag-chips"
+            className="mt-3 flex flex-wrap gap-2 pt-3 border-t border-[#2e2e2e] dark:border-[#2e2e2e] border-gray-200"
+          >
+            {video.tags.map((tag, idx) => {
+              const slug = video.tag_slugs?.[idx];
+              if (slug && slug !== '') {
+                return (
+                  <Link
+                    key={`${tag}-${idx}`}
+                    href={`/tag/${slug}`}
+                    data-testid={`watch-tag-chip-${idx}`}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-[#272727] dark:bg-[#272727] bg-gray-200 text-red-500 dark:text-red-400 hover:underline hover:bg-[#333] transition"
+                  >
+                    #{tag}
+                  </Link>
+                );
+              }
+              return (
+                <span
+                  key={`${tag}-${idx}`}
+                  data-testid={`watch-tag-chip-${idx}`}
+                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-[#272727] dark:bg-[#272727] bg-gray-200 text-gray-400 dark:text-gray-400"
+                >
+                  #{tag}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Report Video Dialog */}
