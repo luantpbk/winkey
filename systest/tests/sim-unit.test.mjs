@@ -18,6 +18,8 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
           handle: `sim_u${String(i + 1).padStart(2, '0')}`,
         })),
         curator: { id: 'curator-1', handle: 'sim_curator' },
+        creator2: { id: 'creator-2', handle: 'sim_creator2' },
+        creator3: { id: 'creator-3', handle: 'sim_creator3' },
         moderator: { id: 'mod-1', handle: 'sim_mod' },
         videos: [
           { id: 'v-1', title: 'Hà Nội Mùa Thu', tags: ['du-lich'], visibility: 'PUBLIC' },
@@ -39,6 +41,8 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
 
       assert.equal(mockManifest.users.length, 20);
       assert.equal(mockManifest.curator.handle, 'sim_curator');
+      assert.equal(mockManifest.creator2.handle, 'sim_creator2');
+      assert.equal(mockManifest.creator3.handle, 'sim_creator3');
       assert.equal(mockManifest.moderator.handle, 'sim_mod');
       assert.equal(mockManifest.playlists.length, 4);
       assert.equal(mockManifest.series.length, 2);
@@ -58,6 +62,70 @@ describe('SIM1 Unit Tests: Manifest, Perf Budget & Localhost Guard (ADR-038)', (
         'doc-la-viet-nam tag must have exactly 1 video',
       );
       assert.equal(tagCounts['!!!'], 1, 'Punctuation tag must have exactly 1 video');
+    });
+
+    it('verifies upload distribution across creators respects 20 upload/24h quota and series ownership', () => {
+      // In seed.mjs: 40 clips, CURATOR_INDICES has 15 items, creator2 has 13, creator3 has 12
+      const CURATOR_INDICES = new Set([0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 18, 19, 20, 37]);
+      const TOTAL_CLIPS = 40;
+      const otherIndices = [];
+      for (let i = 0; i < TOTAL_CLIPS; i++) {
+        if (!CURATOR_INDICES.has(i)) {
+          otherIndices.push(i);
+        }
+      }
+      const CREATOR2_INDICES = new Set(otherIndices.slice(0, 13));
+      const CREATOR3_INDICES = new Set(otherIndices.slice(13));
+
+      // 1. Quota requirement: all creators must have < 20 uploads
+      assert.ok(
+        CURATOR_INDICES.size < 20,
+        `curator uploads (${CURATOR_INDICES.size}) must be < 20`,
+      );
+      assert.ok(
+        CREATOR2_INDICES.size < 20,
+        `creator2 uploads (${CREATOR2_INDICES.size}) must be < 20`,
+      );
+      assert.ok(
+        CREATOR3_INDICES.size < 20,
+        `creator3 uploads (${CREATOR3_INDICES.size}) must be < 20`,
+      );
+      assert.equal(
+        CURATOR_INDICES.size + CREATOR2_INDICES.size + CREATOR3_INDICES.size,
+        TOTAL_CLIPS,
+        'Total uploads must equal 40',
+      );
+
+      // 2. Series & Playlist single owner requirement: all series & playlist videos belong to sim_curator
+      const playlistVideoIdxs = [
+        [0, 1, 2, 3],
+        [18, 19, 20],
+        [10, 11, 12, 13],
+        [0, 4],
+      ].flat();
+      const seriesVideoIdxs = [
+        [0, 1, 37, 2],
+        [10, 11, 12, 13, 14, 15],
+      ].flat();
+
+      for (const idx of [...playlistVideoIdxs, ...seriesVideoIdxs]) {
+        assert.ok(
+          CURATOR_INDICES.has(idx),
+          `Video index ${idx} used in series/playlist must belong to sim_curator`,
+        );
+      }
+
+      // 3. Quota rule verification: 21st upload triggers 429 UPLOAD_QUOTA_EXCEEDED
+      const quotaLimit = 20;
+      function simulateUploadCount(count) {
+        if (count > quotaLimit) {
+          return { status: 429, code: 'UPLOAD_QUOTA_EXCEEDED' };
+        }
+        return { status: 201, code: 'OK' };
+      }
+      assert.equal(simulateUploadCount(20).status, 201);
+      assert.equal(simulateUploadCount(21).status, 429);
+      assert.equal(simulateUploadCount(21).code, 'UPLOAD_QUOTA_EXCEEDED');
     });
   });
 

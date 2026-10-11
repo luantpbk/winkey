@@ -549,17 +549,26 @@ async function main() {
     users.push({ handle, email, displayName, id: u.user.id, token: u.token });
   }
 
-  // 2. Ensure Creator-Curator (sim_curator)
-  console.log('[seed] Registering creator-curator (sim_curator)...');
+  // 2. Ensure Creators (sim_curator, sim_creator2, sim_creator3)
+  // Quota is 20 uploads/24h per account. We split 40 clips across 3 creators so all have < 20.
+  console.log('[seed] Registering creators (sim_curator, sim_creator2, sim_creator3)...');
   const curator = await ensureUser(
     'sim_curator',
     'sim_curator@winkey.test',
     'Winkey Cinema Curator',
   );
+  curator.handle = 'sim_curator';
+
+  const creator2 = await ensureUser('sim_creator2', 'sim_creator2@winkey.test', 'Winkey Creator 2');
+  creator2.handle = 'sim_creator2';
+
+  const creator3 = await ensureUser('sim_creator3', 'sim_creator3@winkey.test', 'Winkey Creator 3');
+  creator3.handle = 'sim_creator3';
 
   // 3. Ensure Moderator (sim_mod) & elevate role
   console.log('[seed] Registering moderator (sim_mod)...');
   const moderator = await ensureUser('sim_mod', 'sim_mod@winkey.test', 'Kiểm Duyệt Viên Winkey');
+  moderator.handle = 'sim_mod';
 
   try {
     console.log('[seed] Elevating moderator roles in DB via psql...');
@@ -582,27 +591,50 @@ async function main() {
     );
   }
 
-  // 4. Upload 40 short clips by curator
-  console.log(`[seed] Uploading and transcoding ${VIDEO_DEFINITIONS.length} videos...`);
-  const uploadedVideos = [];
+  // 4. Upload 40 short clips concurrently (concurrency 4)
+  // sim_curator retains all videos used for series and playlists (15 videos, < 20).
+  // Remaining 25 videos are split between sim_creator2 (13 videos, < 20) and sim_creator3 (12 videos, < 20).
+  const CURATOR_INDICES = new Set([0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 18, 19, 20, 37]);
+  const otherIndices = [];
   for (let i = 0; i < VIDEO_DEFINITIONS.length; i++) {
+    if (!CURATOR_INDICES.has(i)) {
+      otherIndices.push(i);
+    }
+  }
+  const CREATOR2_INDICES = new Set(otherIndices.slice(0, 13));
+  const CREATOR3_INDICES = new Set(otherIndices.slice(13));
+
+  function getOwner(idx) {
+    if (CURATOR_INDICES.has(idx)) return curator;
+    if (CREATOR2_INDICES.has(idx)) return creator2;
+    return creator3;
+  }
+
+  console.log(
+    `[seed] Uploading and transcoding ${VIDEO_DEFINITIONS.length} videos concurrently (concurrency: 4)...`,
+  );
+  const uploadedVideos = new Array(VIDEO_DEFINITIONS.length);
+
+  async function processVideo(i) {
     const def = VIDEO_DEFINITIONS[i];
+    const owner = getOwner(i);
     const clipBuf = def.is16x9 ? buf16x9 : buf9x16;
-    process.stdout.write(
-      `[seed] [${i + 1}/${VIDEO_DEFINITIONS.length}] Uploading "${def.title}"... `,
+
+    console.log(
+      `[seed] [${i + 1}/${VIDEO_DEFINITIONS.length}] (${owner.handle}) Uploading "${def.title}"...`,
     );
 
-    const up = await uploadClip(curator.token, clipBuf, def.title, def.desc, def.vis, def.tags);
+    const up = await uploadClip(owner.token, clipBuf, def.title, def.desc, def.vis, def.tags);
 
     // Poll until READY
     const readyVideo = await waitForReady(up.videoId);
 
-    // Apply tags & visibility via PATCH
+    // Apply tags & visibility via PATCH using the video owner's token
     await request(`${GATEWAY_URL}/v1/videos/${up.videoId}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${curator.token}`,
+        Authorization: `Bearer ${owner.token}`,
       },
       body: JSON.stringify({
         title: def.title,
@@ -612,7 +644,11 @@ async function main() {
       }),
     });
 
-    uploadedVideos.push({
+    console.log(
+      `[seed] [${i + 1}/${VIDEO_DEFINITIONS.length}] (${owner.handle}) READY (${readyVideo.slug || up.videoId})`,
+    );
+
+    uploadedVideos[i] = {
       id: up.videoId,
       title: def.title,
       description: def.desc,
@@ -621,9 +657,21 @@ async function main() {
       slug: readyVideo.slug || up.videoId,
       duration_sec: 6,
       aspect_ratio: def.is16x9 ? '16:9' : '9:16',
-    });
-    console.log(`READY (${readyVideo.slug || up.videoId})`);
+      owner_handle: owner.handle,
+    };
   }
+
+  const CONCURRENCY = 4;
+  let nextIdx = 0;
+
+  async function worker() {
+    while (nextIdx < VIDEO_DEFINITIONS.length) {
+      const idx = nextIdx++;
+      await processVideo(idx);
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
   // 5. Create 4 Playlists
   console.log('[seed] Creating 4 playlists...');
@@ -796,6 +844,8 @@ async function main() {
       displayName: u.displayName,
     })),
     curator: { id: curator.user.id, handle: 'sim_curator', email: 'sim_curator@winkey.test' },
+    creator2: { id: creator2.user.id, handle: 'sim_creator2', email: 'sim_creator2@winkey.test' },
+    creator3: { id: creator3.user.id, handle: 'sim_creator3', email: 'sim_creator3@winkey.test' },
     moderator: { id: moderator.user.id, handle: 'sim_mod', email: 'sim_mod@winkey.test' },
     videos: uploadedVideos,
     playlists,
