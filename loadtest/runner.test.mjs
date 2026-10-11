@@ -1,7 +1,7 @@
 /* global process */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, execFile } from 'node:child_process';
+import { execFileSync, execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -77,7 +77,7 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
   it('refuses to run outside allowed window when targeting winkey.vn', () => {
     try {
       execFileSync('./loadtest/lt2-run.sh', [], {
-        env: { ...process.env, TARGET_URL: 'https://winkey.vn' },
+        env: { ...process.env, TARGET_URL: 'https://winkey.vn', CURRENT_TIME: '0859' },
         encoding: 'utf8',
         stdio: 'pipe',
       });
@@ -85,6 +85,55 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
     } catch (err) {
       assert.equal(err.status, 1);
       assert.match(err.stderr || err.stdout, /02:00–03:30 Asia\/Ho_Chi_Minh/);
+    }
+  });
+
+  describe('Window safety gate decimal comparison & clock injection (Issue #315)', () => {
+    const refuseCases = [
+      { time: '0859', desc: '0859 (octal hour 08 outside window)' },
+      { time: '0159', desc: '0159 (1 min before window)' },
+      { time: '0331', desc: '0331 (1 min after window)' },
+      { time: 'garbage', desc: 'garbage (non-numeric time input, fail closed)' },
+    ];
+
+    for (const { time, desc } of refuseCases) {
+      it(`refuses execution outside window or invalid time: ${desc}`, () => {
+        const res = spawnSync('./loadtest/lt2-run.sh', [], {
+          env: { ...process.env, TARGET_URL: 'https://winkey.vn', CURRENT_TIME: time },
+          encoding: 'utf8',
+        });
+        assert.equal(res.status, 1);
+        assert.match(
+          res.stderr || res.stdout,
+          /strictly gated to 02:00–03:30|Failed to read or parse/,
+        );
+      });
+    }
+
+    const allowCases = [
+      { time: '0200', desc: '0200 (boundary start of window)' },
+      { time: '0208', desc: '0208 (octal minute 08 inside window)' },
+      { time: '0259', desc: '0259 (inside window)' },
+      { time: '0330', desc: '0330 (boundary end of window)' },
+    ];
+
+    for (const { time, desc } of allowCases) {
+      it(`allows execution inside window: ${desc}`, () => {
+        const res = spawnSync('./loadtest/lt2-run.sh', [], {
+          env: {
+            ...process.env,
+            TARGET_URL: 'https://winkey.vn',
+            CURRENT_TIME: time,
+            EDGE_METRICS_URL: 'http://127.0.0.1:1/invalid',
+          },
+          encoding: 'utf8',
+          timeout: 2000,
+        });
+        const out = (res.stdout || '') + (res.stderr || '');
+        assert.doesNotMatch(out, /strictly gated to 02:00–03:30/);
+        assert.doesNotMatch(out, /Failed to read or parse/);
+        assert.match(out, /Starting platform safety watchdog/);
+      });
     }
   });
 

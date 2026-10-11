@@ -13,10 +13,15 @@ TARGET_URL="${TARGET_URL:-https://winkey.vn}"
 
 # Window safety gate: refuse execution on winkey.vn outside 02:00–03:30 Asia/Ho_Chi_Minh
 if [[ "${TARGET_URL}" == *"winkey.vn"* ]]; then
-  CURRENT_TIME=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M")
-  if [[ "${CURRENT_TIME}" -lt 0200 || "${CURRENT_TIME}" -gt 0330 ]]; then
+  CURRENT_TIME="${CURRENT_TIME:-$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || true)}"
+  if [[ -z "${CURRENT_TIME}" || ! "${CURRENT_TIME}" =~ ^[0-9]{4}$ ]]; then
+    echo "ERROR: Failed to read or parse Asia/Ho_Chi_Minh time for window gate (fail closed)." >&2
+    exit 1
+  fi
+  now=$((10#$CURRENT_TIME))
+  if (( now < 200 || now > 330 )); then
     echo "ERROR: Production run on winkey.vn is strictly gated to 02:00–03:30 Asia/Ho_Chi_Minh timezone window." >&2
-    echo "Current VN time: $(TZ="Asia/Ho_Chi_Minh" date +"%Y-%m-%d %H:%M:%S %Z")" >&2
+    echo "Current VN time (HHMM): ${CURRENT_TIME}" >&2
     exit 1
   fi
 fi
