@@ -133,6 +133,16 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
       console.log(`[HLS playback api error] ${err?.message}`);
     }
 
+    // Set up response watchers for HLS master playlist and media segment (.m4s / .ts)
+    const masterResponsePromise = page.waitForResponse(
+      (res) => res.url().includes('master.m3u8') && res.status() === 200,
+      { timeout: 25000 },
+    );
+    const segmentResponsePromise = page.waitForResponse(
+      (res) => (res.url().includes('.m4s') || res.url().includes('.ts')) && res.status() === 200,
+      { timeout: 25000 },
+    );
+
     await page.goto(`/watch/${firstPublicVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
 
@@ -145,7 +155,7 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
     if (await playBtn.isVisible()) {
       await playBtn.click();
     } else {
-      await video.click({ force: true });
+      await video.click({ force: true }).catch(() => {});
     }
     await page.evaluate(() => {
       const v = document.querySelector('video');
@@ -154,6 +164,13 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
         v.play().catch(() => {});
       }
     });
+
+    // Verify HLS master and first segment load successfully
+    const masterRes = await masterResponsePromise;
+    expect(masterRes.status()).toBe(200);
+
+    const segmentRes = await segmentResponsePromise;
+    expect(segmentRes.status()).toBe(200);
 
     // Wait for player to reach playing (readyState >= 2 || currentTime > 0)
     await expect

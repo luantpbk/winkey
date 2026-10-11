@@ -64,15 +64,15 @@ Standard Dev Values:
 - **S3 Endpoint (Internal)**: `http://garage:3900`
 - **S3 Endpoint (Public / Local)**: `http://localhost:3900`
 - **Buckets**:
-  - `winkey-raw`: Input video uploads (CORS enabled for `http://localhost:3000`)
+  - `winkey-raw`: Input video uploads (CORS enabled for `http://localhost:3000` and `http://127.0.0.1:8080`)
   - `winkey-media`: Transcoded HLS playlists and fragments (website enabled)
   - `winkey-backups`: Nightly database backups
 
 ### CORS Verification on `winkey-raw`
-To verify that browser multipart uploads can access `winkey-raw` from `http://localhost:3000`:
+To verify that browser multipart uploads can access `winkey-raw` from `http://localhost:3000` or `http://127.0.0.1:8080`:
 ```bash
 curl -X OPTIONS \
-  -H "Origin: http://localhost:3000" \
+  -H "Origin: http://127.0.0.1:8080" \
   -H "Access-Control-Request-Method: PUT" \
   -H "Access-Control-Request-Headers: Content-Type,ETag" \
   -i http://localhost:3900/winkey-raw/test
@@ -80,7 +80,7 @@ curl -X OPTIONS \
 Expected headers in response:
 ```http
 HTTP/1.1 200 OK
-Access-Control-Allow-Origin: http://localhost:3000
+Access-Control-Allow-Origin: http://127.0.0.1:8080
 Access-Control-Allow-Methods: PUT, GET, HEAD
 Access-Control-Expose-Headers: ETag
 Access-Control-Max-Age: 3600

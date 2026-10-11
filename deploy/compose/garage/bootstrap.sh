@@ -111,13 +111,13 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# 5. Put CORS on winkey-raw: AllowedOrigins http://localhost:3000, AllowedMethods PUT/GET/HEAD, AllowedHeaders *, ExposeHeaders ETag, MaxAge 3600
+# 5. Put CORS on winkey-raw: AllowedOrigins http://localhost:3000, http://127.0.0.1:8080, AllowedMethods PUT/GET/HEAD, AllowedHeaders *, ExposeHeaders ETag, MaxAge 3600
 echo "Configuring CORS on winkey-raw..."
 cat <<EOF > /tmp/cors.json
 {
   "CORSRules": [
     {
-      "AllowedOrigins": ["http://localhost:3000"],
+      "AllowedOrigins": ["http://localhost:3000", "http://127.0.0.1:8080"],
       "AllowedMethods": ["PUT", "GET", "HEAD"],
       "AllowedHeaders": ["*"],
       "ExposeHeaders": ["ETag"],
