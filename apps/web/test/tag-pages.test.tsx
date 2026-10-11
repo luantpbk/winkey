@@ -519,7 +519,7 @@ describe('SEO2-web: Tag Landing Pages & Discoverability (ADR-037)', () => {
     });
 
     it('generates sitemap with tag URLs containing lastmod, daily changefreq, and 0.6 priority', () => {
-      const xml = generateSitemapXml([mockVideo1], [mockTagPhimNgan]);
+      const xml = generateSitemapXml([mockVideo1], { tags: [mockTagPhimNgan] });
 
       expect(xml).toContain('<loc>https://winkey.vn/tag/phim-ngan</loc>');
       expect(xml).toContain(`<lastmod>${mockTagPhimNgan.latest_published_at}</lastmod>`);

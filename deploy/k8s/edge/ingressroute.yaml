@@ -132,7 +132,7 @@ spec:
           namespace: default
 
     # 5a. Video, Studio, Feed, Search & Playback routes (external, with rate-limiting)
-    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`))'
+    - match: '(Host(`winkey.vn`) || Host(`www.winkey.vn`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`) || PathPrefix(`/v1/tags`))'
       kind: Rule
       priority: 80
       middlewares:
@@ -148,7 +148,7 @@ spec:
           namespace: default
 
     # 5b. Video, Studio, Feed, Search & Playback routes (in-cluster SSR, separate router without rate-limiting)
-    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`))'
+    - match: '(Host(`traefik.kube-system.svc`) || Host(`traefik.kube-system.svc.cluster.local`)) && (PathPrefix(`/v1/videos`) || PathPrefix(`/v1/studio`) || PathPrefix(`/v1/feed`) || PathPrefix(`/v1/search`) || PathPrefix(`/v1/playback`) || PathPrefix(`/v1/tags`))'
       kind: Rule
       priority: 80
       middlewares:

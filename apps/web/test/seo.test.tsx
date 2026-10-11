@@ -318,7 +318,10 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
       }));
 
-      const xml = generateSitemapXml(dummyVideos, 'https://winkey.vn', 50000);
+      const xml = generateSitemapXml(dummyVideos, {
+        siteBaseUrl: 'https://winkey.vn',
+        maxUrls: 50000,
+      });
       const urlCount = (xml.match(/<url>/g) || []).length;
       expect(urlCount).toBeLessThanOrEqual(50000);
     });
@@ -336,7 +339,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         },
       ];
 
-      const xml = generateSitemapXml(sampleVideos, 'https://winkey.vn');
+      const xml = generateSitemapXml(sampleVideos, { siteBaseUrl: 'https://winkey.vn' });
 
       expect(xml).toContain('xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"');
       expect(xml).toContain('<loc>https://winkey.vn</loc>');
@@ -490,7 +493,9 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
     });
 
     it('serves stale cached XML when page 2 fails and a prior cache exists', async () => {
-      const staleXml = generateSitemapXml([mockPublicVideoSummary], 'https://winkey.vn');
+      const staleXml = generateSitemapXml([mockPublicVideoSummary], {
+        siteBaseUrl: 'https://winkey.vn',
+      });
       setSitemapCacheForTesting(staleXml, Date.now() - 5000); // expired cache
 
       global.fetch = vi.fn().mockImplementation(async (url: string) => {

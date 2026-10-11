@@ -84,31 +84,23 @@ export async function fetchTagsForSitemap(apiBaseUrl: string): Promise<TagSummar
   return data.items || [];
 }
 
+export interface GenerateSitemapXmlOptions {
+  tags?: TagSummary[];
+  siteBaseUrl?: string;
+  maxUrls?: number;
+}
+
 /**
  * Generates Google-compliant XML sitemap including static routes, creator channels,
  * VideoObject-compatible <video:video> elements, and tag URLs. Capped at 50,000 URLs.
  */
 export function generateSitemapXml(
   videos: VideoSummary[],
-  tagsOrSiteBaseUrl: TagSummary[] | string = [],
-  siteBaseUrlOrMaxUrls: string | number = 'https://winkey.vn',
-  maxUrlsArg = 50000,
+  options: GenerateSitemapXmlOptions = {},
 ): string {
-  let tags: TagSummary[] = [];
-  let siteBaseUrl = 'https://winkey.vn';
-  let maxUrls = 50000;
-
-  if (Array.isArray(tagsOrSiteBaseUrl)) {
-    tags = tagsOrSiteBaseUrl;
-    siteBaseUrl =
-      typeof siteBaseUrlOrMaxUrls === 'string' ? siteBaseUrlOrMaxUrls : 'https://winkey.vn';
-    maxUrls = typeof maxUrlsArg === 'number' ? maxUrlsArg : 50000;
-  } else if (typeof tagsOrSiteBaseUrl === 'string') {
-    siteBaseUrl = tagsOrSiteBaseUrl;
-    if (typeof siteBaseUrlOrMaxUrls === 'number') {
-      maxUrls = siteBaseUrlOrMaxUrls;
-    }
-  }
+  const tags = options.tags ?? [];
+  const siteBaseUrl = options.siteBaseUrl ?? 'https://winkey.vn';
+  const maxUrls = options.maxUrls ?? 50000;
 
   const urls: string[] = [];
 
@@ -244,7 +236,7 @@ export async function getCachedSitemapXml(
       fetchPublicVideosForSitemap(apiBaseUrl, 50000),
       fetchTagsForSitemap(apiBaseUrl),
     ]);
-    const xml = generateSitemapXml(videos, tags, siteBaseUrl);
+    const xml = generateSitemapXml(videos, { tags, siteBaseUrl });
     sitemapCache = {
       xml,
       expiresAt: Date.now() + SITEMAP_CACHE_TTL_MS,
