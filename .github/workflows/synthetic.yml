@@ -30,7 +30,7 @@ jobs:
           node-version: '22'
 
       - name: Restore synthetic state cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .synthetic-state
           key: synthetic-state-${{ github.run_id }}
@@ -68,3 +68,16 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           node deploy/synthetic/alert-manager.mjs .synthetic/output.log
+
+      - name: Save synthetic state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .synthetic-state
+          key: synthetic-state-${{ github.run_id }}
+
+      - name: Enforce probe result
+        if: steps.probe.outputs.exit_code != '0'
+        run: |
+          echo "::error::Synthetic monitoring probe checks failed"
+          exit 1

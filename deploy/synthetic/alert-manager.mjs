@@ -307,7 +307,7 @@ async function main() {
   }
 
   if (!isAllGreen) {
-    process.exit(1);
+    console.log('[alert-manager] Recorded failure state. Exiting.');
   }
 }
 
