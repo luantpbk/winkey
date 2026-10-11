@@ -1,9 +1,10 @@
 /* global process */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, execFile } from 'node:child_process';
+import { execFileSync, execFile, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 function computeSummary(data) {
@@ -28,6 +29,16 @@ function computeSummary(data) {
     stall_ms_noseek: stallNoseek,
     stall_ms_seek: stallSeek,
   };
+}
+
+function createDateShim(hhmm) {
+  const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt2-date-'));
+  fs.writeFileSync(
+    path.join(shimDir, 'date'),
+    `#!/usr/bin/env bash\nif [[ "$*" == *"+%H%M"* ]]; then echo "${hhmm}"; else exec /bin/date "$@"; fi\n`,
+    { mode: 0o755 },
+  );
+  return shimDir;
 }
 
 describe('LT2 v2 Runner & Summary Math Tests', () => {
@@ -75,9 +86,14 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
   });
 
   it('refuses to run outside allowed window when targeting winkey.vn', () => {
+    const shimDir = createDateShim('0859');
     try {
       execFileSync('./loadtest/lt2-run.sh', [], {
-        env: { ...process.env, TARGET_URL: 'https://winkey.vn' },
+        env: {
+          ...process.env,
+          PATH: `${shimDir}:${process.env.PATH}`,
+          TARGET_URL: 'https://winkey.vn',
+        },
         encoding: 'utf8',
         stdio: 'pipe',
       });
@@ -85,7 +101,96 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
     } catch (err) {
       assert.equal(err.status, 1);
       assert.match(err.stderr || err.stdout, /02:00–03:30 Asia\/Ho_Chi_Minh/);
+    } finally {
+      fs.rmSync(shimDir, { recursive: true, force: true });
     }
+  });
+
+  describe('Window safety gate decimal comparison & date shim clock injection (Issue #315 / PR #317)', () => {
+    const refuseCases = [
+      { time: '0859', desc: '0859 (octal hour 08 outside window)' },
+      { time: '0159', desc: '0159 (1 min before window)' },
+      { time: '0331', desc: '0331 (1 min after window)' },
+      { time: 'garbage', desc: 'garbage (non-numeric time input, fail closed)' },
+    ];
+
+    for (const { time, desc } of refuseCases) {
+      it(`refuses execution outside window or invalid time: ${desc}`, () => {
+        const shimDir = createDateShim(time);
+        try {
+          const res = spawnSync('./loadtest/lt2-run.sh', [], {
+            env: {
+              ...process.env,
+              PATH: `${shimDir}:${process.env.PATH}`,
+              TARGET_URL: 'https://winkey.vn',
+            },
+            encoding: 'utf8',
+          });
+          assert.equal(res.status, 1);
+          assert.match(
+            res.stderr || res.stdout,
+            /strictly gated to 02:00–03:30|Failed to read or parse/,
+          );
+        } finally {
+          fs.rmSync(shimDir, { recursive: true, force: true });
+        }
+      });
+    }
+
+    const allowCases = [
+      { time: '0200', desc: '0200 (boundary start of window)' },
+      { time: '0208', desc: '0208 (octal minute 08 inside window)' },
+      { time: '0259', desc: '0259 (inside window)' },
+      { time: '0330', desc: '0330 (boundary end of window)' },
+    ];
+
+    for (const { time, desc } of allowCases) {
+      it(`allows execution inside window: ${desc}`, () => {
+        const shimDir = createDateShim(time);
+        try {
+          // Keep EDGE_METRICS_URL dead so preflight can never pass in CI and no load is ever generated
+          const res = spawnSync('./loadtest/lt2-run.sh', [], {
+            env: {
+              ...process.env,
+              PATH: `${shimDir}:${process.env.PATH}`,
+              TARGET_URL: 'https://winkey.vn',
+              EDGE_METRICS_URL: 'http://127.0.0.1:1/invalid',
+            },
+            encoding: 'utf8',
+            timeout: 2000,
+          });
+          const out = (res.stdout || '') + (res.stderr || '');
+          assert.doesNotMatch(out, /strictly gated to 02:00–03:30/);
+          assert.doesNotMatch(out, /Failed to read or parse/);
+          assert.match(out, /Starting platform safety watchdog/);
+        } finally {
+          fs.rmSync(shimDir, { recursive: true, force: true });
+        }
+      });
+    }
+
+    it('regression: CURRENT_TIME=0300 in env + shim returning 0859 strictly REFUSES (env bypass prohibited)', () => {
+      const shimDir = createDateShim('0859');
+      try {
+        const res = spawnSync('./loadtest/lt2-run.sh', [], {
+          env: {
+            ...process.env,
+            PATH: `${shimDir}:${process.env.PATH}`,
+            TARGET_URL: 'https://winkey.vn',
+            CURRENT_TIME: '0300', // Deliberate attempt to bypass window via env
+          },
+          encoding: 'utf8',
+        });
+        assert.equal(
+          res.status,
+          1,
+          'Script must refuse based on date command, ignoring CURRENT_TIME env',
+        );
+        assert.match(res.stderr || res.stdout, /strictly gated to 02:00–03:30/);
+      } finally {
+        fs.rmSync(shimDir, { recursive: true, force: true });
+      }
+    });
   });
 
   it('bypasses window refusal when TARGET_URL is non-winkey.vn local address', async () => {
