@@ -13,7 +13,7 @@ TARGET_URL="${TARGET_URL:-https://winkey.vn}"
 
 # Window safety gate: refuse execution on winkey.vn outside 02:00–03:30 Asia/Ho_Chi_Minh
 if [[ "${TARGET_URL}" == *"winkey.vn"* ]]; then
-  CURRENT_TIME="${CURRENT_TIME:-$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || true)}"
+  CURRENT_TIME=$(TZ="Asia/Ho_Chi_Minh" date +"%H%M" 2>/dev/null || true)
   if [[ -z "${CURRENT_TIME}" || ! "${CURRENT_TIME}" =~ ^[0-9]{4}$ ]]; then
     echo "ERROR: Failed to read or parse Asia/Ho_Chi_Minh time for window gate (fail closed)." >&2
     exit 1
