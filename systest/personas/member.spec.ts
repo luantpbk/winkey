@@ -310,10 +310,10 @@ test.describe.serial('Persona: member (The "Lưu" Refresh-Token Regression, ADR-
       await expect(page.locator('h1')).toBeVisible();
     }
 
-    // 1. Like / Unlike
+    // 1. Like / Unlike (DOM: <button type="button" aria-label="Thích"|"Đã thích" aria-pressed={liked}>)
     const likeBtn = page
-      .getByRole('button', { name: /thích/i })
-      .or(page.locator('button[aria-pressed]'))
+      .locator('button[aria-label="Thích"], button[aria-label="Đã thích"], button[aria-pressed]')
+      .or(page.getByRole('button', { name: /thích|like/i }))
       .first();
     if (await likeBtn.isVisible()) {
       await likeBtn.click();

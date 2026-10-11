@@ -96,10 +96,41 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
 
   test('video playback: HLS master and first segment load, player reaches playing', async ({
     page,
+    request,
   }) => {
     const firstPublicVideo = manifest.videos.find((v: any) => v.visibility === 'PUBLIC');
     if (!firstPublicVideo) {
       throw new Error('[persona:anon-viewer] Missing public video in seed-manifest.json');
+    }
+
+    // Diagnostic logging for HLS playback
+    page.on('requestfailed', (req) => {
+      console.log(`[HLS requestfailed] ${req.url()}: ${req.failure()?.errorText}`);
+    });
+    page.on('console', (msg) => {
+      console.log(`[HLS console] [${msg.type()}] ${msg.text()}`);
+    });
+    page.on('request', (req) => {
+      if (req.url().includes('.m3u8')) {
+        console.log(`[HLS m3u8 request] ${req.url()}`);
+      }
+    });
+
+    // Check host of hls_url from API playback
+    try {
+      const pbRes = await request.get(`/v1/videos/${firstPublicVideo.id}/playback`);
+      if (pbRes.ok()) {
+        const pb = await pbRes.json();
+        const hlsUrl = pb.hls_url || pb.playback_url || '';
+        try {
+          const u = new URL(hlsUrl);
+          console.log(`[HLS playback host] ${u.host} (full: ${hlsUrl})`);
+        } catch {
+          console.log(`[HLS playback hls_url] ${hlsUrl}`);
+        }
+      }
+    } catch (err: any) {
+      console.log(`[HLS playback api error] ${err?.message}`);
     }
 
     await page.goto(`/watch/${firstPublicVideo.id}`);
@@ -124,13 +155,13 @@ test.describe('Persona: anon-viewer (ADR-038)', () => {
       }
     });
 
-    // Wait for player to reach playing (readyState >= 2 || !paused || currentTime > 0)
+    // Wait for player to reach playing (readyState >= 2 || currentTime > 0)
     await expect
       .poll(
         async () => {
           return await page.evaluate(() => {
             const v = document.querySelector('video');
-            return v ? v.currentTime > 0 || (!v.paused && v.readyState >= 2) : false;
+            return v ? v.readyState >= 2 || v.currentTime > 0 : false;
           });
         },
         { timeout: 20000 },

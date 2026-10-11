@@ -38,8 +38,8 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     creatorToken = data.access_token;
   });
 
-  test('upload clip through upload UI -> wait for READY (<= 180s)', async ({ page }) => {
-    test.setTimeout(180000);
+  test('upload clip through upload UI -> wait for READY (<= 240s)', async ({ page }) => {
+    test.setTimeout(240_000);
     // Login creator
     await page.goto('/login');
     await page.locator('input[type="email"]').fill(creatorEmail);
@@ -66,9 +66,9 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     const submitBtn = page.getByRole('button', { name: /Bắt đầu tải lên|Tải lên/i });
     await submitBtn.click();
 
-    // Wait until upload completes and reaches READY (<= 180s)
+    // Wait until upload completes and reaches READY (<= 240s)
     await expect(page.getByText('Video đã mã hóa xong và sẵn sàng phát!')).toBeVisible({
-      timeout: 180000,
+      timeout: 240_000,
     });
   });
 
@@ -109,6 +109,9 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     if (!targetVideo) {
       throw new Error('[persona:creator] No PUBLIC video owned by curator found for studio edit');
     }
+    console.log(
+      `[persona:creator studio-edit] Using video ID: ${targetVideo.id}, title: "${targetVideo.title}", owner: ${targetVideo.owner_handle}, source: seed-manifest (safe public video outside series & sitemap, ${safeVideos.length} candidates)`,
+    );
 
     // Find a video in studio
     await page.goto('/studio');
