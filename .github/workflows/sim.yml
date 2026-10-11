@@ -1,18 +1,31 @@
-# Simulated-user run on an ephemeral full stack (ADR-038, bootstrap of SIM1).
-# Three independent stacks run in parallel; all three must pass ("3 green runs" without waiting for nights).
-# Owner after bootstrap: Antigravity 2 (extends it with the SIM1 personas, perf budget and nightly schedule).
+---
+# Simulated-user run on an ephemeral full stack (ADR-038, SIM1).
+# Three independent stacks run in parallel; all three must pass.
+# Owned by Antigravity 2: nightly schedule, perf baseline, issue-on-red, and summary.
 name: sim
 
-on:
+'on':
+  schedule:
+    - cron: '17 20 * * *'
   workflow_dispatch:
+    inputs:
+      test_nightly_alert:
+        description: 'Simulate nightly alert behavior (open/close issue on red/green)'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/sim.yml'
+      - 'services/**'
+      - 'apps/web/**'
+      - 'db/migrations/**'
       - 'systest/**'
       - 'loadtest/**'
 
 permissions:
   contents: read
+  issues: write
+  actions: read
 
 concurrency:
   group: sim-${{ github.ref }}
@@ -28,9 +41,11 @@ jobs:
       matrix:
         run: [1, 2, 3]
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - name: Setup Node
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -40,65 +55,184 @@ jobs:
       - name: Compose env
         run: cp deploy/compose/.env.example deploy/compose/.env
 
-      - name: System tests (12 scenarios, real services)
-        run: ./systest/run.sh --reset
-
-      - name: Seed load-test data (20 users, 5 videos)
+      - name: Download perf baseline
         env:
-          NUM_USERS: '20'
-          NUM_VIDEOS: '5'
-        run: ./loadtest/seed.sh
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p systest/.run/report
+          RUN_ID=$(gh run list --workflow sim.yml --branch main --status success \
+            --event schedule --limit 1 --json databaseId \
+            --jq '.[0].databaseId // empty' 2>/dev/null || true)
+          if [ -n "$RUN_ID" ]; then
+            echo "Found previous successful nightly run: $RUN_ID"
+            gh run download "$RUN_ID" -n perf-baseline -D systest/.run/baseline 2>/dev/null || true
+            if [ -f "systest/.run/baseline/perf.json" ]; then
+              cp systest/.run/baseline/perf.json systest/.run/report/baseline-perf.json
+              echo "Baseline loaded into systest/.run/report/baseline-perf.json"
+            fi
+          else
+            echo "No previous nightly baseline found. Run will establish baseline."
+          fi
 
-      - name: Load on the ephemeral stack (100 HLS viewers + API reads, 3 min)
-        # k6 runs directly here (not through lt2-run.sh): this stack is ephemeral and local, so the production
-        # watchdog does not apply. lt2-run.sh has two bugs found by this workflow (issue linked in PR #320):
-        # it mounts the repo root as /loadtest, and its error telemetry file is never updated during the run.
+      - name: Run simulated stack test
         env:
           K6_IMAGE: grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603
+          NUM_USERS: '20'
+          NUM_VIDEOS: '5'
         run: |
-          mkdir -p loadtest/results && chmod 777 loadtest/results
-          common=(--rm --net=host -u "$(id -u):$(id -g)" -v "$PWD/loadtest:/work" -w /work
-                  -e TARGET_URL=http://127.0.0.1:8080 -e VUS=100 -e DURATION=3m)
-          docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/hls-k6.json hls-viewers.js > loadtest/results/hls.log 2>&1 &
-          hls=$!
-          docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/api-k6.json api-read.js > loadtest/results/api.log 2>&1 &
-          api=$!
-          rc_hls=0; rc_api=0
-          wait "$hls" || rc_hls=$?
-          wait "$api" || rc_api=$?
-          tail -n 60 loadtest/results/hls.log; tail -n 60 loadtest/results/api.log
-          echo "k6 exit codes: hls=$rc_hls api=$rc_api"
-          test -f loadtest/results/lt2-summary.json
-          node -e "const s=require('./loadtest/results/lt2-summary.json'); console.log(JSON.stringify(s)); process.exit(s.passed===true?0:1)"
-          test "$rc_hls" -eq 0 && test "$rc_api" -eq 0
+          if grep -q -- '--sim' ./systest/run.sh; then
+            echo "[sim] Running orchestrated SIM1 suite (personas, load, perf-budget)..."
+            ./systest/run.sh --sim --reset
+          else
+            echo "[sim] Running bootstrap suite (12 scenarios + seed + k6)..."
+            ./systest/run.sh --reset
+            ./loadtest/seed.sh
 
-      - name: Summary
+            mkdir -p loadtest/results && chmod 777 loadtest/results
+            common=(--rm --net=host -u "$(id -u):$(id -g)" -v "$PWD/loadtest:/work" -w /work
+                    -e TARGET_URL=http://127.0.0.1:8080 -e VUS=100 -e DURATION=3m)
+            docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/hls-k6.json hls-viewers.js > loadtest/results/hls.log 2>&1 &
+            hls=$!
+            docker run "${common[@]}" "$K6_IMAGE" run --summary-export results/api-k6.json api-read.js > loadtest/results/api.log 2>&1 &
+            api=$!
+            rc_hls=0; rc_api=0
+            wait "$hls" || rc_hls=$?
+            wait "$api" || rc_api=$?
+            tail -n 60 loadtest/results/hls.log; tail -n 60 loadtest/results/api.log
+            echo "k6 exit codes: hls=$rc_hls api=$rc_api"
+            test -f loadtest/results/lt2-summary.json
+            node -e "const s=require('./loadtest/results/lt2-summary.json'); console.log(JSON.stringify(s)); process.exit(s.passed===true?0:1)"
+            test "$rc_hls" -eq 0 && test "$rc_api" -eq 0
+
+            if [ ! -f "systest/.run/report/perf.json" ] && [ -f "loadtest/results/api-k6.json" ]; then
+              mkdir -p systest/.run/report
+              node -e "
+                const api = require('./loadtest/results/api-k6.json');
+                const hls = require('./loadtest/results/hls-k6.json');
+                const failRate = (api.metrics.http_req_failed?.value ?? api.metrics.http_req_failed?.rate ?? 0);
+                const perf = {
+                  timestamp: new Date().toISOString(),
+                  http_req_failed: failRate,
+                  endpoints: {
+                    api_read: { p95: api.metrics.http_req_duration?.['p(95)'] || 0, avg: api.metrics.http_req_duration?.avg || 0 },
+                    hls_viewer: { p95: hls.metrics.http_req_duration?.['p(95)'] || 0, avg: hls.metrics.http_req_duration?.avg || 0 }
+                  }
+                };
+                require('fs').writeFileSync('systest/.run/report/perf.json', JSON.stringify(perf, null, 2));
+              "
+            fi
+          fi
+
+      - name: Output summary to step summary
         if: always()
         run: |
           {
             echo "### sim run ${{ matrix.run }}"
-            if [ -f loadtest/results/lt2-summary.json ]; then
+            if [ -f systest/.run/report/summary.md ]; then
+              cat systest/.run/report/summary.md
+            elif [ -f loadtest/results/lt2-summary.json ]; then
               echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
               for f in hls api; do
-                if [ -f "loadtest/results/$f-k6.json" ]; then node -e "const m=require('./loadtest/results/$f-k6.json').metrics; const d=m.http_req_duration||{}; const f=m.http_req_failed||{}; console.log('- $f: http_reqs=' + (m.http_reqs?.count ?? '?') + ', failed=' + ((f.value ?? f.rate ?? 0)*100).toFixed(2) + '%, p95=' + (d['p(95)'] ?? '?') + ' ms, avg=' + (d.avg ?? '?') + ' ms')"; fi
+                if [ -f "loadtest/results/$f-k6.json" ]; then
+                  node -e "
+                    const m = require('./loadtest/results/$f-k6.json').metrics;
+                    const d = m.http_req_duration || {};
+                    const f = m.http_req_failed || {};
+                    const failRate = ((f.value ?? f.rate ?? 0) * 100).toFixed(2);
+                    console.log('- $f: reqs=' + (m.http_reqs?.count ?? '?') + ', failed=' + failRate + '%, p95=' + (d['p(95)'] ?? '?') + 'ms');
+                  "
+                fi
               done
             else
-              echo "no load summary (an earlier step failed)"
+              echo "No summary generated (earlier step failed)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Collect logs
+      - name: Collect logs on failure
         if: failure()
         run: |
           mkdir -p systest/.run/logs
           docker compose -f deploy/compose/dev.yml -f systest/compose.apps.yml logs --no-color > systest/.run/logs/compose.log 2>&1 || true
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload run report & logs
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: sim-run-${{ matrix.run }}
           path: |
+            systest/.run/report/
             systest/.run/logs/
             loadtest/results/
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Upload perf baseline
+        if: matrix.run == 1 && github.event_name == 'schedule' && github.ref == 'refs/heads/main' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baseline
+          path: systest/.run/report/perf.json
+          retention-days: 30
+
+  report:
+    name: sim report & alert
+    runs-on: ubuntu-latest
+    needs: [stack]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Evaluate results & manage nightly alert
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STACK_RESULT: ${{ needs.stack.result }}
+          IS_NIGHTLY: ${{ github.event_name == 'schedule' }}
+          TEST_ALERT: ${{ inputs.test_nightly_alert || false }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "## Ephemeral Simulated Users Status (SIM1)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Result**: $STACK_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Event**: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Matrix runs**: 3 parallel stacks" >> "$GITHUB_STEP_SUMMARY"
+
+          SHOULD_ALERT=false
+          if [ "$IS_NIGHTLY" = "true" ] || [ "$TEST_ALERT" = "true" ]; then
+            SHOULD_ALERT=true
+          fi
+
+          if [ "$SHOULD_ALERT" = "true" ]; then
+            if [ "$STACK_RESULT" != "success" ]; then
+              echo "Nightly failed! Checking for existing alert issue..."
+              ISSUE_NUM=$(gh issue list --label systest --state open --limit 1 --json number --jq '.[0].number // empty' 2>/dev/null || true)
+              {
+                echo "### :rotating_light: [systest] Nightly Failing"
+                echo ""
+                echo "Nightly simulated user run failed across the ephemeral 3-stack matrix."
+                echo "- **Run link**: [Run #${{ github.run_id }}]($RUN_URL)"
+                echo "- **Status**: $STACK_RESULT"
+                echo "- **Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%SZ')"
+                echo ""
+                echo "Please check the artifacts for the failed persona or step."
+              } > /tmp/alert_body.md
+
+              if [ -n "$ISSUE_NUM" ]; then
+                echo "Updating existing issue #$ISSUE_NUM"
+                gh issue comment "$ISSUE_NUM" --body-file /tmp/alert_body.md
+              else
+                echo "Opening issue [systest] nightly failing"
+                gh issue create --title "[systest] nightly failing" --label "systest" --body-file /tmp/alert_body.md
+              fi
+            else
+              echo "Nightly succeeded! Checking if alert issue should be closed..."
+              ISSUE_NUM=$(gh issue list --label systest --state open --limit 1 --json number --jq '.[0].number // empty' 2>/dev/null || true)
+              if [ -n "$ISSUE_NUM" ]; then
+                echo "Closing issue #$ISSUE_NUM after green nightly run"
+                gh issue close "$ISSUE_NUM" --comment "Nightly sim succeeded across all 3 stacks: $RUN_URL"
+              fi
+            fi
+          fi
+
+          if [ "$STACK_RESULT" != "success" ]; then
+            exit 1
+          fi
