@@ -66,7 +66,7 @@ ${RUN_K6} run \
   loadtest/hls-viewers.js || rc_hls=$?
 
 echo "[sim-profile] HLS viewers load exited with code ${rc_hls}"
-if [ "${rc_hls}" -ne 0 ]; then
+if [ "${rc_hls}" -ne 0 ] && [ "${rc_hls}" -ne 99 ]; then
   echo "ERROR: k6 hls-viewers failed (rc=${rc_hls})" >&2
   exit "${rc_hls}"
 fi
@@ -85,7 +85,7 @@ ${RUN_K6} run \
   loadtest/api-mix.js || rc_api=$?
 
 echo "[sim-profile] API mix load exited with code ${rc_api}"
-if [ "${rc_api}" -ne 0 ]; then
+if [ "${rc_api}" -ne 0 ] && [ "${rc_api}" -ne 99 ]; then
   echo "ERROR: k6 api-mix failed (rc=${rc_api})" >&2
   exit "${rc_api}"
 fi
@@ -177,6 +177,8 @@ const perf = {
   rebuffer_ratio_noseek: rebufferRatioNoseek,
   http_req_failed: overallFailed,
   time_upload_to_ready_ms: 12500, // baseline upload transcode time
+  k6_exit_code: Math.max(parseInt('"${rc_hls}"', 10) || 0, parseInt('"${rc_api}"', 10) || 0),
+  k6_threshold_exceeded: ('"${rc_hls}"' === '99' || '"${rc_api}"' === '99'),
   endpoints: {
     "GET /v1/videos": {
       p50: dur(apiMetrics["http_req_duration{endpoint:GET /v1/videos}"]).p50 || defaultDur.p50,
@@ -204,5 +206,10 @@ const perf = {
 fs.writeFileSync(outPath, JSON.stringify(perf, null, 2) + "\n");
 console.log("[sim-profile] perf.json written to " + outPath);
 '
+
+if [ "${rc_hls}" -eq 99 ] || [ "${rc_api}" -eq 99 ]; then
+  echo "ERROR: k6 threshold exceeded (rc=99)" >&2
+  exit 99
+fi
 
 echo "[sim-profile] Load simulation completed."
