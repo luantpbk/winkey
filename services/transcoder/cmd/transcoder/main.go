@@ -78,7 +78,8 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 	host, _ := os.Hostname()
 	log.Info("starting", "encoder", encoder, "hwaccel_decode", cfg.HWAccelDecode, "concurrency", concurrency, "worker_id", host,
-		"scratch_dir", cfg.ScratchDir, "archive_dir", cfg.ArchiveDir)
+		"scratch_dir", cfg.ScratchDir, "archive_dir", cfg.ArchiveDir,
+		"rate_control", cfg.RateControl, "nvenc_cq", cfg.NVENCCQ, "x264_crf", cfg.X264CRF)
 
 	if err := os.MkdirAll(cfg.ScratchDir, 0o750); err != nil {
 		return fmt.Errorf("scratch dir: %w", err)
