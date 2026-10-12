@@ -185,15 +185,17 @@ describe('Realtime Protocol & Client Architecture (Task U2)', () => {
       expect(reconnectSpy).toHaveBeenCalledTimes(0); // not called on initial connect
     });
 
-    // Verify initial subscribe frame was sent
-    expect(receivedFrames).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'subscribe',
-          room: 'video:018f3a22-7f91-7d9a-9e12-000000000001',
-        }),
-      ]),
-    );
+    // Verify initial subscribe frame was sent (the mock server receives it asynchronously)
+    await waitFor(() => {
+      expect(receivedFrames).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'subscribe',
+            room: 'video:018f3a22-7f91-7d9a-9e12-000000000001',
+          }),
+        ]),
+      );
+    });
 
     // Now simulate server disconnect with code 1001 (deploy)
     receivedFrames.length = 0;
