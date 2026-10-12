@@ -1044,3 +1044,14 @@ Hiện trạng:
 4. Cài FFmpeg 8 trên gpu-01 (user), hẹn giờ chạy (Antigravity 2).
 
 **Hệ quả.** Video nhiều lượt xem nhỏ hơn đáng kể, đúng nơi tốn băng thông nhất. Đổi lại tốn thêm dung lượng lưu (khoảng +60 % cho video đã nâng cấp) và thêm thời gian GPU giờ thấp điểm. Thiết bị không hỗ trợ AV1 vẫn phát H.264 như cũ.
+
+**Bổ sung 2026-10-12 (FFmpeg cho AV1).** Antigravity 2 kiểm tra trên gpu-01 (#47):
+- FFmpeg 7.1 trong `/opt` không có `av1_nvenc`.
+- Bản BtbN master mới nhất có `av1_nvenc` nhưng cần NVENC API 13.1, tức driver ≥ 610. gpu-01 đang chạy driver 595.99 (API 13.0).
+- Bản release BtbN `n8.0.1-66` (autobuild 2026-02-28, sha256 `26d2ecd0…ca5b0`) chạy được cả `av1_nvenc` lẫn `h264_nvenc` trên driver 595, và có sẵn libvmaf.
+
+Quyết định:
+- **Không nâng driver.** Máy dùng chung với miner và ComfyUI.
+- Ghim đúng bản FFmpeg 8.0 này. Bench dùng nó trong `~/tools` (`scripts/enc2-bench.sh`, không cần sudo).
+- Production sẽ cài cùng bản đó vào `/opt/ffmpeg-8` (user cài bằng sudo, pha 4) và trỏ `AV1_FFMPEG_PATH` tới đó.
+- Mỗi lần đổi bản FFmpeg đều phải kiểm lại phiên bản NVENC API so với driver.

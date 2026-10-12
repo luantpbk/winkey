@@ -20,7 +20,7 @@ func TestEvaluateAndRecommend(t *testing.T) {
 	all = append(all, rows("capped_crf:23", 700, 400, 94.5, 86.0)...) // 31% saved, drops 0.5 / 2.0: pass
 	all = append(all, rows("capped_crf:25", 500, 300, 93.0, 84.0)...) // 50% saved, top drop 2.0: fail
 
-	vs := evaluate(all, "abr")
+	vs := evaluate(all, "abr", minSizeSavedPct)
 	if len(vs) != 3 {
 		t.Fatalf("verdicts: %+v", vs)
 	}
@@ -39,7 +39,7 @@ func TestEvaluateAndRecommend(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printVerdicts(&buf, vs, "abr")
+	printVerdicts(&buf, vs, "abr", minSizeSavedPct)
 	if !strings.Contains(buf.String(), "RECOMMENDED: capped_crf:23") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
@@ -49,13 +49,13 @@ func TestRecommendNoneWhenNothingPasses(t *testing.T) {
 	var all []result
 	all = append(all, rows("abr", 1000, 600, 95, 88)...)
 	all = append(all, rows("capped_crf:25", 500, 300, 90, 80)...)
-	vs := evaluate(all, "abr")
+	vs := evaluate(all, "abr", minSizeSavedPct)
 	if recommend(vs) != "" {
 		t.Fatal("nothing should pass")
 	}
 	var buf bytes.Buffer
-	printVerdicts(&buf, vs, "abr")
-	if !strings.Contains(buf.String(), "RECOMMENDED: none (keep RATE_CONTROL=abr)") {
+	printVerdicts(&buf, vs, "abr", minSizeSavedPct)
+	if !strings.Contains(buf.String(), "RECOMMENDED: none (keep abr)") {
 		t.Fatalf("output:\n%s", buf.String())
 	}
 }
@@ -66,8 +66,39 @@ func TestTopRenditionIsPerSource(t *testing.T) {
 		{Input: "small", Setting: "abr", Rendition: "720p", Bytes: 1000, VMAFMean: 95},
 		{Input: "small", Setting: "capped_crf:23", Rendition: "720p", Bytes: 500, VMAFMean: 93},
 	}
-	vs := evaluate(all, "abr")
+	vs := evaluate(all, "abr", minSizeSavedPct)
 	if vs[0].TopDrop != 2 || vs[0].LowerDrop != 0 || vs[0].Pass {
 		t.Fatalf("%+v", vs[0])
+	}
+}
+
+// ADR-041 compares AV1 with the production H.264 setting and needs 25 %.
+func TestMinSavedThresholdAndAV1Baseline(t *testing.T) {
+	var all []result
+	all = append(all, rows("capped_crf:27", 1000, 600, 95, 88)...)
+	all = append(all, rows("av1:32", 770, 460, 94.6, 87.0)...) // 22.5% saved
+	if vs := evaluate(all, "capped_crf:27", 20); !vs[0].Pass {
+		t.Fatalf("22.5%% must pass at 20: %+v", vs)
+	}
+	vs := evaluate(all, "capped_crf:27", 25)
+	if vs[0].Pass || recommend(vs) != "" {
+		t.Fatalf("22.5%% must fail at 25: %+v", vs)
+	}
+	var buf bytes.Buffer
+	printVerdicts(&buf, vs, "capped_crf:27", 25)
+	if !strings.Contains(buf.String(), "size saved >= 25%") || !strings.Contains(buf.String(), "RECOMMENDED: none (keep capped_crf:27)") {
+		t.Fatalf("output:\n%s", buf.String())
+	}
+}
+
+func TestParseSettingsAV1(t *testing.T) {
+	sts, err := parseSettings("capped_crf:27, av1, av1:40")
+	if err != nil || len(sts) != 3 || sts[1].mode != settingAV1 || sts[1].level != 0 || sts[2].level != 40 {
+		t.Fatalf("%+v %v", sts, err)
+	}
+	for _, bad := range []string{"av1:0", "av1:64", "av1:x", "hevc"} {
+		if _, err := parseSettings(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
 	}
 }

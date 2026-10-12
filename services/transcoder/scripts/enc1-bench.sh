@@ -26,10 +26,13 @@ SETTINGS="${SETTINGS:-abr,capped_crf:21,capped_crf:23,capped_crf:25,capped_crf:2
 ENCODER="${ENCODER:-nvenc}" # x264 only for a dry run off gpu-01
 VMAF_DIR="${VMAF_DIR:-$HOME/tools/ffmpeg-vmaf}"
 VMAF_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+AV1_FFMPEG="${AV1_FFMPEG:-}"   # set by enc2-bench.sh for av1[:CQ] settings
+MIN_SAVED="${MIN_SAVED:-20}"   # ADR-039: 20 %; ADR-041 (AV1): 25 %
+BENCH_NAME="${BENCH_NAME:-enc1}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 module="$(cd "$here/.." && pwd)"
-out="$HOME/enc1-bench-$(date -u +%Y%m%dT%H%M%SZ)"
+out="$HOME/$BENCH_NAME-bench-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$out"
 
 die() { echo "enc1-bench: $*" >&2; exit 1; }
@@ -76,8 +79,8 @@ done
 echo "[enc1] ${#clips[@]} clips ready; encoding (this takes a while)"
 
 # --- bench -------------------------------------------------------------------
-nice -n 19 ionice -c3 "$work/quality-bench" -encoder "$ENCODER" -anonymize \
-  -ffmpeg "$FFMPEG" -ffprobe "$FFPROBE" -vmaf-ffmpeg "$VMAF_DIR/bin/ffmpeg" \
+nice -n 19 ionice -c3 "$work/quality-bench" -encoder "$ENCODER" -anonymize -min-saved "$MIN_SAVED" \
+  -ffmpeg "$FFMPEG" -ffprobe "$FFPROBE" -vmaf-ffmpeg "$VMAF_DIR/bin/ffmpeg" ${AV1_FFMPEG:+-av1-ffmpeg "$AV1_FFMPEG"} \
   -settings "$SETTINGS" -work "$work/bench" -json "$out/bench.json" \
   "${clips[@]}" > "$out/bench.md" 2> "$out/bench.log"
 
@@ -87,4 +90,4 @@ nvidia-smi --query-gpu=name,driver_version --format=csv,noheader > "$out/gpu.txt
 echo
 cat "$out/bench.md"
 echo
-echo "[enc1] results: $out/bench.md (post it on GitHub: issue [ENC1] NVENC bench)"
+echo "[enc1] results: $out/bench.md (post it on GitHub: issue [${BENCH_NAME^^}] NVENC bench)"

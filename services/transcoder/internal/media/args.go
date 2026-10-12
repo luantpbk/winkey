@@ -13,6 +13,11 @@ const (
 	EncoderX264  = "x264"
 )
 
+// EncoderAV1NVENC encodes the separate AV1 set (hls-av1/, ENC2, ADR-041). It
+// always uses capped constant quality and needs an FFmpeg whose av1_nvenc
+// matches the driver (AV1_FFMPEG_PATH); it never runs for transcode_jobs.
+const EncoderAV1NVENC = "av1_nvenc"
+
 // Rate-control modes (ADR-039).
 const (
 	// RateControlABR is the original ADR-006 mode: every rendition targets the
@@ -30,19 +35,30 @@ const (
 	DefaultNVENCCQ = 23
 )
 
+// AV1 defaults (ADR-041), to be calibrated with quality-bench on gpu-01.
+const (
+	DefaultAV1CQ = 32
+	// DefaultAV1MaxratePct is the AV1 -maxrate/-bufsize ceiling as a percentage
+	// of the H.264 rung (TargetK / BufsizeK).
+	DefaultAV1MaxratePct = 60
+)
+
 // HLSPlan describes one HLS CMAF encode.
 type HLSPlan struct {
 	Input      string // local file; the only protocol allowed is file
 	OutDir     string // playlists and segments are written here: master.m3u8, <name>/index.m3u8, ...
-	Encoder    string // EncoderNVENC or EncoderX264
+	Encoder    string // EncoderNVENC, EncoderX264 or EncoderAV1NVENC
 	X264Preset string // default "veryfast"
 	// RateControl is RateControlABR (zero value) or RateControlCappedCRF.
 	RateControl string
 	X264CRF     int // capped_crf with x264; 0 means DefaultX264CRF
 	NVENCCQ     int // capped_crf with NVENC; 0 means DefaultNVENCCQ
-	Renditions  []Rendition
-	FPS         string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
-	HasAudio    bool
+	// AV1CQ and AV1MaxratePct apply to EncoderAV1NVENC only (0 = defaults).
+	AV1CQ         int
+	AV1MaxratePct int
+	Renditions    []Rendition
+	FPS           string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
+	HasAudio      bool
 	// NoHWDecode makes NVENC runs decode on the CPU (no -hwaccel cuda). It is
 	// the hook for a possible HWACCEL_DECODE=false when NVDEC is unavailable or
 	// slow on a shared GPU; it is not wired to configuration yet.
@@ -73,7 +89,7 @@ func BuildHLSArgs(p HLSPlan) []string {
 		"-progress", "pipe:1", "-nostats",
 		"-protocol_whitelist", "file,pipe",
 	}
-	if p.Encoder == EncoderNVENC && !p.NoHWDecode {
+	if (p.Encoder == EncoderNVENC || p.Encoder == EncoderAV1NVENC) && !p.NoHWDecode {
 		// No -hwaccel_output_format: frames come back to system memory so the
 		// CPU filters (rotate, 10-bit→8-bit, scale) always work.
 		a = append(a, "-hwaccel", "cuda")
@@ -124,11 +140,24 @@ func BuildHLSArgs(p HLSPlan) []string {
 			// they are visible; both run on the NVENC block, not the CPU.
 			a = append(a, "-rc-lookahead", "20", "-temporal-aq", "1")
 		}
+	case EncoderAV1NVENC:
+		// Same GOP rules as H.264 NVENC; AV1 has no -profile:v high (main is
+		// the default) and the 8-bit output matches av01.0.xxM.08 players.
+		a = append(a, "-c:v", "av1_nvenc", "-preset", "p5", "-tune", "hq",
+			"-rc", "vbr", "-spatial-aq", "1", "-no-scenecut", "1", "-forced-idr", "1",
+			"-rc-lookahead", "20", "-temporal-aq", "1")
 	default:
 		a = append(a, "-c:v", "libx264", "-profile:v", "high", "-preset", preset, "-sc_threshold", "0")
 	}
 	for i, r := range p.Renditions {
 		s := ":v:" + strconv.Itoa(i)
+		if p.Encoder == EncoderAV1NVENC {
+			pct := orDefault(p.AV1MaxratePct, DefaultAV1MaxratePct)
+			a = append(a, "-cq"+s, strconv.Itoa(orDefault(p.AV1CQ, DefaultAV1CQ)), "-b"+s, "0",
+				"-maxrate"+s, fmt.Sprintf("%dk", r.TargetK*pct/100),
+				"-bufsize"+s, fmt.Sprintf("%dk", r.BufsizeK*pct/100))
+			continue
+		}
 		switch {
 		case capped && p.Encoder == EncoderNVENC:
 			// -b:v 0 lets -cq drive the rate; -maxrate/-bufsize stay the ceiling.
