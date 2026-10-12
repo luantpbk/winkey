@@ -142,7 +142,10 @@ export function buildSummaryMarkdown({
   let budgetStatus = 'NOT RUN';
   let budgetViolations = [];
   if (perfJson) {
-    if (baselineJson && !isBaselineRun) {
+    if (perfJson.k6_threshold_exceeded || perfJson.k6_exit_code === 99) {
+      budgetStatus = 'FAILED (k6 vượt threshold, rc 99)';
+      budgetViolations.push('k6 vượt threshold (rc 99)');
+    } else if (baselineJson && !isBaselineRun) {
       const cmp = comparePerf(perfJson, baselineJson);
       budgetStatus = cmp.passed ? 'PASSED' : 'FAILED';
       budgetViolations = cmp.violations || [];
@@ -203,6 +206,9 @@ export function buildSummaryMarkdown({
     const failRate = ((perfJson.http_req_failed || 0) * 100).toFixed(2);
     md += `- **HLS Viewers**: rebuffer ratio (non-seek) ${reb}%, http_req_failed ${failRate}%\n`;
     md += `- **API Reads**: http_req_failed ${failRate}%\n`;
+    if (perfJson.k6_threshold_exceeded || perfJson.k6_exit_code === 99) {
+      md += `- **k6 Result**: **FAILED (k6 vượt threshold, rc 99)**\n`;
+    }
     md += `- **Budget Status**: **${budgetStatus}** (threshold: p95 regr <= 20%, error rate < 1.0%)\n`;
     if (budgetViolations.length > 0) {
       md += `- **Violations**:\n`;

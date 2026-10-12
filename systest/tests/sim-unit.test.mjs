@@ -655,6 +655,28 @@ not ok 1 - auth
 
       assert.match(md, /PASSED \(chạy làm baseline, chưa so sánh\)/);
     });
+
+    it('clearly notes when k6 exceeds threshold (rc 99) in summary.md', () => {
+      const md = buildSummaryMarkdown({
+        tapContent: '# tests 18\n# pass 18\n# fail 0',
+        playwrightJson: { suites: [] },
+        perfJson: {
+          rebuffer_ratio_noseek: 0,
+          http_req_failed: 0.06,
+          k6_exit_code: 99,
+          k6_threshold_exceeded: true,
+          endpoints: {
+            'GET /v1/videos': { p50: 12.0, p95: 25.0 },
+          },
+        },
+        baselineJson: null,
+        isBaselineRun: false,
+      });
+
+      assert.match(md, /FAILED \(k6 vượt threshold, rc 99\)/);
+      assert.match(md, /k6 vượt threshold \(rc 99\)/);
+      assert.match(md, /\*\*Status\*\*: \*\*FAILED\*\*/);
+    });
   });
 
   describe('Playwright Config & Personas Manifest Resolution (Issue #321)', () => {
