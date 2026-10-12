@@ -4,7 +4,7 @@ import { setRequestLocale } from 'next-intl/server';
 import type { VideoSummary } from '@winkey/api-client';
 import { getBaseUrl } from '../../lib/api-client';
 import { CinemaView } from '../../components/cinema/cinema-view';
-import { buildWebSiteSchema } from '../../lib/seo/website-schema';
+import { buildWebSiteSchema, buildOrganizationSchema } from '../../lib/seo/website-schema';
 import { jsonLd } from '../../lib/seo/json-ld';
 
 // Read process.env at request time, not at build time
@@ -72,23 +72,33 @@ export async function generateMetadata({
   const { videos } = await fetchInitialHero();
   const firstVideo = videos[0];
 
-  const title = 'Winkey – Xem video, phim và clip';
-  const description = firstVideo?.title
-    ? `${firstVideo.title} — Xem video, phim và clip đặc sắc trên Winkey.`
-    : 'Nền tảng xem video, phim và clip trực tuyến với chất lượng cao.';
+  const title = 'Winkey – Xem phim, video, nhạc và game giải trí';
+  const description =
+    'Winkey – Nền tảng xem phim, phim bộ, video, nhạc và game giải trí trực tuyến tốc độ cao, hoàn toàn miễn phí với chất lượng hình ảnh sắc nét tại Việt Nam.';
 
-  const ogImages = firstVideo?.thumbnail_url
-    ? [{ url: firstVideo.thumbnail_url, width: 1280, height: 720, alt: firstVideo.title }]
-    : [];
+  const ogImages = [
+    { url: 'https://winkey.vn/opengraph-image.png', width: 1200, height: 630, alt: title },
+    ...(firstVideo?.thumbnail_url
+      ? [{ url: firstVideo.thumbnail_url, width: 1280, height: 720, alt: firstVideo.title }]
+      : []),
+  ];
 
   return {
-    title,
+    title: {
+      absolute: title,
+    },
     description,
+    alternates: {
+      canonical: '/',
+    },
     openGraph: {
       title,
       description,
       images: ogImages,
       type: 'website',
+      url: 'https://winkey.vn',
+      siteName: 'Winkey',
+      locale: 'vi_VN',
     },
     twitter: {
       card: 'summary_large_image',
@@ -108,6 +118,7 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
 
   const { videos, sortSource } = await fetchInitialHero();
   const websiteSchema = buildWebSiteSchema();
+  const organizationSchema = buildOrganizationSchema();
 
   return (
     <>
@@ -115,6 +126,12 @@ export default async function CinemaPage({ params, searchParams }: CinemaPagePro
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: jsonLd(websiteSchema),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: jsonLd(organizationSchema),
         }}
       />
       <CinemaView

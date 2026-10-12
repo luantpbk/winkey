@@ -1,4 +1,5 @@
 import type { VideoSummary, VideoPage, TagSummary, TagList } from '@winkey/api-client';
+import { getAllCategories } from './categories';
 
 export function xmlEscape(str?: string | null): string {
   if (!str) return '';
@@ -86,6 +87,7 @@ export async function fetchTagsForSitemap(apiBaseUrl: string): Promise<TagSummar
 
 export interface GenerateSitemapXmlOptions {
   tags?: TagSummary[];
+  categories?: Array<{ slug: string }>;
   siteBaseUrl?: string;
   maxUrls?: number;
 }
@@ -123,7 +125,30 @@ export function generateSitemapXml(
     <priority>0.9</priority>
   </url>`);
 
-  // 2. Creator channel pages of the public videos
+  // 2. Category landing pages (SEO3 / ADR-040)
+  let indexableCategories: Array<{ slug: string }> = [];
+  if (options.categories) {
+    indexableCategories = options.categories;
+  } else if (tags.length > 0) {
+    const allCategories = getAllCategories();
+    indexableCategories = allCategories.filter((cat) => {
+      const videoCount = tags
+        .filter((t) => cat.tags.includes(t.slug))
+        .reduce((sum, t) => sum + (t.video_count || 0), 0);
+      return videoCount >= 2;
+    });
+  }
+
+  for (const cat of indexableCategories) {
+    if (urls.length >= maxUrls) break;
+    urls.push(`  <url>
+    <loc>${siteBaseUrl}/the-loai/${xmlEscape(cat.slug)}</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>`);
+  }
+
+  // 3. Creator channel pages of the public videos
   const seenHandles = new Set<string>();
   for (const video of videos) {
     if (urls.length >= maxUrls) break;

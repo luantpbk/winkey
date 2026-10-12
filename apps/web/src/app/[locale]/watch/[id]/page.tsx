@@ -36,7 +36,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
 
   if (!video) {
     return {
-      title: 'Video không tồn tại – Winkey',
+      title: 'Video không tồn tại',
       description: 'Video không tìm thấy hoặc đã bị xóa.',
       robots: {
         index: false,
@@ -51,7 +51,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
   const watchUrl = `https://winkey.vn/watch/${video.id}`;
 
   return {
-    title: `${video.title} – Winkey`,
+    title: video.title,
     description: metaDescription,
     alternates: {
       canonical: watchUrl,
@@ -70,7 +70,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
           follow: false,
         },
     openGraph: {
-      title: `${video.title} – Winkey`,
+      title: video.title,
       description: metaDescription,
       type: 'video.other',
       url: watchUrl,
@@ -87,7 +87,7 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${video.title} – Winkey`,
+      title: video.title,
       description: metaDescription,
       images: [thumbUrl],
     },

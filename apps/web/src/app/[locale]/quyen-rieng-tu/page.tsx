@@ -6,7 +6,7 @@ import { LegalDoc } from '../../../components/legal/legal-doc';
 import { getLegalContent } from '../../../lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Chính sách quyền riêng tư – Winkey',
+  title: 'Chính sách quyền riêng tư',
   description:
     'Chính sách quyền riêng tư và bảo vệ dữ liệu cá nhân theo Nghị định 13/2023/NĐ-CP của Winkey.',
 };

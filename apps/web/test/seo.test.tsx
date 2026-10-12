@@ -179,7 +179,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         params: Promise.resolve({ locale: 'vi', id: mockPublicVideo.id }),
       });
 
-      expect(metadata.title).toBe(`${mockPublicVideo.title} – Winkey`);
+      expect(metadata.title).toBe(mockPublicVideo.title);
       expect(metadata.alternates?.canonical).toBe(`https://winkey.vn/watch/${mockPublicVideo.id}`);
       expect(metadata.alternates?.languages).toEqual({
         vi: `https://winkey.vn/vi/watch/${mockPublicVideo.id}`,
@@ -570,7 +570,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         params: Promise.resolve({ locale: 'vi', handle: mockProfile.handle }),
       });
 
-      expect(metadata.title).toBe(`${mockProfile.display_name} – Winkey`);
+      expect(metadata.title).toBe(mockProfile.display_name);
       expect(metadata.alternates?.canonical).toBe(`https://winkey.vn/c/${mockProfile.handle}`);
       expect(metadata.alternates?.languages).toEqual({
         vi: `https://winkey.vn/vi/c/${mockProfile.handle}`,

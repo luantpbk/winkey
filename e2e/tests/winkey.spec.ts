@@ -2396,4 +2396,108 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await page.waitForURL(/\/watch\//, { timeout: 30000, waitUntil: 'domcontentloaded' });
     await expect(page.locator('h1').first()).toBeVisible({ timeout: 15000 });
   });
+
+  test('SEO3-web: Brand assets, Home H1 & Organization JSON-LD, and Category landing pages (desktop & mobile)', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(120000);
+    const screenshotsDir = path.join(__dirname, '..', 'screenshots');
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+
+    // === 1. DESKTOP HOME PAGE ===
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1.1 Verify favicon / icon links
+    const iconLink = page.locator('link[rel="icon"]').first();
+    await expect(iconLink).toBeAttached();
+
+    // 1.2 Verify visible H1 and brand intro text
+    const homeH1 = page.locator('h1').first();
+    await expect(homeH1).toBeVisible({ timeout: 15000 });
+
+    // 1.3 Verify Organization and WebSite JSON-LD
+    const jsonLdScripts = page.locator('script[type="application/ld+json"]');
+    const scriptsCount = await jsonLdScripts.count();
+    let hasOrg = false;
+    for (let i = 0; i < scriptsCount; i++) {
+      const text = await jsonLdScripts.nth(i).textContent();
+      if (text && text.includes('"Organization"') && text.includes('"https://winkey.vn/logo.png"')) {
+        hasOrg = true;
+        break;
+      }
+    }
+    expect(hasOrg).toBe(true);
+
+    // 1.4 Take desktop home screenshot
+    const homeDesktopScreenshot = path.join(screenshotsDir, 'seo3-home-desktop.png');
+    await page.screenshot({ path: homeDesktopScreenshot });
+    await testInfo.attach('seo3-home-desktop', {
+      path: homeDesktopScreenshot,
+      contentType: 'image/png',
+    });
+
+    // === 2. DESKTOP CATEGORY PAGE ===
+    await page.goto('/the-loai/am-nhac');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 2.1 Verify category H1
+    const catHeading = page.locator('h1').first();
+    await expect(catHeading).toBeVisible({ timeout: 15000 });
+    await expect(catHeading).toContainText('Âm nhạc');
+
+    // 2.2 Verify canonical link
+    const canonicalLink = page.locator('link[rel="canonical"]');
+    await expect(canonicalLink).toHaveAttribute('href', 'https://winkey.vn/the-loai/am-nhac');
+
+    // 2.3 Verify CollectionPage JSON-LD
+    const catScripts = page.locator('script[type="application/ld+json"]');
+    const catScriptsCount = await catScripts.count();
+    let hasCollectionPage = false;
+    for (let i = 0; i < catScriptsCount; i++) {
+      const text = await catScripts.nth(i).textContent();
+      if (text && text.includes('"CollectionPage"') && text.includes('"Âm nhạc"')) {
+        hasCollectionPage = true;
+        break;
+      }
+    }
+    expect(hasCollectionPage).toBe(true);
+
+    // 2.4 Verify site footer with all category links
+    const footer = page.locator('[data-testid="site-footer"], [data-testid="cinema-footer"]').first();
+    await expect(footer).toBeVisible();
+
+    // 2.5 Take desktop category screenshot
+    const catDesktopScreenshot = path.join(screenshotsDir, 'seo3-category-desktop.png');
+    await page.screenshot({ path: catDesktopScreenshot });
+    await testInfo.attach('seo3-category-desktop', {
+      path: catDesktopScreenshot,
+      contentType: 'image/png',
+    });
+
+    // === 3. MOBILE FLOW ===
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    // 3.1 Mobile home
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    const homeMobileScreenshot = path.join(screenshotsDir, 'seo3-home-mobile.png');
+    await page.screenshot({ path: homeMobileScreenshot });
+    await testInfo.attach('seo3-home-mobile', {
+      path: homeMobileScreenshot,
+      contentType: 'image/png',
+    });
+
+    // 3.2 Mobile category
+    await page.goto('/the-loai/am-nhac');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('h1').first()).toContainText('Âm nhạc');
+    const catMobileScreenshot = path.join(screenshotsDir, 'seo3-category-mobile.png');
+    await page.screenshot({ path: catMobileScreenshot });
+    await testInfo.attach('seo3-category-mobile', {
+      path: catMobileScreenshot,
+      contentType: 'image/png',
+    });
+  });
 });

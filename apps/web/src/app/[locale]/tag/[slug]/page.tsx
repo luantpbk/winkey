@@ -76,7 +76,7 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
 
   if (!tag) {
     return {
-      title: 'Thẻ không tồn tại – Winkey',
+      title: 'Thẻ không tồn tại',
       robots: { index: false, follow: false },
     };
   }
@@ -88,8 +88,8 @@ export async function generateMetadata({ params }: TagPageProps): Promise<Metada
 
   const isEn = locale === 'en';
   const title = isEn
-    ? `${tag.name} – Videos about ${tag.name} | Winkey`
-    : `${tag.name} – Video về ${tag.name} | Winkey`;
+    ? `${tag.name} – Videos about ${tag.name}`
+    : `${tag.name} – Video về ${tag.name}`;
 
   const titles = videoItems
     .slice(0, 5)

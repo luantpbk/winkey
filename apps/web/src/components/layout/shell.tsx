@@ -5,6 +5,7 @@ import { usePathname } from '../../i18n/routing';
 import { TopBar } from './top-bar';
 import { Sidebar } from './sidebar';
 import { CinemaShell } from './cinema-shell';
+import { Footer } from './footer';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 
 export function Shell({
@@ -46,11 +47,12 @@ export function Shell({
           feedbackUrl={feedbackUrl}
         />
         <main
-          className={`flex-1 transition-all duration-200 min-h-[calc(100vh-56px)] p-4 sm:p-6 overflow-x-hidden ${
+          className={`flex-1 flex flex-col transition-all duration-200 min-h-[calc(100vh-56px)] overflow-x-hidden ${
             collapsed ? 'md:ml-[72px]' : 'md:ml-60'
           }`}
         >
-          {children}
+          <div className="flex-1 p-4 sm:p-6">{children}</div>
+          <Footer feedbackUrl={feedbackUrl} />
         </main>
       </div>
     </div>

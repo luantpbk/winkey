@@ -248,6 +248,16 @@ export function CinemaView({
         }
       />
 
+      {/* Brand Heading & Intro for SEO and Visitors */}
+      <div className="px-4 sm:px-8 max-w-7xl mx-auto pt-4 pb-1">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+          Winkey – Xem phim, phim bộ, video, nhạc và game miễn phí
+        </h1>
+        <p className="mt-1 text-sm text-gray-400 max-w-3xl leading-relaxed">
+          Nền tảng phát video trực tuyến tốc độ cao với các thể loại giải trí đa dạng: phim điện ảnh, phim bộ, âm nhạc sôi động và video game hấp dẫn dành cho mọi khán giả.
+        </p>
+      </div>
+
       {/* 2. ROWS IN EXACT ORDER */}
       <div className="flex flex-col gap-2 mt-4">
         {/* Row a: "Xem tiếp" (Continue Watching) */}

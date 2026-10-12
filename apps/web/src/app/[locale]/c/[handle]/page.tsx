@@ -45,7 +45,7 @@ export async function generateMetadata({ params }: ChannelPageProps): Promise<Me
 
   if (!profile) {
     return {
-      title: 'Kênh không tồn tại – Winkey',
+      title: 'Kênh không tồn tại',
       robots: {
         index: false,
         follow: false,
@@ -58,7 +58,7 @@ export async function generateMetadata({ params }: ChannelPageProps): Promise<Me
   const avatarUrl = profile.avatar_url || 'https://winkey.vn/og-default.jpg';
 
   return {
-    title: `${profile.display_name} – Winkey`,
+    title: profile.display_name,
     description,
     alternates: {
       canonical: channelUrl,
