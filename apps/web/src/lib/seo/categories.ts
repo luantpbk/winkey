@@ -11,81 +11,81 @@ export const CATEGORIES: readonly CategoryDefinition[] = [
   {
     slug: 'phim',
     name: 'Phim',
-    title: 'Phim hay chọn lọc, phim lẻ và phim chiếu rạp mới nhất',
+    title: 'Phim ngắn, phim độc lập và phim do cộng đồng chia sẻ',
     description:
-      'Tổng hợp phim hay chọn lọc trên Winkey: phim lẻ, hành động, cổ trang, kinh dị và tình cảm hấp dẫn. Thưởng thức trọn vẹn phim chất lượng cao miễn phí.',
+      'Khám phá các bộ phim ngắn, phim lẻ và tác phẩm độc lập do cộng đồng nhà sáng tạo chia sẻ trên Winkey. Thưởng thức nội dung phong phú và ủng hộ tác giả.',
     intro:
-      'Chào mừng bạn đến với chuyên mục Phim trên Winkey. Nơi tổng hợp các bộ phim lẻ, phim chiếu rạp, phim hành động và tình cảm đặc sắc nhất. Hãy thưởng thức những tác phẩm điện ảnh đỉnh cao với chất lượng tuyệt hảo.',
+      'Chào mừng bạn đến với chuyên mục Phim trên Winkey. Nơi tổng hợp các bộ phim ngắn, phim tài liệu và dự án điện ảnh độc lập do cộng đồng nhà sáng tạo chia sẻ. Hãy cùng theo dõi và ủng hộ những câu chuyện sáng tạo từ các tác giả.',
     tags: ['phim', 'phim-le', 'phim-hay', 'co-trang', 'hanh-dong', 'kinh-di', 'tinh-cam'],
   },
   {
     slug: 'phim-bo',
     name: 'Phim bộ',
-    title: 'Phim bộ đặc sắc, phim dài tập và series truyền hình chọn lọc',
+    title: 'Tuyển tập phim bộ, web-series và phim dài tập tự sản xuất',
     description:
-      'Xem phim bộ hay, phim dài tập và các series truyền hình hấp dẫn được tuyển chọn trên Winkey. Cập nhật tập mới liên tục với chất lượng hình ảnh sắc nét.',
+      'Xem tuyển tập phim bộ nhiều tập, web-series và câu chuyện dài kỳ do cộng đồng sáng tạo phát hành trên Winkey. Theo dõi trọn vẹn từng tập phim hấp dẫn.',
     intro:
-      'Khám phá tuyển tập phim bộ hấp dẫn cùng các series truyền hình đặc sắc trên Winkey. Theo dõi trọn vẹn từng tập phim với cốt truyện lôi cuốn và diễn xuất ấn tượng. Trải nghiệm giải trí dài tập đỉnh cao mỗi ngày.',
+      'Khám phá các chuỗi phim bộ nhiều tập và web-series thú vị do người dùng đăng tải trên Winkey. Theo dõi hành trình của từng nhân vật qua mỗi tập phim được cập nhật đều đặn. Thưởng thức những dự án phim dài kỳ giàu tâm huyết của cộng đồng.',
     tags: ['phim-bo', 'series'],
   },
   {
     slug: 'am-nhac',
     name: 'Âm nhạc',
-    title: 'Âm nhạc thịnh hành, MV ca nhạc và giai điệu tuyển chọn',
+    title: 'Video âm nhạc, bản cover và sáng tác do cộng đồng chia sẻ',
     description:
-      'Thưởng thức thế giới âm nhạc sống động trên Winkey với các MV mới nhất, nhạc trẻ thịnh hành, bolero trữ tình và rap cuốn hút từ nhiều nghệ sĩ hàng đầu.',
+      'Lắng nghe các video ca nhạc, bản cover mộc mạc và sáng tác mới từ cộng đồng yêu âm nhạc trên Winkey. Khám phá những giai điệu trẻ trung đầy cảm xúc.',
     intro:
-      'Không gian âm nhạc tuyệt vời dành cho người yêu nghệ thuật trên Winkey. Khám phá các MV ca nhạc mới nhất, những bản tình ca bất hủ và giai điệu rap sôi động. Lắng nghe và cảm nhận nhịp đập âm nhạc yêu thích của bạn.',
+      'Không gian kết nối những giai điệu và tình yêu âm nhạc tại Winkey. Thưởng thức các sản phẩm âm nhạc độc lập, bản thu cover và giai điệu mộc mạc từ những người yêu ca hát. Cùng lan tỏa niềm đam mê sáng tạo âm nhạc mỗi ngày.',
     tags: ['am-nhac', 'nhac', 'music', 'nhac-tre', 'bolero', 'rap'],
   },
   {
     slug: 'game',
     name: 'Game',
-    title: 'Video game đỉnh cao, livestream và highlights trò chơi hấp dẫn',
+    title: 'Highlights gameplay, hướng dẫn trò chơi và video gaming',
     description:
-      'Khám phá video game đặc sắc trên Winkey: highlights Liên Quân, Free Fire, Minecraft cùng các buổi phát trực tiếp và pha xử lý kịch tính từ streamer.',
+      'Theo dõi video highlights gaming, mẹo chơi bổ ích và khoảnh khắc ấn tượng từ cộng đồng game thủ trên Winkey. Cùng chia sẻ kinh nghiệm chơi game bổ ích.',
     intro:
-      'Khu vực dành riêng cho cộng đồng game thủ và người yêu thể thao điện tử trên Winkey. Cập nhật những pha xử lý đỉnh cao từ Liên Quân Mobile, Free Fire và Minecraft. Theo dõi những trận đấu nảy lửa và khoảnh khắc ấn tượng từ các streamer hàng đầu.',
+      'Góc giao lưu và chia sẻ dành cho cộng đồng người chơi game trên Winkey. Xem các pha xử lý highlights, hướng dẫn vượt màn và mẹo chơi hay từ các game thủ. Tham gia thảo luận và chia sẻ hành trình trải nghiệm trò chơi của bạn.',
     tags: ['game', 'gaming', 'lien-quan', 'free-fire', 'minecraft'],
   },
   {
     slug: 'hai-huoc',
     name: 'Hài hước',
-    title: 'Video hài hước, tiểu phẩm vui nhộn và khoảnh khắc giải trí',
+    title: 'Video hài hước, tiểu phẩm vui nhộn và khoảnh khắc đời thường',
     description:
-      'Thư giãn cùng kho video hài hước chọn lọc trên Winkey: tiểu phẩm vui nhộn, tình huống bất ngờ và tràng cười sảng khoái mang lại niềm vui mỗi ngày cho bạn.',
+      'Thư giãn với những video hài hước, tiểu phẩm vui vẻ và tình huống dí dỏm do thành viên chia sẻ trên Winkey. Nạp lại năng lượng tích cực mỗi ngày cùng bạn.',
     intro:
-      'Mang lại tiếng cười sảng khoái và phút giây thư giãn tuyệt vời tại Winkey. Tổng hợp các video hài hước, tiểu phẩm duyên dáng và tình huống bất ngờ thú vị. Hãy để niềm vui lan tỏa sau những giờ làm việc căng thẳng.',
+      'Nơi mang lại tiếng cười nhẹ nhàng và phút giây thư giãn trên Winkey. Tổng hợp những khoảnh khắc vui tươi, tiểu phẩm đời thường và tình huống dí dỏm do người dùng đóng góp. Đón nhận nguồn năng lượng tích cực sau những giờ học tập và làm việc.',
     tags: ['hai-huoc', 'hai', 'funny'],
   },
   {
     slug: 'giai-tri',
     name: 'Giải trí',
-    title: 'Giải trí tổng hợp, tin tức showbiz và talkshow hấp dẫn',
+    title: 'Video giải trí tổng hợp, vlog đời sống và sáng tạo nội dung',
     description:
-      'Không gian giải trí đa dạng trên Winkey: chương trình talkshow đặc sắc, hậu trường showbiz cùng những video thịnh hành mang đến phút giây thư giãn tuyệt vời.',
+      'Khám phá video giải trí phong phú trên Winkey với vlog đời sống, câu chuyện thú vị và nội dung đời thường được chia sẻ bởi cộng đồng người dùng đa dạng.',
     intro:
-      'Thế giới giải trí phong phú với những chương trình truyền hình và talkshow hấp dẫn trên Winkey. Cập nhật những xu hướng mới nhất cùng câu chuyện hậu trường thú vị từ người nổi tiếng. Tận hưởng không gian thư giãn trọn vẹn mỗi ngày.',
+      'Không gian giải trí tổng hợp đa sắc màu trên Winkey. Cùng xem các video vlog cuộc sống, trải nghiệm thú vị và nội dung sáng tạo do người dùng chia sẻ. Khám phá những góc nhìn mới mẻ và chân thực từ cuộc sống thường nhật.',
     tags: ['giai-tri', 'showbiz', 'talkshow'],
   },
   {
     slug: 'the-thao',
     name: 'Thể thao',
-    title: 'Video thể thao sôi động, highlights bóng đá và khoảnh khắc ấn tượng',
+    title: 'Khoảnh khắc thể thao, tập luyện và vận động phong trào',
     description:
-      'Theo dõi video thể thao sôi động trên Winkey: điểm tin bóng đá, highlights bàn thắng mãn nhãn và các khoảnh khắc thi đấu kịch tính từ các giải đấu lớn.',
+      'Xem video ghi lại khoảnh khắc thể thao phong trào, kỹ năng tập luyện và niềm vui vận động do người yêu thể thao chia sẻ trên nền tảng video Winkey.',
     intro:
-      'Đắm chìm vào những khoảnh khắc thể thao nghẹt thở và đầy cảm xúc trên Winkey. Theo dõi những pha ghi bàn đẹp mắt, điểm tin bóng đá nóng hổi và phân tích chiến thuật đặc sắc. Đồng hành cùng những giải đấu hàng đầu thế giới.',
+      'Nơi hội tụ niềm yêu thích thể thao và rèn luyện thể chất trên Winkey. Theo dõi những pha bóng đẹp mắt từ các giải phong trào, bài tập rèn luyện sức khỏe và chia sẻ kinh nghiệm vận động. Lan tỏa tinh thần thể thao tích cực đến mọi người.',
     tags: ['the-thao', 'bong-da'],
   },
   {
     slug: 'hoat-hinh',
     name: 'Hoạt hình',
-    title: 'Phim hoạt hình hay, anime đặc sắc và câu chuyện lôi cuốn',
+    title: 'Hoạt hình ngắn, diễn họa 2D và video sáng tạo độc lập',
     description:
-      'Thế giới hoạt hình đa sắc màu trên Winkey với các bộ anime hấp dẫn, phim thiếu nhi ý nghĩa cùng câu chuyện phiêu lưu lôi cuốn dành cho mọi lứa tuổi.',
+      'Thưởng thức các tác phẩm hoạt hình ngắn, đồ họa chuyển động và video diễn họa do các họa sĩ trẻ tự do chia sẻ trên Winkey. Ủng hộ nội dung sáng tạo mới.',
     intro:
-      'Khám phá thế giới hoạt hình kỳ diệu và những bộ anime đặc sắc tại Winkey. Nơi hội tụ các câu chuyện phiêu lưu kỳ thú, hình ảnh sống động và thông điệp ý nghĩa cho mọi lứa tuổi. Thưởng thức những thước phim hoạt hình yêu thích ngay hôm nay.',
+      'Góc trưng bày các tác phẩm hoạt hình ngắn và diễn họa do cộng đồng sáng tạo trên Winkey. Chiêm ngưỡng những nét vẽ độc đáo, hoạt họa mộc mạc và ý tưởng câu chuyện mới lạ. Cùng ủng hộ niềm đam mê của các nghệ sĩ diễn họa độc lập.',
     tags: ['hoat-hinh', 'anime'],
   },
 ];

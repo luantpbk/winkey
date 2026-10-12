@@ -32,9 +32,9 @@ export function Footer({
         <div className="flex flex-col gap-2">
           <h3 className="font-bold text-base text-gray-900 dark:text-white">Về Winkey</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            Winkey là nền tảng chia sẻ video và xem phim trực tuyến hàng đầu tại Việt Nam.
-            Thưởng thức hàng ngàn phim, phim bộ, video âm nhạc, highlights game và nội dung giải
-            trí chất lượng cao miễn phí.
+            Winkey là nền tảng chia sẻ video và xem phim trực tuyến hàng đầu tại Việt Nam. Thưởng
+            thức hàng ngàn phim, phim bộ, video âm nhạc, highlights game và nội dung giải trí chất
+            lượng cao miễn phí.
           </p>
         </div>
 

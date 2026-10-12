@@ -30,7 +30,7 @@ vi.mock('next/navigation', () => ({
 
 // Mock next-intl
 vi.mock('next-intl', () => ({
-  useTranslations: (namespace?: string) => (key: string, values?: Record<string, unknown>) => {
+  useTranslations: (namespace?: string) => (key: string, _values?: Record<string, unknown>) => {
     if (namespace === 'cinema') {
       const cinemaMap: Record<string, string> = {
         terms: 'Điều khoản',
@@ -55,7 +55,11 @@ vi.mock('next-intl/server', () => ({
 
 // Mock Link
 vi.mock('../src/i18n/routing', () => ({
-  Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+  Link: ({
+    href,
+    children,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -214,13 +218,11 @@ describe('SEO3: Category Pages & Brand Configuration (ADR-040)', () => {
         params: Promise.resolve({ locale: 'vi', slug: 'phim' }),
       });
 
-      expect(meta.title).toBe('Phim hay chọn lọc, phim lẻ và phim chiếu rạp mới nhất');
+      expect(meta.title).toBe('Phim ngắn, phim độc lập và phim do cộng đồng chia sẻ');
       expect(meta.alternates?.canonical).toBe('https://winkey.vn/the-loai/phim');
       expect(meta.robots).toEqual({ index: true, follow: true });
       const ogImages = meta.openGraph?.images as Array<{ url: string }> | undefined;
-      expect(ogImages?.[0]).toEqual(
-        expect.objectContaining({ url: mockVideo1.thumbnail_url }),
-      );
+      expect(ogImages?.[0]).toEqual(expect.objectContaining({ url: mockVideo1.thumbnail_url }));
     });
 
     it('sets robots { index: false, follow: true } when total videos < 2', async () => {

@@ -30,12 +30,9 @@ async function getTag(slug: string): Promise<TagSummary | null> {
 
 async function getTagVideos(slug: string, limit = 12): Promise<VideoSummary[]> {
   const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
-  const res = await fetch(
-    `${baseUrl}/v1/videos?tag=${encodeURIComponent(slug)}&limit=${limit}`,
-    {
-      cache: 'no-store',
-    },
-  );
+  const res = await fetch(`${baseUrl}/v1/videos?tag=${encodeURIComponent(slug)}&limit=${limit}`, {
+    cache: 'no-store',
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch tag videos: HTTP ${res.status}`);
   }
@@ -123,10 +120,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   // Fetch tag info and videos for all source tags in parallel
   const tagRowsData = await Promise.all(
     category.tags.map(async (tagSlug) => {
-      const [tagInfo, videos] = await Promise.all([
-        getTag(tagSlug),
-        getTagVideos(tagSlug, 12),
-      ]);
+      const [tagInfo, videos] = await Promise.all([getTag(tagSlug), getTagVideos(tagSlug, 12)]);
       return {
         tagSlug,
         tagName: tagInfo?.name || tagSlug,
@@ -187,7 +181,10 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       <div className="w-full max-w-7xl mx-auto px-4 py-8 flex flex-col gap-8">
         {/* Breadcrumbs + Header */}
         <header className="flex flex-col gap-3 pb-6 border-b border-[#272727] dark:border-[#272727] border-gray-200">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400"
+          >
             <Link href="/" className="hover:underline">
               Trang chủ
             </Link>

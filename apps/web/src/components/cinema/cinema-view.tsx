@@ -254,7 +254,8 @@ export function CinemaView({
           Winkey – Xem phim, phim bộ, video, nhạc và game miễn phí
         </h1>
         <p className="mt-1 text-sm text-gray-400 max-w-3xl leading-relaxed">
-          Nền tảng phát video trực tuyến tốc độ cao với các thể loại giải trí đa dạng: phim điện ảnh, phim bộ, âm nhạc sôi động và video game hấp dẫn dành cho mọi khán giả.
+          Nền tảng phát video trực tuyến tốc độ cao với các thể loại giải trí đa dạng: phim điện
+          ảnh, phim bộ, âm nhạc sôi động và video game hấp dẫn dành cho mọi khán giả.
         </p>
       </div>
 

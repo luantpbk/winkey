@@ -1,3 +1,5 @@
+/* global console, process */
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,10 +84,7 @@ async function generateAssets() {
 
   // 1. src/app/icon.png (512x512)
   console.log('-> src/app/icon.png (512x512)');
-  await sharp(Buffer.from(markSvg))
-    .resize(512, 512)
-    .png()
-    .toFile(path.join(appDir, 'icon.png'));
+  await sharp(Buffer.from(markSvg)).resize(512, 512).png().toFile(path.join(appDir, 'icon.png'));
 
   // 2. src/app/apple-icon.png (180x180)
   console.log('-> src/app/apple-icon.png (180x180)');
@@ -113,10 +112,7 @@ async function generateAssets() {
   const icoSizes = [16, 32, 48];
   const pngBuffers = [];
   for (const size of icoSizes) {
-    const buf = await sharp(Buffer.from(markSvg))
-      .resize(size, size)
-      .png()
-      .toBuffer();
+    const buf = await sharp(Buffer.from(markSvg)).resize(size, size).png().toBuffer();
     pngBuffers.push({ width: size, height: size, buffer: buf });
   }
   const icoData = buildIco(pngBuffers);

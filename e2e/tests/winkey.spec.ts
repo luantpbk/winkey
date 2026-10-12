@@ -2423,7 +2423,11 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     let hasOrg = false;
     for (let i = 0; i < scriptsCount; i++) {
       const text = await jsonLdScripts.nth(i).textContent();
-      if (text && text.includes('"Organization"') && text.includes('"https://winkey.vn/logo.png"')) {
+      if (
+        text &&
+        text.includes('"Organization"') &&
+        text.includes('"https://winkey.vn/logo.png"')
+      ) {
         hasOrg = true;
         break;
       }
@@ -2465,7 +2469,9 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     expect(hasCollectionPage).toBe(true);
 
     // 2.4 Verify site footer with all category links
-    const footer = page.locator('[data-testid="site-footer"], [data-testid="cinema-footer"]').first();
+    const footer = page
+      .locator('[data-testid="site-footer"], [data-testid="cinema-footer"]')
+      .first();
     await expect(footer).toBeVisible();
 
     // 2.5 Take desktop category screenshot
