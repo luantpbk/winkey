@@ -1,5 +1,10 @@
-import { createWinkeyClient } from '@winkey/api-client';
+import { createWinkeyClient, type User } from '@winkey/api-client';
 import { tokenStore } from './auth/token-store';
+import {
+  setSessionIndicator,
+  clearSessionIndicator,
+  setSessionProbed,
+} from './auth/session-indicator';
 
 export const getBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
@@ -8,9 +13,14 @@ export const getBaseUrl = (): string => {
   return process.env.API_INTERNAL_URL || 'http://localhost:8080';
 };
 
-let refreshPromise: Promise<string | null> | null = null;
+export interface RefreshResult {
+  token: string | null;
+  user?: User | null;
+}
 
-async function doRefresh(): Promise<string | null> {
+let refreshPromise: Promise<RefreshResult> | null = null;
+
+async function doRefresh(): Promise<RefreshResult> {
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -26,14 +36,23 @@ async function doRefresh(): Promise<string | null> {
       if (res.ok) {
         const data = await res.json();
         tokenStore.set(data.access_token);
-        return data.access_token;
+        setSessionIndicator();
+        setSessionProbed();
+        return {
+          token: data.access_token,
+          user: (data.user as User) || null,
+        };
       } else {
         tokenStore.clear();
-        return null;
+        if (res.status === 401) {
+          clearSessionIndicator();
+          setSessionProbed();
+        }
+        return { token: null, user: null };
       }
     } catch {
       tokenStore.clear();
-      return null;
+      return { token: null, user: null };
     } finally {
       refreshPromise = null;
     }
@@ -42,7 +61,7 @@ async function doRefresh(): Promise<string | null> {
   return refreshPromise;
 }
 
-export async function refreshAccessToken(): Promise<string | null> {
+export async function refreshSession(): Promise<RefreshResult> {
   // Cross-tab synchronization via Web Locks API when available
   if (
     typeof window !== 'undefined' &&
@@ -55,6 +74,11 @@ export async function refreshAccessToken(): Promise<string | null> {
   }
 
   return doRefresh();
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  const result = await refreshSession();
+  return result.token;
 }
 
 export const customFetch: typeof fetch = async (input, init) => {
