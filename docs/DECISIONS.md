@@ -964,3 +964,39 @@ Hiện trạng:
 - Video ít chuyển động (vlog, nói chuyện, slide, hoạt hình phẳng) nhỏ đi 30–85 %. Video phức tạp giữ nguyên kích thước và chất lượng. Lưu trữ R2, băng thông edge và thời gian bắt đầu phát đều giảm theo.
 - Video cũ không bị encode lại. Chỉ video tải lên sau khi bật mới dùng capped_crf.
 - Thêm 3 biến môi trường (`RATE_CONTROL`, `X264_CRF`, `NVENC_CQ`). Rollback chỉ cần đặt `RATE_CONTROL=abr` rồi khởi động lại transcoder.
+
+### ADR-040 — Nhận diện thương hiệu trên Google và trang thể loại giải trí (SEO3)
+**Bối cảnh.** Ngày 2026-10-12 user nhận xét: khi tìm kiếm, winkey.vn hiện ra rất sơ sài, không có logo, favicon, tiêu đề hay mô tả tử tế. User muốn Winkey xuất hiện với các từ khoá giải trí: phim, video, nhạc, game… Kiểm tra code `apps/web` (main `1a97a21`):
+- Không có favicon hay icon nào: không có `favicon.ico`, `icon.png`, `apple-icon`, `manifest`. Google hiện biểu tượng mặc định.
+- Logo trên trang chỉ là icon `PlaySquare` của lucide. Không có file logo, không có JSON-LD `Organization.logo`.
+- `app/layout.tsx` có `title: 'Winkey — Video Streaming Platform'` (tiếng Anh). Không có `metadataBase`, không có title template, không có `openGraph.siteName`/`locale`.
+- Mô tả trang chủ ghép từ **tiêu đề video đầu tiên**, nên thay đổi liên tục và không chứa từ khoá giải trí. Trang chủ không có H1 chữ.
+- Không có trang thể loại (phim, nhạc, game…). Từ khoá chỉ đến từ trang video và `/tag/<slug>` (ADR-037).
+
+**Quyết định.**
+1. **Bộ nhận diện (brand assets).**
+   - Logo SVG gốc màu thương hiệu, dựng từ dấu "play" hiện có. User có thể thay bằng logo chính thức sau.
+   - Xuất từ logo: `app/favicon.ico` (16/32/48), `app/icon.png` 512×512, `app/apple-icon.png` 180×180, `public/logo.png` 512×512 (cho `Organization.logo`), `app/opengraph-image.png` 1200×630 mặc định, `manifest.webmanifest`.
+   - Mọi file đều crawl được (không bị chặn trong `robots`).
+2. **Metadata mặc định (layout gốc).**
+   - `metadataBase: https://winkey.vn`.
+   - `title.default` = "Winkey – Xem phim, video, nhạc và game giải trí", `title.template` = "%s | Winkey".
+   - Mô tả cố định khoảng 150 ký tự, tiếng Việt, có từ khoá chính.
+   - `applicationName`, `openGraph` (`siteName` Winkey, `locale` `vi_VN`, ảnh mặc định), `twitter`, `alternates.canonical`, `icons`, `manifest`.
+3. **Trang chủ.**
+   - Mô tả cố định, không lấy từ video.
+   - Một H1 nhìn thấy được, kèm đoạn giới thiệu ngắn có từ khoá (phim, phim bộ, video, nhạc, game, giải trí).
+   - JSON-LD `WebSite` (`name`, `alternateName`, `SearchAction` đã có) và **`Organization`** (`name`, `url`, `logo`, `sameAs` khi có mạng xã hội) để Google hiện tên trang và logo.
+4. **Trang thể loại `/the-loai/<slug>`** (cố định trong code web, không cần contract hay migration):
+   - Danh sách khởi đầu: `phim`, `phim-bo`, `am-nhac`, `game`, `hai-huoc`, `giai-tri`, `the-thao`, `hoat-hinh`. Mỗi thể loại có tên tiếng Việt, mô tả khoảng 150 ký tự, đoạn giới thiệu 2–3 câu, và danh sách tag nguồn (ví dụ `am-nhac` ← `am-nhac`, `nhac`, `music`, `nhac-tre`, `bolero`).
+   - Video lấy qua `GET /v1/videos?tag=` (ADR-037), mỗi tag nguồn một hàng, gộp và bỏ trùng.
+   - SEO giống trang tag: canonical, `index` khi tổng ≥ 2 video, ngược lại `noindex,follow`; JSON-LD `CollectionPage` + `ItemList` + `BreadcrumbList`; có trong sitemap.
+   - Có liên kết từ sidebar và **footer mới** (footer gồm giới thiệu ngắn, các thể loại, điều khoản, quyền riêng tư).
+5. **Đo và nộp lại.** Rich Results Test sạch lỗi cho trang chủ, một trang thể loại và một trang xem. Nộp lại sitemap trong Search Console và "Request indexing" cho trang chủ.
+
+**Hệ quả.**
+- Google có đủ tín hiệu để hiện tên trang "Winkey", favicon, tiêu đề và mô tả ổn định.
+- Có các trang đích cho từ khoá giải trí, tách khỏi tag do người dùng gõ.
+- Favicon và tên trang chỉ cập nhật sau khi Google crawl lại, thường vài ngày đến vài tuần. Không có cách ép ngay.
+- Thứ hạng còn phụ thuộc lượng và chất lượng nội dung, cùng liên kết từ bên ngoài. Kỹ thuật chỉ là điều kiện cần.
+- Danh sách thể loại và tag nguồn nằm trong code web. Khi cần quản trị động, sẽ có ADR mới với contract và migration.
