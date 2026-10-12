@@ -157,8 +157,11 @@ for i in $(seq 1 30); do
 done
 
 if [ "$CORS_APPLIED" -ne 1 ]; then
-    echo "ERROR: Failed to apply CORS to winkey-raw" >&2
+    echo "ERROR: Failed to apply CORS to winkey-raw after 30 attempts" >&2
     exit 1
 fi
+
+echo "Bucket CORS configuration for winkey-raw:"
+aws --endpoint-url="http://${GARAGE_HOST}:3900" --region garage s3api get-bucket-cors --bucket winkey-raw
 
 echo "Garage bootstrap completed successfully."
