@@ -126,6 +126,10 @@ func TestGPU01ExampleValues(t *testing.T) {
 	if cfg.Encoder != "nvenc" || cfg.HWAccelDecode || cfg.WorkerConcurrency != 1 {
 		t.Errorf("encoder=%q hwaccel_decode=%v concurrency=%d", cfg.Encoder, cfg.HWAccelDecode, cfg.WorkerConcurrency)
 	}
+	// ADR-039 decision 2026-10-12 (issue #339): capped CRF with NVENC CQ 27.
+	if cfg.RateControl != "capped_crf" || cfg.NVENCCQ != 27 {
+		t.Errorf("rate_control=%q nvenc_cq=%d, want capped_crf/27", cfg.RateControl, cfg.NVENCCQ)
+	}
 	// FFmpeg by absolute path (never PATH).
 	for name, p := range map[string]string{"FFMPEG_PATH": cfg.FFmpegPath, "FFPROBE_PATH": cfg.FFprobePath} {
 		if !strings.HasPrefix(p, "/opt/ffmpeg-7.1/bin/") {
