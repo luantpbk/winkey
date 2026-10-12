@@ -705,4 +705,61 @@ not ok 1 - auth
       }
     });
   });
+
+  describe('CORS Preflight & Bucket Configuration Assertions', () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+    const repoRoot = path.resolve(testDir, '../..');
+
+    it('systest/run.sh asserts CORS preflight for :3900 (PUT) and :8081 (GET) before Playwright', () => {
+      const runShPath = path.resolve(testDir, '../run.sh');
+      const content = fs.readFileSync(runShPath, 'utf8');
+
+      // Must check :3900 with PUT and Origin http://127.0.0.1:8080
+      assert.ok(
+        content.includes(
+          'curl -s -i -X OPTIONS "http://127.0.0.1:3900/winkey-raw/cors-preflight-check"',
+        ),
+        'run.sh must test Garage :3900 OPTIONS preflight',
+      );
+      assert.ok(
+        content.includes('-H "Access-Control-Request-Method: PUT"'),
+        'run.sh must test PUT method in preflight',
+      );
+
+      // Must check :8081 with GET and Origin http://127.0.0.1:8080
+      assert.ok(
+        content.includes('curl -s -i -X OPTIONS "http://127.0.0.1:8081/cors-preflight-check"'),
+        'run.sh must test media-cache :8081 OPTIONS preflight',
+      );
+      assert.ok(
+        content.includes('-H "Access-Control-Request-Method: GET"'),
+        'run.sh must test GET method in preflight',
+      );
+
+      // Must assert Access-Control-Allow-Origin: http://127.0.0.1:8080 or exit 1
+      assert.ok(
+        content.includes('[ "${ORIGIN_3900}" = "http://127.0.0.1:8080" ]'),
+        'run.sh must assert origin matches http://127.0.0.1:8080 for 3900',
+      );
+      assert.ok(
+        content.includes('[ "${ORIGIN_8081}" = "http://127.0.0.1:8080" ]'),
+        'run.sh must assert origin matches http://127.0.0.1:8080 for 8081',
+      );
+    });
+
+    it('deploy/compose/garage/bootstrap.sh exits 1 on failure and prints get-bucket-cors on success', () => {
+      const bootstrapPath = path.resolve(repoRoot, 'deploy/compose/garage/bootstrap.sh');
+      const content = fs.readFileSync(bootstrapPath, 'utf8');
+
+      assert.ok(
+        content.includes('for i in $(seq 1 30)'),
+        'bootstrap.sh must retry put-bucket-cors 30 times',
+      );
+      assert.ok(content.includes('exit 1'), 'bootstrap.sh must exit 1 if CORS is not applied');
+      assert.ok(
+        content.includes('s3api get-bucket-cors --bucket winkey-raw'),
+        'bootstrap.sh must print get-bucket-cors on success',
+      );
+    });
+  });
 });

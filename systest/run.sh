@@ -182,6 +182,45 @@ if [ "${SIM}" -eq 1 ]; then
       fi
       sleep 1
     done
+
+    echo "[systest] Verifying CORS preflights from Origin: http://127.0.0.1:8080..."
+    PREFLIGHT_3900_OK=0
+    for _ in $(seq 1 10); do
+      RESP_3900=$(curl -s -i -X OPTIONS "http://127.0.0.1:3900/winkey-raw/cors-preflight-check" \
+        -H "Origin: http://127.0.0.1:8080" \
+        -H "Access-Control-Request-Method: PUT" || true)
+      ORIGIN_3900=$(echo "${RESP_3900}" | tr -d '\r' | grep -i '^access-control-allow-origin:' | head -n 1 | sed -e 's/^[^:]*:[[:space:]]*//')
+      if [ "${ORIGIN_3900}" = "http://127.0.0.1:8080" ]; then
+        PREFLIGHT_3900_OK=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "${PREFLIGHT_3900_OK}" -ne 1 ]; then
+      echo "[systest] ERROR: Garage :3900 preflight failed. Expected Access-Control-Allow-Origin: http://127.0.0.1:8080, got: '${ORIGIN_3900}'" >&2
+      echo "${RESP_3900}" >&2
+      exit 1
+    fi
+
+    PREFLIGHT_8081_OK=0
+    for _ in $(seq 1 10); do
+      RESP_8081=$(curl -s -i -X OPTIONS "http://127.0.0.1:8081/cors-preflight-check" \
+        -H "Origin: http://127.0.0.1:8080" \
+        -H "Access-Control-Request-Method: GET" || true)
+      ORIGIN_8081=$(echo "${RESP_8081}" | tr -d '\r' | grep -i '^access-control-allow-origin:' | head -n 1 | sed -e 's/^[^:]*:[[:space:]]*//')
+      if [ "${ORIGIN_8081}" = "http://127.0.0.1:8080" ]; then
+        PREFLIGHT_8081_OK=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "${PREFLIGHT_8081_OK}" -ne 1 ]; then
+      echo "[systest] ERROR: media-cache :8081 preflight failed. Expected Access-Control-Allow-Origin: http://127.0.0.1:8080, got: '${ORIGIN_8081}'" >&2
+      echo "${RESP_8081}" >&2
+      exit 1
+    fi
+    echo "[systest] Preflights OK: Garage :3900 (PUT) and media-cache :8081 (GET) allow http://127.0.0.1:8080."
+
     echo "[systest] Running Playwright persona journeys against real stack..."
     pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
   fi
