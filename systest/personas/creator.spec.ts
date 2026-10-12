@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -20,11 +21,29 @@ if (!fs.existsSync(testClipPath)) {
   throw new Error(`[persona:creator] Missing test clip at ${testClipPath}`);
 }
 
-test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038)', () => {
+function resetRateLimits() {
+  try {
+    const script = path.resolve(__dirname, '../reset-ratelimits.sh');
+    if (fs.existsSync(script)) {
+      execSync(`bash "${script}"`, { stdio: 'ignore' });
+    }
+  } catch (err) {
+    console.warn(
+      `[persona:creator] Warning: failed to reset rate limits: ${(err as Error)?.message || err}`,
+    );
+  }
+}
+
+test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038)', () => {
+  let context: BrowserContext;
+  let page: Page;
   let creatorEmail = '';
   let creatorToken = '';
 
-  test.beforeAll(async ({ request }) => {
+  const creatorStatePath = path.resolve(__dirname, '../.run/creator-state.json');
+
+  test.beforeAll(async ({ browser, request }) => {
+    resetRateLimits();
     creatorEmail = manifest.curator.email;
     const res = await request.post('/v1/auth/login', {
       data: { email: creatorEmail, password: PASSWORD },
@@ -36,9 +55,29 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     }
     const data = await res.json();
     creatorToken = data.access_token;
+
+    context = await browser.newContext();
+    page = await context.newPage();
   });
 
-  test('upload clip through upload UI -> wait for READY (<= 240s)', async ({ page }) => {
+  test.afterAll(async () => {
+    await context?.close();
+  });
+
+  async function ensureCreatorLoggedIn() {
+    await page.goto('/login');
+    await page.locator('input[type="email"]').fill(creatorEmail);
+    await page.locator('input[type="password"]').fill(PASSWORD);
+    await page.locator('main form button[type="submit"]').click();
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    try {
+      await context.storageState({ path: creatorStatePath });
+    } catch {
+      // Best-effort storage state persistence
+    }
+  }
+
+  test('upload clip through upload UI -> wait for READY (<= 240s)', async () => {
     test.setTimeout(240_000);
     page.on('console', (msg) => {
       console.log(`[creator:upload console] [${msg.type()}] ${msg.text()}`);
@@ -48,12 +87,8 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
         `[creator:upload requestfailed] ${req.method()} ${req.url()}: ${req.failure()?.errorText}`,
       );
     });
-    // Login creator
-    await page.goto('/login');
-    await page.locator('input[type="email"]').fill(creatorEmail);
-    await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.locator('main form button[type="submit"]').click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    // Login creator and persist storage state
+    await ensureCreatorLoggedIn();
 
     // Navigate to upload page
     await page.goto('/upload');
@@ -80,15 +115,7 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     });
   });
 
-  test('Studio edit: title, description, visibility, 3 tags (one with diacritics) -> save', async ({
-    page,
-  }) => {
-    // Login creator
-    await page.goto('/login');
-    await page.locator('input[type="email"]').fill(creatorEmail);
-    await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.locator('main form button[type="submit"]').click();
-
+  test('Studio edit: title, description, visibility, 3 tags (one with diacritics) -> save', async () => {
     // Collect all video IDs that belong to series so we do not edit an episode of a series
     const seriesVideoIds = new Set<string>();
     for (const s of manifest.series || []) {
@@ -124,6 +151,10 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     // Find a video in studio
     await page.goto('/studio');
     await expect(page.locator('body')).toBeVisible();
+    if (page.url().includes('/login')) {
+      await ensureCreatorLoggedIn();
+      await page.goto('/studio');
+    }
 
     const targetEditBtn = page
       .locator(
@@ -193,17 +224,13 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
     expect(hasKeywords).toBe(true);
   });
 
-  test('/thu-vien: create "Bộ phim", add 3 videos, publish -> shows on home "Phim bộ" and series page', async ({
-    page,
-  }) => {
-    // Login creator
-    await page.goto('/login');
-    await page.locator('input[type="email"]').fill(creatorEmail);
-    await page.locator('input[type="password"]').fill(PASSWORD);
-    await page.locator('main form button[type="submit"]').click();
-
+  test('/thu-vien: create "Bộ phim", add 3 videos, publish -> shows on home "Phim bộ" and series page', async () => {
     await page.goto('/thu-vien');
     await expect(page.locator('body')).toBeVisible();
+    if (page.url().includes('/login')) {
+      await ensureCreatorLoggedIn();
+      await page.goto('/thu-vien');
+    }
 
     const seriesTitle = `Bộ Phim Đặc Sắc ${Date.now()}`;
 
@@ -237,7 +264,6 @@ test.describe('Persona: creator (Upload, Studio Edit, Series & Deletion, ADR-038
   });
 
   test('delete one video -> disappears everywhere including 404 on watch page', async ({
-    page,
     request,
   }) => {
     // Collect all video IDs that belong to series so we do not delete an episode of a series

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -22,12 +23,26 @@ if (!manifest.curator?.email) {
 
 const PASSWORD = 'Password123!';
 
+function resetRateLimits() {
+  try {
+    const script = path.resolve(__dirname, '../reset-ratelimits.sh');
+    if (fs.existsSync(script)) {
+      execSync(`bash "${script}"`, { stdio: 'ignore' });
+    }
+  } catch (err) {
+    console.warn(
+      `[persona:moderator] Warning: failed to reset rate limits: ${(err as Error)?.message || err}`,
+    );
+  }
+}
+
 test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Restore, ADR-038)', () => {
   let modToken = '';
   let memberToken = '';
   let targetVideo: any = null;
 
   test.beforeAll(async ({ request }) => {
+    resetRateLimits();
     // 1. Member login token
     const uRes = await request.post('/v1/auth/login', {
       data: { email: manifest.users[0].email, password: PASSWORD },
@@ -113,6 +128,7 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     await anonContext.close();
 
     // 4. Owner (curator) sees video marked hidden in Studio
+    resetRateLimits();
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
     await ownerPage.goto('/login');

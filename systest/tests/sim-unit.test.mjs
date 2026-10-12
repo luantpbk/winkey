@@ -802,4 +802,50 @@ not ok 1 - auth
       );
     });
   });
+
+  describe('Persona Session Reuse & Auth Rate Limit Protection (Issue #342)', () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+
+    it('creator.spec.ts uses test.describe.serial and saves creator storage state', () => {
+      const creatorSpec = path.resolve(testDir, '../personas/creator.spec.ts');
+      const content = fs.readFileSync(creatorSpec, 'utf8');
+
+      assert.ok(
+        content.includes('test.describe.serial'),
+        'creator.spec.ts must use test.describe.serial for session sharing',
+      );
+      assert.ok(
+        content.includes('creator-state.json'),
+        'creator.spec.ts must persist creator-state.json storage state',
+      );
+      assert.ok(
+        content.includes('resetRateLimits()'),
+        'creator.spec.ts must call resetRateLimits() in beforeAll',
+      );
+    });
+
+    it('moderator.spec.ts calls resetRateLimits before tests and before owner login in step 4', () => {
+      const modSpec = path.resolve(testDir, '../personas/moderator.spec.ts');
+      const content = fs.readFileSync(modSpec, 'utf8');
+
+      assert.ok(
+        content.includes('resetRateLimits()'),
+        'moderator.spec.ts must call resetRateLimits()',
+      );
+      assert.ok(
+        content.includes('Warning: failed to reset rate limits:'),
+        'moderator.spec.ts must log a warning line if resetRateLimits fails',
+      );
+    });
+
+    it('systest/run.sh resets rate limits immediately before running Playwright', () => {
+      const runShPath = path.resolve(testDir, '../run.sh');
+      const content = fs.readFileSync(runShPath, 'utf8');
+
+      assert.ok(
+        content.includes('Resetting auth rate limits before Playwright personas...'),
+        'run.sh must reset rate limits before Playwright personas',
+      );
+    });
+  });
 });
