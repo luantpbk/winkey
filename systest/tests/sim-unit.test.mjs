@@ -653,7 +653,29 @@ not ok 1 - auth
         isBaselineRun: true,
       });
 
-      assert.match(md, /PASSED \(baseline run, not compared\)/);
+      assert.match(md, /PASSED \(chạy làm baseline, chưa so sánh\)/);
+    });
+
+    it('clearly notes when k6 exceeds threshold (rc 99) in summary.md', () => {
+      const md = buildSummaryMarkdown({
+        tapContent: '# tests 18\n# pass 18\n# fail 0',
+        playwrightJson: { suites: [] },
+        perfJson: {
+          rebuffer_ratio_noseek: 0,
+          http_req_failed: 0.06,
+          k6_exit_code: 99,
+          k6_threshold_exceeded: true,
+          endpoints: {
+            'GET /v1/videos': { p50: 12.0, p95: 25.0 },
+          },
+        },
+        baselineJson: null,
+        isBaselineRun: false,
+      });
+
+      assert.match(md, /FAILED \(k6 vượt threshold, rc 99\)/);
+      assert.match(md, /k6 vượt threshold \(rc 99\)/);
+      assert.match(md, /\*\*Status\*\*: \*\*FAILED\*\*/);
     });
   });
 
@@ -703,6 +725,81 @@ not ok 1 - auth
           `${file} must not have fallback dummy invite code`,
         );
       }
+    });
+  });
+
+  describe('CORS Preflight & Bucket Configuration Assertions', () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+    const repoRoot = path.resolve(testDir, '../..');
+
+    it('systest/run.sh asserts CORS preflight for :3900 (PUT) and :8081 (GET) before Playwright', () => {
+      const runShPath = path.resolve(testDir, '../run.sh');
+      const content = fs.readFileSync(runShPath, 'utf8');
+
+      // Must check :3900 with PUT and Origin http://127.0.0.1:8080
+      assert.ok(
+        content.includes(
+          'curl -s -i -X OPTIONS "http://127.0.0.1:3900/winkey-raw/cors-preflight-check"',
+        ),
+        'run.sh must test Garage :3900 OPTIONS preflight',
+      );
+      assert.ok(
+        content.includes('-H "Access-Control-Request-Method: PUT"'),
+        'run.sh must test PUT method in preflight',
+      );
+
+      // Must check :8081 with GET and Origin http://127.0.0.1:8080
+      assert.ok(
+        content.includes('curl -s -i -X OPTIONS "http://127.0.0.1:8081/cors-preflight-check"'),
+        'run.sh must test media-cache :8081 OPTIONS preflight',
+      );
+      assert.ok(
+        content.includes('-H "Access-Control-Request-Method: GET"'),
+        'run.sh must test GET method in preflight',
+      );
+
+      // Must assert exactly one header Access-Control-Allow-Origin: http://127.0.0.1:8080 or exit 1
+      assert.ok(
+        content.includes(
+          '[ "${ORIGIN_3900_COUNT}" -eq 1 ] && [ "${ORIGIN_3900_VAL}" = "http://127.0.0.1:8080" ]',
+        ),
+        'run.sh must assert exactly one origin header matching http://127.0.0.1:8080 for 3900',
+      );
+      assert.ok(
+        content.includes(
+          '[ "${ORIGIN_8081_COUNT}" -eq 1 ] && [ "${ORIGIN_8081_VAL}" = "http://127.0.0.1:8080" ]',
+        ),
+        'run.sh must assert exactly one origin header matching http://127.0.0.1:8080 for 8081',
+      );
+    });
+
+    it('deploy/compose/garage/bootstrap.sh exits 1 on failure and prints get-bucket-cors on success', () => {
+      const bootstrapPath = path.resolve(repoRoot, 'deploy/compose/garage/bootstrap.sh');
+      const content = fs.readFileSync(bootstrapPath, 'utf8');
+
+      assert.ok(
+        content.includes('for i in $(seq 1 30)'),
+        'bootstrap.sh must retry put-bucket-cors 30 times',
+      );
+      assert.ok(content.includes('exit 1'), 'bootstrap.sh must exit 1 if CORS is not applied');
+      assert.ok(
+        content.includes('s3api get-bucket-cors --bucket winkey-raw'),
+        'bootstrap.sh must print get-bucket-cors on success',
+      );
+    });
+
+    it('deploy/compose/README.md documents Garage v1.0.1 multi-origin CORS behavior and 2-rule separation', () => {
+      const readmePath = path.resolve(repoRoot, 'deploy/compose/README.md');
+      const content = fs.readFileSync(readmePath, 'utf8');
+
+      assert.ok(
+        content.includes('Garage v1.0.1'),
+        'README.md must mention Garage v1.0.1 in CORS section',
+      );
+      assert.ok(
+        content.includes('2 quy tắc riêng biệt'),
+        'README.md must document 2 separate CORS rules for Garage',
+      );
     });
   });
 });
