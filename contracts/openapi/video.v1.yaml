@@ -876,6 +876,13 @@ components:
           type: integer
         bitrate_kbps:
           type: integer
+        codec:
+          type: string
+          enum: [h264, av1]
+          description: |
+            Video codec of this rendition (task ENC2, ADR-041); absent means `h264`. `h264` renditions belong to
+            `hls_url`, `av1` ones to `hls_av1_url`. video-svc always sends it; optional only so that older servers
+            stay valid. (No schema `default`: generated clients would make the field required.)
 
     Playback:
       type: object
@@ -885,6 +892,13 @@ components:
           type: string
           format: uri
           description: Signed (`/s/{expires}/{sig}/…`) when the video is not publicly watchable (task SEC1).
+        hls_av1_url:
+          type: [string, 'null']
+          format: uri
+          description: |
+            Separate AV1 master playlist with the same ladder (task ENC2, ADR-041). Null or absent when the video
+            has no complete AV1 set. Players use it only when `MediaSource.isTypeSupported` accepts AV1 and
+            otherwise play `hls_url`; they never switch codec mid-playback. Signed like `hls_url`.
         thumbnail_url:
           type: string
           format: uri
@@ -909,6 +923,7 @@ components:
             $ref: '#/components/schemas/SubtitleTrack'
         renditions:
           type: array
+          description: Renditions of every codec; filter by `codec` (absent means `h264`).
           items:
             $ref: '#/components/schemas/Rendition'
 

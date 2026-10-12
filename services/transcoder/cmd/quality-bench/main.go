@@ -8,6 +8,12 @@
 //
 //	quality-bench -encoder nvenc -settings abr,capped_crf:23,capped_crf:25 \
 //	  -ffmpeg /usr/bin/ffmpeg -vmaf-ffmpeg ./ffmpeg-vmaf a.mp4 b.mov
+//
+// An av1[:CQ] setting encodes the AV1 set (ADR-041) with -av1-ffmpeg, so the
+// production H.264 setting can be the baseline:
+//
+//	quality-bench -encoder nvenc -settings capped_crf:27,av1:30,av1:34 \
+//	  -av1-ffmpeg ~/tools/ffmpeg-8.0/bin/ffmpeg -min-saved 25 a.mp4
 package main
 
 import (
@@ -28,6 +34,9 @@ import (
 
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
 )
+
+// settingAV1 selects the AV1 NVENC encode (ADR-041) instead of -encoder.
+const settingAV1 = "av1"
 
 type setting struct {
 	label string
@@ -51,8 +60,16 @@ func parseSettings(s string) ([]setting, error) {
 				}
 				st.level = n
 			}
+		case settingAV1:
+			if lvl != "" {
+				n, err := strconv.Atoi(lvl)
+				if err != nil || n < 1 || n > 63 {
+					return nil, fmt.Errorf("bad AV1 CQ in %q (1..63)", f)
+				}
+				st.level = n
+			}
 		default:
-			return nil, fmt.Errorf("unknown setting %q (want abr or capped_crf[:N])", f)
+			return nil, fmt.Errorf("unknown setting %q (want abr, capped_crf[:N] or av1[:CQ])", f)
 		}
 		out = append(out, st)
 	}
@@ -82,6 +99,9 @@ func main() {
 	anonymize := flag.Bool("anonymize", false, "label sources s01, s02, ... instead of file names")
 	fromJSON := flag.String("from-json", "", "re-evaluate a previous -json result without encoding")
 	baseline := flag.String("baseline", media.RateControlABR, "baseline setting for -from-json")
+	av1FF := flag.String("av1-ffmpeg", "", "ffmpeg with a working av1_nvenc, for av1 settings (default: -ffmpeg)")
+	av1Cap := flag.Int("av1-cap-pct", media.DefaultAV1MaxratePct, "AV1 ceiling as a percentage of the H.264 rung")
+	minSaved := flag.Float64("min-saved", minSizeSavedPct, "size saving (%) a setting needs to pass (ADR-039: 20, ADR-041: 25)")
 	flag.Parse()
 	if *fromJSON != "" {
 		raw, err := os.ReadFile(*fromJSON) // #nosec G304 -- operator-supplied result file.
@@ -92,11 +112,14 @@ func main() {
 		if err := json.Unmarshal(raw, &prev); err != nil {
 			fatal(err)
 		}
-		printVerdicts(os.Stdout, evaluate(prev, *baseline), *baseline)
+		printVerdicts(os.Stdout, evaluate(prev, *baseline, *minSaved), *baseline, *minSaved)
 		return
 	}
 	if *vmafFF == "" {
 		*vmafFF = *ffmpeg
+	}
+	if *av1FF == "" {
+		*av1FF = *ffmpeg
 	}
 	sts, err := parseSettings(*settings)
 	if err != nil || flag.NArg() == 0 {
@@ -126,11 +149,16 @@ func main() {
 				RateControl: st.mode, X264CRF: st.level, NVENCCQ: st.level,
 				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: true,
 			}
+			encFF := *ffmpeg
+			if st.mode == settingAV1 {
+				plan.Encoder, plan.RateControl, plan.AV1CQ, plan.AV1MaxratePct = media.EncoderAV1NVENC, "", st.level, *av1Cap
+				encFF = *av1FF
+			}
 			if err := os.MkdirAll(out, 0o750); err != nil {
 				fatal(err)
 			}
 			start := time.Now()
-			if err := run(ctx, *ffmpeg, media.BuildHLSArgs(plan)...); err != nil {
+			if err := run(ctx, encFF, media.BuildHLSArgs(plan)...); err != nil {
 				fatal(fmt.Errorf("encode %s %s: %w", src, st.label, err))
 			}
 			secs := time.Since(start).Seconds()
@@ -158,7 +186,7 @@ func main() {
 		}
 	}
 	printTable(all, sts)
-	printVerdicts(os.Stdout, evaluate(all, sts[0].label), sts[0].label)
+	printVerdicts(os.Stdout, evaluate(all, sts[0].label, *minSaved), sts[0].label, *minSaved)
 	if *jsonOut != "" {
 		b, _ := json.MarshalIndent(all, "", "  ")
 		if err := os.WriteFile(*jsonOut, b, 0o600); err != nil {

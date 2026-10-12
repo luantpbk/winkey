@@ -72,6 +72,23 @@ git pull && services/transcoder/scripts/enc1-bench.sh
 
 It fetches a libvmaf FFmpeg into `~/tools/ffmpeg-vmaf` once, cuts the first 60 s of 20 archived uploads (spread by size) from `ARCHIVE_DIR` into scratch, runs the bench with NVENC and `/opt/ffmpeg-7.1` on `abr,capped_crf:21,23,25,27` under `nice`/`ionice`, prints the verdict and deletes the clips. Results stay in `~/enc1-bench-<timestamp>/`. It never reads `/etc/winkey/transcoder.env` or S3 credentials. Overrides: `SAMPLES`, `CLIP_SECONDS`, `SETTINGS`, `ARCHIVE_DIR`. Then, with the recommended level: `sudoedit /etc/winkey/transcoder.env` (`RATE_CONTROL=capped_crf`, `NVENC_CQ=<N>`) and `sudo systemctl restart winkey-transcoder`; roll back with `RATE_CONTROL=abr`.
 
+### AV1 calibration on gpu-01 (ENC2, ADR-041; one command, no sudo)
+
+```bash
+git pull && services/transcoder/scripts/enc2-bench.sh
+```
+
+- The system FFmpeg 7.1 has no `av1_nvenc`. The current BtbN master build needs NVENC API 13.1, which means driver ≥ 610, while gpu-01 runs driver 595 (API 13.0).
+- So the script downloads the pinned BtbN release `n8.0.1-66` (sha256-checked) into `~/tools/ffmpeg-8.0`. That build works with driver 595 and also has libvmaf.
+- It then runs the same clip pipeline as `enc1-bench.sh`:
+  - Baseline: production `capped_crf:27` with `/opt/ffmpeg-7.1`.
+  - Candidates: `av1:28,32,36` with FFmpeg 8.0, a ceiling of 60 % of each H.264 rung (`-av1-cap-pct`), and the 25 % rule (`MIN_SAVED`).
+- Results stay in `~/enc2-bench-<timestamp>/`.
+- The AV1 arguments come from `media.BuildHLSArgs` with `Encoder: av1_nvenc`:
+  - constant quality (`-cq`, `-b:v 0`);
+  - the same ladder, GOP and fMP4 HLS layout as H.264;
+  - `-rc-lookahead 20 -temporal-aq 1 -spatial-aq 1`.
+
 ## Configuration
 
 | Variable | Default | Description |

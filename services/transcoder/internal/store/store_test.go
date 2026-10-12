@@ -90,6 +90,11 @@ func TestStoreLifecycle(t *testing.T) {
 	for _, r := range rs {
 		res.PlaylistKeys = append(res.PlaylistKeys, prefix+"hls/"+r.Name+"/index.m3u8")
 	}
+	// A re-transcode replaces only the H.264 set; an AV1 set (ENC2, ADR-041) stays.
+	if _, err := pg.Pool.Exec(ctx, `INSERT INTO media.video_renditions (video_id, codec, name, width, height, bitrate_kbps, playlist_key)
+		VALUES ($1, 'av1', '1080p', 1920, 1080, 3000, $2)`, vid, prefix+"hls-av1/1080p/index.m3u8"); err != nil {
+		t.Fatal(err)
+	}
 	ok, err := st.Complete(ctx, res)
 	if err != nil || !ok {
 		t.Fatalf("complete: %v %v", ok, err)
@@ -103,10 +108,12 @@ func TestStoreLifecycle(t *testing.T) {
 	var nr int
 	var jstatus, enc string
 	var prog float32
-	_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.video_renditions WHERE video_id=$1`, vid).Scan(&nr)
+	_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.video_renditions WHERE video_id=$1 AND codec='h264'`, vid).Scan(&nr)
 	_ = pg.Pool.QueryRow(ctx, `SELECT status::text, encoder, progress FROM media.transcode_jobs WHERE id=$1`, b3.JobID).Scan(&jstatus, &enc, &prog)
-	if nr != 3 || jstatus != "SUCCEEDED" || enc != "x264" || prog != 100 {
-		t.Fatalf("renditions=%d job=%s/%s/%v", nr, jstatus, enc, prog)
+	var nav1 int
+	_ = pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.video_renditions WHERE video_id=$1 AND codec='av1'`, vid).Scan(&nav1)
+	if nr != 3 || nav1 != 1 || jstatus != "SUCCEEDED" || enc != "x264" || prog != 100 {
+		t.Fatalf("renditions=%d av1=%d job=%s/%s/%v", nr, nav1, jstatus, enc, prog)
 	}
 	var payload []byte
 	if err := pg.Pool.QueryRow(ctx, `SELECT payload FROM media.outbox WHERE subject='video.ready'`).Scan(&payload); err != nil {

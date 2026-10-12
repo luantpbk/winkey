@@ -48,6 +48,8 @@ type Rendition struct {
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
 	BitrateKbps int    `json:"bitrate_kbps"`
+	// Codec is "h264" or "av1" (ENC2, ADR-041); empty in entries cached before ENC2 means h264.
+	Codec string `json:"codec,omitempty"`
 }
 
 // Video is a full record with owner profile and renditions. It is viewer

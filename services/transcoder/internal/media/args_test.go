@@ -181,3 +181,54 @@ func TestThumbnailAndProbeArgs(t *testing.T) {
 		t.Errorf("probe args: %s", pr)
 	}
 }
+
+func av1Plan() HLSPlan {
+	p := plan(EncoderAV1NVENC, 1920, 1080, true)
+	return p
+}
+
+func TestGoldenAV1NVENC(t *testing.T) {
+	golden(t, "av1_nvenc_landscape", BuildHLSArgs(av1Plan()))
+}
+
+// ADR-041: the AV1 set is always constant quality, capped at a share of the
+// H.264 rung, with the same ladder, GOP and HLS layout as H.264.
+func TestAV1UsesCQAndScaledCeiling(t *testing.T) {
+	cs := strings.Join(BuildHLSArgs(av1Plan()), " ")
+	for i, r := range Select(1920, 1080) {
+		v := ":v:" + itoa(i)
+		for _, want := range []string{
+			"-cq" + v + " 32 -b" + v + " 0",
+			"-maxrate" + v + " " + itoa(r.TargetK*60/100) + "k",
+			"-bufsize" + v + " " + itoa(r.BufsizeK*60/100) + "k",
+		} {
+			if !strings.Contains(cs, want) {
+				t.Errorf("missing %q in %s", want, cs)
+			}
+		}
+	}
+	for _, want := range []string{"-c:v av1_nvenc", "-hwaccel cuda", "-forced-idr 1", "-no-scenecut 1",
+		"expr:gte(t,n_forced*2)", "-hls_segment_type fmp4", "v:0,a:0,name:1080p v:1,a:1,name:720p v:2,a:2,name:480p"} {
+		if !strings.Contains(cs, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(cs, "h264_nvenc") || strings.Contains(cs, "-profile:v high") {
+		t.Errorf("H.264 options leaked into AV1: %s", cs)
+	}
+
+	p := av1Plan()
+	p.AV1CQ, p.AV1MaxratePct, p.NoHWDecode = 28, 50, true
+	cs = strings.Join(BuildHLSArgs(p), " ")
+	r := Select(1920, 1080)[0]
+	if !strings.Contains(cs, "-cq:v:0 28") || !strings.Contains(cs, "-maxrate:v:0 "+itoa(r.TargetK/2)+"k") ||
+		strings.Contains(cs, "-hwaccel") {
+		t.Errorf("AV1 overrides ignored: %s", cs)
+	}
+	// RateControl does not apply to AV1 (always CQ).
+	p = av1Plan()
+	p.RateControl = RateControlCappedCRF
+	if strings.Join(BuildHLSArgs(p), " ") != strings.Join(BuildHLSArgs(av1Plan()), " ") {
+		t.Error("RateControl must not change AV1 args")
+	}
+}

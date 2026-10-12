@@ -127,15 +127,15 @@ func (p *Postgres) loadRenditions(ctx context.Context, v *domain.Video) error {
 		return nil
 	}
 	rows, err := p.Pool.Query(ctx, `
-		SELECT name, width, height, bitrate_kbps FROM media.video_renditions
-		WHERE video_id = $1 ORDER BY height DESC, width DESC, name`, v.ID)
+		SELECT name, width, height, bitrate_kbps, codec FROM media.video_renditions
+		WHERE video_id = $1 AND codec = 'h264' ORDER BY height DESC, width DESC, name`, v.ID)
 	if err != nil {
 		return fmt.Errorf("load renditions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r domain.Rendition
-		if err := rows.Scan(&r.Name, &r.Width, &r.Height, &r.BitrateKbps); err != nil {
+		if err := rows.Scan(&r.Name, &r.Width, &r.Height, &r.BitrateKbps, &r.Codec); err != nil {
 			return err
 		}
 		v.Renditions = append(v.Renditions, r)

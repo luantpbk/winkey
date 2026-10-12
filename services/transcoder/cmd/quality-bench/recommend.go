@@ -10,7 +10,7 @@ import (
 const (
 	maxTopDrop      = 1.0  // mean VMAF drop allowed on each source's top rendition
 	maxLowerDrop    = 3.0  // mean VMAF drop allowed on the lower renditions
-	minSizeSavedPct = 20.0 // total segment bytes saved vs the baseline, in percent
+	minSizeSavedPct = 20.0 // default: total segment bytes saved vs the baseline, in percent (ADR-041 uses 25)
 )
 
 // verdict is one setting compared with the baseline over every source.
@@ -26,7 +26,7 @@ type verdict struct {
 // evaluate compares every non-baseline setting with the baseline (the first
 // setting) on the renditions both have. The top rendition of a source is the
 // one with the highest ladder name (1080p before 720p).
-func evaluate(all []result, baseline string) []verdict {
+func evaluate(all []result, baseline string, minSaved float64) []verdict {
 	type key struct{ input, rendition string }
 	base := map[key]result{}
 	top := map[string]string{}
@@ -86,7 +86,7 @@ func evaluate(all []result, baseline string) []verdict {
 		if a.lowerN > 0 {
 			v.LowerDrop = a.lowerSum / float64(a.lowerN)
 		}
-		v.Pass = a.topN > 0 && v.TopDrop <= maxTopDrop && v.LowerDrop <= maxLowerDrop && v.SavedPct >= minSizeSavedPct
+		v.Pass = a.topN > 0 && v.TopDrop <= maxTopDrop && v.LowerDrop <= maxLowerDrop && v.SavedPct >= minSaved
 		out = append(out, v)
 	}
 	return out
@@ -104,11 +104,11 @@ func recommend(vs []verdict) string {
 	return best
 }
 
-func printVerdicts(w io.Writer, vs []verdict, baseline string) {
+func printVerdicts(w io.Writer, vs []verdict, baseline string, minSaved float64) {
 	sorted := append([]verdict(nil), vs...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Setting < sorted[j].Setting })
 	_, _ = fmt.Fprintf(w, "\n### ADR-039 verdict (baseline: %s)\n\n", baseline)
-	_, _ = fmt.Fprintf(w, "Criteria: top-rendition VMAF drop <= %.1f, lower renditions <= %.1f, size saved >= %.0f%%.\n\n", maxTopDrop, maxLowerDrop, minSizeSavedPct)
+	_, _ = fmt.Fprintf(w, "Criteria: top-rendition VMAF drop <= %.1f, lower renditions <= %.1f, size saved >= %.0f%%.\n\n", maxTopDrop, maxLowerDrop, minSaved)
 	_, _ = fmt.Fprintln(w, "| Setting | Size saved | Mean VMAF drop (top) | Worst drop (top) | Mean VMAF drop (lower) | Pass |")
 	_, _ = fmt.Fprintln(w, "|---|---:|---:|---:|---:|:---:|")
 	for _, v := range sorted {
@@ -121,7 +121,7 @@ func printVerdicts(w io.Writer, vs []verdict, baseline string) {
 	if r := recommend(vs); r != "" {
 		_, _ = fmt.Fprintf(w, "\nRECOMMENDED: %s\n", r)
 	} else {
-		_, _ = fmt.Fprintln(w, "\nRECOMMENDED: none (keep RATE_CONTROL=abr)")
+		_, _ = fmt.Fprintf(w, "\nRECOMMENDED: none (keep %s)\n", baseline)
 	}
 }
 

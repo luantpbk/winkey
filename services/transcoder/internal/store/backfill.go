@@ -56,7 +56,7 @@ func (p *Postgres) SelectBackfill(ctx context.Context, after backfill.Cursor, li
 	}
 	rr, err := p.Pool.Query(ctx, `
 		SELECT video_id, name, width, height, bitrate_kbps, playlist_key
-		FROM media.video_renditions WHERE video_id = ANY($1) ORDER BY video_id, height DESC`, ids)
+		FROM media.video_renditions WHERE video_id = ANY($1) AND codec = 'h264' ORDER BY video_id, height DESC`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("select renditions: %w", err)
 	}
