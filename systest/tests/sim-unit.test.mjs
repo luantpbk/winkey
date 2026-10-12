@@ -653,7 +653,7 @@ not ok 1 - auth
         isBaselineRun: true,
       });
 
-      assert.match(md, /PASSED \(baseline run, not compared\)/);
+      assert.match(md, /PASSED \(chạy làm baseline, chưa so sánh\)/);
     });
   });
 

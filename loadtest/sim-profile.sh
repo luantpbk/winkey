@@ -66,7 +66,7 @@ ${RUN_K6} run \
   loadtest/hls-viewers.js || rc_hls=$?
 
 echo "[sim-profile] HLS viewers load exited with code ${rc_hls}"
-if [ "${rc_hls}" -ne 0 ] && [ "${rc_hls}" -ne 99 ]; then
+if [ "${rc_hls}" -ne 0 ]; then
   echo "ERROR: k6 hls-viewers failed (rc=${rc_hls})" >&2
   exit "${rc_hls}"
 fi
@@ -85,7 +85,7 @@ ${RUN_K6} run \
   loadtest/api-mix.js || rc_api=$?
 
 echo "[sim-profile] API mix load exited with code ${rc_api}"
-if [ "${rc_api}" -ne 0 ] && [ "${rc_api}" -ne 99 ]; then
+if [ "${rc_api}" -ne 0 ]; then
   echo "ERROR: k6 api-mix failed (rc=${rc_api})" >&2
   exit "${rc_api}"
 fi
