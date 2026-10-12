@@ -39,6 +39,26 @@ type Config struct {
 	HeartbeatEvery    time.Duration // InProgress + heartbeat_at interval; default 30s
 }
 
+// rateControl returns the effective ADR-039 mode and its quality level for
+// the encoder that actually ran (an NVENC job can fall back to x264); the
+// level is 0 for abr.
+func (c Config) rateControl(encoder string) (string, int) {
+	if c.RateControl != media.RateControlCappedCRF {
+		return media.RateControlABR, 0
+	}
+	if encoder == media.EncoderNVENC {
+		return c.RateControl, orDefault(c.NVENCCQ, media.DefaultNVENCCQ)
+	}
+	return c.RateControl, orDefault(c.X264CRF, media.DefaultX264CRF)
+}
+
+func orDefault(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
+}
+
 // Pipeline processes one video.uploaded message.
 type Pipeline struct {
 	Store   Store
@@ -164,7 +184,9 @@ func (p *Pipeline) Process(ctx context.Context, ev UploadedEvent, d Delivery) Re
 	if runErr == nil {
 		stats.TotalWall = time.Since(start)
 		// The one summary line of the job: the stage durations in seconds beside what the job made.
+		rc, quality := p.Cfg.rateControl(stats.Encoder)
 		log.InfoContext(ctx, "transcode succeeded", "encoder", stats.Encoder,
+			"rate_control", rc, "quality", quality,
 			"media_sec", stats.MediaSec, "renditions", stats.Renditions, "upload_bytes", stats.UploadBytes,
 			"job_seconds", stats.JobWall.Round(time.Millisecond).Seconds(),
 			"upload_tail_seconds", stats.UploadTail.Round(time.Millisecond).Seconds(),

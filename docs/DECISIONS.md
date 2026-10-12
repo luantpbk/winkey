@@ -965,6 +965,19 @@ Hiện trạng:
 - Video cũ không bị encode lại. Chỉ video tải lên sau khi bật mới dùng capped_crf.
 - Thêm 3 biến môi trường (`RATE_CONTROL`, `X264_CRF`, `NVENC_CQ`). Rollback chỉ cần đặt `RATE_CONTROL=abr` rồi khởi động lại transcoder.
 
+**Cập nhật 2026-10-12: kết quả đo trên gpu-01 và quyết định (issue #339).**
+- Antigravity 2 chạy `scripts/enc1-bench.sh`: RTX 5060 Ti, FFmpeg n7.1.5, 10 nguồn từ archive. Trong đó s01–s03 là cùng một file, nên thực chất có 8 nguồn, và không có nguồn 1080p.
+- Không mức nào đạt ngưỡng ≥ 20 %. Kết quả:
+  - CQ 21: −3,0 %
+  - CQ 23: −5,0 %
+  - CQ 25: −8,8 %
+  - **CQ 27: −16,3 %**, VMAF giảm trung bình 0,30 ở bản cao nhất (tệ nhất 0,79) và 0,12 ở bản thấp hơn.
+- Nguồn đơn giản nhỏ đi 34–54 %. Nguồn phức tạp chạm trần nên gần như bằng ABR. Riêng ở CQ 21–25, NVENC capped vượt ABR 2–12 %, vì NVENC ABR encode dưới mục tiêu còn capped dùng tới trần.
+- **Quyết định của user: bật `RATE_CONTROL=capped_crf`, `NVENC_CQ=27` trên gpu-01.** Đây là ngoại lệ có chủ đích với ngưỡng 20 %: CQ 27 là mức duy nhất không nguồn nào nặng hơn ABR, và chất lượng giảm không nhìn thấy được.
+- Mặc định trong code vẫn là `abr`. `deploy/gpu-01/transcoder.env.example` ghi `capped_crf`/27.
+- Đo lại bằng `enc1-bench.sh` khi archive có ≥ 20 nguồn thật khác nhau, có cả 1080p.
+- Song song làm ENC2 (AV1, ADR-041) để giảm thêm.
+
 ### ADR-040 — Nhận diện thương hiệu trên Google và trang thể loại giải trí (SEO3)
 **Bối cảnh.** Ngày 2026-10-12 user nhận xét: khi tìm kiếm, winkey.vn hiện ra rất sơ sài, không có logo, favicon, tiêu đề hay mô tả tử tế. User muốn Winkey xuất hiện với các từ khoá giải trí: phim, video, nhạc, game… Kiểm tra code `apps/web` (main `1a97a21`):
 - Không có favicon hay icon nào: không có `favicon.ico`, `icon.png`, `apple-icon`, `manifest`. Google hiện biểu tượng mặc định.
@@ -1000,3 +1013,34 @@ Hiện trạng:
 - Favicon và tên trang chỉ cập nhật sau khi Google crawl lại, thường vài ngày đến vài tuần. Không có cách ép ngay.
 - Thứ hạng còn phụ thuộc lượng và chất lượng nội dung, cùng liên kết từ bên ngoài. Kỹ thuật chỉ là điều kiện cần.
 - Danh sách thể loại và tag nguồn nằm trong code web. Khi cần quản trị động, sẽ có ADR mới với contract và migration.
+
+### ADR-041 — AV1 bên cạnh H.264 cho video nhiều lượt xem (ENC2, thiết kế)
+**Bối cảnh.** ENC1 (ADR-039) chỉ giảm được khoảng 16 % trên nội dung thật, vì nội dung phức tạp chạm trần bitrate. Muốn nhỏ hơn đáng kể ở cùng chất lượng thì phải đổi codec. GPU gpu-01 là RTX 5060 Ti (Blackwell), có NVENC AV1. User chọn làm song song với việc bật CQ 27 (2026-10-12).
+
+**Quyết định (thiết kế, làm theo pha).**
+1. **Mỗi video có hai bộ HLS độc lập.**
+   - `hls/` H.264, như hiện tại, luôn có, để mọi trình duyệt phát được.
+   - `hls-av1/` AV1 fMP4, cùng ladder và cùng tên rendition (`1080p`, `720p`, `480p`), chỉ có ở video được nâng cấp.
+   - Hai master playlist riêng: không trộn codec trong một ABR ladder, để tránh đổi codec giữa chừng trên MSE.
+2. **Contract (thay đổi bổ sung, có issue `contract-change`):**
+   - `Playback.hls_av1_url` (tuỳ chọn, ký giống `hls_url`).
+   - `Rendition.codec` (`h264` | `av1`, mặc định `h264`, tuỳ chọn để client cũ vẫn hợp lệ).
+3. **Migration:** `media.video_renditions` thêm `codec text NOT NULL DEFAULT 'h264' CHECK (codec IN ('h264','av1'))`, khoá chính đổi thành `(video_id, codec, name)`. Dữ liệu cũ giữ nguyên.
+4. **Transcoder.**
+   - Đường encode AV1 `av1_nvenc`, chất lượng hằng có trần như ENC1, ladder giống H.264. Bitrate trần AV1 khoảng 60 % H.264, sẽ hiệu chỉnh bằng `quality-bench` có thêm `-encoder av1_nvenc`.
+   - Lệnh `av1-upgrade` chạy nền giờ thấp điểm, chọn video theo lượt xem 7 ngày (ngưỡng cấu hình được), encode AV1 từ archive raw, ghi rendition `codec='av1'` trong cùng giao dịch, xong thì xoá cache playback.
+   - Video mới vẫn chỉ encode H.264, để không tăng gấp đôi thời gian GPU trên máy dùng chung.
+   - Cần **FFmpeg 8.x** cài cạnh 7.1 (ví dụ `/opt/ffmpeg-8/`, user cài bằng sudo), biến riêng `AV1_FFMPEG_PATH`. 7.1 không bị đụng tới.
+5. **video-svc:** trả `hls_av1_url` khi video có rendition AV1 đầy đủ.
+6. **Web player (Antigravity 1):** dùng `hls_av1_url` khi có, và chỉ khi `MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"')` đúng. Ngược lại phát `hls_url`. Không đổi giữa chừng.
+7. **Đo trước khi bật.** Tiêu chí như ADR-039 so với H.264 capped hiện tại:
+   - giảm ≥ 25 % dung lượng;
+   - VMAF bản cao nhất giảm ≤ 1.
+
+**Pha.**
+1. Contract, migration, đường encode AV1 và bench (kiến trúc sư).
+2. `av1-upgrade` và video-svc (kiến trúc sư).
+3. Player (Antigravity 1).
+4. Cài FFmpeg 8 trên gpu-01 (user), hẹn giờ chạy (Antigravity 2).
+
+**Hệ quả.** Video nhiều lượt xem nhỏ hơn đáng kể, đúng nơi tốn băng thông nhất. Đổi lại tốn thêm dung lượng lưu (khoảng +60 % cho video đã nâng cấp) và thêm thời gian GPU giờ thấp điểm. Thiết bị không hỗ trợ AV1 vẫn phát H.264 như cũ.
