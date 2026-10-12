@@ -10,7 +10,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { User, LoginRequest, RegisterRequest, Problem } from '@winkey/api-client';
-import { api, refreshAccessToken } from '../api-client';
+import { api, refreshSession } from '../api-client';
 import { tokenStore } from './token-store';
 import {
   hasSessionIndicator,
@@ -50,16 +50,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const token = await refreshAccessToken();
+      const { token, user: refreshedUser } = await refreshSession();
       if (token) {
         setSessionIndicator();
-        const { data, response } = await api.auth.GET('/v1/auth/me');
-        if (response.ok && data) {
-          setUser(data);
+        if (refreshedUser) {
+          setUser(refreshedUser);
         } else {
-          tokenStore.clear();
-          clearSessionIndicator();
-          setUser(null);
+          const { data, response } = await api.auth.GET('/v1/auth/me');
+          if (response.ok && data) {
+            setUser(data);
+          } else {
+            tokenStore.clear();
+            clearSessionIndicator();
+            setUser(null);
+          }
         }
       } else {
         tokenStore.clear();

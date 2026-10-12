@@ -22,7 +22,7 @@ export function WatchClientSection({ video }: { video: Video }) {
   const [showSubtitlesDialog, setShowSubtitlesDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const { showToast } = useToast();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const isOwner = user?.id === video.owner.id;
 
   return (
@@ -80,7 +80,11 @@ export function WatchClientSection({ video }: { video: Video }) {
 
           <button
             type="button"
+            disabled={isLoading}
             onClick={async () => {
+              if (isLoading) {
+                return;
+              }
               if (!isAuthenticated) {
                 showToast({ title: 'Vui lòng đăng nhập để lưu vào Xem sau', type: 'info' });
                 return;
@@ -89,7 +93,7 @@ export function WatchClientSection({ video }: { video: Video }) {
             }}
             aria-label="Xem sau"
             data-testid="watch-page-watch-later-btn"
-            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
           >
             <Clock className="h-4 w-4" />
             <span>Xem sau</span>
@@ -97,7 +101,11 @@ export function WatchClientSection({ video }: { video: Video }) {
 
           <button
             type="button"
+            disabled={isLoading}
             onClick={() => {
+              if (isLoading) {
+                return;
+              }
               if (!isAuthenticated) {
                 const currentPath =
                   pathname && pathname.startsWith('/watch')
@@ -110,7 +118,7 @@ export function WatchClientSection({ video }: { video: Video }) {
             }}
             aria-label="Lưu vào danh sách phát"
             data-testid="watch-page-save-btn"
-            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
           >
             <BookmarkPlus className="h-4 w-4" />
             <span>Lưu</span>
