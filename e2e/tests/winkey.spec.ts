@@ -2506,4 +2506,38 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       contentType: 'image/png',
     });
   });
+
+  test('SEO3 follow-up: HTML limited bots (Googlebot/2.1) receive head metadata before </head>', async ({
+    request,
+    page,
+  }) => {
+    const googlebotUA = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+    const testPaths = ['/', '/the-loai/phim', '/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10'];
+
+    // 1. Raw HTML request with Googlebot UA (simulating non-JS crawler)
+    for (const testPath of testPaths) {
+      const response = await request.get(testPath, {
+        headers: { 'User-Agent': googlebotUA },
+      });
+      expect(response.status()).toBe(200);
+
+      const html = await response.text();
+      expect(html).toContain('</head>');
+
+      const beforeHead = html.split('</head>')[0];
+
+      // Must contain <link rel="icon", <meta name="description", og:image, and <title>
+      expect(beforeHead).toContain('rel="icon"');
+      expect(beforeHead).toContain('name="description"');
+      expect(beforeHead).toContain('og:image');
+      expect(beforeHead).toContain('<title>');
+    }
+
+    // 2. Regular browser user-agent operates normally
+    for (const testPath of testPaths) {
+      await page.goto(testPath);
+      await page.waitForLoadState('domcontentloaded');
+      await expect(page.locator('header, nav').first()).toBeVisible();
+    }
+  });
 });

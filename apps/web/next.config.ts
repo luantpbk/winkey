@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  htmlLimitedBots:
+    /Googlebot|Google Favicon|Google-InspectionTool|Storebot-Google|bingbot|Bingbot|BingPreview|DuckDuckBot|YandexBot|Baiduspider|coccocbot|Applebot|facebookexternalhit|Twitterbot|LinkedInBot|Slackbot|Discordbot|Zalo|TelegramBot|WhatsApp/i,
   async rewrites() {
     return [
       {
