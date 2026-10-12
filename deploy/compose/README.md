@@ -86,6 +86,10 @@ Access-Control-Expose-Headers: ETag
 Access-Control-Max-Age: 3600
 ```
 
+> **Lưu ý về Garage v1.0.1 CORS (Multi-Origin Gotcha)**:
+> Garage v1.0.1 gộp mọi `AllowedOrigins` trong một quy tắc thành một header đơn có nhiều giá trị (`Access-Control-Allow-Origin: http://localhost:3000, http://127.0.0.1:8080`), khiến trình duyệt chặn request.
+> Do đó, trong `deploy/compose/garage/bootstrap.sh`, cấu hình CORS được tách thành **2 quy tắc riêng biệt (`CORSRules`)**, mỗi quy tắc chứa đúng một origin (`http://localhost:3000` và `http://127.0.0.1:8080`). Nhờ vậy, Garage đối chiếu và chỉ phản hồi duy nhất một header `Access-Control-Allow-Origin` khớp với origin của client.
+
 ## 5. Quickstart & Makefile Commands
 
 ```bash
