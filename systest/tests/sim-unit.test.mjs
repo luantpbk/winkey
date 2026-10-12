@@ -824,21 +824,17 @@ not ok 1 - auth
       );
     });
 
-    it('moderator.spec.ts reuses creator-state.json storage state in step 4', () => {
+    it('moderator.spec.ts calls resetRateLimits before tests and before owner login in step 4', () => {
       const modSpec = path.resolve(testDir, '../personas/moderator.spec.ts');
       const content = fs.readFileSync(modSpec, 'utf8');
 
       assert.ok(
-        content.includes('creator-state.json'),
-        'moderator.spec.ts must reference creator-state.json',
-      );
-      assert.ok(
-        content.includes('storageState: creatorStatePath'),
-        'moderator.spec.ts must load storageState for ownerContext',
-      );
-      assert.ok(
         content.includes('resetRateLimits()'),
-        'moderator.spec.ts must call resetRateLimits() in beforeAll',
+        'moderator.spec.ts must call resetRateLimits()',
+      );
+      assert.ok(
+        content.includes('Warning: failed to reset rate limits:'),
+        'moderator.spec.ts must log a warning line if resetRateLimits fails',
       );
     });
 

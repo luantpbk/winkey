@@ -128,29 +128,16 @@ test.describe('Persona: moderator (Report, Hide, Owner Notice, Public 404 & Rest
     await anonContext.close();
 
     // 4. Owner (curator) sees video marked hidden in Studio
-    const creatorStatePath = path.resolve(__dirname, '../.run/creator-state.json');
-    const ownerContext = fs.existsSync(creatorStatePath)
-      ? await browser.newContext({ storageState: creatorStatePath })
-      : await browser.newContext();
+    resetRateLimits();
+    const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
-
-    if (!fs.existsSync(creatorStatePath)) {
-      await ownerPage.goto('/login');
-      await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
-      await ownerPage.locator('input[type="password"]').fill(PASSWORD);
-      await ownerPage.locator('main form button[type="submit"]').click();
-      await ownerPage.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-    }
+    await ownerPage.goto('/login');
+    await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
+    await ownerPage.locator('input[type="password"]').fill(PASSWORD);
+    await ownerPage.locator('main form button[type="submit"]').click();
+    await ownerPage.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     await ownerPage.goto('/studio');
-    if (ownerPage.url().includes('/login')) {
-      await ownerPage.locator('input[type="email"]').fill(manifest.curator.email);
-      await ownerPage.locator('input[type="password"]').fill(PASSWORD);
-      await ownerPage.locator('main form button[type="submit"]').click();
-      await ownerPage.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-      await ownerPage.goto('/studio');
-    }
-
     await expect(ownerPage.locator(`text=${targetVideo.title}`).first()).toBeVisible({
       timeout: 15000,
     });
