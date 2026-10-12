@@ -736,14 +736,18 @@ not ok 1 - auth
         'run.sh must test GET method in preflight',
       );
 
-      // Must assert Access-Control-Allow-Origin: http://127.0.0.1:8080 or exit 1
+      // Must assert exactly one header Access-Control-Allow-Origin: http://127.0.0.1:8080 or exit 1
       assert.ok(
-        content.includes('[ "${ORIGIN_3900}" = "http://127.0.0.1:8080" ]'),
-        'run.sh must assert origin matches http://127.0.0.1:8080 for 3900',
+        content.includes(
+          '[ "${ORIGIN_3900_COUNT}" -eq 1 ] && [ "${ORIGIN_3900_VAL}" = "http://127.0.0.1:8080" ]',
+        ),
+        'run.sh must assert exactly one origin header matching http://127.0.0.1:8080 for 3900',
       );
       assert.ok(
-        content.includes('[ "${ORIGIN_8081}" = "http://127.0.0.1:8080" ]'),
-        'run.sh must assert origin matches http://127.0.0.1:8080 for 8081',
+        content.includes(
+          '[ "${ORIGIN_8081_COUNT}" -eq 1 ] && [ "${ORIGIN_8081_VAL}" = "http://127.0.0.1:8080" ]',
+        ),
+        'run.sh must assert exactly one origin header matching http://127.0.0.1:8080 for 8081',
       );
     });
 
@@ -759,6 +763,20 @@ not ok 1 - auth
       assert.ok(
         content.includes('s3api get-bucket-cors --bucket winkey-raw'),
         'bootstrap.sh must print get-bucket-cors on success',
+      );
+    });
+
+    it('deploy/compose/README.md documents Garage v1.0.1 multi-origin CORS behavior and 2-rule separation', () => {
+      const readmePath = path.resolve(repoRoot, 'deploy/compose/README.md');
+      const content = fs.readFileSync(readmePath, 'utf8');
+
+      assert.ok(
+        content.includes('Garage v1.0.1'),
+        'README.md must mention Garage v1.0.1 in CORS section',
+      );
+      assert.ok(
+        content.includes('2 quy tắc riêng biệt'),
+        'README.md must document 2 separate CORS rules for Garage',
       );
     });
   });
