@@ -195,7 +195,7 @@ func TestGetPublicReadyVideo(t *testing.T) {
 	out := decode[videoJSON](t, e.req(anon, "GET", "/v1/videos/"+v.ID.String(), ""))
 	if out.Playback == nil || out.Playback.HLSURL != mediaBase+"/"+*v.HLSMasterKey ||
 		out.Playback.ThumbnailURL != mediaBase+"/"+*v.ThumbnailKey || len(out.Playback.Renditions) != 3 ||
-		out.Playback.Renditions[0].Name != "1080p" {
+		out.Playback.Renditions[0].Name != "1080p" || out.Playback.Renditions[0].Codec != "h264" {
 		t.Fatalf("playback: %+v", out.Playback)
 	}
 	if out.Owner.Handle != "alice" || out.Owner.AvatarURL == nil || *out.Owner.AvatarURL != mediaBase+"/avatars/alice.jpg" ||

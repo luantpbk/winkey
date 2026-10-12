@@ -141,7 +141,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	if err != nil {
 		return false, fmt.Errorf("mark ready: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM media.video_renditions WHERE video_id = $1`, r.VideoID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM media.video_renditions WHERE video_id = $1 AND codec = 'h264'`, r.VideoID); err != nil {
 		return false, fmt.Errorf("clear renditions: %w", err)
 	}
 	ev := readyEvent{
@@ -152,8 +152,8 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	}
 	for i, rd := range r.Renditions {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO media.video_renditions (video_id, name, width, height, bitrate_kbps, playlist_key)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
+			INSERT INTO media.video_renditions (video_id, codec, name, width, height, bitrate_kbps, playlist_key)
+			VALUES ($1, 'h264', $2, $3, $4, $5, $6)`,
 			r.VideoID, rd.Name, rd.Width, rd.Height, rd.TargetK, r.PlaylistKeys[i]); err != nil {
 			return false, fmt.Errorf("insert rendition %s: %w", rd.Name, err)
 		}

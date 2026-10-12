@@ -21,6 +21,7 @@ type renditionJSON struct {
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
 	BitrateKbps int    `json:"bitrate_kbps"`
+	Codec       string `json:"codec"`
 }
 
 type playbackJSON struct {
@@ -171,7 +172,11 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 			pb.Subtitles = h.subtitleTracks(v, &exp) // same expiry as the other URLs
 		}
 		for _, r := range v.Renditions {
-			pb.Renditions = append(pb.Renditions, renditionJSON{Name: r.Name, Width: r.Width, Height: r.Height, BitrateKbps: r.BitrateKbps})
+			codec := r.Codec
+			if codec == "" {
+				codec = "h264"
+			}
+			pb.Renditions = append(pb.Renditions, renditionJSON{Name: r.Name, Width: r.Width, Height: r.Height, BitrateKbps: r.BitrateKbps, Codec: codec})
 		}
 		out.Playback = pb
 	}

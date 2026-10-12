@@ -38,6 +38,12 @@ func TestCheckAcceptsValidAndRejectsInvalidBodies(t *testing.T) {
 	if errs := check(t, s, "GET", "/v1/videos/{video_id}", 200, "application/json", goodVideo); len(errs) != 0 {
 		t.Fatalf("valid video rejected: %v", errs)
 	}
+	// ENC2 (ADR-041): codec and the AV1 master are optional additions.
+	av1 := replace(goodVideo, `"bitrate_kbps":5000}`, `"bitrate_kbps":5000,"codec":"h264"},{"name":"1080p","width":1920,"height":1080,"bitrate_kbps":3000,"codec":"av1"}`)
+	av1 = replace(av1, `"hls_url":`, `"hls_av1_url":"https://media.winkey.vn/v/x/a1/hls-av1/master.m3u8","hls_url":`)
+	if errs := check(t, s, "GET", "/v1/videos/{video_id}", 200, "application/json", av1); len(errs) != 0 {
+		t.Fatalf("valid AV1 video rejected: %v", errs)
+	}
 	for name, body := range map[string]string{
 		"missing required field": `{"id":"0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d"}`,
 		"bad uuid":               replace(goodVideo, `"id":"0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d"`, `"id":"nope"`),
@@ -45,6 +51,7 @@ func TestCheckAcceptsValidAndRejectsInvalidBodies(t *testing.T) {
 		"bad date":               replace(goodVideo, `"created_at":"2026-10-01T07:00:00Z"`, `"created_at":"yesterday"`),
 		"wrong type":             replace(goodVideo, `"view_count":1`, `"view_count":"1"`),
 		"bad rendition name":     replace(goodVideo, `"1080p"`, `"big"`),
+		"bad codec":              replace(goodVideo, `"bitrate_kbps":5000}`, `"bitrate_kbps":5000,"codec":"hevc"}`),
 		"bad handle":             replace(goodVideo, `"handle":"alice"`, `"handle":"a"`),
 		"not json":               `<html>`,
 	} {

@@ -58,6 +58,8 @@ configMapGenerator:
       - migrations/000020_video_tags.down.sql
       - migrations/000021_tag_slugs.up.sql
       - migrations/000021_tag_slugs.down.sql
+      - migrations/000022_rendition_codec.up.sql
+      - migrations/000022_rendition_codec.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

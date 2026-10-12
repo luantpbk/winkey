@@ -493,6 +493,13 @@ export interface components {
             width: number;
             height: number;
             bitrate_kbps: number;
+            /**
+             * @description Video codec of this rendition (task ENC2, ADR-041). `h264` renditions belong to `hls_url`, `av1` ones to
+             *     `hls_av1_url`. video-svc always sends it; optional only so that older servers stay valid.
+             * @default h264
+             * @enum {string}
+             */
+            codec: "h264" | "av1";
         };
         Playback: {
             /**
@@ -500,6 +507,13 @@ export interface components {
              * @description Signed (`/s/{expires}/{sig}/…`) when the video is not publicly watchable (task SEC1).
              */
             hls_url: string;
+            /**
+             * Format: uri
+             * @description Separate AV1 master playlist with the same ladder (task ENC2, ADR-041). Null or absent when the video
+             *     has no complete AV1 set. Players use it only when `MediaSource.isTypeSupported` accepts AV1 and
+             *     otherwise play `hls_url`; they never switch codec mid-playback. Signed like `hls_url`.
+             */
+            hls_av1_url?: string | null;
             /** Format: uri */
             thumbnail_url: string;
             /**
@@ -519,6 +533,7 @@ export interface components {
              *     optional only so that older servers stay valid.
              */
             subtitles?: components["schemas"]["SubtitleTrack"][];
+            /** @description Renditions of every codec; filter by `codec` (absent means `h264`). */
             renditions: components["schemas"]["Rendition"][];
         };
         Video: {
