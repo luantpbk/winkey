@@ -879,10 +879,10 @@ components:
         codec:
           type: string
           enum: [h264, av1]
-          default: h264
           description: |
-            Video codec of this rendition (task ENC2, ADR-041). `h264` renditions belong to `hls_url`, `av1` ones to
-            `hls_av1_url`. video-svc always sends it; optional only so that older servers stay valid.
+            Video codec of this rendition (task ENC2, ADR-041); absent means `h264`. `h264` renditions belong to
+            `hls_url`, `av1` ones to `hls_av1_url`. video-svc always sends it; optional only so that older servers
+            stay valid. (No schema `default`: generated clients would make the field required.)
 
     Playback:
       type: object

@@ -494,12 +494,12 @@ export interface components {
             height: number;
             bitrate_kbps: number;
             /**
-             * @description Video codec of this rendition (task ENC2, ADR-041). `h264` renditions belong to `hls_url`, `av1` ones to
-             *     `hls_av1_url`. video-svc always sends it; optional only so that older servers stay valid.
-             * @default h264
+             * @description Video codec of this rendition (task ENC2, ADR-041); absent means `h264`. `h264` renditions belong to
+             *     `hls_url`, `av1` ones to `hls_av1_url`. video-svc always sends it; optional only so that older servers
+             *     stay valid. (No schema `default`: generated clients would make the field required.)
              * @enum {string}
              */
-            codec: "h264" | "av1";
+            codec?: "h264" | "av1";
         };
         Playback: {
             /**
