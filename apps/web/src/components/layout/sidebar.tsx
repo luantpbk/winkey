@@ -16,9 +16,15 @@ import {
   Gamepad2,
   Shield,
   Clock,
+  Film,
+  Smile,
+  Sparkles,
+  Trophy,
+  Clapperboard,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useFeedbackUrl } from '../../lib/feedback';
+import { getAllCategories } from '../../lib/seo/categories';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -61,9 +67,21 @@ export function Sidebar({
 
   const exploreItems = [
     { href: '/trending', label: t('trending'), icon: Flame },
-    { href: '#music', label: 'Âm nhạc', icon: Music2 },
-    { href: '#gaming', label: 'Trò chơi', icon: Gamepad2 },
+    { href: '/the-loai/am-nhac', label: 'Âm nhạc', icon: Music2 },
+    { href: '/the-loai/game', label: 'Trò chơi', icon: Gamepad2 },
   ];
+
+  const categories = getAllCategories();
+  const categoryIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+    phim: Film,
+    'phim-bo': Tv,
+    'am-nhac': Music2,
+    game: Gamepad2,
+    'hai-huoc': Smile,
+    'giai-tri': Sparkles,
+    'the-thao': Trophy,
+    'hoat-hinh': Clapperboard,
+  };
 
   const isLinkActive = (href: string) => {
     if (href.startsWith('#')) return false;
@@ -166,6 +184,33 @@ export function Sidebar({
                   >
                     <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-red-600' : ''}`} />
                     <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <hr className="my-2 border-[#272727] dark:border-[#272727] border-gray-200" />
+            <div className="flex flex-col gap-1 p-2">
+              <div className="px-3 py-1 text-xs font-bold uppercase tracking-wider text-gray-400">
+                Thể loại
+              </div>
+              {categories.map((cat) => {
+                const Icon = categoryIcons[cat.slug] || Film;
+                const href = `/the-loai/${cat.slug}`;
+                const active = pathname.startsWith(href);
+                return (
+                  <Link
+                    key={cat.slug}
+                    href={href}
+                    onClick={onCloseMobile}
+                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                      active
+                        ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-red-600' : ''}`} />
+                    <span className="truncate">{cat.name}</span>
                   </Link>
                 );
               })}

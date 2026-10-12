@@ -6,7 +6,7 @@ import { LegalDoc } from '../../../components/legal/legal-doc';
 import { getLegalContent } from '../../../lib/legal';
 
 export const metadata: Metadata = {
-  title: 'Quy tắc cộng đồng – Winkey',
+  title: 'Quy tắc cộng đồng',
   description:
     'Quy tắc cộng đồng và tiêu chuẩn nội dung trên nền tảng Winkey (bản thử nghiệm beta).',
 };
