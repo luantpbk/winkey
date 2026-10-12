@@ -1,5 +1,6 @@
 import { createWinkeyClient } from '@winkey/api-client';
 import { tokenStore } from './auth/token-store';
+import { setSessionIndicator, clearSessionIndicator } from './auth/session-indicator';
 
 export const getBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
@@ -26,9 +27,13 @@ async function doRefresh(): Promise<string | null> {
       if (res.ok) {
         const data = await res.json();
         tokenStore.set(data.access_token);
+        setSessionIndicator();
         return data.access_token;
       } else {
         tokenStore.clear();
+        if (res.status === 401) {
+          clearSessionIndicator();
+        }
         return null;
       }
     } catch {

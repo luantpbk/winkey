@@ -12,6 +12,11 @@ import React, {
 import type { User, LoginRequest, RegisterRequest, Problem } from '@winkey/api-client';
 import { api, refreshAccessToken } from '../api-client';
 import { tokenStore } from './token-store';
+import {
+  hasSessionIndicator,
+  setSessionIndicator,
+  clearSessionIndicator,
+} from './session-indicator';
 import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
 
 interface AuthContextType {
@@ -37,19 +42,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (!hasSessionIndicator()) {
+      tokenStore.clear();
+      setUser(null);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const token = await refreshAccessToken();
       if (token) {
-        const { data } = await api.auth.GET('/v1/auth/me');
-        if (data) {
+        setSessionIndicator();
+        const { data, response } = await api.auth.GET('/v1/auth/me');
+        if (response.ok && data) {
           setUser(data);
+        } else {
+          tokenStore.clear();
+          clearSessionIndicator();
+          setUser(null);
         }
       } else {
         tokenStore.clear();
+        clearSessionIndicator();
         setUser(null);
       }
     } catch {
       tokenStore.clear();
+      clearSessionIndicator();
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -57,7 +76,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Session restore on initial mount
+    // Session restore on initial mount: only refresh if we have a session indicator
+    if (!hasSessionIndicator()) {
+      setIsLoading(false);
+      return;
+    }
     refresh();
   }, [refresh]);
 
@@ -74,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok && data) {
         tokenStore.set(data.access_token);
+        setSessionIndicator();
         setUser(data.user);
         return { success: true };
       }
@@ -106,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok && data) {
         tokenStore.set(data.access_token);
+        setSessionIndicator();
         setUser(data.user);
         return { success: true };
       }
@@ -134,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.auth.POST('/v1/auth/logout');
     } finally {
       tokenStore.clear();
+      clearSessionIndicator();
       setUser(null);
       resetCachedWatchLaterId();
     }
@@ -145,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearSession = useCallback(() => {
     tokenStore.clear();
+    clearSessionIndicator();
     setUser(null);
     resetCachedWatchLaterId();
   }, []);
