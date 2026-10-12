@@ -225,6 +225,8 @@ if [ "${SIM}" -eq 1 ]; then
     fi
     echo "[systest] Preflights OK: Garage :3900 (PUT) and media-cache :8081 (GET) allow http://127.0.0.1:8080 with exactly one header."
 
+    echo "[systest] Resetting auth rate limits before Playwright personas..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
     echo "[systest] Running Playwright persona journeys against real stack..."
     pnpm --filter e2e exec playwright test --config="${SCRIPT_DIR}/playwright.config.ts" || SUITE_EXIT=$?
   fi

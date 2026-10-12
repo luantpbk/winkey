@@ -14,12 +14,12 @@ import {
   LayoutDashboard,
   User as UserIcon,
   LogOut,
-  PlaySquare,
   Shield,
   Settings,
   FolderHeart,
 } from 'lucide-react';
 import { NotificationBell } from '../notifications/notification-bell';
+import { BrandLogo } from '../brand/logo';
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -54,17 +54,10 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
 
         <Link
           href="/"
+          aria-label="Winkey – Trang chủ"
           className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-600 rounded"
         >
-          <div className="flex h-7 w-8 items-center justify-center rounded-lg bg-red-600 text-white shadow">
-            <PlaySquare className="h-5 w-5 fill-current" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white flex items-center">
-            Winkey
-            <span className="ml-1 text-[10px] uppercase font-bold text-red-500 tracking-wider">
-              VN
-            </span>
-          </span>
+          <BrandLogo />
         </Link>
       </div>
 

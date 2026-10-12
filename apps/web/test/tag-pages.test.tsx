@@ -236,7 +236,7 @@ describe('SEO2-web: Tag Landing Pages & Discoverability (ADR-037)', () => {
         params: Promise.resolve({ locale: 'vi', slug: 'phim-ngan' }),
       });
 
-      expect(meta.title).toBe('Phim ngắn – Video về Phim ngắn | Winkey');
+      expect(meta.title).toBe('Phim ngắn – Video về Phim ngắn');
       expect(meta.description).toContain('Xem 5 video về Phim ngắn trên Winkey');
       expect(meta.alternates?.canonical).toBe('https://winkey.vn/tag/phim-ngan');
       expect(meta.alternates?.languages).toBeUndefined();
@@ -298,7 +298,7 @@ describe('SEO2-web: Tag Landing Pages & Discoverability (ADR-037)', () => {
         params: Promise.resolve({ locale: 'en', slug: 'phim-ngan' }),
       });
 
-      expect(meta.title).toBe('Phim ngắn – Videos about Phim ngắn | Winkey');
+      expect(meta.title).toBe('Phim ngắn – Videos about Phim ngắn');
       expect(meta.alternates?.canonical).toBe('https://winkey.vn/tag/phim-ngan');
     });
   });
