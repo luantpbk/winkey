@@ -169,15 +169,20 @@ jobs:
           test -f loadtest/results/lt2-summary.json && cp loadtest/results/lt2-summary.json loadtest/results/lt2/lt2-summary.json
           exit "$rc"
 
-      - name: Output summary to step summary
+      - name: Output summary
         if: always()
         run: |
           {
             echo "### sim run ${{ matrix.run }}"
             if [ -f systest/.run/report/summary.md ]; then
               cat systest/.run/report/summary.md
-            elif [ -f systest/.run/report/perf.json ]; then
-              echo '```json'; cat systest/.run/report/perf.json; echo; echo '```'
+            fi
+            if [ -f systest/.run/report/perf.json ]; then
+              echo ""
+              echo "#### Performance Metrics (perf.json)"
+              echo '```json'
+              cat systest/.run/report/perf.json
+              echo '```'
               node -e "
                 const p = require('./systest/.run/report/perf.json');
                 const failRate = ((p.http_req_failed || 0) * 100).toFixed(2);
@@ -189,10 +194,12 @@ jobs:
                   }
                 }
               "
-            elif [ -f loadtest/results/lt2-summary.json ]; then
-              echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
-            else
-              echo "No summary generated (earlier step failed)."
+            elif [ ! -f systest/.run/report/summary.md ]; then
+              if [ -f loadtest/results/lt2-summary.json ]; then
+                echo '```json'; cat loadtest/results/lt2-summary.json; echo; echo '```'
+              else
+                echo "No summary generated (earlier step failed)."
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

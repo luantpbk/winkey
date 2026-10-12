@@ -148,7 +148,7 @@ export function buildSummaryMarkdown({
       budgetViolations = cmp.violations || [];
     } else {
       budgetStatus =
-        perfJson.http_req_failed < 0.01 ? 'PASSED (baseline run, not compared)' : 'FAILED';
+        perfJson.http_req_failed < 0.01 ? 'PASSED (chạy làm baseline, chưa so sánh)' : 'FAILED';
       if (perfJson.http_req_failed >= 0.01) {
         budgetViolations.push(
           `Error rate ${(perfJson.http_req_failed * 100).toFixed(2)}% >= 1.00%`,
