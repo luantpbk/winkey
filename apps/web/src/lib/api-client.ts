@@ -1,6 +1,10 @@
 import { createWinkeyClient, type User } from '@winkey/api-client';
 import { tokenStore } from './auth/token-store';
-import { setSessionIndicator, clearSessionIndicator } from './auth/session-indicator';
+import {
+  setSessionIndicator,
+  clearSessionIndicator,
+  setSessionProbed,
+} from './auth/session-indicator';
 
 export const getBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
@@ -33,6 +37,7 @@ async function doRefresh(): Promise<RefreshResult> {
         const data = await res.json();
         tokenStore.set(data.access_token);
         setSessionIndicator();
+        setSessionProbed();
         return {
           token: data.access_token,
           user: (data.user as User) || null,
@@ -41,6 +46,7 @@ async function doRefresh(): Promise<RefreshResult> {
         tokenStore.clear();
         if (res.status === 401) {
           clearSessionIndicator();
+          setSessionProbed();
         }
         return { token: null, user: null };
       }

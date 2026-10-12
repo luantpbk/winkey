@@ -1,6 +1,7 @@
 import { tokenStore } from './token-store';
 
 export const HAS_SESSION_COOKIE = 'wk_has_session';
+export const SESSION_PROBED_COOKIE = 'wk_session_probed';
 
 /**
  * Checks whether there is an indication that a user session exists.
@@ -26,6 +27,33 @@ export function hasSessionIndicator(): boolean {
 }
 
 /**
+ * Checks whether this device has already probed for an existing session.
+ * Returns true if the non-secret wk_session_probed cookie is set to '1' or 'true'.
+ */
+export function hasSessionProbed(): boolean {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  const cookies = document.cookie ? document.cookie.split(';') : [];
+  for (const cookie of cookies) {
+    const [rawKey, ...rest] = cookie.trim().split('=');
+    if (rawKey === SESSION_PROBED_COOKIE) {
+      const val = rest.join('=');
+      return val === '1' || val === 'true';
+    }
+  }
+  return false;
+}
+
+/**
+ * Indicates whether a one-time probe should be performed on boot.
+ * True when neither wk_has_session nor wk_session_probed is present.
+ */
+export function shouldProbeSession(): boolean {
+  return !hasSessionIndicator() && !hasSessionProbed();
+}
+
+/**
  * Marks that an authenticated session exists by setting the non-secret wk_has_session cookie.
  * Path is '/', SameSite is 'Lax', max-age is 30 days (2592000s) matching refresh token TTL.
  */
@@ -46,4 +74,27 @@ export function clearSessionIndicator(): void {
   }
   const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
   document.cookie = `${HAS_SESSION_COOKIE}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+}
+
+/**
+ * Marks that this device has already probed for a session once.
+ * Path is '/', SameSite is 'Lax', max-age is 30 days.
+ */
+export function setSessionProbed(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  document.cookie = `${SESSION_PROBED_COOKIE}=1; path=/; max-age=2592000; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+}
+
+/**
+ * Clears the session probed cookie (useful for test resets).
+ */
+export function clearSessionProbed(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  document.cookie = `${SESSION_PROBED_COOKIE}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${isSecure ? '; Secure' : ''}`;
 }

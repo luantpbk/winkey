@@ -14,8 +14,10 @@ import { api, refreshSession } from '../api-client';
 import { tokenStore } from './token-store';
 import {
   hasSessionIndicator,
+  shouldProbeSession,
   setSessionIndicator,
   clearSessionIndicator,
+  setSessionProbed,
 } from './session-indicator';
 import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
 
@@ -42,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!hasSessionIndicator()) {
+    if (!hasSessionIndicator() && !shouldProbeSession()) {
       tokenStore.clear();
       setUser(null);
       setIsLoading(false);
@@ -53,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { token, user: refreshedUser } = await refreshSession();
       if (token) {
         setSessionIndicator();
+        setSessionProbed();
         if (refreshedUser) {
           setUser(refreshedUser);
         } else {
@@ -75,13 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearSessionIndicator();
       setUser(null);
     } finally {
+      setSessionProbed();
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Session restore on initial mount: only refresh if we have a session indicator
-    if (!hasSessionIndicator()) {
+    // Session restore on initial mount: only refresh if we have a session indicator or need to probe
+    if (!hasSessionIndicator() && !shouldProbeSession()) {
       setIsLoading(false);
       return;
     }
@@ -102,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setSessionIndicator();
+        setSessionProbed();
         setUser(data.user);
         return { success: true };
       }
@@ -135,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && data) {
         tokenStore.set(data.access_token);
         setSessionIndicator();
+        setSessionProbed();
         setUser(data.user);
         return { success: true };
       }
@@ -164,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       tokenStore.clear();
       clearSessionIndicator();
+      setSessionProbed();
       setUser(null);
       resetCachedWatchLaterId();
     }
@@ -176,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = useCallback(() => {
     tokenStore.clear();
     clearSessionIndicator();
+    setSessionProbed();
     setUser(null);
     resetCachedWatchLaterId();
   }, []);
