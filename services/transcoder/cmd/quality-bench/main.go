@@ -79,7 +79,22 @@ func main() {
 	settings := flag.String("settings", "abr,capped_crf", "comma list: abr, capped_crf[:CRF or CQ]")
 	work := flag.String("work", "", "scratch directory (default: temp, removed afterwards)")
 	jsonOut := flag.String("json", "", "also write results as JSON to this file")
+	anonymize := flag.Bool("anonymize", false, "label sources s01, s02, ... instead of file names")
+	fromJSON := flag.String("from-json", "", "re-evaluate a previous -json result without encoding")
+	baseline := flag.String("baseline", media.RateControlABR, "baseline setting for -from-json")
 	flag.Parse()
+	if *fromJSON != "" {
+		raw, err := os.ReadFile(*fromJSON) // #nosec G304 -- operator-supplied result file.
+		if err != nil {
+			fatal(err)
+		}
+		var prev []result
+		if err := json.Unmarshal(raw, &prev); err != nil {
+			fatal(err)
+		}
+		printVerdicts(os.Stdout, evaluate(prev, *baseline), *baseline)
+		return
+	}
 	if *vmafFF == "" {
 		*vmafFF = *ffmpeg
 	}
@@ -129,8 +144,12 @@ func main() {
 				if err != nil {
 					fatal(fmt.Errorf("vmaf %s %s %s: %w", src, st.label, r.Name, err))
 				}
+				label := filepath.Base(src)
+				if *anonymize {
+					label = fmt.Sprintf("s%02d", i+1)
+				}
 				res := result{
-					Input: filepath.Base(src), Setting: st.label, Rendition: r.Name, Bytes: bytes,
+					Input: label, Setting: st.label, Rendition: r.Name, Bytes: bytes,
 					Kbps: int(float64(bytes) * 8 / 1000 / info.DurationSec), VMAFMean: mean, VMAFLow: low, EncodeSecs: secs,
 				}
 				all = append(all, res)
@@ -139,6 +158,7 @@ func main() {
 		}
 	}
 	printTable(all, sts)
+	printVerdicts(os.Stdout, evaluate(all, sts[0].label), sts[0].label)
 	if *jsonOut != "" {
 		b, _ := json.MarshalIndent(all, "", "  ")
 		if err := os.WriteFile(*jsonOut, b, 0o600); err != nil {
@@ -209,13 +229,20 @@ func segmentBytes(dir string) (int64, error) {
 
 // vmaf scores a rendition against the source at the source display size
 // (the distorted picture is upscaled, as a viewer's player would do).
+// Both inputs are resampled to the encode's constant frame rate first.
 func vmaf(ctx context.Context, ff, dist, src string, info media.Info, logPath string) (float64, float64, error) {
 	w, h := info.DisplayW&^1, info.DisplayH&^1
+	// Both sides go through the same constant frame rate as the encode, so a
+	// variable-frame-rate phone upload stays frame-aligned with its rendition.
+	fps := info.FPS
+	if fps == "" {
+		fps = "30"
+	}
 	graph := fmt.Sprintf(
-		"[0:v]scale=%d:%d:flags=bicubic,format=yuv420p,setpts=PTS-STARTPTS[d];"+
-			"[1:v]scale=%d:%d,format=yuv420p,setpts=PTS-STARTPTS[r];"+
-			"[d][r]libvmaf=n_threads=%d:log_fmt=json:log_path=%s",
-		w, h, w, h, runtime.NumCPU(), strings.ReplaceAll(filepath.ToSlash(logPath), ":", `\:`))
+		"[0:v]setpts=PTS-STARTPTS,fps=%s,scale=%d:%d:flags=bicubic,format=yuv420p[d];"+
+			"[1:v]setpts=PTS-STARTPTS,fps=%s,scale=%d:%d,format=yuv420p[r];"+
+			"[d][r]libvmaf=n_threads=%d:shortest=1:log_fmt=json:log_path=%s",
+		fps, w, h, fps, w, h, runtime.NumCPU(), strings.ReplaceAll(filepath.ToSlash(logPath), ":", `\:`))
 	if err := run(ctx, ff, "-hide_banner", "-nostdin", "-loglevel", "error",
 		"-i", dist, "-i", src, "-lavfi", graph, "-f", "null", "-"); err != nil {
 		return 0, 0, err

@@ -62,7 +62,15 @@ go run ./cmd/quality-bench -encoder nvenc -ffmpeg "$FFMPEG_PATH" -ffprobe "$FFPR
   -json bench.json source1.mp4 source2.mov > bench.md
 ```
 
-The first setting is the baseline for the "Size vs" column. VMAF is computed at the source size (the rendition is upscaled like a player would do); `VMAF p5` is the 5th-percentile frame score.
+The first setting is the baseline for the "Size vs" column. VMAF is computed at the source size (the rendition is upscaled like a player would do) after both sides are resampled to the encode's frame rate, so variable-frame-rate phone uploads stay aligned; `VMAF p5` is the 5th-percentile frame score. The output ends with the **ADR-039 verdict**: per setting the bytes saved, the mean VMAF drop on top and lower renditions, pass/fail, and `RECOMMENDED: capped_crf:N` (or none). `-anonymize` labels sources `s01…`; `-from-json bench.json` re-evaluates a previous run without encoding.
+
+### Calibrating NVENC_CQ on gpu-01 (one command, no sudo)
+
+```bash
+git pull && services/transcoder/scripts/enc1-bench.sh
+```
+
+It fetches a libvmaf FFmpeg into `~/tools/ffmpeg-vmaf` once, cuts the first 60 s of 20 archived uploads (spread by size) from `ARCHIVE_DIR` into scratch, runs the bench with NVENC and `/opt/ffmpeg-7.1` on `abr,capped_crf:21,23,25,27` under `nice`/`ionice`, prints the verdict and deletes the clips. Results stay in `~/enc1-bench-<timestamp>/`. It never reads `/etc/winkey/transcoder.env` or S3 credentials. Overrides: `SAMPLES`, `CLIP_SECONDS`, `SETTINGS`, `ARCHIVE_DIR`. Then, with the recommended level: `sudoedit /etc/winkey/transcoder.env` (`RATE_CONTROL=capped_crf`, `NVENC_CQ=<N>`) and `sudo systemctl restart winkey-transcoder`; roll back with `RATE_CONTROL=abr`.
 
 ## Configuration
 
