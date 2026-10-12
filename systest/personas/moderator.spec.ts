@@ -29,8 +29,10 @@ function resetRateLimits() {
     if (fs.existsSync(script)) {
       execSync(`bash "${script}"`, { stdio: 'ignore' });
     }
-  } catch {
-    // Ignore if docker not accessible or rate limit script fails
+  } catch (err) {
+    console.warn(
+      `[persona:moderator] Warning: failed to reset rate limits: ${(err as Error)?.message || err}`,
+    );
   }
 }
 
