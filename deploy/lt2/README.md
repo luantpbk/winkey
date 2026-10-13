@@ -153,6 +153,7 @@ WATCHDOG_PID=$!
 | `MIN_MEM_AVAILABLE_BYTES` | `1073741824` (1 GiB) | Edge-1 minimum available memory threshold |
 | `LEGACY_SITES` | 4 canonical sites | Comma-separated list of legacy site URLs |
 | `LEGACY_CHECK_INTERVAL_MS` | `30000` (30s) | Interval between legacy site checks |
+| `LEGACY_FAIL_THRESHOLD` | `2` | Consecutive failed legacy checks that abort an active run (about 60 s at the default interval). Preflight still aborts on any failure. Added after LT2 #355, where one transient 502 aborted the run at 10 VUs |
 | `MAX_HTTP_ERROR_RATE` | `0.05` (5%) | Maximum allowed HTTP failure rate |
 | `ERROR_RATE_SUSTAINED_SEC` | `60` (60s) | Minimum continuous duration before error rate aborts |
 
