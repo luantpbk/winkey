@@ -118,3 +118,37 @@ kubectl rollout undo deployment/<svc>-svc -n default
 # Monitor rollback status
 kubectl rollout status deployment/<svc>-svc -n default
 ```
+
+---
+
+## 6. Static Manifest Drift Guard & Edge Deployment Sync
+
+Edge ingress routing, middlewares, and NodePorts (`deploy/k8s/edge/`) are initialized via k3s auto-deploy manifests in `/var/lib/rancher/k3s/server/manifests/` on edge nodes.
+
+> [!WARNING]
+> **K3s Auto-Deployer Behavior**: On every edge node restart or k3s service restart, k3s reconciles and reapplies all manifests from `/var/lib/rancher/k3s/server/manifests/`. If host manifests are out of sync with repository manifests, live cluster resources revert to the stale host versions (the root cause of Incident #350/#351).
+
+### Mandatory Deployment Step for Edge Manifests
+
+Whenever a PR modifies `deploy/k8s/edge/*.yaml` (e.g. `ingressroute.yaml`, `middlewares.yaml`, `nodeports.yaml`, `clusterip-services.yaml`):
+
+1. **Verify Drift Before Deployment**:
+   ```bash
+   ./deploy/edge/manifest-drift.sh --remote edge-1
+   ```
+2. **Apply & Synchronize to Edge Host**:
+   ```bash
+   # Reconcile host manifests to match repository canonical versions
+   ./deploy/edge/manifest-drift.sh --remote edge-1 --sync
+
+   # Apply to cluster
+   kubectl apply -f deploy/k8s/edge/ingressroute.yaml
+   ```
+3. **Verify Zero Drift**:
+   ```bash
+   ./deploy/edge/manifest-drift.sh --remote edge-1 --check
+   ```
+   *Exit code must be `0` (clean, zero drift).*
+
+*Long-term direction*: Migrate edge manifests away from k3s auto-deploy directory to direct repository-driven GitOps / Kustomize once approved by Claude Opus, eliminating duplicate sources of truth.
+
