@@ -22,7 +22,14 @@ if [[ "${TARGET_URL}" == *"winkey.vn"* ]]; then
     exit 1
   fi
   now=$((10#$CURRENT_TIME))
-  if (( now < 200 || now > 330 )); then
+  # One-day daytime approval (ADR-034 addendum 2026-10-13): the user may approve a run outside the
+  # window for one Asia/Ho_Chi_Minh calendar day by setting LT2_DAYTIME_APPROVED_DATE=YYYY-MM-DD.
+  # The watchdog still runs. Any other value, or another day, keeps the gate closed.
+  TODAY_VN=$(TZ="Asia/Ho_Chi_Minh" date +"%Y-%m-%d" 2>/dev/null || true)
+  if [[ -n "${LT2_DAYTIME_APPROVED_DATE:-}" && "${LT2_DAYTIME_APPROVED_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ \
+        && "${LT2_DAYTIME_APPROVED_DATE}" == "${TODAY_VN}" ]]; then
+    echo "WARNING: daytime production run approved for ${TODAY_VN} (LT2_DAYTIME_APPROVED_DATE); window gate skipped, watchdog still enforced." >&2
+  elif (( now < 200 || now > 330 )); then
     echo "ERROR: Production run on winkey.vn is strictly gated to 02:00–03:30 Asia/Ho_Chi_Minh timezone window." >&2
     echo "Current VN time (HHMM): ${CURRENT_TIME}" >&2
     exit 1

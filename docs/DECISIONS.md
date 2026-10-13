@@ -786,6 +786,13 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - **Khung giờ:** 02:00–03:30 giờ Việt Nam, sớm nhất là đêm 12/10/2026.
   - **Đội ngũ:** ChatGPT Astra và ChatGPT/Codex ("Sol") tạm rời dự án. Các thư mục Go (`services/video`, `analytics`, `upload`, `transcoder`, `libs/go`) hiện không có chủ, vì Sonnet và Sonnet 2 vẫn tạm dừng. Thiết kế mới phải tránh sửa Go. Nếu bắt buộc phải sửa, user quyết định cho Sonnet làm lại.
 
+
+**Bổ sung 2026-10-13 (giờ chạy LT2).**
+- User quyết định chạy LT2 ban ngày hôm nay, vì đang beta với dưới 20 người dùng thật.
+- `loadtest/lt2-run.sh` nhận `LT2_DAYTIME_APPROVED_DATE=YYYY-MM-DD`. Giá trị này chỉ mở cổng thời gian đúng ngày đó theo giờ Việt Nam.
+- Ngày khác, giá trị sai định dạng hoặc thiếu biến: cổng 02:00–03:30 vẫn đóng.
+- Watchdog vẫn bắt buộc.
+- Mỗi lần chạy ban ngày cần user duyệt lại, kèm go-ahead của kiến trúc sư.
 ### ADR-035 — CIN2: "Bộ phim" từ danh sách phát, catalogue phim và phát theo tập
 **Bối cảnh.** Ngày 2026-10-09 user yêu cầu trang phim có bộ/tập thật. Video đơn vẫn là phim một tập. Các tập của một bộ gom thành một thẻ. Trang xem có danh sách tập và chuyển tập dễ dàng. User chọn cách: **chủ danh sách đánh dấu "Bộ phim"**; không tự coi mọi playlist là phim.
 

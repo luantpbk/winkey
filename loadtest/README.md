@@ -10,6 +10,7 @@ All load tests are executed using Grafana k6 in Docker (pinned by digest): `graf
 
 > [!CAUTION]
 > **CRITICAL RULE**: Production load testing against `winkey.vn` is strictly gated to the 02:00–03:30 Asia/Ho_Chi_Minh window starting night of Oct 12, 2026, AFTER the architect merges the PR.
+> **Exception (ADR-034 addendum 2026-10-13):** with the user's approval for one day, set `LT2_DAYTIME_APPROVED_DATE=<that day as YYYY-MM-DD, Asia/Ho_Chi_Minh>`. The gate opens on that calendar day only, and the watchdog still runs.
 
 1. **Viewers & Anonymous Reads Only**: No account creation, no registration, no comments, no likes, no video uploads. Zero state mutation.
 2. **Platform Safety Watchdog**: `deploy/lt2/watchdog.sh` monitors edge-1 RAM, HTTP error rates, and the 4 canonical legacy sites (`kendrickheller.com`, `cuuhohanam.com`, `kidzlab.edu.vn`, `sblaichau.vn`). Any safety breach triggers auto-abort.
