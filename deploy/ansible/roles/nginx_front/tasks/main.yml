@@ -1,3 +1,41 @@
+- name: Ensure nginx systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/nginx.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure nginx systemd LimitNOFILE drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nginx.service.d/limits.conf
+    content: |
+      [Service]
+      LimitNOFILE=65535
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Reload nginx
+
+- name: Allow httpd to set process resource limits (worker_rlimit_nofile)
+  ansible.posix.seboolean:
+    name: httpd_setrlimit
+    state: true
+    persistent: true
+  when:
+    - ansible_selinux.status == 'enabled'
+
+- name: Nginx base configuration (worker limits and connections)
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
 - name: Grant nginx traverse-only access on k3s storage root via ACL
   ansible.posix.acl:
     path: /var/lib/rancher/k3s/storage

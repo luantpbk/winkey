@@ -11,7 +11,7 @@ proxy_cache_path /var/cache/nginx/winkey-media-auth levels=1:2 keys_zone=winkey_
 
 upstream winkey_traefik {
     server {{ tailscale_ipv4 }}:{{ traefik_nodeport_web }};
-    keepalive 32;
+    keepalive 128;
 }
 
 map $http_upgrade $winkey_connection {
@@ -135,6 +135,7 @@ server {
 
         proxy_pass http://winkey_traefik;
         proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host winkey-media.{{ root_domain | default('winkey.vn') }};
 
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -174,6 +175,7 @@ server {
 
         proxy_pass http://winkey_traefik;
         proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host winkey-media.{{ root_domain | default('winkey.vn') }};
 
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -210,6 +212,8 @@ server {
     location = /_media_access {
         internal;
         proxy_pass http://winkey_traefik/internal/media-access/$auth_vid;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host media-auth.internal;
         proxy_set_header X-Real-IP {{ tailscale_ipv4 }};
         proxy_set_header X-Forwarded-For {{ tailscale_ipv4 }};
