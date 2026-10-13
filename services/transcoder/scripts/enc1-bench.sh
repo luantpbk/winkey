@@ -28,6 +28,7 @@ VMAF_DIR="${VMAF_DIR:-$HOME/tools/ffmpeg-vmaf}"
 VMAF_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
 AV1_FFMPEG="${AV1_FFMPEG:-}"   # set by enc2-bench.sh for av1[:CQ] settings
 MIN_SAVED="${MIN_SAVED:-20}"   # ADR-039: 20 %; ADR-041 (AV1): 25 %
+AV1_CAP_PCT="${AV1_CAP_PCT:-}" # AV1 ceiling as % of the H.264 rung (quality-bench default when empty)
 BENCH_NAME="${BENCH_NAME:-enc1}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,7 +81,7 @@ echo "[enc1] ${#clips[@]} clips ready; encoding (this takes a while)"
 
 # --- bench -------------------------------------------------------------------
 nice -n 19 ionice -c3 "$work/quality-bench" -encoder "$ENCODER" -anonymize -min-saved "$MIN_SAVED" \
-  -ffmpeg "$FFMPEG" -ffprobe "$FFPROBE" -vmaf-ffmpeg "$VMAF_DIR/bin/ffmpeg" ${AV1_FFMPEG:+-av1-ffmpeg "$AV1_FFMPEG"} \
+  -ffmpeg "$FFMPEG" -ffprobe "$FFPROBE" -vmaf-ffmpeg "$VMAF_DIR/bin/ffmpeg" ${AV1_FFMPEG:+-av1-ffmpeg "$AV1_FFMPEG"} ${AV1_CAP_PCT:+-av1-cap-pct "$AV1_CAP_PCT"} \
   -settings "$SETTINGS" -work "$work/bench" -json "$out/bench.json" \
   "${clips[@]}" > "$out/bench.md" 2> "$out/bench.log"
 

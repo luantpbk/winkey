@@ -10,6 +10,10 @@
 #    H.264 baseline still uses the production FFmpeg 7.1.
 # 3. Prints the verdict with the 25 % rule. Results stay in ~/enc2-bench-<timestamp>/.
 #
+# AV1_CAP_PCT (default 85) is the AV1 ceiling as a share of the H.264 rung. The
+# first run (#352) used 60 %: complex sources sat on that ceiling at every CQ and
+# lost 2-4 VMAF, so the ceiling, not the CQ, decided the result.
+#
 # It never touches /opt/ffmpeg-7.1, the miner, ComfyUI or the driver.
 set -euo pipefail
 
@@ -40,5 +44,6 @@ BENCH_NAME=enc2 \
   AV1_FFMPEG="$ff8" \
   VMAF_DIR="$FF8_DIR" \
   MIN_SAVED="${MIN_SAVED:-25}" \
-  SETTINGS="${SETTINGS:-capped_crf:27,av1:28,av1:32,av1:36}" \
+  AV1_CAP_PCT="${AV1_CAP_PCT:-85}" \
+  SETTINGS="${SETTINGS:-capped_crf:27,av1:30,av1:34,av1:38}" \
   exec "$here/enc1-bench.sh"
