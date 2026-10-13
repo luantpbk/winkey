@@ -793,6 +793,18 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 - Ngày khác, giá trị sai định dạng hoặc thiếu biến: cổng 02:00–03:30 vẫn đóng.
 - Watchdog vẫn bắt buộc.
 - Mỗi lần chạy ban ngày cần user duyệt lại, kèm go-ahead của kiến trúc sư.
+
+**Bổ sung 2026-10-13 (kết quả LT2, user quyết định).** Lần 3 (#355, main `1d414e4`, chạy ban ngày):
+- Từ 50 tới khoảng 850 người xem đồng thời: 0 % lỗi HLS, rebuffer 0,33 %.
+- Khoảng 930 người xem: CPU edge-1 lên 99 %. Segment trả HTTP 500, lỗi đạt 9,2 % trong 60 giây, watchdog dừng test. RAM vẫn còn trống hơn 7 GB.
+
+Quyết định:
+- User **chấp nhận năng lực khoảng 850 người xem đồng thời** làm điều kiện LT2, và **mở mời đợt 2**. Mức này đủ dư cho beta vài trăm người.
+- Đạt 1.000 trở thành việc tối ưu riêng (#358, Antigravity 2): tìm chỗ CPU bị tốn (TLS, chuỗi proxy, cache segment), tìm vì sao quá tải lại trả 500 thay vì chậm đi, rồi chạy lại LT2.
+
+Sửa harness trong ngày:
+- #356: site cũ phải lỗi 2 lần liên tiếp thì watchdog mới dừng.
+- #357: 429 theo IP của `/v1/search` từ một máy tạo tải không còn bị tính là lỗi.
 ### ADR-035 — CIN2: "Bộ phim" từ danh sách phát, catalogue phim và phát theo tập
 **Bối cảnh.** Ngày 2026-10-09 user yêu cầu trang phim có bộ/tập thật. Video đơn vẫn là phim một tập. Các tập của một bộ gom thành một thẻ. Trang xem có danh sách tập và chuyển tập dễ dàng. User chọn cách: **chủ danh sách đánh dấu "Bộ phim"**; không tự coi mọi playlist là phim.
 
