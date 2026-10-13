@@ -1,9 +1,14 @@
 /* global __ENV */
 import http from 'k6/http';
 import { sleep } from 'k6';
-import { Rate } from 'k6/metrics';
+import { Counter, Rate } from 'k6/metrics';
 
 const httpReqFailed = new Rate('http_req_failed');
+// /v1/search is rate limited per client IP (video-svc SEARCH_RATE_LIMIT, 60/min). Every load VU shares
+// the generator's single IP, so 429 there is the limiter working, not a failure (LT2 #355 run 2).
+// It is counted separately and kept out of http_req_failed; every other endpoint still counts 429.
+const searchRateLimited = new Counter('search_rate_limited');
+const searchExpected = http.expectedStatuses({ min: 200, max: 399 }, 429);
 
 export const options = {
   scenarios: {
@@ -89,7 +94,12 @@ export default function (data) {
   }
 
   const ep = endpoints[Math.floor(Math.random() * endpoints.length)];
-  const res = http.get(ep);
-  httpReqFailed.add(res.status < 200 || res.status >= 400);
+  const isSearch = ep.includes('/v1/search');
+  const res = http.get(ep, isSearch ? { responseCallback: searchExpected } : {});
+  if (isSearch && res.status === 429) {
+    searchRateLimited.add(1);
+  } else {
+    httpReqFailed.add(res.status < 200 || res.status >= 400);
+  }
   sleep(0.5 + Math.random() * 1.0);
 }

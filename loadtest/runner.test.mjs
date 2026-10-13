@@ -647,4 +647,14 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
       }
     });
   });
+
+  // LT2 #355 run 2: per-IP search 429s from the single generator IP must not fail the API workload.
+  it('api-read treats 429 on /v1/search as expected and counts it separately', () => {
+    const src = fs.readFileSync(path.resolve('loadtest/api-read.js'), 'utf8');
+    assert.match(src, /expectedStatuses\(\{ min: 200, max: 399 \}, 429\)/);
+    assert.match(src, /new Counter\('search_rate_limited'\)/);
+    assert.match(src, /isSearch && res\.status === 429/);
+    // Other endpoints keep the default expectations (no global 429 allowance).
+    assert.doesNotMatch(src, /setResponseCallback/);
+  });
 });
