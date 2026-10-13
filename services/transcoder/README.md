@@ -82,7 +82,8 @@ git pull && services/transcoder/scripts/enc2-bench.sh
 - So the script downloads the pinned BtbN release `n8.0.1-66` (sha256-checked) into `~/tools/ffmpeg-8.0`. That build works with driver 595 and also has libvmaf.
 - It then runs the same clip pipeline as `enc1-bench.sh`:
   - Baseline: production `capped_crf:27` with `/opt/ffmpeg-7.1`.
-  - Candidates: `av1:28,32,36` with FFmpeg 8.0, a ceiling of 60 % of each H.264 rung (`-av1-cap-pct`), and the 25 % rule (`MIN_SAVED`).
+  - Candidates: `av1:30,34,38` with FFmpeg 8.0, a ceiling of 85 % of each H.264 rung (`AV1_CAP_PCT`, passed as `-av1-cap-pct`), and the 25 % rule (`MIN_SAVED`).
+  - The first run (#352) used a 60 % ceiling. Complex sources hit it at every CQ and lost 2–4 VMAF, so the ceiling decided the result instead of the CQ.
 - Results stay in `~/enc2-bench-<timestamp>/`.
 - The AV1 arguments come from `media.BuildHLSArgs` with `Encoder: av1_nvenc`:
   - constant quality (`-cq`, `-b:v 0`);
