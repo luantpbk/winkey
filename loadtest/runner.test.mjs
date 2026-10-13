@@ -172,6 +172,46 @@ describe('LT2 v2 Runner & Summary Math Tests', () => {
       });
     }
 
+    // ADR-034 addendum 2026-10-13: a one-day daytime approval opens the gate only on that VN date.
+    const todayVN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(
+      new Date(),
+    );
+    const approvalCases = [
+      { approved: todayVN, allowed: true, desc: "today's VN date" },
+      { approved: '2000-01-01', allowed: false, desc: 'another date' },
+      { approved: 'yes', allowed: false, desc: 'not a date' },
+      { approved: `${todayVN} `, allowed: false, desc: 'trailing space' },
+    ];
+    for (const { approved, allowed, desc } of approvalCases) {
+      it(`daytime approval at 0859 with ${desc} ${allowed ? 'opens' : 'keeps closed'} the gate`, () => {
+        const shimDir = createDateShim('0859');
+        try {
+          const res = spawnSync('./loadtest/lt2-run.sh', [], {
+            env: {
+              ...process.env,
+              PATH: `${shimDir}:${process.env.PATH}`,
+              TARGET_URL: 'https://winkey.vn',
+              LT2_DAYTIME_APPROVED_DATE: approved,
+              EDGE_METRICS_URL: 'http://127.0.0.1:1/invalid',
+            },
+            encoding: 'utf8',
+            timeout: 2000,
+          });
+          const out = (res.stdout || '') + (res.stderr || '');
+          if (allowed) {
+            assert.doesNotMatch(out, /strictly gated to 02:00–03:30/);
+            assert.match(out, /daytime production run approved/);
+            assert.match(out, /Starting platform safety watchdog/);
+          } else {
+            assert.equal(res.status, 1);
+            assert.match(out, /strictly gated to 02:00–03:30/);
+          }
+        } finally {
+          fs.rmSync(shimDir, { recursive: true, force: true });
+        }
+      });
+    }
+
     it('regression: CURRENT_TIME=0300 in env + shim returning 0859 strictly REFUSES (env bypass prohibited)', () => {
       const shimDir = createDateShim('0859');
       try {
