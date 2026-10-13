@@ -91,6 +91,16 @@ Verifies:
 7. User authentication lifecycle (register -> login -> /v1/auth/me) with automated throwaway cleanup via `DELETE /v1/auth/me` (`deleteMe`, ADR-034, #249). Reads `INVITE_CODE` from environment or `/etc/winkey/smoke.env`.
 8. Direct multipart upload and SEC1 media access control checks (credential-free).
 
+### Manifest Drift Guard (`manifest-drift.sh`)
+
+To prevent host manifest drift from overriding cluster state on k3s reboot (Incident #350/#351 guard):
+```bash
+# Check host vs repo drift (exit 1 if drifted):
+./deploy/edge/manifest-drift.sh --remote edge-1
+
+# Reconcile host manifests with repo:
+./deploy/edge/manifest-drift.sh --remote edge-1 --sync
+```
 
 ### Do not set `traefik_service_type: LoadBalancer` on edge-1
 
