@@ -1017,6 +1017,14 @@ export class PlatformWatchdog {
     this.legacyRequestStarts = [];
     this.pollIntervalMs = config.pollIntervalMs || config.checkIntervalMs || 1000;
     this.legacyTimeoutMs = config.legacyTimeoutMs || 5000;
+    // Active-run legacy failures must repeat on consecutive checks before aborting (default 2,
+    // i.e. about 60 s at the 30 s cadence), so one transient 502 from a legacy backend does not end
+    // the run. Preflight stays strict (any failure aborts). Values below 1 are clamped to 1.
+    this.legacyFailThreshold = Math.max(
+      1,
+      Math.floor(config.legacyFailThreshold || Number(process.env.LEGACY_FAIL_THRESHOLD) || 2),
+    );
+    this.legacyConsecutiveFailures = 0;
     this.exitOnError = config.exitOnError !== false;
     this.pollTimer = null;
     this.legacyTimer = null;
@@ -1113,6 +1121,40 @@ export class PlatformWatchdog {
       signalSent,
       errors: errors.length > 0 ? errors : undefined,
     };
+  }
+
+  /**
+   * Applies one active-run legacy check result. Returns true when the run must abort: the check
+   * failed on legacyFailThreshold consecutive checks, or the site list itself is invalid.
+   */
+  handleLegacyResult(legacyCheck) {
+    if (!legacyCheck.abort) {
+      if (this.legacyConsecutiveFailures > 0) {
+        console.log(
+          `[WATCHDOG] Legacy sites recovered after ${this.legacyConsecutiveFailures} failed check(s)`,
+        );
+      }
+      this.legacyConsecutiveFailures = 0;
+      console.log(`[WATCHDOG] Legacy sites check: 4/4 PASS (HTTP 200)`);
+      return false;
+    }
+    this.legacyConsecutiveFailures += 1;
+    const invalidList = !legacyCheck.failedSite;
+    if (invalidList || this.legacyConsecutiveFailures >= this.legacyFailThreshold) {
+      this.triggerAbort(
+        `${legacyCheck.reason} (${this.legacyConsecutiveFailures} consecutive failed check(s))`,
+        {
+          type: 'LEGACY_SITE_FAILURE',
+          site: legacyCheck.failedSite,
+          consecutiveFailures: this.legacyConsecutiveFailures,
+        },
+      );
+      return true;
+    }
+    console.warn(
+      `[WATCHDOG] WARNING: ${legacyCheck.reason}; failed check ${this.legacyConsecutiveFailures}/${this.legacyFailThreshold}, abort if the next check also fails`,
+    );
+    return false;
   }
 
   /**
@@ -1213,17 +1255,9 @@ export class PlatformWatchdog {
       }
       this.legacyRequestStarts.push(now);
       tasks.push(
-        checkLegacySites(this.legacySites, 5000, this.fetchFn).then((legacyCheck) => {
-          if (legacyCheck.abort) {
-            this.triggerAbort(legacyCheck.reason, {
-              type: 'LEGACY_SITE_FAILURE',
-              site: legacyCheck.failedSite,
-            });
-            return false;
-          }
-          console.log(`[WATCHDOG] Legacy sites check: 4/4 PASS (HTTP 200)`);
-          return true;
-        }),
+        checkLegacySites(this.legacySites, 5000, this.fetchFn).then(
+          (legacyCheck) => !this.handleLegacyResult(legacyCheck),
+        ),
       );
     }
 
@@ -1264,6 +1298,7 @@ export class PlatformWatchdog {
     console.log(`  - Expected Node: ${this.expectedNode}`);
     console.log(`  - Legacy sites: ${this.legacySites.join(', ')}`);
     console.log(`  - Legacy check interval: ${this.legacyCheckIntervalMs / 1000}s`);
+    console.log(`  - Legacy abort after: ${this.legacyFailThreshold} consecutive failed check(s)`);
     console.log(`  - Error rate source: ${this.errorRateSource || '(missing)'}`);
     console.log(
       `  - Max HTTP error rate: ${(this.maxErrorRate * 100).toFixed(0)}% for ${this.errorSustainedSec}s`,
@@ -1294,11 +1329,8 @@ export class PlatformWatchdog {
         this.inFlightProbes.add(probePromise);
         try {
           const res = await probePromise;
-          if (res.abort && this.running) {
-            this.triggerAbort(res.reason, { type: 'LEGACY_SITE_FAILURE', site: res.failedSite });
+          if (this.running && this.handleLegacyResult(res)) {
             if (exitOnError) process.exit(1);
-          } else if (this.running) {
-            console.log(`[WATCHDOG] Legacy sites check: 4/4 PASS (HTTP 200)`);
           }
         } finally {
           this.inFlightProbes.delete(probePromise);

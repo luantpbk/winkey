@@ -1581,3 +1581,74 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
     });
   });
 });
+
+// LT2 #355: one transient legacy 502 must not end the run; two consecutive failed checks must.
+describe('Legacy site consecutive-failure threshold (#355)', () => {
+  const fail = {
+    abort: true,
+    failedSite: 'https://kendrickheller.com',
+    statusCode: 502,
+    reason: 'Legacy site https://kendrickheller.com returned HTTP 502 (expected 200)',
+  };
+  const pass = { ok: true, results: [] };
+  function makeWatchdog(extra = {}) {
+    const watchdog = new PlatformWatchdog({
+      runId: 'test_legacy_threshold',
+      edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+      errorRateSource: 'http://mock/error-rate',
+      ...extra,
+    });
+    const aborts = [];
+    watchdog.triggerAbort = (reason, details) => aborts.push({ reason, details });
+    return { watchdog, aborts };
+  }
+
+  test('a single failed check warns and does not abort; recovery resets the counter', () => {
+    const { watchdog, aborts } = makeWatchdog();
+    assert.strictEqual(watchdog.handleLegacyResult(fail), false);
+    assert.strictEqual(watchdog.legacyConsecutiveFailures, 1);
+    assert.strictEqual(watchdog.handleLegacyResult(pass), false);
+    assert.strictEqual(watchdog.legacyConsecutiveFailures, 0);
+    assert.strictEqual(watchdog.handleLegacyResult(fail), false);
+    assert.strictEqual(aborts.length, 0);
+  });
+
+  test('two consecutive failed checks abort with LEGACY_SITE_FAILURE', () => {
+    const { watchdog, aborts } = makeWatchdog();
+    watchdog.handleLegacyResult(fail);
+    assert.strictEqual(watchdog.handleLegacyResult(fail), true);
+    assert.strictEqual(aborts.length, 1);
+    assert.strictEqual(aborts[0].details.type, 'LEGACY_SITE_FAILURE');
+    assert.strictEqual(aborts[0].details.site, 'https://kendrickheller.com');
+    assert.strictEqual(aborts[0].details.consecutiveFailures, 2);
+    assert.match(aborts[0].reason, /HTTP 502.*2 consecutive/);
+  });
+
+  test('legacyFailThreshold: 1 restores abort on the first failure', () => {
+    const { watchdog, aborts } = makeWatchdog({ legacyFailThreshold: 1 });
+    assert.strictEqual(watchdog.handleLegacyResult(fail), true);
+    assert.strictEqual(aborts.length, 1);
+  });
+
+  test('an invalid (empty) site list still aborts on the first check', async () => {
+    const { watchdog, aborts } = makeWatchdog();
+    const res = await checkLegacySites([]);
+    assert.strictEqual(watchdog.handleLegacyResult(res), true);
+    assert.strictEqual(aborts.length, 1);
+  });
+
+  test('a real 502 probe result counts as one failed check', async () => {
+    const { watchdog, aborts } = makeWatchdog();
+    const fetch502 = async (url) => ({ statusCode: url.includes('kendrickheller') ? 502 : 200 });
+    const res = await checkLegacySites(DEFAULT_LEGACY_SITES, 5000, fetch502);
+    assert.strictEqual(watchdog.handleLegacyResult(res), false);
+    assert.strictEqual(watchdog.handleLegacyResult(res), true);
+    assert.strictEqual(aborts.length, 1);
+  });
+
+  test('threshold defaults to 2 and is clamped to at least 1', () => {
+    assert.strictEqual(makeWatchdog().watchdog.legacyFailThreshold, 2);
+    assert.strictEqual(makeWatchdog({ legacyFailThreshold: 0.5 }).watchdog.legacyFailThreshold, 1);
+    assert.strictEqual(makeWatchdog({ legacyFailThreshold: 3 }).watchdog.legacyFailThreshold, 3);
+  });
+});
