@@ -1075,6 +1075,18 @@ Quyết định:
 - Production sẽ cài cùng bản đó vào `/opt/ffmpeg-8` (user cài bằng sudo, pha 4) và trỏ `AV1_FFMPEG_PATH` tới đó.
 - Mỗi lần đổi bản FFmpeg đều phải kiểm lại phiên bản NVENC API so với driver.
 
+**Bổ sung 2026-10-14 (hiệu chỉnh AV1, #352).** Đo trên gpu-01 bằng `enc2-bench.sh`, mốc so sánh là `capped_crf:27`:
+- Trần 60 % (lần 1): mọi mức CQ đều đụng trần. Video phức tạp giảm 2–4 VMAF, không mức nào đạt.
+- Trần 85 % và 100 % (lần 2): `av1:34` nhỏ hơn 22 %, VMAF gần như không đổi. Trần không còn quyết định kết quả.
+- Lần 3, trần 85 %:
+  - `av1:35`: nhỏ hơn 27,5 %, VMAF bản cao nhất giảm 0,31 trung bình, 0,90 tệ nhất (đạt);
+  - `av1:36`: nhỏ hơn 32,5 %, giảm 0,62 / 1,87;
+  - `av1:37`: nhỏ hơn 37,2 %, giảm 0,98 / 2,95.
+
+**Chọn `av1:35`, trần 85 %** (`DefaultAV1CQ=35`, `DefaultAV1MaxratePct=85`). Đây là mức duy nhất mà cả video tệ nhất vẫn dưới ngưỡng 1 VMAF. Bench đề xuất `av1:37` vì tiết kiệm nhất, nhưng với `av1:37` có video giảm gần 3 VMAF, mắt thường thấy được.
+
+Hai mẫu s11 và s12 có VMAF bất thường ở mọi setting, kể cả H.264. Đó là lỗi đo, sẽ sửa trong công cụ.
+
 ### ADR-042 — Track âm thanh và phụ đề tách riêng (MUX1, thiết kế)
 
 **Bối cảnh.** User muốn upload riêng phần video gốc, các track thuyết minh/lồng tiếng và phụ đề, để người xem đổi ngôn ngữ âm thanh và bật/tắt phụ đề ngay trong player. Phụ đề WebVTT theo từng ngôn ngữ đã có từ V5b (ADR-018). Track âm thanh riêng thì chưa có: hiện mỗi rendition HLS ghép sẵn một track âm thanh.

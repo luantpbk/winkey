@@ -35,12 +35,14 @@ const (
 	DefaultNVENCCQ = 23
 )
 
-// AV1 defaults (ADR-041), to be calibrated with quality-bench on gpu-01.
+// AV1 defaults (ADR-041), calibrated on gpu-01 (#352 run 3, 2026-10-14): CQ 35 at
+// an 85 % ceiling saves 27.5 % vs capped_crf:27 with a 0.31 mean / 0.90 worst
+// top-rendition VMAF drop.
 const (
-	DefaultAV1CQ = 32
+	DefaultAV1CQ = 35
 	// DefaultAV1MaxratePct is the AV1 -maxrate/-bufsize ceiling as a percentage
 	// of the H.264 rung (TargetK / BufsizeK).
-	DefaultAV1MaxratePct = 60
+	DefaultAV1MaxratePct = 85
 )
 
 // HLSPlan describes one HLS CMAF encode.
