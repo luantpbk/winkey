@@ -20,9 +20,9 @@ type StoredObject struct {
 type MemObjects struct {
 	mu   sync.Mutex
 	objs map[string]StoredObject
-	// PutErr and DeleteErr make the next calls fail (until reset to nil).
-	PutErr, DeleteErr error
-	Puts, Deletes     []string // keys, in call order
+	// PutErr, DeleteErr and ReadErr make the next calls fail (until reset to nil).
+	PutErr, DeleteErr, ReadErr error
+	Puts, Deletes              []string // keys, in call order
 }
 
 func NewMemObjects() *MemObjects { return &MemObjects{objs: map[string]StoredObject{}} }
@@ -50,6 +50,28 @@ func (m *MemObjects) Delete(_ context.Context, bucket, key string) error {
 	}
 	delete(m.objs, bucket+"/"+key)
 	return nil
+}
+
+// Read implements domain.Objects.Read (ReadErr makes it fail).
+func (m *MemObjects) Read(_ context.Context, bucket, key string, max int64) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ReadErr != nil {
+		return nil, m.ReadErr
+	}
+	o, ok := m.objs[bucket+"/"+key]
+	if !ok {
+		return nil, errors.New("no such object: " + key)
+	}
+	if int64(len(o.Data)) > max {
+		return nil, errors.New("object too large: " + key)
+	}
+	return append([]byte(nil), o.Data...), nil
+}
+
+// RemovePrefix implements domain.Objects.RemovePrefix.
+func (m *MemObjects) RemovePrefix(_ context.Context, bucket, prefix string) error {
+	return m.DeletePrefix(bucket, prefix)
 }
 
 // Get returns the object, ok false when it is not there.

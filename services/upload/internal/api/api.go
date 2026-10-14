@@ -37,6 +37,8 @@ type Handler struct {
 	Now       func() time.Time // defaults to time.Now
 	// Quota are the upload limits of ADR-027; a field of 0 switches that limit off.
 	Quota quota.Limits
+	// Audio serves the extra audio tracks (MUX1); nil leaves those routes unmounted.
+	Audio domain.AudioStore
 }
 
 // Routes mounts the API on r under /v1/uploads.
@@ -49,6 +51,9 @@ func (h *Handler) Routes(r chi.Router) {
 			r.Delete("/", h.abort)
 			r.Post("/parts", h.presign)
 			r.Post("/complete", h.complete)
+			if h.Audio != nil {
+				h.audioRoutes(r)
+			}
 		})
 	})
 }
@@ -268,29 +273,42 @@ func (h *Handler) presign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, partCount := partsize.Compute(v.SizeBytes)
-	seen := map[int]bool{}
-	if n := len(req.PartNumbers); n < 1 || n > 100 {
-		httpx.BadRequest(w, r, "VALIDATION_ERROR", "part_numbers must contain 1-100 items",
-			httpx.FieldError{Field: "part_numbers", Message: "must contain 1-100 items"})
+	if !validPartNumbers(w, r, req.PartNumbers, partCount) {
 		return
-	}
-	for _, n := range req.PartNumbers {
-		if n < 1 || n > partCount || seen[n] {
-			httpx.BadRequest(w, r, "INVALID_PART_NUMBER",
-				"part numbers must be unique and within 1..part_count",
-				httpx.FieldError{Field: "part_numbers", Message: "must be unique and between 1 and part_count"})
-			return
-		}
-		seen[n] = true
 	}
 	if v.Status != domain.StatusUploading || v.S3UploadID == "" {
 		httpx.Conflict(w, r, "INVALID_STATE", "upload is not in status UPLOADING")
 		return
 	}
+	h.writePresigned(w, r, v.RawBucket, v.RawKey, v.S3UploadID, req.PartNumbers)
+}
 
-	res := presignResponse{URLs: make([]presignedPart, 0, len(req.PartNumbers)), ExpiresAt: h.now().Add(PartURLTTL).UTC()}
-	for _, n := range req.PartNumbers {
-		u, err := h.Storage.PresignPart(r.Context(), v.RawBucket, v.RawKey, v.S3UploadID, int32(n), PartURLTTL)
+// validPartNumbers answers 400 and returns false unless the list has 1-100 unique numbers within
+// 1..partCount.
+func validPartNumbers(w http.ResponseWriter, r *http.Request, numbers []int, partCount int) bool {
+	if n := len(numbers); n < 1 || n > 100 {
+		httpx.BadRequest(w, r, "VALIDATION_ERROR", "part_numbers must contain 1-100 items",
+			httpx.FieldError{Field: "part_numbers", Message: "must contain 1-100 items"})
+		return false
+	}
+	seen := map[int]bool{}
+	for _, n := range numbers {
+		if n < 1 || n > partCount || seen[n] {
+			httpx.BadRequest(w, r, "INVALID_PART_NUMBER",
+				"part numbers must be unique and within 1..part_count",
+				httpx.FieldError{Field: "part_numbers", Message: "must be unique and between 1 and part_count"})
+			return false
+		}
+		seen[n] = true
+	}
+	return true
+}
+
+// writePresigned answers 200 with one presigned URL per part number.
+func (h *Handler) writePresigned(w http.ResponseWriter, r *http.Request, bucket, key, uploadID string, numbers []int) {
+	res := presignResponse{URLs: make([]presignedPart, 0, len(numbers)), ExpiresAt: h.now().Add(PartURLTTL).UTC()}
+	for _, n := range numbers {
+		u, err := h.Storage.PresignPart(r.Context(), bucket, key, uploadID, int32(n), PartURLTTL)
 		if err != nil {
 			h.fail(w, r, "presign part", err)
 			return

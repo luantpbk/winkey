@@ -126,6 +126,28 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	if r.StoryboardKey != "" {
 		storyboardKey = &r.StoryboardKey
 	}
+	// The video row lock first: the audio job and video-svc rewrite the master under the same lock (MUX1).
+	var status string
+	err = tx.QueryRow(ctx, `SELECT status::text FROM media.videos WHERE id = $1 FOR UPDATE`, r.VideoID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "PROCESSING") {
+		return false, nil // deleted (or no longer PROCESSING) meanwhile: nothing is written
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock video: %w", err)
+	}
+	masterKey := r.MasterKey
+	if r.RewriteMaster != nil {
+		// A re-encode writes a plain master: give it the audio group of the tracks that are READY.
+		ready, err := readyTracks(ctx, tx, r.VideoID)
+		if err != nil {
+			return false, err
+		}
+		if len(ready) > 0 {
+			if masterKey, err = r.RewriteMaster(ctx, r.MasterKey, ready); err != nil {
+				return false, fmt.Errorf("rewrite master: %w", err)
+			}
+		}
+	}
 	var visibility string
 	err = tx.QueryRow(ctx, `
 		UPDATE media.videos SET
@@ -134,7 +156,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 			published_at = coalesce(published_at, now()), error = NULL
 		WHERE id = $1 AND status = 'PROCESSING'
 		RETURNING visibility::text`,
-		r.VideoID, r.DurationMs, r.Width, r.Height, r.MasterKey, r.ThumbKey, storyboardKey).Scan(&visibility)
+		r.VideoID, r.DurationMs, r.Width, r.Height, masterKey, r.ThumbKey, storyboardKey).Scan(&visibility)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // no longer PROCESSING (deleted meanwhile): nothing is written
 	}
@@ -146,7 +168,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 	}
 	ev := readyEvent{
 		VideoID: r.VideoID.String(), OwnerID: r.OwnerID.String(), JobID: r.JobID.String(),
-		Attempt: r.Attempt, Encoder: r.Encoder, HLSMasterKey: r.MasterKey, ThumbnailKey: r.ThumbKey,
+		Attempt: r.Attempt, Encoder: r.Encoder, HLSMasterKey: masterKey, ThumbnailKey: r.ThumbKey,
 		DurationMs: r.DurationMs, Width: r.Width, Height: r.Height,
 		StoryboardKey: storyboardKey, Visibility: visibility,
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 func sw(v testutil.Video, lang string) domain.SubtitleWrite {
-	return domain.SubtitleWrite{VideoID: v.ID, Lang: lang, Label: "label " + lang,
+	return domain.SubtitleWrite{VideoID: v.ID, Lang: lang, Label: "label " + lang, Kind: "subtitles",
 		ObjectKey: fmt.Sprintf("v/%s/subtitles/%s-%s.vtt", v.ID, lang, ids.NewString()), SizeBytes: 40}
 }
 
@@ -160,14 +160,18 @@ func TestGetVideoLoadsSubtitlesWithOneQuery(t *testing.T) {
 	if n := tr.count("video_subtitles"); n != 1 {
 		t.Fatalf("%d statements read video_subtitles, want 1: %v", n, tr.all())
 	}
-	if total := len(tr.all()); total != 3 { // the video, its renditions, its subtitles
+	if n := tr.count("video_audio_tracks"); n != 1 {
+		t.Fatalf("%d statements read video_audio_tracks, want 1: %v", n, tr.all())
+	}
+	if total := len(tr.all()); total != 4 { // the video, its renditions, its subtitles, its audio tracks (MUX1)
 		t.Fatalf("%d statements: %v", total, tr.all())
 	}
 
 	// Not READY: no playback, so no query for tracks; the slice is empty, not nil.
 	tr.reset()
 	p, err := st.GetVideo(ctx, proc.ID)
-	if err != nil || p.Subtitles == nil || len(p.Subtitles) != 0 || tr.count("video_subtitles") != 0 {
+	if err != nil || p.Subtitles == nil || len(p.Subtitles) != 0 || tr.count("video_subtitles") != 0 ||
+		p.AudioTracks == nil || len(p.AudioTracks) != 0 || tr.count("video_audio_tracks") != 0 {
 		t.Fatalf("processing: %+v %v %v", p.Subtitles, err, tr.all())
 	}
 }

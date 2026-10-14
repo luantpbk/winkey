@@ -151,3 +151,55 @@ func (t Tools) ResolveEncoder(ctx context.Context, setting string) (string, erro
 	}
 	return "", fmt.Errorf("ENCODER must be auto, nvenc or x264, got %q", setting)
 }
+
+// ProbeAudio runs ffprobe on an uploaded audio track (MUX1). A file ffprobe cannot read, or one without
+// an audio stream, is INVALID_INPUT.
+func (t Tools) ProbeAudio(ctx context.Context, path string) (media.AudioInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	var out bytes.Buffer
+	var errTail tailBuffer
+	cmd := exec.CommandContext(ctx, t.FFprobe, media.BuildProbeArgs(path)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
+	cmd.Stdout, cmd.Stderr = &out, &errTail
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return media.AudioInfo{}, ctx.Err()
+		}
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return media.AudioInfo{}, &media.InvalidInputError{Msg: "the file is not a readable audio file"}
+		}
+		return media.AudioInfo{}, &EncoderError{Op: "ffprobe", Err: err, Tail: errTail.String()}
+	}
+	return media.ParseAudioProbe(out.Bytes())
+}
+
+// EncodeAudioHLS encodes an audio track into outDir (media.BuildAudioHLSArgs) within EncodeTimeout.
+func (t Tools) EncodeAudioHLS(ctx context.Context, input, outDir string, durationSec float64) error {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+	budget := EncodeTimeout(durationSec)
+	rctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildAudioHLSArgs(input, outDir)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
+	cmd.Dir = outDir
+	var errTail tailBuffer
+	cmd.Stderr = &errTail
+	cmd.Stdout = io.Discard
+	cmd.WaitDelay = 10 * time.Second
+	err := cmd.Run()
+	switch {
+	case err == nil:
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case errors.Is(rctx.Err(), context.DeadlineExceeded):
+		return &TimeoutError{After: budget.String()}
+	default:
+		return &EncoderError{Op: "ffmpeg audio", Err: err, Tail: errTail.String()}
+	}
+	if st, err := os.Stat(filepath.Join(outDir, media.AudioPlaylist)); err != nil || st.Size() == 0 {
+		return &EncoderError{Op: "ffmpeg audio", Err: errors.New("no playlist produced")}
+	}
+	return nil
+}

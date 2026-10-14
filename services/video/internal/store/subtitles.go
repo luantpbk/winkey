@@ -21,7 +21,7 @@ func (p *Postgres) loadSubtitles(ctx context.Context, v *domain.Video) error {
 		return nil
 	}
 	rows, err := p.Pool.Query(ctx, `
-		SELECT lang, label, source, object_key, size_bytes, updated_at
+		SELECT lang, label, kind, source, object_key, size_bytes, updated_at
 		FROM media.video_subtitles WHERE video_id = $1`, v.ID)
 	if err != nil {
 		return fmt.Errorf("load subtitles: %w", err)
@@ -29,7 +29,7 @@ func (p *Postgres) loadSubtitles(ctx context.Context, v *domain.Video) error {
 	defer rows.Close()
 	for rows.Next() {
 		var s domain.Subtitle
-		if err := rows.Scan(&s.Lang, &s.Label, &s.Source, &s.ObjectKey, &s.SizeBytes, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.Lang, &s.Label, &s.Kind, &s.Source, &s.ObjectKey, &s.SizeBytes, &s.UpdatedAt); err != nil {
 			return err
 		}
 		v.Subtitles = append(v.Subtitles, s)
@@ -78,14 +78,14 @@ func (p *Postgres) PutSubtitle(ctx context.Context, w domain.SubtitleWrite) (dom
 
 	var res domain.SubtitleResult
 	err = tx.QueryRow(ctx, `
-		INSERT INTO media.video_subtitles (video_id, lang, label, source, object_key, size_bytes)
-		VALUES ($1, $2, $3, 'UPLOAD', $4, $5)
+		INSERT INTO media.video_subtitles (video_id, lang, label, kind, source, object_key, size_bytes)
+		VALUES ($1, $2, $3, $4, 'UPLOAD', $5, $6)
 		ON CONFLICT (video_id, lang) DO UPDATE SET
-			label = EXCLUDED.label, source = 'UPLOAD', object_key = EXCLUDED.object_key,
+			label = EXCLUDED.label, kind = EXCLUDED.kind, source = 'UPLOAD', object_key = EXCLUDED.object_key,
 			size_bytes = EXCLUDED.size_bytes, updated_at = now()
-		RETURNING (xmax = 0), lang, label, source, object_key, size_bytes, updated_at`,
-		w.VideoID, w.Lang, w.Label, w.ObjectKey, w.SizeBytes).
-		Scan(&res.Created, &res.Track.Lang, &res.Track.Label, &res.Track.Source, &res.Track.ObjectKey, &res.Track.SizeBytes, &res.Track.UpdatedAt)
+		RETURNING (xmax = 0), lang, label, kind, source, object_key, size_bytes, updated_at`,
+		w.VideoID, w.Lang, w.Label, w.Kind, w.ObjectKey, w.SizeBytes).
+		Scan(&res.Created, &res.Track.Lang, &res.Track.Label, &res.Track.Kind, &res.Track.Source, &res.Track.ObjectKey, &res.Track.SizeBytes, &res.Track.UpdatedAt)
 	if err != nil {
 		var pe *pgconn.PgError
 		if errors.As(err, &pe) && pe.Code == "23503" { // the video was deleted (foreign key)

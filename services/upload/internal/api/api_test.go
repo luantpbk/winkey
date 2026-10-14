@@ -154,13 +154,15 @@ type env struct {
 	h       http.Handler
 	store   *fakeStore
 	storage *fakeStorage
+	audio   *fakeAudio
 	owner   string
 }
 
 func newEnv() *env {
 	e := &env{store: newFakeStore(), storage: &fakeStorage{}, owner: ids.NewString()}
+	e.audio = &fakeAudio{videos: e.store, tracks: map[uuid.UUID]*domain.AudioTrack{}}
 	h := &Handler{
-		Store: e.store, Storage: e.storage, RawBucket: "winkey-raw",
+		Store: e.store, Storage: e.storage, RawBucket: "winkey-raw", Audio: e.audio,
 		Log: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Now: func() time.Time { return time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC) },
 	}

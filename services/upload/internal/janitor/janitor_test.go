@@ -69,3 +69,36 @@ func TestSweep(t *testing.T) {
 		t.Fatalf("aborted=%v", sg.aborted)
 	}
 }
+
+type stubAudio struct {
+	domain.AudioStore
+	stale   []domain.AudioTrack
+	deleted []uuid.UUID
+}
+
+func (s *stubAudio) StaleAudioUploads(context.Context, time.Duration, int) ([]domain.AudioTrack, error) {
+	return s.stale, nil
+}
+func (s *stubAudio) DeleteUploadingAudio(_ context.Context, id uuid.UUID) (bool, error) {
+	s.deleted = append(s.deleted, id)
+	return true, nil
+}
+
+// Stale audio track uploads (MUX1) are aborted and deleted like videos.
+func TestSweepAudioTracks(t *testing.T) {
+	ok, broken := uuid.New(), uuid.New()
+	au := &stubAudio{stale: []domain.AudioTrack{
+		{ID: ok, S3UploadID: "a-ok", RawKey: "k1"},
+		{ID: broken, S3UploadID: "a-broken", RawKey: "k2"},
+	}}
+	sg := &stubStorage{err: map[string]error{"a-broken": errors.New("garage unreachable")}}
+	j := &Janitor{Store: &stubStore{}, Audio: au, Storage: sg, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	n, err := j.Sweep(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || len(au.deleted) != 1 || au.deleted[0] != ok || len(sg.aborted) != 2 {
+		t.Fatalf("n=%d deleted=%v aborted=%v", n, au.deleted, sg.aborted)
+	}
+}

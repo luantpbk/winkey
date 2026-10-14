@@ -70,6 +70,9 @@ func (p *Postgres) GetVideo(ctx context.Context, id uuid.UUID) (domain.Video, er
 	if err := p.loadSubtitles(ctx, &v); err != nil {
 		return domain.Video{}, err
 	}
+	if err := p.loadAudioTracks(ctx, &v); err != nil {
+		return domain.Video{}, err
+	}
 	return v, nil
 }
 

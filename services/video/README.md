@@ -17,6 +17,9 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `GET /internal/media-access/{id}` | none | **Infrastructure only** (task SEC1, ADR-017): nginx `auth_request`. `204` if the public may fetch the video media, `403` otherwise. See *Media access*. |
 | `PUT /v1/videos/{id}/subtitles/{lang}` | required | Owner only: create or replace the WebVTT track of one language (task V5b). `201` created / `200` replaced, `SubtitleTrack`; `400` `INVALID_WEBVTT` / `SUBTITLE_TOO_LARGE` / `VALIDATION_ERROR`, `403`, `404`, `409` `TOO_MANY_SUBTITLES` / `VIDEO_FAILED`. See *Subtitles*. |
 | `DELETE /v1/videos/{id}/subtitles/{lang}` | required | Owner only: remove a track. `204`, `403`, `404` (also when there is no track for that language). |
+| `GET /v1/videos/{id}/audio-tracks` | required | Owner only: every extra audio track in every status (MUX1), sorted by `lang` then `kind`. `200 {items}`, `403`, `404`. See *Audio tracks*. |
+| `PATCH /v1/videos/{id}/audio-tracks/{track_id}` | required | Owner only: `label` and/or `is_default: true`. Rewrites the HLS master. `200 AudioTrack`, `400`, `403`, `404`. |
+| `DELETE /v1/videos/{id}/audio-tracks/{track_id}` | required | Owner only: remove a track that is not `UPLOADING` (`409` then; upload-svc aborts uploads). Rewrites the master, then removes the track's objects best effort. `204`, `403`, `404`, `409`. |
 | `GET /v1/feed/subscriptions` | required | The newest public videos of the channels the caller follows (task R2-b): see *Subscription feed*. `VideoPage`, `limit`, `cursor`; `401` without identity; `Cache-Control: private, no-store`. |
 | `GET /v1/feed/recommended` | optional | Recommended videos (R2-v, ADR-028): see *Recommended feed*. `limit` 1..50 (default 20), opaque `cursor`. |
 | `POST /v1/playback/heartbeats` | optional | Player QoE and watch-time samples (task R1, ADR-022): see *Playback analytics*. `202 {accepted}`, `400`, `413`, `429`. |
@@ -160,7 +163,7 @@ which is exactly what nginx checks with `secure_link_md5 "$secure_link_expires/v
 
 ### Subtitles (V5b, ADR-018)
 
-`PUT /v1/videos/{video_id}/subtitles/{lang}` with `{"label": "Tiếng Việt", "content": "<the whole WebVTT file>"}`; `lang` is a short BCP 47 tag, `^[a-z]{2,3}(-[A-Z]{2})?$` (`vi`, `en`, `en-US`), `label` 1-50 characters (trimmed), at most **20 tracks** per video, one per language.
+`PUT /v1/videos/{video_id}/subtitles/{lang}` with `{"label": "Tiếng Việt", "content": "<the whole WebVTT file>"}` and optionally `"kind": "captions"` (MUX1; absent means `subtitles`, returned in every `SubtitleTrack`); `lang` is a short BCP 47 tag, `^[a-z]{2,3}(-[A-Z]{2})?$` (`vi`, `en`, `en-US`), `label` 1-50 characters (trimmed), at most **20 tracks** per video, one per language.
 
 - **Who**: the owner only. A visible video the caller does not own is `403` (moderators and admins included), an invisible or unknown one `404`, anonymous `401`. A `FAILED` video is `409` `VIDEO_FAILED`; any other status is fine, so a track can be prepared while the video is processing (it is shown once the video is READY, because `Playback` only exists then).
 - **Validation** (`internal/vtt`, a pure function with a table test and a fuzz test): at most 524288 **bytes** (`400 SUBTITLE_TOO_LARGE`, also for a request body above 4 MiB); valid UTF-8 and no NUL; an optional BOM, then a first line `WEBVTT` alone or followed by a space or tab and text (`WEBVTTX` is refused); blocks separated by blank lines; `NOTE`, `STYLE` and `REGION` blocks are allowed; a cue is an optional identifier line, a timing line `[HH:]MM:SS.mmm --> [HH:]MM:SS.mmm[ settings]` with MM and SS below 60 and the end after the start (settings are `name:value` tokens), then any number of text lines; at least one cue. Failures are `400 INVALID_WEBVTT` whose `detail` is `line N: reason` (N counted from 1 in the file as sent; "no cue" points at the last line).
@@ -379,6 +382,14 @@ after seed/percentage changes, all nine surfaces, anonymous/disabled assignment,
 ### Cache (optional)
 
 With `VALKEY_URL` set, `GET /v1/videos/{id}` caches the **viewer-independent record** (video + owner + renditions) for `CACHE_TTL` (30 s); visibility is applied after reading it, so one entry serves every viewer and a cached PRIVATE video is never leaked. `PATCH`/`DELETE` invalidate the entry in-process (other replicas see the change when their copy expires) and always decide authorisation from the database, never from the cache. The cache **fails open**: short timeouts, no client retries and a 5 s circuit breaker, so a Valkey outage costs nothing per request. It is not a readiness dependency.
+
+## Audio tracks (MUX1, ADR-042)
+
+Extra audio tracks (dub, voice-over, commentary) are uploaded through upload-svc and encoded by the transcoder; video-svc lists them, renames them, moves the default and deletes them (`media.video_audio_tracks`, migration 000023).
+
+- **Playback.** `Playback.audio_tracks` is always present. It is empty when no track is `READY`. Otherwise it lists, in master order: the variants' muxed original first (`id` = the video id, `lang` = `und`, label `Âm thanh gốc`, kind `original`; an uploaded track of kind `original` replaces it), then the `READY` tracks by `lang` then `kind`. Exactly one entry has `is_default`. The list comes from `libs/go/hlsmaster.Group`, the same function that writes the master, so the menu and the manifest cannot disagree. `GetVideo` reads the `READY` tracks of a `READY` video with one query.
+- **Master rewrite.** A PATCH or DELETE runs in one transaction that locks the video row (`FOR UPDATE`; the transcoder takes the same lock when a track becomes `READY`). If the video has `READY` tracks before or after the change, video-svc reads the current master from `S3_MEDIA_BUCKET`, replaces its audio group (`hlsmaster.With`), uploads it under a **new** key next to it (`…/hls/master-{uuidv7}.m3u8`, immutable), and stores that key as `hls_master_key` in the same transaction. A failed read or upload rolls everything back (`500`). Old masters stay in place, because players and caches may still hold them.
+- **Delete** removes the track's directory (`v/{id}/audio/{track_id}/`) after the commit, best effort. Only prefixes inside the video's own `v/{id}/` are ever deleted.
 
 ## Configuration
 

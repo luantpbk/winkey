@@ -23,6 +23,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/obs"
 	"github.com/luantpbk/winkey/libs/go/outbox"
 	"github.com/luantpbk/winkey/libs/go/s3x"
+	"github.com/luantpbk/winkey/services/transcoder/internal/audio"
 	"github.com/luantpbk/winkey/services/transcoder/internal/config"
 	"github.com/luantpbk/winkey/services/transcoder/internal/job"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
@@ -142,6 +143,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 	watcher := &worker.Watcher{NC: nc, JS: js, Store: pipeline.Store, Log: log}
 	reconciler := &worker.Reconciler{Store: pipeline.Store, Interval: cfg.ReconcileInterval, StaleAfter: cfg.StaleJobAfter, MaxAttempts: cfg.MaxJobAttempts, Log: log}
 	janitor := &worker.Janitor{JS: js, Objects: s3, MediaBucket: cfg.S3MediaBucket, RawBucket: cfg.S3RawBucket, Log: log}
+	// MUX1 (ADR-042): extra audio tracks are encoded on their own, never with the video.
+	audioConsumer := &audio.Consumer{JS: js, Log: log, Job: &audio.Job{
+		Store: &store.Postgres{Pool: pool}, Objects: s3, Media: tools,
+		MediaBucket: cfg.S3MediaBucket, WorkDir: cfg.ScratchDir, Log: log,
+	}}
 
 	// The watcher must be subscribed before the consumer starts pulling: the
 	// max-deliveries advisory is emitted when a puller asks for messages.
@@ -150,7 +156,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	var wg sync.WaitGroup
-	errs := make(chan error, 6)
+	errs := make(chan error, 7)
 	start := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
@@ -169,6 +175,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	})
 	start("outbox relay", func() error { return relay.Run(ctx) })
 	start("consumer", func() error { return consumer.Run(ctx) })
+	start("audio consumer", func() error { return audioConsumer.Run(ctx) })
 	start("media janitor", func() error { return janitor.Run(ctx) })
 	start("max-deliveries watcher", func() error { return watcher.Run(ctx) })
 	start("stuck-job reconciler", func() error { return reconciler.Run(ctx) })

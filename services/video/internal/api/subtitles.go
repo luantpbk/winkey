@@ -35,11 +35,13 @@ var langRe = regexp.MustCompile(`^[a-z]{2,3}(-[A-Z]{2})?$`)
 type putSubtitleRequest struct {
 	Label   *string `json:"label"`
 	Content *string `json:"content"`
+	Kind    *string `json:"kind"` // MUX1: subtitles (absent) or captions
 }
 
 type subtitleJSON struct {
 	Lang      string    `json:"lang"`
 	Label     string    `json:"label"`
+	Kind      string    `json:"kind"`
 	Source    string    `json:"source"`
 	URL       string    `json:"url"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -54,7 +56,11 @@ func (h *Handler) subtitleTracks(v domain.Video, signedUntil *time.Time) []subti
 		if signedUntil != nil {
 			u = h.signedMediaURL(v.ID, s.ObjectKey, *signedUntil)
 		}
-		out = append(out, subtitleJSON{Lang: s.Lang, Label: s.Label, Source: s.Source, URL: u, UpdatedAt: s.UpdatedAt.UTC()})
+		kind := s.Kind
+		if kind == "" {
+			kind = "subtitles" // a record cached before MUX1
+		}
+		out = append(out, subtitleJSON{Lang: s.Lang, Label: s.Label, Kind: kind, Source: s.Source, URL: u, UpdatedAt: s.UpdatedAt.UTC()})
 	}
 	return out
 }
@@ -135,6 +141,13 @@ func (h *Handler) putSubtitle(w http.ResponseWriter, r *http.Request) {
 	if req.Content == nil {
 		fe = append(fe, httpx.FieldError{Field: "content", Message: "is required"})
 	}
+	kind := "subtitles"
+	if req.Kind != nil {
+		kind = *req.Kind
+		if kind != "subtitles" && kind != "captions" {
+			fe = append(fe, httpx.FieldError{Field: "kind", Message: "must be subtitles or captions"})
+		}
+	}
 	if len(fe) > 0 {
 		httpx.BadRequest(w, r, "VALIDATION_ERROR", "request validation failed", fe...)
 		return
@@ -158,7 +171,7 @@ func (h *Handler) putSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 	// 2. ... then the row, in one transaction with the limit checked under a lock on the video.
 	res, err := h.Store.PutSubtitle(r.Context(), domain.SubtitleWrite{
-		VideoID: v.ID, Lang: lang, Label: label, ObjectKey: key, SizeBytes: len(normalised),
+		VideoID: v.ID, Lang: lang, Label: label, Kind: kind, ObjectKey: key, SizeBytes: len(normalised),
 	})
 	if err != nil {
 		h.deleteObject(key, v, "discard subtitle after a failed update") // the row does not point at it

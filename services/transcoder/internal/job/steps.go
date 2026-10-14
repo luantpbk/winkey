@@ -65,10 +65,16 @@ func (t *timings) snapshot() []StepTiming {
 }
 
 // stageSeconds is the `stage_seconds` object of the summary log line: seconds per step, to the millisecond.
+// A step that took any time at all logs at least 0.001: rounding a sub-millisecond step (an in-memory
+// download) to 0 would read as "did not run".
 func stageSeconds(steps []StepTiming) slog.Attr {
 	args := make([]any, 0, len(steps))
 	for _, s := range steps {
-		args = append(args, slog.Float64(s.Step, float64(s.Dur.Round(time.Millisecond))/float64(time.Second)))
+		d := s.Dur.Round(time.Millisecond)
+		if d == 0 && s.Dur > 0 {
+			d = time.Millisecond
+		}
+		args = append(args, slog.Float64(s.Step, float64(d)/float64(time.Second)))
 	}
 	return slog.Group("stage_seconds", args...)
 }

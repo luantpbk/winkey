@@ -11,6 +11,7 @@ package contract
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,7 +164,12 @@ func (s *Spec) responseSchema(method, pathTemplate string, status int, mediaType
 	}
 	ref, ok := schema["$ref"].(string)
 	if !ok {
-		return "", true, fmt.Errorf("inline response schemas are not supported (%s %s %d)", method, pathTemplate, status)
+		if base != videoURL {
+			return "", true, fmt.Errorf("inline response schemas are only supported in video.v1.yaml (%s %s %d)", method, pathTemplate, status)
+		}
+		// An inline schema (e.g. listAudioTracks): its JSON pointer inside video.v1.yaml.
+		return videoURL + "#" + pointer("paths", pathTemplate, strings.ToLower(method), "responses", fmt.Sprint(status),
+			"content", mediaType, "schema"), true, nil
 	}
 	if strings.HasPrefix(ref, "#") {
 		return base + ref, true, nil
@@ -173,6 +179,16 @@ func (s *Spec) responseSchema(method, pathTemplate string, status int, mediaType
 		return commonURL + "#" + frag, true, nil
 	}
 	return "", true, fmt.Errorf("unsupported schema ref %q", ref)
+}
+
+// pointer builds a URI-fragment JSON pointer (RFC 6901 escaping, then percent-encoding).
+func pointer(tokens ...string) string {
+	var b strings.Builder
+	for _, t := range tokens {
+		t = strings.ReplaceAll(strings.ReplaceAll(t, "~", "~0"), "/", "~1")
+		b.WriteString("/" + url.PathEscape(t))
+	}
+	return b.String()
 }
 
 func keys(m map[string]any) []string {

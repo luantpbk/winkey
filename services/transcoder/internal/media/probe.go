@@ -51,6 +51,8 @@ type probeOutput struct {
 		RFrameRate       string `json:"r_frame_rate"`
 		SampleAspect     string `json:"sample_aspect_ratio"`
 		Duration         string `json:"duration"`
+		Channels         int    `json:"channels"`    // audio
+		SampleRate       string `json:"sample_rate"` // audio
 		Disposition      struct {
 			AttachedPic int `json:"attached_pic"`
 		} `json:"disposition"`

@@ -67,7 +67,7 @@ func startQuota(t *testing.T, limits quota.Limits) *stack {
 	st := &store.Postgres{Pool: pg.Pool}
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	flaky := &flakyStorage{Storage: stor}
-	h := &api.Handler{Store: st, Storage: flaky, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
+	h := &api.Handler{Store: st, Audio: st, Storage: flaky, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
 	r := httpx.NewRouter("upload-test", log)
 	h.Routes(r)
 	srv := httptest.NewServer(r)

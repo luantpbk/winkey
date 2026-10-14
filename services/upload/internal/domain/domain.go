@@ -47,8 +47,8 @@ type NewVideo struct {
 
 // Usage is the recent upload usage of one owner, read inside the transaction of Store.Create.
 type Usage struct {
-	Uploading int       // media.videos rows in status UPLOADING, whatever their age
-	Count     int       // media.upload_ledger rows of the last 24 hours (deleted videos included)
+	Uploading int       // media.videos and media.video_audio_tracks rows in status UPLOADING, whatever their age
+	Count     int       // media.upload_ledger rows of the last 24 hours (deleted videos and audio tracks included)
 	Bytes     int64     // sum of their size_bytes
 	Oldest    time.Time // min(created_at) of those ledger rows; zero when there are none
 	Now       time.Time // the database clock the window was computed with
@@ -125,4 +125,70 @@ type Storage interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
 	// Ping checks the bucket is reachable (readiness).
 	Ping(ctx context.Context, bucket string) error
+}
+
+// Audio track limits (task MUX1, ADR-042).
+const (
+	MaxAudioTracks    = 8       // per video, all statuses
+	MaxAudioSizeBytes = 4 << 30 // 4 GiB
+)
+
+// Errors of AudioStore.CreateAudioTrack.
+var (
+	ErrAudioTrackExists   = errors.New("audio track with this lang and kind exists")
+	ErrTooManyAudioTracks = errors.New("too many audio tracks")
+)
+
+// AudioTrack is one row of media.video_audio_tracks. OwnerID is the owner of the video.
+type AudioTrack struct {
+	ID          uuid.UUID
+	VideoID     uuid.UUID
+	OwnerID     uuid.UUID
+	Lang        string
+	Label       string
+	Kind        string
+	IsDefault   bool
+	Status      string // the video statuses, as text
+	RawBucket   string
+	RawKey      string
+	S3UploadID  string // empty once UPLOADED
+	ContentType string
+	SizeBytes   int64
+	Error       string
+	UpdatedAt   time.Time
+}
+
+// AudioUploadedEvent is the `data` of the video.audio_uploaded event.
+type AudioUploadedEvent struct {
+	VideoID     string `json:"video_id"`
+	OwnerID     string `json:"owner_id"`
+	TrackID     string `json:"track_id"`
+	Lang        string `json:"lang"`
+	Kind        string `json:"kind"`
+	RawBucket   string `json:"raw_bucket"`
+	RawKey      string `json:"raw_key"`
+	SizeBytes   int64  `json:"size_bytes"`
+	ContentType string `json:"content_type"`
+}
+
+// AudioStore is the persistence port of the extra audio tracks (media.video_audio_tracks).
+type AudioStore interface {
+	// CreateAudioTrack inserts the UPLOADING track in ONE transaction, like Store.Create: the
+	// owner's quota check (when check is not nil) and a ledger row keyed by the track id, then a
+	// per-video lock under which it refuses a ninth track (ErrTooManyAudioTracks) or a second
+	// (lang, kind) (ErrAudioTrackExists) BEFORE calling startUpload. is_default clears the flag on
+	// the video's other tracks. Same failure rules as Store.Create.
+	CreateAudioTrack(ctx context.Context, t AudioTrack, check func(Usage) error, startUpload func(ctx context.Context) (uploadID string, err error)) error
+	// GetAudioTrack returns the track of that video (ErrNotFound otherwise) with the video's owner.
+	GetAudioTrack(ctx context.Context, videoID, trackID uuid.UUID) (AudioTrack, error)
+	// MarkAudioUploaded flips UPLOADING→UPLOADED, clears s3_upload_id and enqueues
+	// video.audio_uploaded in the same transaction. changed is false when the track was no longer
+	// UPLOADING.
+	MarkAudioUploaded(ctx context.Context, t AudioTrack) (changed bool, err error)
+	// MarkAudioFailed flips UPLOADING→FAILED with an error code.
+	MarkAudioFailed(ctx context.Context, trackID uuid.UUID, code string) (changed bool, err error)
+	// DeleteUploadingAudio deletes the track only if it is still UPLOADING.
+	DeleteUploadingAudio(ctx context.Context, trackID uuid.UUID) (deleted bool, err error)
+	// StaleAudioUploads lists UPLOADING tracks created more than olderThan ago.
+	StaleAudioUploads(ctx context.Context, olderThan time.Duration, limit int) ([]AudioTrack, error)
 }
