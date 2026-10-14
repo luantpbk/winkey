@@ -210,7 +210,7 @@ jobs:
           docker compose -f deploy/compose/dev.yml -f systest/compose.apps.yml logs --no-color > systest/.run/logs/compose.log 2>&1 || true
 
       - name: Upload run report & logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: sim-run-${{ matrix.run }}
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload perf baseline
         if: matrix.run == 1 && github.event_name == 'schedule' && github.ref == 'refs/heads/main' && success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-baseline
           path: systest/.run/report/perf.json
