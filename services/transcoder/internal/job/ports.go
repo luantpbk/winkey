@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/luantpbk/winkey/libs/go/hlsmaster"
+
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
 )
 
@@ -56,6 +58,10 @@ type ReadyResult struct {
 	Renditions    []media.Rendition
 	// PlaylistKeys[i] is the media-bucket key of Renditions[i]'s playlist.
 	PlaylistKeys []string
+	// RewriteMaster (MUX1) stores MasterKey with the audio group of the given READY tracks under a new
+	// key and returns it. Complete calls it under the video row lock when the video has READY audio
+	// tracks, and makes the result hls_master_key. nil: never called.
+	RewriteMaster func(ctx context.Context, masterKey string, ready []hlsmaster.Track) (string, error)
 }
 
 // FailRecord describes a failed attempt.
@@ -79,7 +85,8 @@ type Store interface {
 	BeginJob(ctx context.Context, videoID uuid.UUID, encoder, workerID string) (BeginResult, error)
 	SetJobEncoder(ctx context.Context, jobID uuid.UUID, encoder string) error
 	SetProgress(ctx context.Context, jobID uuid.UUID, percent float64) error
-	// Complete, in one transaction: replaces renditions, sets metadata and keys,
+	// Complete, in one transaction: locks the video row, re-applies the audio group of its READY audio
+	// tracks to the new master (ReadyResult.RewriteMaster), replaces renditions, sets metadata and keys,
 	// PROCESSING→READY, published_at = coalesce(published_at, now()), job
 	// SUCCEEDED, video.ready into the outbox. ok is false if the video is no
 	// longer PROCESSING (deleted meanwhile); nothing is written then.

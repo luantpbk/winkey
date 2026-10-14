@@ -119,7 +119,7 @@ Field rules:
 - **MUX1, planned:**
   1. Contract change: audio tracks on the upload and playback APIs (`Playback.audio_tracks`) plus subtitle `kind`.
   2. Migration `media.video_audio_tracks`.
-  3. Transcoder: HLS with **video-only variants plus `#EXT-X-MEDIA:TYPE=AUDIO` renditions**. An audio track added after publishing is encoded on its own; the video is not re-encoded.
+  3. Transcoder: each extra track becomes an HLS alternate audio rendition (`#EXT-X-MEDIA:TYPE=AUDIO`). The variants keep the original audio, which the player lists first as "Âm thanh gốc". An audio track added after publishing is encoded on its own; the video is not re-encoded (ADR-042 addendum).
   4. Studio "upload package" (folder or `.zip` with `manifest.json`) and per-track add/replace/remove.
   5. Player: audio-language and subtitle menus, remembered per viewer.
-- Videos uploaded before MUX1 keep their current single-audio HLS.
+- Videos uploaded before MUX1 can get extra audio tracks too: their variants keep the original audio, as for new videos.

@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/luantpbk/winkey/libs/go/hlsmaster"
 	"github.com/luantpbk/winkey/libs/go/outbox"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
 )
@@ -449,6 +450,11 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	}
 	for _, r := range rs {
 		res.PlaylistKeys = append(res.PlaylistKeys, prefix+"hls/"+r.Name+"/index.m3u8")
+	}
+	// MUX1: a video that already has READY audio tracks (a re-encode) gets them in its new master.
+	localMaster := filepath.Join(hlsDir, media.MasterPlaylist)
+	res.RewriteMaster = func(ctx context.Context, masterKey string, ready []hlsmaster.Track) (string, error) {
+		return RewriteMasterFile(ctx, p.Objects, p.Cfg.MediaBucket, localMaster, masterKey, ready)
 	}
 	var ok bool
 	err = tm.time(StepCommit, func() (err error) { ok, err = p.Store.Complete(ctx, res); return })

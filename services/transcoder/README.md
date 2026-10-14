@@ -227,3 +227,16 @@ docker buildx build --platform linux/amd64,linux/arm64 -f services/transcoder/Do
 **FFmpeg version (both images): n7.1.5-12-g1fdbca85aa**, BtbN FFmpeg-Builds release `autobuild-2026-07-31-14-10`, static GPL (`linux64-gpl-7.1` for amd64/nvenc, `linuxarm64-gpl-7.1` for arm64). Downloads are verified with `sha256sum -c` (`c1e6caf4…0e79` for linux64, `a9a50c57…a71b` for linuxarm64; both match the release's `checksums.sha256`). To upgrade, change the release, archive names and checksums in both Dockerfiles and this paragraph together.
 
 `transcoder-nvenc` needs `--gpus all` (NVIDIA Container Toolkit) and sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` (without `video`, NVENC is invisible in the container). Both run as non-root.
+
+## Audio tracks (MUX1, ADR-042)
+
+A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDeliver` unlimited, bounded by the job at 200 deliveries), encodes extra audio tracks on their own. The video is never re-encoded.
+
+1. `BeginAudio` locks the video row. A track that is gone, still `UPLOADING`, `READY` or `FAILED` is acked. A video that is not `READY` yet is retried in 2 min (`Nak` with delay). A `FAILED` video fails the track. Otherwise the track becomes `PROCESSING`.
+2. Download the raw track and run `ffprobe` (first audio stream; no stream or unreadable → `INVALID_INPUT`). Duration more than ±100 ms from the video's → `AUDIO_DURATION_MISMATCH`.
+3. Encode to AAC-LC 128 kb/s, 48 kHz, stereo, fMP4 HLS with 4 s segments (the same audio as the variants), into `v/{video_id}/audio/{track_id}/`. Segments are uploaded first and the playlist last. This directory is outside `a{n}/`, so re-encodes keep it.
+4. `CompleteAudio` locks the video row, sets the track `READY` with `playlist_key` and `duration_ms`, rewrites the master (`libs/go/hlsmaster`: new key next to the old one, original audio first without a URI, then every `READY` track) when the video is `READY`, and enqueues `video.audio_ready`. A track deleted meanwhile → its output is removed.
+5. Failures go to `FailAudio`: the track becomes `FAILED` with `error` = reason, and `video.audio_failed` is enqueued with a message safe for the owner. Transient errors (database, storage) are retried every 30 s.
+
+A video re-encode re-applies the audio group: `store.Complete` locks the row and, when the video has `READY` tracks, stores a rewritten copy of the new master as `hls_master_key`. **Apply migration 000023 before deploying this version**, because `Complete` reads `media.video_audio_tracks`.
+

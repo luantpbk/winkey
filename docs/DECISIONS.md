@@ -1095,7 +1095,7 @@ Hai mẫu s11 và s12 có VMAF bất thường ở mọi setting, kể cả H.26
 - Định dạng gói xuất: [`docs/specs/media-package-v1.md`](specs/media-package-v1.md). Gồm `manifest.json`, một file video, các file audio là **bản mix hoàn chỉnh** (WAV/FLAC hoặc AAC ≥ 192 kb/s, 48 kHz, stereo, bắt đầu từ khung hình đầu, lệch thời lượng ±100 ms) và phụ đề WebVTT.
 - HLS: video mới dùng các variant **chỉ có hình** cộng `#EXT-X-MEDIA:TYPE=AUDIO` (AAC 128 kb/s) cho từng track. Thêm một track sau khi đã đăng chỉ encode riêng phần âm thanh, không encode lại video. Video cũ giữ nguyên.
 - Player **không trộn** âm thanh: chọn track nào thì phát cả track đó.
-- Giới hạn: 8 track âm thanh và 20 phụ đề mỗi video. `lang` theo BCP 47, cùng pattern với API phụ đề. Thêm `kind`: âm thanh là `original/dub/voiceover/commentary`, phụ đề là `subtitles/captions/forced`.
+- Giới hạn: 8 track âm thanh và 20 phụ đề mỗi video. `lang` theo BCP 47, cùng pattern với API phụ đề. Thêm `kind`: âm thanh là `original/dub/voiceover/commentary`, phụ đề là `subtitles/captions` (bỏ `forced`: mỗi ngôn ngữ một phụ đề, xem addendum).
 
 **Pha.**
 1. `contract-change` (`Playback.audio_tracks`, `kind` của phụ đề, API upload track âm thanh) và migration `media.video_audio_tracks` (kiến trúc sư).
@@ -1104,3 +1104,10 @@ Hai mẫu s11 và s12 có VMAF bất thường ở mọi setting, kể cả H.26
 
 **Hệ quả.** Dung lượng lưu trữ tăng khoảng 1 MB mỗi phút cho mỗi track âm thanh. Đổi ngôn ngữ trong player tức thì, vì HLS chuyển audio rendition mà không tải lại video.
 
+**Addendum 2026-10-14 (pha 2, kiến trúc sư).** Khi làm pha 2, layout HLS được đơn giản hoá so với thiết kế ban đầu:
+- **Variant giữ âm thanh gốc muxed như cũ**, không đổi sang variant chỉ có hình. Khi video có ít nhất một track `READY`, master có nhóm `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud"`. Âm thanh gốc đứng đầu, **không có URI** (âm thanh nằm trong variant, RFC 8216 §4.3.4.1). Sau đó là từng track `READY`, mỗi track có URI tới playlist riêng. Mọi `#EXT-X-STREAM-INF` mang `AUDIO="aud"`. Không còn track nào thì master trở về dạng thường. Nhờ vậy video cũ và video mới dùng chung một cách, transcoder không phải encode lại video, và không cần biết video gốc có âm thanh hay không.
+- `Playback.audio_tracks` khớp đúng nhóm này. Âm thanh gốc có `id` = id của video, `lang` = `und` (API upload chưa có ngôn ngữ của âm thanh gốc), nhãn `Âm thanh gốc`, `kind` = `original`. Nếu có track `kind=original` được upload riêng thì track đó thay cho âm thanh gốc. Mặc định là track có `is_default`, nếu không có thì là âm thanh gốc.
+- Track encode vào `v/{video_id}/audio/{track_id}/` (AAC-LC 128 kb/s, 48 kHz, stereo, fMP4, đoạn 4 s, giống phần âm thanh của variant). Thư mục này nằm ngoài `a{n}/`, nên lần encode lại video không xoá nó.
+- **Một chỗ ghi master: `libs/go/hlsmaster`.** Ba nơi gọi nó: transcoder khi track `READY`, transcoder khi encode lại video có track `READY` (`store.Complete`), và video-svc khi đổi tên, đổi mặc định hoặc xoá track. Cả ba đều chạy trong transaction giữ khoá dòng `media.videos` (`FOR UPDATE`), nên không ghi đè lẫn nhau. Master mới luôn có key mới, cạnh master cũ (`…/hls/master-{uuid}.m3u8`), vì master được cache immutable.
+- Track lệch thời lượng quá ±100 ms so với video thì `FAILED` với `AUDIO_DURATION_MISMATCH`. Track upload khi video chưa `READY` sẽ chờ (job trả về và thử lại sau 2 phút, tối đa khoảng 6 giờ). Một lần upload track được tính vào quota upload như một video (chiếm một slot đồng thời và có một dòng trong ledger).
+- **Thứ tự triển khai:** migration 000023 phải được áp dụng ở production **trước** khi deploy transcoder, video-svc và upload-svc mới, vì `store.Complete` của transcoder đọc `media.video_audio_tracks`.
