@@ -69,6 +69,12 @@ func (b *memBucket) Put(ctx context.Context, bucket, key string, data []byte, ct
 func (b *memBucket) Delete(ctx context.Context, bucket, key string) error {
 	return b.m.Delete(ctx, bucket, key)
 }
+func (b *memBucket) Read(ctx context.Context, bucket, key string, max int64) ([]byte, error) {
+	return b.m.Read(ctx, bucket, key, max)
+}
+func (b *memBucket) RemovePrefix(ctx context.Context, bucket, prefix string) error {
+	return b.m.RemovePrefix(ctx, bucket, prefix)
+}
 func (b *memBucket) Get(key string) (string, string, []byte, bool) {
 	o, ok := b.m.Get(mediaBucketName, key)
 	return o.ContentType, o.CacheControl, o.Data, ok

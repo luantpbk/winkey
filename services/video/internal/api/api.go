@@ -51,7 +51,7 @@ type Handler struct {
 	RecommendationCache RecommendationCache
 	MediaBaseURL        string // e.g. https://media.winkey.vn
 	MediaBucket         string // bucket named in video.deleted
-	// Objects is the media bucket for subtitle files (task V5b).
+	// Objects is the media bucket: subtitle files (task V5b), HLS masters and audio tracks (MUX1).
 	Objects domain.Objects
 	// MediaLinkSecret signs media URLs of videos the public cannot watch (SEC1, ADR-017); never logged.
 	MediaLinkSecret []byte
@@ -102,6 +102,9 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Delete("/v1/videos/{video_id}", h.deleteVideo)
 		r.Put("/v1/videos/{video_id}/subtitles/{lang}", h.putSubtitle)
 		r.Delete("/v1/videos/{video_id}/subtitles/{lang}", h.deleteSubtitle)
+		r.Get("/v1/videos/{video_id}/audio-tracks", h.listAudioTracks)
+		r.Patch("/v1/videos/{video_id}/audio-tracks/{track_id}", h.updateAudioTrack)
+		r.Delete("/v1/videos/{video_id}/audio-tracks/{track_id}", h.deleteAudioTrack)
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 		r.Get("/v1/feed/subscriptions", h.subscriptionFeed)

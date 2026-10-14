@@ -307,3 +307,19 @@ func TestPutBytesSendsHeadersAndBody(t *testing.T) {
 		t.Fatal("a cancelled context must fail the upload")
 	}
 }
+
+func TestGetBytes(t *testing.T) {
+	f := newFake(t)
+	f.put("b", "master.m3u8", []byte("#EXTM3U\n"))
+	c := newClient(t, f, "")
+	ctx := context.Background()
+	if got, err := c.GetBytes(ctx, "b", "master.m3u8", 64); err != nil || string(got) != "#EXTM3U\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if _, err := c.GetBytes(ctx, "b", "master.m3u8", 4); err == nil {
+		t.Fatal("an object above max was read")
+	}
+	if _, err := c.GetBytes(ctx, "b", "missing", 64); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+}

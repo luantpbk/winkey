@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -251,6 +252,24 @@ func (c *Client) PutBytes(ctx context.Context, bucket, key string, data []byte, 
 	}
 	_, err := c.internal.PutObject(ctx, in)
 	return mapErr("put object", err)
+}
+
+// GetBytes reads a small object (a playlist) into memory. An object larger than max bytes is an
+// error rather than an unbounded read; a missing object wraps ErrNotFound.
+func (c *Client) GetBytes(ctx context.Context, bucket, key string, max int64) ([]byte, error) {
+	out, err := c.internal.GetObject(ctx, &s3.GetObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil {
+		return nil, mapErr("get object", err)
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(out.Body, max+1))
+	if err != nil {
+		return nil, fmt.Errorf("s3x: read %s: %w", key, err)
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("s3x: %s is larger than %d bytes", key, max)
+	}
+	return data, nil
 }
 
 // Download fetches an object into dstPath with parallel ranged requests

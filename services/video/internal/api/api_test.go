@@ -72,6 +72,8 @@ func newEnv(t *testing.T, withCache bool) *env {
 var videoPath = regexp.MustCompile(`^/v1/videos/[^/]+$`)
 var moderationPath = regexp.MustCompile(`^/v1/videos/[^/]+/moderation$`)
 var subtitlePath = regexp.MustCompile(`^/v1/videos/[^/]+/subtitles/[^/]+$`)
+var audioListPath = regexp.MustCompile(`^/v1/videos/[^/]+/audio-tracks$`)
+var audioTrackPath = regexp.MustCompile(`^/v1/videos/[^/]+/audio-tracks/[^/]+$`)
 
 func templateFor(path string) string {
 	p, _, _ := strings.Cut(path, "?")
@@ -98,6 +100,12 @@ func templateFor(path string) string {
 	}
 	if moderationPath.MatchString(p) {
 		return "/v1/videos/{video_id}/moderation"
+	}
+	if audioListPath.MatchString(p) {
+		return "/v1/videos/{video_id}/audio-tracks"
+	}
+	if audioTrackPath.MatchString(p) {
+		return "/v1/videos/{video_id}/audio-tracks/{track_id}"
 	}
 	return p
 }

@@ -144,3 +144,21 @@ func TestCheckIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// Inline response schemas (listAudioTracks) are resolved by JSON pointer and really validated.
+func TestCheckValidatesInlineResponseSchemas(t *testing.T) {
+	s := Load(t)
+	const path = "/v1/videos/{video_id}/audio-tracks"
+	ok := `{"items":[{"id":"0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d","lang":"vi","label":"Thuyết minh","kind":"voiceover","is_default":true,"status":"READY","error":null,"updated_at":"2026-10-14T08:00:00Z"}]}`
+	if errs := check(t, s, "GET", path, 200, "application/json", ok); len(errs) != 0 {
+		t.Fatalf("valid list rejected: %v", errs)
+	}
+	for name, body := range map[string]string{
+		"items missing": `{}`,
+		"bad kind":      `{"items":[{"id":"0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d","lang":"vi","label":"x","kind":"karaoke","is_default":true,"status":"READY","error":null,"updated_at":"2026-10-14T08:00:00Z"}]}`,
+	} {
+		if errs := check(t, s, "GET", path, 200, "application/json", body); len(errs) == 0 {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

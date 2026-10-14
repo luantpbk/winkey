@@ -77,6 +77,8 @@ type Video struct {
 	Owner         Profile     `json:"owner"`
 	Renditions    []Rendition `json:"renditions"`
 	Subtitles     []Subtitle  `json:"subtitles"` // READY videos only, sorted by lang (V5b)
+	// AudioTracks are the READY extra audio tracks (MUX1), READY videos only, sorted by lang then kind.
+	AudioTracks []AudioTrack `json:"audio_tracks"`
 
 	// Moderation (A2). A HIDDEN video is PRIVATE for everyone but its owner,
 	// moderators and admins.
@@ -171,6 +173,7 @@ const MaxSubtitles = 20
 type Subtitle struct {
 	Lang      string    `json:"lang"`
 	Label     string    `json:"label"`
+	Kind      string    `json:"kind"`   // subtitles or captions (MUX1)
 	Source    string    `json:"source"` // UPLOAD; AUTO is reserved for V5c
 	ObjectKey string    `json:"object_key"`
 	SizeBytes int       `json:"size_bytes"`
@@ -182,6 +185,7 @@ type SubtitleWrite struct {
 	VideoID   uuid.UUID
 	Lang      string
 	Label     string
+	Kind      string // subtitles or captions
 	ObjectKey string
 	SizeBytes int
 }
@@ -199,11 +203,43 @@ var (
 	ErrVideoFailed      = errors.New("video failed")
 )
 
-// Objects is the media bucket as video-svc needs it (subtitles only).
+// Objects is the media bucket as video-svc needs it: subtitle files, and the HLS master and audio track
+// objects of MUX1.
 type Objects interface {
 	Put(ctx context.Context, bucket, key string, data []byte, contentType, cacheControl string) error
 	Delete(ctx context.Context, bucket, key string) error
+	// Read reads a small object (at most max bytes).
+	Read(ctx context.Context, bucket, key string, max int64) ([]byte, error)
+	// RemovePrefix removes every object under prefix, which ends in "/".
+	RemovePrefix(ctx context.Context, bucket, prefix string) error
 }
+
+// AudioTrack is one row of media.video_audio_tracks (task MUX1, ADR-042).
+type AudioTrack struct {
+	ID          uuid.UUID `json:"id"`
+	Lang        string    `json:"lang"`
+	Label       string    `json:"label"`
+	Kind        string    `json:"kind"`
+	IsDefault   bool      `json:"is_default"`
+	Status      string    `json:"status"`
+	Error       string    `json:"error"`
+	PlaylistKey string    `json:"playlist_key"` // set when READY
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AudioTrackUpdate is a PATCH of a track: a nil Label keeps it; MakeDefault moves the default to it.
+type AudioTrackUpdate struct {
+	Label       *string
+	MakeDefault bool
+}
+
+// MasterRewrite builds the HLS master of a video for its READY audio tracks (hlsmaster.With) from the
+// master at masterKey, stores it under a new key and returns that key. The store calls it inside the
+// transaction that holds the video row lock, so concurrent rewrites (video-svc, transcoder) serialise.
+type MasterRewrite func(ctx context.Context, videoID uuid.UUID, masterKey string, ready []AudioTrack) (newKey string, err error)
+
+// ErrAudioTrackUploading: the track is still being uploaded; upload-svc aborts it.
+var ErrAudioTrackUploading = errors.New("audio track is uploading")
 
 // SubscriptionFeedQuery asks for the newest public videos of the channels Subscriber follows (task R2-b).
 type SubscriptionFeedQuery struct {
@@ -319,6 +355,15 @@ type Store interface {
 	PutSubtitle(ctx context.Context, w SubtitleWrite) (SubtitleResult, error)
 	// DeleteSubtitle removes the row and returns its object key; ErrNotFound if there is no such track.
 	DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (objectKey string, err error)
+	// ListAudioTracks returns every audio track of the video in every status, sorted by lang then kind.
+	ListAudioTracks(ctx context.Context, videoID uuid.UUID) ([]AudioTrack, error)
+	// UpdateAudioTrack applies u in ONE transaction that locks the video row; when the video has a master and
+	// READY tracks before or after the change, it calls rewrite and stores the new hls_master_key in the same
+	// transaction. ErrNotFound if the track is not the video's.
+	UpdateAudioTrack(ctx context.Context, videoID, trackID uuid.UUID, u AudioTrackUpdate, rewrite MasterRewrite) (AudioTrack, error)
+	// DeleteAudioTrack deletes a track that is not UPLOADING (ErrAudioTrackUploading) the same way and returns
+	// the deleted row. ErrNotFound if the track is not the video's.
+	DeleteAudioTrack(ctx context.Context, videoID, trackID uuid.UUID, rewrite MasterRewrite) (AudioTrack, error)
 	// ListSubscriptionFeed reads one page of the public-feed videos of the channels the subscriber follows
 	// (media.subscriptions, the projection of social.subscription.changed), newest first by (published_at, id).
 	ListSubscriptionFeed(ctx context.Context, q SubscriptionFeedQuery) ([]Summary, error)

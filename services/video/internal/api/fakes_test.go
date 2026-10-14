@@ -38,6 +38,7 @@ type memStore struct {
 	daily           map[uuid.UUID][]domain.DailyStats // by video, for VideoStats
 	channel         domain.ChannelStatsData
 	statsReads      int
+	audio           map[uuid.UUID][]domain.AudioTrack // every audio track (MUX1), by video
 
 	// related videos (R2-c): what the three queries return, and what they were asked
 	relSimilar, relChannel, relTrending []domain.Summary
@@ -286,7 +287,7 @@ func (s *memStore) PutSubtitle(_ context.Context, w domain.SubtitleWrite) (domai
 	if s.putSubtitleErr != nil {
 		return domain.SubtitleResult{}, s.putSubtitleErr
 	}
-	track := domain.Subtitle{Lang: w.Lang, Label: w.Label, Source: "UPLOAD", ObjectKey: w.ObjectKey, SizeBytes: w.SizeBytes, UpdatedAt: time.Date(2026, 10, 1, 9, 0, s.subtitleWrites, 0, time.UTC)}
+	track := domain.Subtitle{Lang: w.Lang, Label: w.Label, Kind: w.Kind, Source: "UPLOAD", ObjectKey: w.ObjectKey, SizeBytes: w.SizeBytes, UpdatedAt: time.Date(2026, 10, 1, 9, 0, s.subtitleWrites, 0, time.UTC)}
 	res := domain.SubtitleResult{Track: track, Created: true}
 	subs := v.Subtitles
 	for i, t := range subs {
