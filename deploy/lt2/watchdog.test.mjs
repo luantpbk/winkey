@@ -1492,6 +1492,7 @@ describe('Platform Watchdog Unit & Integration Tests (ADR-034 Fail-Closed)', () 
         legacyCheckIntervalMs: 80,
         pollIntervalMs: 25,
         fetchFn: mockFetch,
+        activeGraceMs: 0, // no warm-up: zero active traffic must abort at the first active poll
         abortSignalFile: path.join(tmpDir, 'start_preflight.signal'),
       });
 
@@ -1650,5 +1651,76 @@ describe('Legacy site consecutive-failure threshold (#355)', () => {
     assert.strictEqual(makeWatchdog().watchdog.legacyFailThreshold, 2);
     assert.strictEqual(makeWatchdog({ legacyFailThreshold: 0.5 }).watchdog.legacyFailThreshold, 1);
     assert.strictEqual(makeWatchdog({ legacyFailThreshold: 3 }).watchdog.legacyFailThreshold, 3);
+  });
+});
+
+describe('Active-phase warm-up (zero-request checks)', () => {
+  const zeroSample = (nowSec) => new RollingErrorRateProducer(60).getPreflightSample(nowSec);
+
+  test('parseHttpErrorRate: warm-up tolerates zero requests, the active check does not', () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify(zeroSample(nowSec));
+    assert.strictEqual(parseHttpErrorRate(body, { nowSec }).error, 'INACTIVE_WORKLOAD');
+    const warm = parseHttpErrorRate(body, { nowSec, isWarmup: true });
+    assert.strictEqual(warm.error, undefined);
+    assert.strictEqual(warm.totalRequests, 0);
+  });
+
+  test('parseHttpErrorRate: warm-up still validates the schema', () => {
+    const res = parseHttpErrorRate(JSON.stringify({ version: '1.0' }), { isWarmup: true });
+    assert.ok(res.error);
+  });
+
+  async function runWithZeroTraffic(activeGraceMs, runForMs) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-warmup-'));
+    const signal = path.join(tmp, 'abort.signal');
+    const fetchFn = async (url) => {
+      if (url.includes('metrics')) {
+        // Healthy edge-1 RAM: this test is about the error-rate telemetry only.
+        const sec = Math.floor(Date.now() / 1000);
+        return {
+          statusCode: 200,
+          body: `node_memory_MemAvailable_bytes{instance="100.113.240.3:9100",node="edge-1"} 8000000000 ${sec}\n`,
+        };
+      }
+      if (url.includes('error-rate')) {
+        return { statusCode: 200, body: JSON.stringify(zeroSample(Date.now() / 1000)) };
+      }
+      return { statusCode: 200, body: 'OK' };
+    };
+    const watchdog = new PlatformWatchdog({
+      runId: 'test_active_warmup',
+      edgeMetricsUrl: 'http://100.113.240.3:9100/metrics',
+      errorRateSource: 'http://mock/error-rate',
+      legacyCheckIntervalMs: 10000,
+      pollIntervalMs: 20,
+      activeGraceMs,
+      fetchFn,
+      abortSignalFile: signal,
+    });
+    await watchdog.start({ skipPreflight: true, exitOnError: false });
+    await new Promise((r) => setTimeout(r, runForMs));
+    await watchdog.stop();
+    const aborted = fs.existsSync(signal) ? JSON.parse(fs.readFileSync(signal, 'utf8')) : null;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    return aborted;
+  }
+
+  test('zero traffic inside the warm-up does not abort; after it, it does', async () => {
+    const inside = await runWithZeroTraffic(500, 150);
+    assert.strictEqual(inside, null, `aborted inside the warm-up: ${inside && inside.reason}`);
+    const after = await runWithZeroTraffic(60, 300);
+    assert.ok(after, 'zero traffic after the warm-up must abort');
+    assert.match(after.reason, /Workload .* has zero requests during active load run/);
+  });
+
+  test('activeGraceMs defaults to 30 s and rejects nonsense', () => {
+    const mk = (extra) =>
+      new PlatformWatchdog({ runId: 'test_grace_cfg', errorRateSource: 'x', ...extra })
+        .activeGraceMs;
+    assert.strictEqual(mk({}), 30000);
+    assert.strictEqual(mk({ activeGraceMs: 0 }), 0);
+    assert.strictEqual(mk({ activeGraceMs: -5 }), 30000);
+    assert.strictEqual(mk({ activeGraceMs: Number.NaN }), 30000);
   });
 });
