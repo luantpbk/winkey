@@ -1074,3 +1074,21 @@ Quyết định:
 - Ghim đúng bản FFmpeg 8.0 này. Bench dùng nó trong `~/tools` (`scripts/enc2-bench.sh`, không cần sudo).
 - Production sẽ cài cùng bản đó vào `/opt/ffmpeg-8` (user cài bằng sudo, pha 4) và trỏ `AV1_FFMPEG_PATH` tới đó.
 - Mỗi lần đổi bản FFmpeg đều phải kiểm lại phiên bản NVENC API so với driver.
+
+### ADR-042 — Track âm thanh và phụ đề tách riêng (MUX1, thiết kế)
+
+**Bối cảnh.** User muốn upload riêng phần video gốc, các track thuyết minh/lồng tiếng và phụ đề, để người xem đổi ngôn ngữ âm thanh và bật/tắt phụ đề ngay trong player. Phụ đề WebVTT theo từng ngôn ngữ đã có từ V5b (ADR-018). Track âm thanh riêng thì chưa có: hiện mỗi rendition HLS ghép sẵn một track âm thanh.
+
+**Quyết định (thiết kế).**
+- Định dạng gói xuất: [`docs/specs/media-package-v1.md`](specs/media-package-v1.md). Gồm `manifest.json`, một file video, các file audio là **bản mix hoàn chỉnh** (WAV/FLAC hoặc AAC ≥ 192 kb/s, 48 kHz, stereo, bắt đầu từ khung hình đầu, lệch thời lượng ±100 ms) và phụ đề WebVTT.
+- HLS: video mới dùng các variant **chỉ có hình** cộng `#EXT-X-MEDIA:TYPE=AUDIO` (AAC 128 kb/s) cho từng track. Thêm một track sau khi đã đăng chỉ encode riêng phần âm thanh, không encode lại video. Video cũ giữ nguyên.
+- Player **không trộn** âm thanh: chọn track nào thì phát cả track đó.
+- Giới hạn: 8 track âm thanh và 20 phụ đề mỗi video. `lang` theo BCP 47, cùng pattern với API phụ đề. Thêm `kind`: âm thanh là `original/dub/voiceover/commentary`, phụ đề là `subtitles/captions/forced`.
+
+**Pha.**
+1. `contract-change` (`Playback.audio_tracks`, `kind` của phụ đề, API upload track âm thanh) và migration `media.video_audio_tracks` (kiến trúc sư).
+2. Transcoder: layout HLS mới và job chỉ encode âm thanh (kiến trúc sư).
+3. Studio: upload gói và quản lý track; player có menu âm thanh và phụ đề (Antigravity 1).
+
+**Hệ quả.** Dung lượng lưu trữ tăng khoảng 1 MB mỗi phút cho mỗi track âm thanh. Đổi ngôn ngữ trong player tức thì, vì HLS chuyển audio rendition mà không tải lại video.
+
