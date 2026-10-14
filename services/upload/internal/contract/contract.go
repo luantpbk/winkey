@@ -26,12 +26,13 @@ import (
 const (
 	uploadURL = "https://winkey.test/openapi/upload.v1.yaml"
 	commonURL = "https://winkey.test/openapi/common.yaml"
+	videoURL  = "https://winkey.test/openapi/video.v1.yaml" // AudioTrack (MUX1) lives there
 )
 
 // Spec is the loaded contract.
 type Spec struct {
-	upload, common map[string]any
-	compiler       *jsonschema.Compiler
+	upload, common, video map[string]any
+	compiler              *jsonschema.Compiler
 
 	// Check is called from concurrent requests. Compile mutates the compiler, so it
 	// runs under mu.Lock, once per schema location (cache); Validate only reads
@@ -84,7 +85,7 @@ func Load(t testing.TB) *Spec {
 	for _, d := range []struct {
 		name, url string
 		dst       *map[string]any
-	}{{"upload.v1.yaml", uploadURL, &s.upload}, {"common.yaml", commonURL, &s.common}} {
+	}{{"upload.v1.yaml", uploadURL, &s.upload}, {"common.yaml", commonURL, &s.common}, {"video.v1.yaml", videoURL, &s.video}} {
 		raw, err := os.ReadFile(filepath.Join(root, d.name))
 		if err != nil {
 			t.Fatal(err)
@@ -164,8 +165,11 @@ func (s *Spec) responseSchema(method, pathTemplate string, status int, mediaType
 		return base + ref, true, nil
 	}
 	file, frag, _ := strings.Cut(ref, "#")
-	if strings.HasSuffix(file, "common.yaml") {
+	switch {
+	case strings.HasSuffix(file, "common.yaml"):
 		return commonURL + "#" + frag, true, nil
+	case strings.HasSuffix(file, "video.v1.yaml"):
+		return videoURL + "#" + frag, true, nil
 	}
 	return "", true, fmt.Errorf("unsupported schema ref %q", ref)
 }

@@ -11,9 +11,10 @@ import (
 )
 
 // Janitor aborts multipart uploads and deletes rows stuck in UPLOADING for
-// longer than StaleAfter (index media.videos_stale_uploads).
+// longer than StaleAfter (index media.videos_stale_uploads), audio tracks included.
 type Janitor struct {
 	Store      domain.Store
+	Audio      domain.AudioStore // nil skips the audio tracks (MUX1)
 	Storage    domain.Storage
 	Log        *slog.Logger
 	Interval   time.Duration // default 10m
@@ -87,7 +88,41 @@ func (j *Janitor) Sweep(ctx context.Context) (int, error) {
 			deleted++
 		}
 	}
-	return deleted, perr
+	n, aerr := j.sweepAudio(ctx)
+	return deleted + n, errors.Join(perr, aerr)
+}
+
+// sweepAudio does the same for audio tracks stuck in UPLOADING.
+func (j *Janitor) sweepAudio(ctx context.Context) (int, error) {
+	if j.Audio == nil {
+		return 0, nil
+	}
+	stale, err := j.Audio.StaleAudioUploads(ctx, j.StaleAfter, j.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, t := range stale {
+		if ctx.Err() != nil {
+			break
+		}
+		if t.S3UploadID != "" {
+			err := j.Storage.AbortMultipart(ctx, t.RawBucket, t.RawKey, t.S3UploadID)
+			if err != nil && !errors.Is(err, domain.ErrNoSuchUpload) {
+				j.Log.WarnContext(ctx, "abort stale audio multipart failed", "track_id", t.ID, "error", err)
+				continue
+			}
+		}
+		ok, err := j.Audio.DeleteUploadingAudio(ctx, t.ID)
+		if err != nil {
+			j.Log.WarnContext(ctx, "delete stale audio upload failed", "track_id", t.ID, "error", err)
+			continue
+		}
+		if ok {
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 // purgeLedger deletes ledger rows older than LedgerRetention in batches and returns the total.

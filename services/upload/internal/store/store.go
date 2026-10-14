@@ -31,10 +31,13 @@ func scan(row pgx.Row) (domain.Video, error) {
 // usageSQL reads the owner's usage in ONE round trip (task UQ1-b, ADR-027 addendum). The daily
 // window (count, bytes, oldest) comes from the append-only media.upload_ledger, which keeps one row
 // per started upload even after the video row was hard-deleted (index upload_ledger_owner_created).
-// The concurrent count stays on media.videos: an upload that was deleted no longer occupies a slot.
+// The concurrent count stays on the live rows: an upload that was deleted no longer occupies a slot.
+// Audio track uploads (MUX1) count like video uploads: one ledger row each, keyed by the track id.
 const usageSQL = `
 	SELECT l.cnt, l.bytes, l.oldest,
-		(SELECT count(*) FROM media.videos WHERE owner_id = $1 AND status = 'UPLOADING'),
+		(SELECT count(*) FROM media.videos WHERE owner_id = $1 AND status = 'UPLOADING')
+		+ (SELECT count(*) FROM media.video_audio_tracks t JOIN media.videos v ON v.id = t.video_id
+		   WHERE v.owner_id = $1 AND t.status = 'UPLOADING'),
 		now()
 	FROM (
 		SELECT count(*) AS cnt, coalesce(sum(size_bytes), 0)::bigint AS bytes, min(created_at) AS oldest
@@ -50,23 +53,8 @@ func (p *Postgres) Create(ctx context.Context, v domain.NewVideo, check func(dom
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	if check != nil {
-		// One owner at a time: a second request waits here until the first one has committed
-		// (the lock is released at commit), then reads usage that includes the first row.
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('upload-quota:' || $1::text, 0))`, v.OwnerID.String()); err != nil {
-			return fmt.Errorf("quota lock: %w", err)
-		}
-		var u domain.Usage
-		var oldest *time.Time
-		if err := tx.QueryRow(ctx, usageSQL, v.OwnerID).Scan(&u.Count, &u.Bytes, &oldest, &u.Uploading, &u.Now); err != nil {
-			return fmt.Errorf("quota usage: %w", err)
-		}
-		if oldest != nil {
-			u.Oldest = *oldest
-		}
-		if err := check(u); err != nil {
-			return err
-		}
+	if err := checkQuota(ctx, tx, v.OwnerID, check); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO media.videos
@@ -95,6 +83,27 @@ func (p *Postgres) Create(ctx context.Context, v domain.NewVideo, check func(dom
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+// checkQuota takes the owner's advisory lock, reads the owner's usage and calls check (no-op when
+// check is nil). One owner at a time: a second request waits on the lock until the first one has
+// committed (the lock is released at commit), then reads usage that includes the first row.
+func checkQuota(ctx context.Context, tx pgx.Tx, owner uuid.UUID, check func(domain.Usage) error) error {
+	if check == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('upload-quota:' || $1::text, 0))`, owner.String()); err != nil {
+		return fmt.Errorf("quota lock: %w", err)
+	}
+	var u domain.Usage
+	var oldest *time.Time
+	if err := tx.QueryRow(ctx, usageSQL, owner).Scan(&u.Count, &u.Bytes, &oldest, &u.Uploading, &u.Now); err != nil {
+		return fmt.Errorf("quota usage: %w", err)
+	}
+	if oldest != nil {
+		u.Oldest = *oldest
+	}
+	return check(u)
 }
 
 func (p *Postgres) Get(ctx context.Context, id uuid.UUID) (domain.Video, error) {

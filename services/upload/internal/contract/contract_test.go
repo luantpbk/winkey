@@ -60,3 +60,18 @@ type recorder struct {
 
 func (r *recorder) Errorf(string, ...any) { r.failed = true }
 func (r *recorder) Helper()               {}
+
+// The audio track routes (MUX1) answer AudioTrack of video.v1.yaml, which refers to that file's own
+// components: the loader must resolve them.
+func TestCheckResolvesVideoSpecRefs(t *testing.T) {
+	s := Load(t)
+	const path = "/v1/uploads/{video_id}/audio-tracks/{track_id}/complete"
+	s.Check(t, "POST", path, 202, "application/json",
+		[]byte(`{"id":"0190d3a2-7b1c-7a3e-9a52-3f6d5b8c1e44","lang":"vi","label":"Thuyết minh","kind":"voiceover","is_default":true,"status":"UPLOADED","error":null,"updated_at":"2026-10-14T08:00:00Z"}`))
+	rec := &recorder{TB: t}
+	s.Check(rec, "POST", path, 202, "application/json",
+		[]byte(`{"id":"0190d3a2-7b1c-7a3e-9a52-3f6d5b8c1e44","lang":"Vietnamese","label":"x","kind":"voiceover","is_default":true,"status":"UPLOADED","error":null,"updated_at":"2026-10-14T08:00:00Z"}`))
+	if !rec.failed {
+		t.Error("a bad LangTag passed")
+	}
+}

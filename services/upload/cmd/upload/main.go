@@ -86,7 +86,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 		Log: log, Listen: true,
 	}
 	jan := &janitor.Janitor{
-		Store: st, Storage: s3, Log: log,
+		Store: st, Audio: st, Storage: s3, Log: log,
 		Interval: cfg.JanitorInterval, StaleAfter: cfg.StaleAfter,
 	}
 
@@ -103,7 +103,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	router := httpx.NewRouter(service, log)
 	health.Mount(router)
 	(&api.Handler{
-		Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log,
+		Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log, Audio: st,
 		Quota: quota.Limits{MaxConcurrent: cfg.MaxConcurrent, DailyCount: cfg.DailyCount, DailyBytes: cfg.DailyBytes},
 	}).Routes(router)
 
