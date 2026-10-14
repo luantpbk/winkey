@@ -178,6 +178,7 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
           title={video.title}
           renditions={video.playback?.renditions}
           subtitles={video.playback?.subtitles}
+          audioTracks={video.playback?.audio_tracks}
           storyboardUrl={video.playback?.storyboard_url}
           expiresAt={video.playback?.expires_at}
           surface={isSeriesActive ? 'playlist' : undefined}

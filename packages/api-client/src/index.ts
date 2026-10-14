@@ -30,6 +30,10 @@ export type ProblemError = NonNullable<Problem['errors']>[number];
 
 export type CreateUploadRequest = UploadComponents['schemas']['CreateUploadRequest'];
 export type CreateUploadResponse = UploadComponents['schemas']['CreateUploadResponse'];
+export type CreateAudioTrackUploadRequest =
+  UploadComponents['schemas']['CreateAudioTrackUploadRequest'];
+export type CreateAudioTrackUploadResponse =
+  UploadComponents['schemas']['CreateAudioTrackUploadResponse'];
 export type PresignPartsRequest = UploadComponents['schemas']['PresignPartsRequest'];
 export type PresignPartsResponse = UploadComponents['schemas']['PresignPartsResponse'];
 export type CompleteUploadRequest = UploadComponents['schemas']['CompleteUploadRequest'];
@@ -44,6 +48,10 @@ export type StudioVideoPage = VideoComponents['schemas']['StudioVideoPage'];
 export type UpdateVideoRequest = VideoComponents['schemas']['UpdateVideoRequest'];
 export type Playback = VideoComponents['schemas']['Playback'];
 export type Rendition = VideoComponents['schemas']['Rendition'];
+export type AudioTrack = VideoComponents['schemas']['AudioTrack'];
+export type AudioTrackKind = VideoComponents['schemas']['AudioTrackKind'];
+export type PlaybackAudioTrack = VideoComponents['schemas']['PlaybackAudioTrack'];
+export type UpdateAudioTrackRequest = VideoComponents['schemas']['UpdateAudioTrackRequest'];
 export type SubtitleTrack = VideoComponents['schemas']['SubtitleTrack'];
 export type PutSubtitleRequest = VideoComponents['schemas']['PutSubtitleRequest'];
 export type PlaybackHeartbeatBatch = VideoComponents['schemas']['PlaybackHeartbeatBatch'];
