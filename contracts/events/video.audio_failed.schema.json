@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/video.audio_failed.schema.json",
+  "title": "video.audio_failed v1",
+  "description": "The audio-only encode of a track gave up. The video itself is unaffected. Producer: transcoder. Consumers: video-svc (cache), realtime-gw (Studio).",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.audio_failed" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "track_id", "reason", "message", "retryable"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "track_id": { "type": "string", "format": "uuid" },
+        "reason": { "enum": ["INVALID_INPUT", "AUDIO_DURATION_MISMATCH", "ENCODER_ERROR", "STORAGE_ERROR", "INTERNAL"] },
+        "message": { "type": "string", "maxLength": 2000, "description": "Safe to show to the owner; no paths or stack traces." },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

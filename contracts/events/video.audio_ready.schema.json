@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/video.audio_ready.schema.json",
+  "title": "video.audio_ready v1",
+  "description": "An audio track is encoded and the video's HLS master now lists it (a new master key). Producer: transcoder. Consumers: video-svc (cache), realtime-gw (Studio).",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "video.audio_ready" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["video_id", "owner_id", "track_id", "lang", "kind", "hls_master_key", "duration_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "video_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "track_id": { "type": "string", "format": "uuid" },
+        "lang": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
+        "kind": { "enum": ["original", "dub", "voiceover", "commentary"] },
+        "hls_master_key": { "type": "string", "description": "The rewritten master playlist key; the previous one is removed after a grace period." },
+        "duration_ms": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

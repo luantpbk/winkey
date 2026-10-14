@@ -20,6 +20,9 @@ Chỉ architect (Opus) sửa thư mục này. Cần đổi contract thì mở is
 | `video.deleted` | JetStream `VIDEO` | video-svc | media-janitor (transcoder), search | [video.deleted](video.deleted.schema.json) |
 | `video.moderated` | JetStream `VIDEO` | video-svc (A2) | social-svc (projection `social.videos.hidden`), search (P2) | [video.moderated](video.moderated.schema.json) |
 | `video.visibility_changed` | JetStream `VIDEO` | video-svc (C4) | social-svc (projection `social.videos.visibility`) | [video.visibility_changed](video.visibility_changed.schema.json) |
+| `video.audio_uploaded` | JetStream `VIDEO` | upload-svc (MUX1) | transcoder (job chỉ encode âm thanh) | [video.audio_uploaded](video.audio_uploaded.schema.json) |
+| `video.audio_ready` | JetStream `VIDEO` | transcoder (MUX1) | video-svc (cache), realtime-gw (Studio) | [video.audio_ready](video.audio_ready.schema.json) |
+| `video.audio_failed` | JetStream `VIDEO` | transcoder (MUX1) | video-svc (cache), realtime-gw (Studio) | [video.audio_failed](video.audio_failed.schema.json) |
 | `user.registered` | JetStream `USER` | auth-svc | (P2+) | [user.registered](user.registered.schema.json) |
 | `social.comment.created` | JetStream `SOCIAL` | social-svc | realtime-gw (C2) | [social.comment.created](social.comment.created.schema.json) |
 | `social.video.like_changed` | JetStream `SOCIAL` | social-svc | video-svc (cập nhật `media.videos.like_count`), realtime-gw (C2) | [social.video.like_changed](social.video.like_changed.schema.json) |

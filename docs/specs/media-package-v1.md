@@ -18,7 +18,6 @@ One folder per video (film or episode):
   subs/
     vi.vtt                 one file per subtitle track
     en.vtt
-    vi-forced.vtt          optional "forced" track (signs and foreign lines only)
 ```
 
 - File names are free. `manifest.json` is the source of truth; the names above are only a recommendation.
@@ -65,7 +64,7 @@ Winkey encodes each track to AAC-LC 128 kb/s stereo, 48 kHz, as an HLS alternate
 | Styling | Plain text plus `<i>`, `<b>`, `<u>`. Cue settings such as `line:` and `position:` are allowed; no `STYLE` blocks or images |
 | Line length | At most 2 lines per cue, about 42 characters per line |
 | Count | At most **20** tracks per video (the current limit) |
-| `kind` | `subtitles` (translation), `captions` (for deaf and hard-of-hearing viewers: includes sounds such as `[nhạc]`), `forced` (only signs and foreign-language lines; shown automatically with the matching audio) |
+| `kind` | `subtitles` (translation) or `captions` (for deaf and hard-of-hearing viewers: includes sounds such as `[nhạc]`). One track per language |
 
 If your software exports **SRT**, convert it: add a `WEBVTT` line and a blank line at the top, and replace the comma in times with a dot (`00:01:02,500` → `00:01:02.500`). Cue numbers can stay.
 
@@ -86,8 +85,7 @@ If your software exports **SRT**, convert it: add a `WEBVTT` line and a blank li
   ],
   "subtitles": [
     { "file": "subs/vi.vtt", "lang": "vi", "label": "Tiếng Việt", "kind": "subtitles", "default": true },
-    { "file": "subs/en.vtt", "lang": "en", "label": "English", "kind": "subtitles" },
-    { "file": "subs/vi-forced.vtt", "lang": "vi", "label": "Tiếng Việt (bắt buộc)", "kind": "forced" }
+    { "file": "subs/en.vtt", "lang": "en", "label": "English", "kind": "subtitles" }
   ]
 }
 ```
@@ -103,9 +101,9 @@ Field rules:
 | `lang` | BCP 47: lowercase language plus optional uppercase region: `vi`, `en`, `zh`, `en-US`, `zh-TW`. The same pattern as the subtitle API: `^[a-z]{2,3}(-[A-Z]{2})?$` |
 | `label` | 1–50 characters, shown in the player menu |
 | `kind` (audio) | `original`, `dub`, `voiceover` or `commentary` |
-| `kind` (subtitles) | `subtitles`, `captions` or `forced` |
+| `kind` (subtitles) | `subtitles` or `captions` |
 | `default` | At most one `true` per list. Default audio when none is marked: the original audio, otherwise the first track. Subtitles: off unless one is marked `default` |
-| Uniqueness | `lang` + `kind` must be unique within each list (one `vi` voice-over, one `vi` dub, and so on) |
+| Uniqueness | Audio: `lang` + `kind` unique (one `vi` voice-over, one `vi` dub, and so on). Subtitles: `lang` unique |
 
 ## 6. Checklist for the export software
 

@@ -13,6 +13,11 @@ info:
     3. `POST /v1/uploads/{video_id}/complete` completes the multipart upload, sets `UPLOADED` and
        writes a `video.uploaded` event to the transactional outbox in the same DB transaction.
 
+    Audio tracks (task MUX1, ADR-042): extra audio tracks of an existing video (dub, voice-over, commentary)
+    use the same three-step multipart flow under `/v1/uploads/{video_id}/audio-tracks`. Completing one writes
+    a `video.audio_uploaded` event; the transcoder encodes only that audio, never the video again. Format rules:
+    `docs/specs/media-package-v1.md`.
+
     Limits: `size_bytes` ≤ 20 GiB. `part_size = max(16 MiB, ceil(size_bytes / 10000))` rounded up to
     a whole MiB, so `part_count` ≤ 10,000. Abandoned uploads (`UPLOADING` > 24h) are aborted by a janitor.
 
@@ -165,7 +170,137 @@ paths:
         '409':
           $ref: './common.yaml#/components/responses/Conflict'
 
+  /v1/uploads/{video_id}/audio-tracks:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    post:
+      tags: [uploads]
+      operationId: createAudioTrackUpload
+      summary: Start uploading an extra audio track for a video (owner only, task MUX1).
+      description: |
+        The video must exist and not be `DELETED` (it may still be processing). At most 8 extra tracks per video
+        and one per (`lang`, `kind`): a duplicate answers `409` `AUDIO_TRACK_EXISTS`, a ninth `409`
+        `TOO_MANY_AUDIO_TRACKS`. The new track is `UPLOADING` until completed; it counts toward the upload quotas
+        like a video upload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAudioTrackUploadRequest'
+      responses:
+        '201':
+          description: Upload started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAudioTrackUploadResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          description: Upload quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`), as for `createUpload`.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
+
+  /v1/uploads/{video_id}/audio-tracks/{track_id}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+      - $ref: '#/components/parameters/TrackId'
+    delete:
+      tags: [uploads]
+      operationId: abortAudioTrackUpload
+      summary: Abort an audio track upload that is still `UPLOADING` (owner only).
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/uploads/{video_id}/audio-tracks/{track_id}/parts:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+      - $ref: '#/components/parameters/TrackId'
+    post:
+      tags: [uploads]
+      operationId: presignAudioTrackParts
+      summary: Presign part upload URLs for an audio track (owner only, track `UPLOADING`). Can be called again to resume.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignPartsRequest'
+      responses:
+        '200':
+          description: Presigned URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignPartsResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/uploads/{video_id}/audio-tracks/{track_id}/complete:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+      - $ref: '#/components/parameters/TrackId'
+    post:
+      tags: [uploads]
+      operationId: completeAudioTrackUpload
+      summary: Complete an audio track upload (owner only). Idempotent once `UPLOADED`; writes `video.audio_uploaded`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        '202':
+          description: Accepted; the audio encode is queued.
+          content:
+            application/json:
+              schema:
+                $ref: './video.v1.yaml#/components/schemas/AudioTrack'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
 components:
+  parameters:
+    TrackId:
+      name: track_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
   securitySchemes:
     bearerAuth:
       $ref: './common.yaml#/components/securitySchemes/bearerAuth'
@@ -209,6 +344,52 @@ components:
           type: integer
           format: int64
           description: Bytes per part. Every part except the last must be exactly this size.
+        part_count:
+          type: integer
+          minimum: 1
+          maximum: 10000
+
+    CreateAudioTrackUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [lang, label, kind, filename, content_type, size_bytes]
+      properties:
+        lang:
+          $ref: './video.v1.yaml#/components/schemas/LangTag'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Shown in the player's audio menu, e.g. `Thuyết minh`.
+        kind:
+          $ref: './video.v1.yaml#/components/schemas/AudioTrackKind'
+        is_default:
+          type: boolean
+          description: Absent means `false`. Selected first by players; setting it clears it on the video's other tracks.
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+        content_type:
+          type: string
+          enum: [audio/wav, audio/x-wav, audio/flac, audio/mp4, audio/x-m4a, audio/aac, audio/ogg, audio/webm]
+          description: Advisory only; the transcoder validates the real stream with ffprobe.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 4294967296
+
+    CreateAudioTrackUploadResponse:
+      type: object
+      required: [track_id, part_size, part_count]
+      properties:
+        track_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        part_size:
+          type: integer
+          format: int64
+          description: Bytes per part, same rule as `createUpload`.
         part_count:
           type: integer
           minimum: 1

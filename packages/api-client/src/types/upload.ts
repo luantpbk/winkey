@@ -74,6 +74,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/uploads/{video_id}/audio-tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start uploading an extra audio track for a video (owner only, task MUX1).
+         * @description The video must exist and not be `DELETED` (it may still be processing). At most 8 extra tracks per video
+         *     and one per (`lang`, `kind`): a duplicate answers `409` `AUDIO_TRACK_EXISTS`, a ninth `409`
+         *     `TOO_MANY_AUDIO_TRACKS`. The new track is `UPLOADING` until completed; it counts toward the upload quotas
+         *     like a video upload.
+         */
+        post: operations["createAudioTrackUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/uploads/{video_id}/audio-tracks/{track_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Abort an audio track upload that is still `UPLOADING` (owner only). */
+        delete: operations["abortAudioTrackUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/uploads/{video_id}/audio-tracks/{track_id}/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Presign part upload URLs for an audio track (owner only, track `UPLOADING`). Can be called again to resume. */
+        post: operations["presignAudioTrackParts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/uploads/{video_id}/audio-tracks/{track_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete an audio track upload (owner only). Idempotent once `UPLOADED`; writes `video.audio_uploaded`. */
+        post: operations["completeAudioTrackUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -97,6 +182,31 @@ export interface components {
             /**
              * Format: int64
              * @description Bytes per part. Every part except the last must be exactly this size.
+             */
+            part_size: number;
+            part_count: number;
+        };
+        CreateAudioTrackUploadRequest: {
+            lang: components["schemas"]["LangTag"];
+            /** @description Shown in the player's audio menu, e.g. `Thuyết minh`. */
+            label: string;
+            kind: components["schemas"]["AudioTrackKind"];
+            /** @description Absent means `false`. Selected first by players; setting it clears it on the video's other tracks. */
+            is_default?: boolean;
+            filename: string;
+            /**
+             * @description Advisory only; the transcoder validates the real stream with ffprobe.
+             * @enum {string}
+             */
+            content_type: "audio/wav" | "audio/x-wav" | "audio/flac" | "audio/mp4" | "audio/x-m4a" | "audio/aac" | "audio/ogg" | "audio/webm";
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        CreateAudioTrackUploadResponse: {
+            track_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int64
+             * @description Bytes per part, same rule as `createUpload`.
              */
             part_size: number;
             part_count: number;
@@ -159,6 +269,33 @@ export interface components {
         };
         /** @enum {string} */
         VideoStatus: "UPLOADING" | "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
+        /**
+         * @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `zh-TW`).
+         * @example vi
+         */
+        LangTag: string;
+        /**
+         * @description `original`: the film's own language; `dub`: dubbed dialogue; `voiceover`: narration mixed over the original
+         *     sound (thuyết minh); `commentary`: an extra talk track. Every track is a complete mix (ADR-042).
+         * @enum {string}
+         */
+        AudioTrackKind: "original" | "dub" | "voiceover" | "commentary";
+        AudioTrack: {
+            id: components["schemas"]["Uuid"];
+            lang: components["schemas"]["LangTag"];
+            label: string;
+            kind: components["schemas"]["AudioTrackKind"];
+            is_default: boolean;
+            /**
+             * @description Only `READY` tracks are in the HLS master and in `Playback.audio_tracks`.
+             * @enum {string}
+             */
+            status: "UPLOADING" | "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
+            /** @description Why the encode failed (`FAILED` only), e.g. `AUDIO_DURATION_MISMATCH`. */
+            error: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
     };
     responses: {
         /** @description Validation failed. */
@@ -208,6 +345,7 @@ export interface components {
         };
     };
     parameters: {
+        TrackId: components["schemas"]["Uuid"];
         VideoId: components["schemas"]["Uuid"];
     };
     requestBodies: never;
@@ -352,6 +490,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createAudioTrackUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAudioTrackUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Upload started. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateAudioTrackUploadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Upload quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`), as for `createUpload`. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    abortAudioTrackUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aborted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    presignAudioTrackParts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresignPartsRequest"];
+            };
+        };
+        responses: {
+            /** @description Presigned URLs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresignPartsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    completeAudioTrackUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["parameters"]["TrackId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted; the audio encode is queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioTrack"];
                 };
             };
             400: components["responses"]["BadRequest"];

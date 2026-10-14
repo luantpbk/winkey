@@ -691,6 +691,9 @@ export function parseHttpErrorRate(bodyOrData, options = {}) {
     maxClockSkewSec = 15,
     nowSec = Date.now() / 1000,
     isPreflight = false,
+    // Warm-up (start of the active phase): the zero-request checks below are not enforced yet, because the
+    // load generators need a few seconds to start and the feeder rewrites its file only every interval.
+    isWarmup = false,
   } = options;
   if (bodyOrData === null || bodyOrData === undefined || bodyOrData === '') {
     return { error: 'EMPTY_TELEMETRY', reason: 'Error rate telemetry data is empty' };
@@ -826,7 +829,7 @@ export function parseHttpErrorRate(bodyOrData, options = {}) {
     }
 
     // Active run checks: API traffic must not hide HLS 0
-    if (!isPreflight && w.requests === 0) {
+    if (!isPreflight && !isWarmup && w.requests === 0) {
       return {
         error: 'INACTIVE_WORKLOAD',
         reason: `Workload '${wl}' has zero requests during active load run; active observations required for both workloads`,
@@ -838,7 +841,7 @@ export function parseHttpErrorRate(bodyOrData, options = {}) {
   }
 
   // Zero requests check: during active run, zero total traffic fails closed
-  if (!isPreflight && totalRequests === 0) {
+  if (!isPreflight && !isWarmup && totalRequests === 0) {
     return {
       error: 'ZERO_REQUESTS',
       reason: 'Rolling 60s window has zero total requests across workloads during active run',
@@ -1025,6 +1028,15 @@ export class PlatformWatchdog {
       Math.floor(config.legacyFailThreshold || Number(process.env.LEGACY_FAIL_THRESHOLD) || 2),
     );
     this.legacyConsecutiveFailures = 0;
+    // Active-phase warm-up: for this long after preflight a workload with zero requests in the telemetry
+    // is not telemetry loss yet. k6 needs a few seconds to start, and the feeder rewrites the telemetry
+    // file only every 10 s, so the first active polls can read a file written before k6's first request
+    // (sim runs 2 and 3 of PR #365 aborted 9 s in that way). Error-rate breaches still count. Default 30 s.
+    const grace =
+      config.activeGraceMs ??
+      (process.env.ACTIVE_GRACE_MS !== undefined ? Number(process.env.ACTIVE_GRACE_MS) : 30000);
+    this.activeGraceMs = Number.isFinite(grace) && grace >= 0 ? grace : 30000;
+    this.activeStartedAt = 0;
     this.exitOnError = config.exitOnError !== false;
     this.pollTimer = null;
     this.legacyTimer = null;
@@ -1367,7 +1379,11 @@ export class PlatformWatchdog {
           this.errorSustainedSec,
           this.errorRateState,
           this.fetchFn,
-          { nowSec: startAt / 1000, isPreflight: false },
+          {
+            nowSec: startAt / 1000,
+            isPreflight: false,
+            isWarmup: startAt - this.activeStartedAt < this.activeGraceMs,
+          },
         );
 
         this.inFlightProbes.add(ramPromise);
@@ -1401,7 +1417,11 @@ export class PlatformWatchdog {
       }, delay);
     };
 
-    scheduleNextPoll(Date.now() + this.pollIntervalMs);
+    this.activeStartedAt = Date.now();
+    scheduleNextPoll(this.activeStartedAt + this.pollIntervalMs);
+    console.log(
+      `  - Active warm-up: zero-request checks start after ${this.activeGraceMs / 1000}s`,
+    );
     return true;
   }
 

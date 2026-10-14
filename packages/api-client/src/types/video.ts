@@ -273,6 +273,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/videos/{video_id}/audio-tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * All extra audio tracks of a video in every status (owner only), for Studio.
+         * @description Viewers get the `READY` tracks in `Playback.audio_tracks` instead. Uploading goes through upload-svc
+         *     (`/v1/uploads/{video_id}/audio-tracks`).
+         */
+        get: operations["listAudioTracks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/videos/{video_id}/audio-tracks/{track_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a track in any status except `UPLOADING` (owner only; abort uploads through upload-svc).
+         * @description The master playlist is rewritten without the track, then the track's objects are removed best effort.
+         *     `409` while the track is `UPLOADING`.
+         */
+        delete: operations["deleteAudioTrack"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a track or make it the default (owner only).
+         * @description Setting `is_default: true` clears it on the video's other tracks in the same transaction. The HLS master
+         *     playlist is rewritten under a NEW key so cached copies never mix old and new track lists.
+         */
+        patch: operations["updateAudioTrack"];
+        trace?: never;
+    };
     "/v1/videos/{video_id}/subtitles/{lang}": {
         parameters: {
             query?: never;
@@ -533,6 +585,12 @@ export interface components {
              *     optional only so that older servers stay valid.
              */
             subtitles?: components["schemas"]["SubtitleTrack"][];
+            /**
+             * @description `READY` audio tracks in the HLS master (task MUX1, ADR-042), the original first, then by `lang`/`kind`.
+             *     Empty for videos with a single muxed audio. Players read the same list from `#EXT-X-MEDIA:TYPE=AUDIO`;
+             *     this copy serves menus before the manifest loads. Always sent; optional for older servers.
+             */
+            audio_tracks?: components["schemas"]["PlaybackAudioTrack"][];
             /** @description Renditions of every codec; filter by `codec` (absent means `h264`). */
             renditions: components["schemas"]["Rendition"][];
         };
@@ -769,10 +827,57 @@ export interface components {
             /** Format: date-time */
             moderated_at: string | null;
         };
+        /**
+         * @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `zh-TW`).
+         * @example vi
+         */
+        LangTag: string;
+        /**
+         * @description `original`: the film's own language; `dub`: dubbed dialogue; `voiceover`: narration mixed over the original
+         *     sound (thuyết minh); `commentary`: an extra talk track. Every track is a complete mix (ADR-042).
+         * @enum {string}
+         */
+        AudioTrackKind: "original" | "dub" | "voiceover" | "commentary";
+        AudioTrack: {
+            id: components["schemas"]["Uuid"];
+            lang: components["schemas"]["LangTag"];
+            label: string;
+            kind: components["schemas"]["AudioTrackKind"];
+            is_default: boolean;
+            /**
+             * @description Only `READY` tracks are in the HLS master and in `Playback.audio_tracks`.
+             * @enum {string}
+             */
+            status: "UPLOADING" | "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
+            /** @description Why the encode failed (`FAILED` only), e.g. `AUDIO_DURATION_MISMATCH`. */
+            error: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PlaybackAudioTrack: {
+            id: components["schemas"]["Uuid"];
+            lang: components["schemas"]["LangTag"];
+            label: string;
+            kind: components["schemas"]["AudioTrackKind"];
+            is_default: boolean;
+        };
+        UpdateAudioTrackRequest: {
+            label?: string;
+            /**
+             * @description Only `true`; to move the default, set it on another track.
+             * @enum {boolean}
+             */
+            is_default?: true;
+        };
         SubtitleTrack: {
             lang: string;
             /** @description Shown in the player menu, e.g. `Tiếng Việt`. */
             label: string;
+            /**
+             * @description `captions` include sound descriptions for deaf and hard-of-hearing viewers (task MUX1). Always sent; optional only so that older servers stay valid.
+             * @enum {string}
+             */
+            kind?: "subtitles" | "captions";
             /**
              * @description `AUTO` is reserved for auto-captions (V5c); only `UPLOAD` exists today.
              * @enum {string}
@@ -790,6 +895,11 @@ export interface components {
             label: string;
             /** @description The whole WebVTT file. The byte limit (524288 bytes of UTF-8) is checked server-side. */
             content: string;
+            /**
+             * @description Task MUX1; absent means `subtitles`. One track per language whatever its kind. (No schema `default`, so generated clients keep it optional.)
+             * @enum {string}
+             */
+            kind?: "subtitles" | "captions";
         };
         ModerateVideoRequest: {
             /** @enum {string} */
@@ -1259,6 +1369,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Video"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAudioTracks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tracks sorted by `lang`, then `kind`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AudioTrack"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteAudioTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateAudioTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                track_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAudioTrackRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioTrack"];
                 };
             };
             400: components["responses"]["BadRequest"];
