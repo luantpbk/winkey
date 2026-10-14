@@ -1,0 +1,16 @@
+{
+  "event_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c22",
+  "type": "video.audio_ready",
+  "version": 1,
+  "occurred_at": "2026-10-14T08:03:00Z",
+  "producer": "transcoder",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "track_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c31",
+    "lang": "vi",
+    "kind": "voiceover",
+    "hls_master_key": "v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/a1/hls/master-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c41.m3u8",
+    "duration_ms": 5400000
+  }
+}

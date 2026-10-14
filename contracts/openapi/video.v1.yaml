@@ -40,6 +40,8 @@ tags:
     description: Creator views of their own videos.
   - name: moderation
     description: Hide or restore a video (task A2).
+  - name: audio-tracks
+    description: Extra audio tracks (dub, voice-over, commentary) of a video (task MUX1, ADR-042).
   - name: subtitles
     description: WebVTT subtitle tracks (task V5b, ADR-018).
   - name: internal
@@ -494,6 +496,98 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /v1/videos/{video_id}/audio-tracks:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+    get:
+      tags: [audio-tracks]
+      operationId: listAudioTracks
+      summary: All extra audio tracks of a video in every status (owner only), for Studio.
+      description: |
+        Viewers get the `READY` tracks in `Playback.audio_tracks` instead. Uploading goes through upload-svc
+        (`/v1/uploads/{video_id}/audio-tracks`).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tracks sorted by `lang`, then `kind`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 8
+                    items:
+                      $ref: '#/components/schemas/AudioTrack'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/videos/{video_id}/audio-tracks/{track_id}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/VideoId'
+      - name: track_id
+        in: path
+        required: true
+        schema:
+          $ref: './common.yaml#/components/schemas/Uuid'
+    patch:
+      tags: [audio-tracks]
+      operationId: updateAudioTrack
+      summary: Rename a track or make it the default (owner only).
+      description: |
+        Setting `is_default: true` clears it on the video's other tracks in the same transaction. The HLS master
+        playlist is rewritten under a NEW key so cached copies never mix old and new track lists.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAudioTrackRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioTrack'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    delete:
+      tags: [audio-tracks]
+      operationId: deleteAudioTrack
+      summary: Remove a track in any status except `UPLOADING` (owner only; abort uploads through upload-svc).
+      description: |
+        The master playlist is rewritten without the track, then the track's objects are removed best effort.
+        `409` while the track is `UPLOADING`.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
   /v1/videos/{video_id}/subtitles/{lang}:
     parameters:
       - $ref: './common.yaml#/components/parameters/VideoId'
@@ -921,6 +1015,15 @@ components:
             optional only so that older servers stay valid.
           items:
             $ref: '#/components/schemas/SubtitleTrack'
+        audio_tracks:
+          type: array
+          maxItems: 9
+          description: |
+            `READY` audio tracks in the HLS master (task MUX1, ADR-042), the original first, then by `lang`/`kind`.
+            Empty for videos with a single muxed audio. Players read the same list from `#EXT-X-MEDIA:TYPE=AUDIO`;
+            this copy serves menus before the manifest loads. Always sent; optional for older servers.
+          items:
+            $ref: '#/components/schemas/PlaybackAudioTrack'
         renditions:
           type: array
           description: Renditions of every codec; filter by `codec` (absent means `h264`).
@@ -1428,6 +1531,77 @@ components:
           type: [string, 'null']
           format: date-time
 
+    LangTag:
+      type: string
+      pattern: '^[a-z]{2,3}(-[A-Z]{2})?$'
+      description: BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `zh-TW`).
+      examples: ['vi']
+
+    AudioTrackKind:
+      type: string
+      enum: [original, dub, voiceover, commentary]
+      description: |
+        `original`: the film's own language; `dub`: dubbed dialogue; `voiceover`: narration mixed over the original
+        sound (thuyết minh); `commentary`: an extra talk track. Every track is a complete mix (ADR-042).
+
+    AudioTrack:
+      type: object
+      additionalProperties: false
+      required: [id, lang, label, kind, is_default, status, error, updated_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        lang:
+          $ref: '#/components/schemas/LangTag'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        kind:
+          $ref: '#/components/schemas/AudioTrackKind'
+        is_default:
+          type: boolean
+        status:
+          type: string
+          enum: [UPLOADING, UPLOADED, PROCESSING, READY, FAILED]
+          description: Only `READY` tracks are in the HLS master and in `Playback.audio_tracks`.
+        error:
+          type: [string, 'null']
+          description: Why the encode failed (`FAILED` only), e.g. `AUDIO_DURATION_MISMATCH`.
+        updated_at:
+          type: string
+          format: date-time
+
+    PlaybackAudioTrack:
+      type: object
+      additionalProperties: false
+      required: [id, lang, label, kind, is_default]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        lang:
+          $ref: '#/components/schemas/LangTag'
+        label:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AudioTrackKind'
+        is_default:
+          type: boolean
+
+    UpdateAudioTrackRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        is_default:
+          type: boolean
+          enum: [true]
+          description: Only `true`; to move the default, set it on another track.
+
     SubtitleTrack:
       type: object
       additionalProperties: false
@@ -1441,6 +1615,10 @@ components:
           minLength: 1
           maxLength: 50
           description: Shown in the player menu, e.g. `Tiếng Việt`.
+        kind:
+          type: string
+          enum: [subtitles, captions]
+          description: '`captions` include sound descriptions for deaf and hard-of-hearing viewers (task MUX1). Always sent; optional only so that older servers stay valid.'
         source:
           type: string
           enum: [UPLOAD, AUTO]
@@ -1467,6 +1645,10 @@ components:
           minLength: 6
           maxLength: 524288
           description: The whole WebVTT file. The byte limit (524288 bytes of UTF-8) is checked server-side.
+        kind:
+          type: string
+          enum: [subtitles, captions]
+          description: Task MUX1; absent means `subtitles`. One track per language whatever its kind. (No schema `default`, so generated clients keep it optional.)
 
     ModerateVideoRequest:
       type: object

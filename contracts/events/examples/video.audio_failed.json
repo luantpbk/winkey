@@ -1,0 +1,15 @@
+{
+  "event_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c23",
+  "type": "video.audio_failed",
+  "version": 1,
+  "occurred_at": "2026-10-14T08:02:00Z",
+  "producer": "transcoder",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "track_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c31",
+    "reason": "AUDIO_DURATION_MISMATCH",
+    "message": "The audio is 4.2 s longer than the video (limit 100 ms).",
+    "retryable": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "event_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c21",
+  "type": "video.audio_uploaded",
+  "version": 1,
+  "occurred_at": "2026-10-14T08:00:00Z",
+  "producer": "upload-svc",
+  "data": {
+    "video_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "track_id": "0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c31",
+    "lang": "vi",
+    "kind": "voiceover",
+    "raw_bucket": "winkey-raw",
+    "raw_key": "0192f5e0-0000-7000-8000-000000000001/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d/audio/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c31",
+    "size_bytes": 412000000,
+    "content_type": "audio/flac"
+  }
+}
