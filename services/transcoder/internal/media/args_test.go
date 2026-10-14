@@ -198,9 +198,9 @@ func TestAV1UsesCQAndScaledCeiling(t *testing.T) {
 	for i, r := range Select(1920, 1080) {
 		v := ":v:" + itoa(i)
 		for _, want := range []string{
-			"-cq" + v + " 32 -b" + v + " 0",
-			"-maxrate" + v + " " + itoa(r.TargetK*60/100) + "k",
-			"-bufsize" + v + " " + itoa(r.BufsizeK*60/100) + "k",
+			"-cq" + v + " 35 -b" + v + " 0",
+			"-maxrate" + v + " " + itoa(r.TargetK*85/100) + "k",
+			"-bufsize" + v + " " + itoa(r.BufsizeK*85/100) + "k",
 		} {
 			if !strings.Contains(cs, want) {
 				t.Errorf("missing %q in %s", want, cs)
