@@ -64,6 +64,7 @@ export function VideoSubtitlesSection({
   const [selectedLanguageCode, setSelectedLanguageCode] = useState<string>('vi');
   const [customLanguageCode, setCustomLanguageCode] = useState<string>('');
   const [trackLabel, setTrackLabel] = useState<string>('Tiếng Việt');
+  const [trackKind, setTrackKind] = useState<'subtitles' | 'captions'>('subtitles');
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
 
@@ -165,6 +166,7 @@ export function VideoSubtitlesSection({
           body: {
             label: trackLabel.trim(),
             content: fileContent,
+            kind: trackKind,
           },
         },
       );
@@ -316,6 +318,14 @@ export function VideoSubtitlesSection({
                   <span className="rounded-md bg-red-600/20 px-2 py-0.5 text-xs font-mono font-bold text-red-400">
                     {track.lang}
                   </span>
+                  {track.kind === 'captions' && (
+                    <span
+                      data-testid={`subtitle-kind-cc-${track.lang}`}
+                      className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold text-gray-200"
+                    >
+                      CC
+                    </span>
+                  )}
                   <div className="flex flex-col">
                     <span className="text-xs font-medium text-gray-900 dark:text-gray-200">
                       {track.label}
@@ -433,6 +443,23 @@ export function VideoSubtitlesSection({
             data-testid="subtitle-label-input"
             className="w-full rounded-lg border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1f1f1f] dark:bg-[#1f1f1f] bg-gray-50 px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
           />
+        </div>
+
+        {/* Subtitle Kind selector */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+            Loại phụ đề
+          </label>
+          <select
+            value={trackKind}
+            disabled={isVideoFailed || isSubmitting}
+            onChange={(e) => setTrackKind(e.target.value as 'subtitles' | 'captions')}
+            data-testid="subtitle-kind-select"
+            className="w-full rounded-lg border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1f1f1f] dark:bg-[#1f1f1f] bg-gray-50 px-3 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+          >
+            <option value="subtitles">Phụ đề dịch nghĩa (Subtitles)</option>
+            <option value="captions">Phụ đề hỗ trợ khiếm thính (Captions - CC)</option>
+          </select>
         </div>
 
         {/* Submit button */}

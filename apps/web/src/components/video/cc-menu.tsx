@@ -103,7 +103,17 @@ export function CcMenu({ tracks, selectedLang, onSelectTrack }: CcMenuProps) {
                       : 'hover:bg-white/10 text-gray-200'
                   }`}
                 >
-                  <span className="truncate">{track.label}</span>
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="truncate">{track.label}</span>
+                    {track.kind === 'captions' && (
+                      <span
+                        data-testid={`cc-badge-${track.lang}`}
+                        className="rounded bg-white/20 px-1 py-0.5 text-[9px] font-bold text-gray-200 uppercase"
+                      >
+                        CC
+                      </span>
+                    )}
+                  </div>
                   {isSelected && <Check className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                 </button>
               );

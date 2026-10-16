@@ -282,6 +282,7 @@ describe('Studio Subtitles Management', () => {
         body: {
           label: 'Tiếng Việt',
           content: 'WEBVTT\n\n00:00.000 --> 00:02.000\nXin chào',
+          kind: 'subtitles',
         },
       });
       expect(screen.getByTestId('subtitles-success-alert')).toBeTruthy();
@@ -361,6 +362,7 @@ describe('Studio Subtitles Management', () => {
         body: {
           label: 'Français',
           content: 'WEBVTT\n\n00:00.000 --> 00:01.000\nTest',
+          kind: 'subtitles',
         },
       });
     });
@@ -592,5 +594,40 @@ describe('Studio Subtitles Management', () => {
     const closeBtn = screen.getByTestId('close-subtitles-dialog');
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('supports selecting captions kind and displays CC badge for captions tracks', async () => {
+    const videoWithCC: Video = {
+      ...mockVideoWithSubtitles,
+      playback: {
+        ...mockVideoWithSubtitles.playback!,
+        subtitles: [
+          {
+            lang: 'en',
+            label: 'English CC',
+            kind: 'captions',
+            source: 'UPLOAD',
+            url: 'https://cdn.winkey.vn/subtitles/test/en.vtt',
+            updated_at: '2026-10-01T10:00:00Z',
+          },
+        ],
+      },
+    };
+
+    renderWithClient(
+      <VideoSubtitlesSection
+        videoId="018f1234-5678-7000-8000-000000000001"
+        initialVideo={videoWithCC}
+      />,
+    );
+
+    expect(screen.getByTestId('subtitle-kind-cc-en')).toBeTruthy();
+    expect(screen.getByTestId('subtitle-kind-cc-en').textContent).toBe('CC');
+
+    // Test kind select element
+    const kindSelect = screen.getByTestId('subtitle-kind-select') as HTMLSelectElement;
+    expect(kindSelect.value).toBe('subtitles');
+    fireEvent.change(kindSelect, { target: { value: 'captions' } });
+    expect(kindSelect.value).toBe('captions');
   });
 });

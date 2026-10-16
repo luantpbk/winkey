@@ -33,6 +33,7 @@ export interface UploadOptions {
   description?: string;
   visibility?: 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
   onProgress?: (progress: UploadProgress) => void;
+  onVideoIdCreated?: (videoId: string) => void;
   maxParallelParts?: number; // default 4
   maxRetries?: number; // default 3
 }
@@ -47,6 +48,7 @@ export class MultipartUploader {
   private description: string;
   private visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
   private onProgress?: (progress: UploadProgress) => void;
+  private onVideoIdCreated?: (videoId: string) => void;
   private maxParallelParts: number;
   private maxRetries: number;
 
@@ -71,6 +73,7 @@ export class MultipartUploader {
     this.description = options.description || '';
     this.visibility = options.visibility || 'PUBLIC';
     this.onProgress = options.onProgress;
+    this.onVideoIdCreated = options.onVideoIdCreated;
     this.maxParallelParts = Math.min(options.maxParallelParts || 4, 4);
     this.maxRetries = options.maxRetries || 3;
     this.fingerprint = computeFileFingerprint(this.file);
@@ -128,6 +131,7 @@ export class MultipartUploader {
         for (const p of existingSession.completed_parts) {
           this.completedParts.set(p.part_number, p.etag);
         }
+        this.onVideoIdCreated?.(this.videoId);
       } else {
         // Create new upload
         const { data, error, response } = await api.upload.POST('/v1/uploads', {
@@ -149,6 +153,7 @@ export class MultipartUploader {
         this.partSize = data.part_size;
         this.partCount = data.part_count;
 
+        this.onVideoIdCreated?.(this.videoId);
         await this.persistSession();
       }
 

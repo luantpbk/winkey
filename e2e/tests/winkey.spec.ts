@@ -2540,4 +2540,260 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       await expect(page.locator('header, nav').first()).toBeVisible();
     }
   });
+
+  test('MUX1: Media package upload happy path (ADR-042 & media-package-v1 spec)', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+
+    // 1. Register a test creator
+    await page.goto('/register');
+    await page.waitForLoadState('domcontentloaded');
+
+    const uniqueHandle = `mux1_pkg_${Date.now().toString(36)}`;
+    await page.locator('main input[placeholder*="Nguyễn Văn A"]').fill('MUX1 Package Creator');
+    await page.locator('main input[placeholder*="nguyenvana"]').fill(uniqueHandle);
+    await page.locator('main input[type="email"]').fill(`${uniqueHandle}@winkey.vn`);
+    await page.locator('main input[type="password"]').fill('password1234');
+    await page.locator('[data-testid="terms-agreement-checkbox"]').check();
+    await page.locator('main button[type="submit"]').click();
+
+    await page.waitForURL(
+      (url) => url.pathname === '/' || url.pathname === '/vi' || url.pathname === '/en',
+      { timeout: 15000 },
+    );
+
+    // 2. Navigate to /upload
+    await page.goto('/vi/upload');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify upload tabs are present and switch to Package Upload
+    const packageTab = page.locator('[data-testid="upload-tab-package"]');
+    await expect(packageTab).toBeVisible();
+    await packageTab.click();
+
+    // Verify package upload dropzone is visible
+    const packageSection = page.locator('[data-testid="media-package-upload-section"]');
+    await expect(packageSection).toBeVisible();
+
+    // 3. Create a valid mock zip package on disk
+    const zipFilePath = path.join(process.cwd(), `test-media-package-${Date.now()}.zip`);
+    const manifestJson = JSON.stringify(
+      {
+        schema_version: 'winkey.media-package/v1',
+        title: 'Bí mật Điện toán Đám mây (Gói Hoàn chỉnh MUX1)',
+        description: 'Video chuyên sâu cùng audio đa ngôn ngữ và phụ đề chuẩn MUX1',
+        visibility: 'PUBLIC',
+        video: {
+          file: 'main-video.mp4',
+          duration_ms: 120000,
+        },
+        audio_tracks: [
+          {
+            file: 'audio-vi.m4a',
+            lang: 'vi',
+            label: 'Âm thanh gốc',
+            is_default: true,
+            kind: 'original',
+          },
+          {
+            file: 'audio-en.m4a',
+            lang: 'en',
+            label: 'English Dubbed',
+            is_default: false,
+            kind: 'dub',
+          },
+        ],
+        subtitles: [
+          {
+            file: 'sub-vi.vtt',
+            lang: 'vi',
+            label: 'Tiếng Việt',
+            is_default: true,
+            kind: 'captions',
+          },
+          {
+            file: 'sub-en.vtt',
+            lang: 'en',
+            label: 'English',
+            is_default: false,
+            kind: 'subtitles',
+          },
+        ],
+      },
+      null,
+      2,
+    );
+
+    const mockFiles: Record<string, string> = {
+      'manifest.json': manifestJson,
+      'main-video.mp4': 'MOCK_MP4_VIDEO_STREAM_BYTES_FOR_MUX1_PACKAGE_UPLOAD',
+      'audio-vi.m4a': 'MOCK_M4A_AUDIO_VI_BYTES_FOR_PACKAGE',
+      'audio-en.m4a': 'MOCK_M4A_AUDIO_EN_BYTES_FOR_PACKAGE',
+      'sub-vi.vtt': 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nXin chào các bạn đến với Winkey MUX1',
+      'sub-en.vtt': 'WEBVTT\n\n00:00:00.000 --> 00:00:05.000\nWelcome to Winkey MUX1 media package',
+    };
+
+    const zipBuffer = createZipBufferHelper(mockFiles);
+    fs.writeFileSync(zipFilePath, zipBuffer);
+
+    try {
+      // 4. Feed ZIP to package-zip-input
+      const zipInput = page.locator('[data-testid="package-zip-input"]');
+      await zipInput.setInputFiles(zipFilePath);
+
+      // 5. Verify Package Preview Card appears
+      const previewCard = page.locator('[data-testid="package-preview-card"]');
+      await expect(previewCard).toBeVisible({ timeout: 15000 });
+      await expect(previewCard).toContainText('Bí mật Điện toán Đám mây (Gói Hoàn chỉnh MUX1)');
+      await expect(page.locator('[data-testid="package-audio-list"]')).toBeVisible();
+      await expect(page.locator('[data-testid="package-subtitles-list"]')).toBeVisible();
+
+      // 6. Start Package Upload
+      const startBtn = page.locator('[data-testid="start-package-upload-button"]');
+      await expect(startBtn).toBeEnabled();
+      await startBtn.click();
+
+      // 7. Verify upload progress bar and wait for success screen
+      const successCard = page.locator('[data-testid="package-upload-success"]');
+      await expect(successCard).toBeVisible({ timeout: 35000 });
+      await expect(page.locator('[data-testid="package-success-goto-edit"]')).toBeVisible();
+    } finally {
+      if (fs.existsSync(zipFilePath)) {
+        fs.unlinkSync(zipFilePath);
+      }
+    }
+  });
+
+  test('MUX1: Player audio and subtitle switching & persistence (ADR-042)', async ({ page }) => {
+    test.setTimeout(60000);
+
+    // 1. Navigate to watch page
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    // 2. Subtitle Menu & Captions
+    const ccBtn = page.locator('[data-testid="cc-menu-button"]');
+    await expect(ccBtn).toBeVisible({ timeout: 10000 });
+    await ccBtn.click();
+
+    const ccDropdown = page.locator('[data-testid="cc-menu-dropdown"]');
+    await expect(ccDropdown).toBeVisible();
+
+    // Verify CC badge on captions track
+    const viCcBadge = page.locator('[data-testid="cc-badge-vi"]');
+    await expect(viCcBadge).toBeVisible();
+    await expect(viCcBadge).toContainText('CC');
+
+    // Switch to English subtitle
+    const enSubOption = page.locator('[data-testid="cc-option-en"]');
+    await expect(enSubOption).toBeVisible();
+    await enSubOption.click();
+
+    // Verify subtitle language saved in localStorage
+    const savedSubtitle = await page.evaluate(() => localStorage.getItem('winkey.subtitle_lang'));
+    expect(savedSubtitle).toBe('en');
+
+    // 3. Audio Tracks Menu
+    const audioBtn = page.locator('[data-testid="audio-menu-button"]');
+    await expect(audioBtn).toBeVisible({ timeout: 10000 });
+    await audioBtn.click();
+
+    const audioDropdown = page.locator('[data-testid="audio-menu-dropdown"]');
+    await expect(audioDropdown).toBeVisible();
+
+    // Verify audio track options (Vietnamese original and English dub)
+    const viAudioOption = page.locator('[data-testid="audio-option-vi"]');
+    const enAudioOption = page.locator('[data-testid="audio-option-en"]');
+    await expect(viAudioOption).toBeVisible();
+    await expect(enAudioOption).toBeVisible();
+
+    // Select English audio track
+    await enAudioOption.click();
+
+    // Verify audio language saved in localStorage
+    const savedAudio = await page.evaluate(() => localStorage.getItem('winkey.audio_lang'));
+    expect(savedAudio).toBe('en');
+
+    // 4. Persistence across page reload
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+
+    const persistedAudio = await page.evaluate(() => localStorage.getItem('winkey.audio_lang'));
+    const persistedSubtitle = await page.evaluate(() =>
+      localStorage.getItem('winkey.subtitle_lang'),
+    );
+    expect(persistedAudio).toBe('en');
+    expect(persistedSubtitle).toBe('en');
+  });
 });
+
+function createZipBufferHelper(files: Record<string, string>): Buffer {
+  const parts: Uint8Array[] = [];
+  const centralRecords: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const [name, content] of Object.entries(files)) {
+    const nameBytes = new TextEncoder().encode(name);
+    const dataBytes = new TextEncoder().encode(content);
+
+    // Local file header: 30 bytes + nameLen
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true); // signature
+    lv.setUint16(4, 20, true); // version needed
+    lv.setUint16(8, 0, true); // method 0 (stored)
+    lv.setUint32(18, dataBytes.length, true); // compressed size
+    lv.setUint32(22, dataBytes.length, true); // uncompressed size
+    lv.setUint16(26, nameBytes.length, true); // file name length
+    local.set(nameBytes, 30);
+
+    parts.push(local);
+    parts.push(dataBytes);
+
+    // Central directory header: 46 bytes + nameLen
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true); // signature
+    cv.setUint16(4, 20, true); // version made by
+    cv.setUint16(6, 20, true); // version needed
+    cv.setUint16(10, 0, true); // method 0
+    cv.setUint32(20, dataBytes.length, true); // compressed size
+    cv.setUint32(24, dataBytes.length, true); // uncompressed size
+    cv.setUint16(28, nameBytes.length, true); // file name length
+    cv.setUint32(42, offset, true); // local header offset
+    cd.set(nameBytes, 46);
+
+    centralRecords.push(cd);
+    offset += local.length + dataBytes.length;
+  }
+
+  const centralOffset = offset;
+  let centralSize = 0;
+  for (const cd of centralRecords) {
+    parts.push(cd);
+    centralSize += cd.length;
+  }
+
+  // End of Central Directory (EOCD): 22 bytes
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true); // signature
+  ev.setUint16(8, Object.keys(files).length, true); // total entries on disk
+  ev.setUint16(10, Object.keys(files).length, true); // total entries
+  ev.setUint32(12, centralSize, true); // size of central directory
+  ev.setUint32(16, centralOffset, true); // offset of central directory
+  parts.push(eocd);
+
+  const totalLength = parts.reduce((acc, p) => acc + p.length, 0);
+  const result = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const p of parts) {
+    result.set(p, pos);
+    pos += p.length;
+  }
+  return Buffer.from(result);
+}

@@ -56,6 +56,7 @@ import type {
   SeriesEpisodeContext,
   SeriesSummary,
   TagSummary,
+  AudioTrack,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -104,6 +105,36 @@ export function setMockCinemaCatalogOverride(val: CinemaCatalogItem[] | null) {
 let mockSeriesEpisodesOverride: SeriesEpisode[] | null = null;
 export function setMockSeriesEpisodesOverride(val: SeriesEpisode[] | null) {
   mockSeriesEpisodesOverride = val;
+}
+
+const dynamicAudioTracks: Map<string, AudioTrack[]> = new Map();
+
+export function getMockAudioTracks(videoId: string): AudioTrack[] {
+  if (!dynamicAudioTracks.has(videoId)) {
+    const v = getDynamicVideos().find((item) => item.id === videoId);
+    if (v?.playback?.audio_tracks && v.playback.audio_tracks.length > 0) {
+      dynamicAudioTracks.set(
+        videoId,
+        v.playback.audio_tracks.map((t) => ({
+          id: t.id,
+          lang: t.lang,
+          label: t.label,
+          kind: t.kind,
+          is_default: t.is_default,
+          status: 'READY' as const,
+          error: null,
+          updated_at: new Date().toISOString(),
+        })),
+      );
+    } else {
+      dynamicAudioTracks.set(videoId, []);
+    }
+  }
+  return dynamicAudioTracks.get(videoId) || [];
+}
+
+export function resetMockAudioTracks() {
+  dynamicAudioTracks.clear();
 }
 
 let usedVerifyEmailTokens = new Set<string>();
@@ -2324,6 +2355,7 @@ export const handlers = [
     const track: SubtitleTrack = {
       lang,
       label: body.label || lang,
+      kind: body.kind || 'subtitles',
       source: 'UPLOAD',
       url: `/v1/mock-subtitles/${videoId}/${lang}.vtt`,
       updated_at: new Date().toISOString(),
@@ -2449,6 +2481,143 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       status: 200,
       headers: { 'Content-Type': 'image/gif' },
     });
+  }),
+
+  // --- AUDIO TRACKS ENDPOINTS (Task MUX1 Phase 3) ---
+  http.get('*/v1/videos/:id/audio-tracks', async ({ params }) => {
+    const videoId = params.id as string;
+    const tracks = getMockAudioTracks(videoId);
+    return HttpResponse.json(tracks);
+  }),
+
+  http.patch('*/v1/videos/:id/audio-tracks/:track_id', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const trackId = params.track_id as string;
+    const body = (await request.json()) as { label?: string; is_default?: boolean };
+    const tracks = getMockAudioTracks(videoId);
+    const track = tracks.find((t) => t.id === trackId);
+    if (!track) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Track not found', status: 404, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+    if (body.label !== undefined) {
+      track.label = body.label;
+    }
+    if (body.is_default === true) {
+      tracks.forEach((t) => {
+        t.is_default = false;
+      });
+      track.is_default = true;
+    }
+    track.updated_at = new Date().toISOString();
+    return HttpResponse.json(track);
+  }),
+
+  http.delete('*/v1/videos/:id/audio-tracks/:track_id', async ({ params }) => {
+    const videoId = params.id as string;
+    const trackId = params.track_id as string;
+    const tracks = getMockAudioTracks(videoId);
+    const filtered = tracks.filter((t) => t.id !== trackId);
+    dynamicAudioTracks.set(videoId, filtered);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/uploads/:id/audio-tracks', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const body = (await request.json()) as any;
+    const tracks = getMockAudioTracks(videoId);
+
+    if (tracks.length >= 8) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Too many audio tracks',
+          status: 409,
+          code: 'TOO_MANY_AUDIO_TRACKS',
+          detail: 'Maximum 8 audio tracks per video',
+        },
+        { status: 409 },
+      );
+    }
+
+    if (tracks.some((t) => t.lang === body.lang && t.kind === body.kind)) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Audio track exists',
+          status: 409,
+          code: 'AUDIO_TRACK_EXISTS',
+          detail: 'An audio track with this language and kind already exists',
+        },
+        { status: 409 },
+      );
+    }
+
+    const trackId =
+      '018f' +
+      Math.random().toString(16).substring(2, 10).padStart(8, '0') +
+      '-0000-7000-8000-000000000001';
+    const newTrack: AudioTrack = {
+      id: trackId,
+      lang: body.lang,
+      label: body.label || body.lang,
+      kind: body.kind || 'dub',
+      is_default: !!body.is_default,
+      status: 'UPLOADING',
+      error: null,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (newTrack.is_default) {
+      tracks.forEach((t) => {
+        t.is_default = false;
+      });
+    }
+    tracks.push(newTrack);
+    dynamicAudioTracks.set(videoId, tracks);
+
+    return HttpResponse.json(
+      {
+        track_id: trackId,
+        part_size: 5242880,
+        part_count: 1,
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.delete('*/v1/uploads/:id/audio-tracks/:track_id', async ({ params }) => {
+    const videoId = params.id as string;
+    const trackId = params.track_id as string;
+    const tracks = getMockAudioTracks(videoId);
+    const filtered = tracks.filter((t) => t.id !== trackId);
+    dynamicAudioTracks.set(videoId, filtered);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/uploads/:id/audio-tracks/:track_id/parts', async ({ params, request }) => {
+    const videoId = params.id as string;
+    const body = (await request.json().catch(() => ({}))) as { part_numbers?: number[] };
+    const partNumbers = body.part_numbers && body.part_numbers.length > 0 ? body.part_numbers : [1];
+    return HttpResponse.json({
+      parts: partNumbers.map((partNumber) => ({
+        part_number: partNumber,
+        url: `/v1/mock-s3/audio-${videoId}/${partNumber}`,
+      })),
+    });
+  }),
+
+  http.post('*/v1/uploads/:id/audio-tracks/:track_id/complete', async ({ params }) => {
+    const videoId = params.id as string;
+    const trackId = params.track_id as string;
+    const tracks = getMockAudioTracks(videoId);
+    const track = tracks.find((t) => t.id === trackId);
+    if (track) {
+      track.status = 'READY';
+    }
+    return HttpResponse.json(track || { id: trackId, status: 'READY' });
   }),
 
   // --- PLAYBACK HEARTBEATS ENDPOINT (Task U8) ---

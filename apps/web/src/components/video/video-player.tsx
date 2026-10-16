@@ -12,10 +12,11 @@ import {
   Maximize,
   Minimize,
 } from 'lucide-react';
-import type { Rendition, SubtitleTrack } from '@winkey/api-client';
+import type { Rendition, SubtitleTrack, PlaybackAudioTrack } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { QualityMenu, type QualityLevel } from './quality-menu';
 import { CcMenu } from './cc-menu';
+import { AudioMenu, type AudioTrackOption } from './audio-menu';
 import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
 import { PlaybackTracker } from '../../lib/video/playback-tracker';
@@ -30,10 +31,39 @@ export interface VideoPlayerProps {
   title?: string;
   renditions?: Rendition[];
   subtitles?: SubtitleTrack[];
+  audioTracks?: PlaybackAudioTrack[];
   storyboardUrl?: string | null;
   expiresAt?: string | null;
   surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
+}
+
+function findPreferredAudioTrackIndex(tracks: AudioTrackOption[]): number {
+  if (tracks.length === 0) return 0;
+  try {
+    const savedChoice = localStorage.getItem('winkey.audio_choice');
+    const savedLang = localStorage.getItem('winkey.audio_lang');
+
+    if (savedChoice && savedChoice.includes(':')) {
+      const [lang, kind] = savedChoice.split(':');
+      // 1. Try exact match on lang + kind
+      const exactIdx = tracks.findIndex((t) => t.lang === lang && t.kind === kind);
+      if (exactIdx !== -1) return exactIdx;
+      // 2. Fall back to lang alone
+      const langIdx = tracks.findIndex((t) => t.lang === lang);
+      if (langIdx !== -1) return langIdx;
+    } else if (savedChoice || savedLang) {
+      const lang = savedChoice || savedLang;
+      const langIdx = tracks.findIndex((t) => t.lang === lang);
+      if (langIdx !== -1) return langIdx;
+    }
+
+    const defIdx = tracks.findIndex((t) => t.isDefault);
+    if (defIdx !== -1) return defIdx;
+  } catch {
+    // ignore
+  }
+  return 0;
 }
 
 export function VideoPlayer({
@@ -44,6 +74,7 @@ export function VideoPlayer({
   title,
   renditions,
   subtitles,
+  audioTracks,
   storyboardUrl,
   expiresAt,
   surface,
@@ -57,6 +88,7 @@ export function VideoPlayer({
   const [refreshedPlayback, setRefreshedPlayback] = useState<{
     hls_url?: string;
     subtitles?: SubtitleTrack[];
+    audio_tracks?: PlaybackAudioTrack[];
     storyboard_url?: string | null;
     expires_at?: string | null;
   } | null>(null);
@@ -70,6 +102,10 @@ export function VideoPlayer({
   const activeSubtitles = useMemo(
     () => refreshedPlayback?.subtitles ?? subtitles ?? [],
     [refreshedPlayback?.subtitles, subtitles],
+  );
+  const activeAudioTracks = useMemo(
+    () => refreshedPlayback?.audio_tracks ?? audioTracks ?? [],
+    [refreshedPlayback?.audio_tracks, audioTracks],
   );
   const activeStoryboardUrl = refreshedPlayback?.storyboard_url ?? storyboardUrl ?? null;
   const activeExpiresAt = refreshedPlayback?.expires_at ?? expiresAt ?? null;
@@ -95,6 +131,47 @@ export function VideoPlayer({
 
   // Subtitle state
   const [selectedSubtitleLang, setSelectedSubtitleLang] = useState<string | null>(null);
+
+  // Audio track state: prefill from activeAudioTracks before manifest loads
+  const initialAudioOptions = useMemo<AudioTrackOption[]>(() => {
+    if (!activeAudioTracks || activeAudioTracks.length === 0) return [];
+    return activeAudioTracks.map((tr, idx) => ({
+      index: idx,
+      id: tr.id,
+      lang: tr.lang,
+      label: tr.label || (idx === 0 ? 'Âm thanh gốc' : `Track ${idx + 1}`),
+      kind: tr.kind,
+      isDefault: tr.is_default,
+    }));
+  }, [activeAudioTracks]);
+
+  const [audioTracksList, setAudioTracksList] = useState<AudioTrackOption[]>(initialAudioOptions);
+  const [currentAudioIndex, setCurrentAudioIndex] = useState<number>(0);
+
+  // Sync initial audio options from props and restore preferred audio choice (lang+kind, fallback lang)
+  useEffect(() => {
+    setAudioTracksList(initialAudioOptions);
+    if (initialAudioOptions.length > 0) {
+      const preferredIdx = findPreferredAudioTrackIndex(initialAudioOptions);
+      setCurrentAudioIndex(preferredIdx);
+    } else {
+      setCurrentAudioIndex(0);
+    }
+  }, [initialAudioOptions]);
+
+  const handleSelectAudioTrack = useCallback((track: AudioTrackOption) => {
+    setCurrentAudioIndex(track.index);
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = track.index;
+    }
+    try {
+      const choice = track.kind ? `${track.lang}:${track.kind}` : track.lang;
+      localStorage.setItem('winkey.audio_choice', choice);
+      localStorage.setItem('winkey.audio_lang', track.lang);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
 
   // Signed URL auto-refresh tracking
   const hasRefreshedOnAuthErrorRef = useRef<boolean>(false);
@@ -300,6 +377,7 @@ export function VideoPlayer({
       setRefreshedPlayback({
         hls_url: newPlayback.hls_url,
         subtitles: newPlayback.subtitles,
+        audio_tracks: newPlayback.audio_tracks,
         storyboard_url: newPlayback.storyboard_url,
         expires_at: newPlayback.expires_at,
       });
@@ -397,6 +475,44 @@ export function VideoPlayer({
           const bitrateKbps = first.bitrate ? Math.round(first.bitrate / 1000) : null;
           trackerRef.current?.setRendition(renditionName, bitrateKbps);
         }
+        syncAudioTracks();
+      });
+
+      const syncAudioTracks = () => {
+        if (!hls.audioTracks || hls.audioTracks.length === 0) {
+          if (activeAudioTracks.length === 0) {
+            setAudioTracksList([]);
+          }
+          return;
+        }
+
+        const hlsTracks: AudioTrackOption[] = hls.audioTracks.map((ht, idx) => {
+          const propTrack = activeAudioTracks[idx];
+          return {
+            index: idx,
+            id: propTrack?.id || (ht.id !== undefined ? String(ht.id) : undefined),
+            lang: propTrack?.lang || ht.lang || 'und',
+            label: propTrack?.label || ht.name || (idx === 0 ? 'Âm thanh gốc' : `Track ${idx + 1}`),
+            kind: propTrack?.kind || (idx === 0 ? 'original' : undefined),
+            isDefault: propTrack?.is_default ?? (ht as any).default ?? false,
+          };
+        });
+
+        setAudioTracksList(hlsTracks);
+
+        const selectedIdx = findPreferredAudioTrackIndex(hlsTracks);
+        setCurrentAudioIndex(selectedIdx);
+        if (hls.audioTrack !== selectedIdx) {
+          hls.audioTrack = selectedIdx;
+        }
+      };
+
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+        syncAudioTracks();
+      });
+
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
+        setCurrentAudioIndex(data.id);
       });
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
@@ -859,6 +975,15 @@ export function VideoPlayer({
                   tracks={activeSubtitles}
                   selectedLang={selectedSubtitleLang}
                   onSelectTrack={handleSelectSubtitle}
+                />
+              )}
+
+              {/* Audio Menu (hidden when audioTracksList is empty) */}
+              {audioTracksList.length > 0 && (
+                <AudioMenu
+                  tracks={audioTracksList}
+                  selectedIndex={currentAudioIndex}
+                  onSelectTrack={handleSelectAudioTrack}
                 />
               )}
 

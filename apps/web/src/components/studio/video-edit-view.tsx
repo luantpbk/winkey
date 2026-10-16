@@ -12,6 +12,7 @@ import { buildWatchUrl } from '../../lib/video/watch-url';
 import type { Video, Visibility, UpdateVideoRequest, Problem } from '@winkey/api-client';
 import { VideoStudioHeader } from './video-studio-header';
 import { VideoSubtitlesSection } from './video-subtitles-section';
+import { VideoAudioTracksSection } from './video-audio-tracks-section';
 import {
   X,
   Save,
@@ -719,6 +720,11 @@ export function VideoEditView() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Embedded Audio Tracks Section */}
+      <div className="p-6 rounded-2xl bg-[#141414] dark:bg-[#141414] bg-white border border-[#272727] dark:border-[#272727] border-gray-200 shadow-xl">
+        <VideoAudioTracksSection videoId={id} isVideoFailed={video?.status === 'FAILED'} />
       </div>
 
       {/* Embedded Subtitles Section */}
