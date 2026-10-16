@@ -51,8 +51,7 @@ async function decompressDeflateRaw(
   compressed: Uint8Array | ArrayBuffer,
   maxAllowedBytes = 5 * 1024 * 1024,
 ): Promise<Uint8Array> {
-  const bodyBytes =
-    compressed instanceof Uint8Array ? compressed : new Uint8Array(compressed);
+  const bodyBytes = compressed instanceof Uint8Array ? compressed : new Uint8Array(compressed);
 
   const compressedStream = new Response(bodyBytes as BodyInit).body;
   if (!compressedStream) {
