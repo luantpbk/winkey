@@ -4,7 +4,7 @@ import {
   type ManifestAudioTrack,
   type ManifestSubtitle,
 } from './manifest';
-import { unzipEntries, guessMimeType } from './zip-reader';
+import { readZipEntries } from './zip-reader';
 
 export interface LoadedMediaPackage {
   manifest: MediaPackageManifest;
@@ -202,22 +202,15 @@ export async function loadPackageFromFiles(
 }
 
 /**
- * Loads a media package from a .zip file.
+ * Loads a media package from a .zip file lazily without loading the archive into RAM.
  */
 export async function loadPackageFromZip(zipFile: File): Promise<PackageLoadResult> {
   try {
-    const buffer = await readBlobAsArrayBuffer(zipFile);
-    const entries = await unzipEntries(buffer);
-
+    const rawMap = await readZipEntries(zipFile);
     const fileMap = new Map<string, File>();
-    for (const entry of entries) {
-      const cleanPath = normalizePath(entry.path);
-      const mime = guessMimeType(cleanPath);
-      const fileName = cleanPath.split('/').pop() || cleanPath;
-      const file = new File([entry.data as BlobPart], fileName, { type: mime });
-      fileMap.set(cleanPath, file);
+    for (const [entryPath, file] of rawMap.entries()) {
+      fileMap.set(normalizePath(entryPath), file);
     }
-
     return loadFromNormalizedMap(fileMap);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

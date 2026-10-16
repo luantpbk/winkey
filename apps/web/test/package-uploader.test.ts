@@ -47,6 +47,7 @@ vi.mock('../src/lib/uploader/uploader', () => ({
 
 // Mock AudioTrackUploader
 let createdAudioUploaders: any[] = [];
+let audioUploaderStartMock: ((options: any) => Promise<any>) | null = null;
 vi.mock('../src/lib/uploader/audio-track-uploader', () => ({
   AudioTrackUploader: class MockAudioTrackUploader {
     private options: any;
@@ -55,6 +56,9 @@ vi.mock('../src/lib/uploader/audio-track-uploader', () => ({
       createdAudioUploaders.push(options);
     }
     async start() {
+      if (audioUploaderStartMock) {
+        return audioUploaderStartMock(this.options);
+      }
       this.options.onProgress?.({
         trackId: 'track-test',
         percent: 100,
@@ -73,6 +77,7 @@ describe('PackageUploader', () => {
     vi.clearAllMocks();
     createdAudioUploaders = [];
     lastVideoUploaderOptions = null;
+    audioUploaderStartMock = null;
   });
 
   const mockLoadedPackage: LoadedMediaPackage = {
@@ -169,5 +174,98 @@ describe('PackageUploader', () => {
     const finalReport = progressReports[progressReports.length - 1];
     expect(finalReport.status).toBe('completed');
     expect(finalReport.overallPercent).toBe(100);
+  });
+
+  it('uploads audio tracks sequentially (at most 1 active), retries 429 UPLOAD_QUOTA_EXCEEDED, and completes all 3 tracks', async () => {
+    const packageWith3AudioTracks: LoadedMediaPackage = {
+      ...mockLoadedPackage,
+      audioTracks: [
+        {
+          meta: { file: 'audio/vi.wav', lang: 'vi', kind: 'dub', label: 'Tiếng Việt' },
+          file: new File(['audio1'], 'vi.wav', { type: 'audio/wav' }),
+        },
+        {
+          meta: {
+            file: 'audio/ja.wav',
+            lang: 'ja',
+            kind: 'commentary',
+            label: 'Bình luận tiếng Nhật',
+          },
+          file: new File(['audio2'], 'ja.wav', { type: 'audio/wav' }),
+        },
+        {
+          meta: { file: 'audio/fr.wav', lang: 'fr', kind: 'voiceover', label: 'Mô tả tiếng Pháp' },
+          file: new File(['audio3'], 'fr.wav', { type: 'audio/wav' }),
+        },
+      ],
+      subtitles: [],
+    };
+
+    let activeAudioUploads = 0;
+    let maxConcurrentAudioUploads = 0;
+    let track2Attempt = 0;
+
+    audioUploaderStartMock = async (options: any) => {
+      activeAudioUploads++;
+      maxConcurrentAudioUploads = Math.max(maxConcurrentAudioUploads, activeAudioUploads);
+
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+
+        if (options.lang === 'ja' && track2Attempt === 0) {
+          track2Attempt++;
+          const err: any = new Error('UPLOAD_QUOTA_EXCEEDED');
+          err.code = 'UPLOAD_QUOTA_EXCEEDED';
+          err.status = 429;
+          err.retryAfter = 0.05; // 50ms delay for fast determinism
+          throw err;
+        }
+
+        options.onProgress?.({
+          trackId: `track-${options.lang}`,
+          percent: 100,
+          uploadedBytes: 500,
+          totalBytes: 500,
+          status: 'completed',
+        });
+        return { id: `track-${options.lang}` };
+      } finally {
+        activeAudioUploads--;
+      }
+    };
+
+    const progressReports: any[] = [];
+    const uploader = new PackageUploader({
+      mediaPackage: packageWith3AudioTracks,
+      onProgress: (p) => progressReports.push(p),
+    });
+
+    const videoId = await uploader.start();
+
+    expect(videoId).toBe('vid-test-123');
+
+    // Concurrency verification: strictly at most 1 audio track at any moment
+    expect(maxConcurrentAudioUploads).toBe(1);
+
+    // Total attempts: 1 (vi) + 2 (ja, 1 fail + 1 retry) + 1 (fr) = 4
+    expect(createdAudioUploaders).toHaveLength(4);
+    expect(track2Attempt).toBe(1);
+
+    // Verify 'waiting for a free slot' was reported while waiting for retry
+    const waitingReport = progressReports.find((p) => {
+      const jaTrack = p.audioTracks.find((t: any) => t.lang === 'ja' && t.kind === 'commentary');
+      return jaTrack && jaTrack.error === 'waiting for a free slot';
+    });
+    expect(waitingReport).toBeDefined();
+
+    // Verify all 3 tracks are completed in the final report
+    const finalReport = progressReports[progressReports.length - 1];
+    expect(finalReport.status).toBe('completed');
+    expect(finalReport.overallPercent).toBe(100);
+    expect(finalReport.audioTracks).toHaveLength(3);
+    for (const t of finalReport.audioTracks) {
+      expect(t.status).toBe('completed');
+      expect(t.error).toBeUndefined();
+    }
   });
 });

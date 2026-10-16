@@ -172,6 +172,7 @@ describe('VideoPlayer Audio and Subtitle switching & persistence', () => {
     fireEvent.click(viOption);
 
     // Check localStorage
+    expect(localStorage.getItem('winkey.audio_choice')).toBe('vi:dub');
     expect(localStorage.getItem('winkey.audio_lang')).toBe('vi');
     expect(audioButton.textContent).toContain('Tiếng Việt');
   });
@@ -184,6 +185,77 @@ describe('VideoPlayer Audio and Subtitle switching & persistence', () => {
         videoId="video-2"
         src="https://cdn.winkey.vn/hls/test/master.m3u8"
         audioTracks={mockAudioTracks}
+      />,
+    );
+
+    const audioButton = screen.getByTestId('audio-menu-button');
+    expect(audioButton.textContent).toContain('Tiếng Việt');
+  });
+
+  it('prioritizes exact lang+kind match over an earlier track of the same language', () => {
+    const multiViTracks: PlaybackAudioTrack[] = [
+      {
+        id: '018f0000-0000-7000-8000-000000000001',
+        lang: 'und',
+        label: 'Âm thanh gốc',
+        kind: 'original',
+        is_default: true,
+      },
+      {
+        id: '018f0000-0000-7000-8000-000000000002',
+        lang: 'vi',
+        label: 'Tiếng Việt (Lồng tiếng)',
+        kind: 'dub',
+        is_default: false,
+      },
+      {
+        id: '018f0000-0000-7000-8000-000000000004',
+        lang: 'vi',
+        label: 'Tiếng Việt (Bình luận)',
+        kind: 'commentary',
+        is_default: false,
+      },
+    ];
+
+    localStorage.setItem('winkey.audio_choice', 'vi:commentary');
+
+    render(
+      <VideoPlayer
+        videoId="video-multi-vi"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        audioTracks={multiViTracks}
+      />,
+    );
+
+    const audioButton = screen.getByTestId('audio-menu-button');
+    expect(audioButton.textContent).toContain('Bình luận');
+  });
+
+  it('falls back to lang alone when exact kind is not found in the current video', () => {
+    const multiViTracks: PlaybackAudioTrack[] = [
+      {
+        id: '018f0000-0000-7000-8000-000000000001',
+        lang: 'und',
+        label: 'Âm thanh gốc',
+        kind: 'original',
+        is_default: true,
+      },
+      {
+        id: '018f0000-0000-7000-8000-000000000002',
+        lang: 'vi',
+        label: 'Tiếng Việt (Lồng tiếng)',
+        kind: 'dub',
+        is_default: false,
+      },
+    ];
+
+    localStorage.setItem('winkey.audio_choice', 'vi:descriptions');
+
+    render(
+      <VideoPlayer
+        videoId="video-fallback-vi"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        audioTracks={multiViTracks}
       />,
     );
 

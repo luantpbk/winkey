@@ -101,8 +101,8 @@ export class PackageUploader {
       status: overallStatus,
       error,
       video: { ...this.videoProgress },
-      audioTracks: Array.from(this.audioProgress.values()),
-      subtitles: Array.from(this.subtitleProgress.values()),
+      audioTracks: Array.from(this.audioProgress.values()).map((t) => ({ ...t })),
+      subtitles: Array.from(this.subtitleProgress.values()).map((s) => ({ ...s })),
     });
   }
 
@@ -171,11 +171,71 @@ export class PackageUploader {
   }
 
   private async startSecondaryUploads(videoId: string): Promise<void> {
-    const promises: Promise<any>[] = [];
+    // 1. Subtitles uploads in parallel
+    const subPromises = this.mediaPackage.subtitles.map(async (sub) => {
+      const key = sub.meta.lang;
+      const subItem = this.subtitleProgress.get(key);
+      if (subItem) {
+        subItem.status = 'uploading';
+        subItem.percent = 50;
+      }
 
-    // 1. Audio tracks uploads in parallel
-    for (const track of this.mediaPackage.audioTracks) {
-      const key = `${track.meta.lang}:${track.meta.kind}`;
+      try {
+        const { response, error } = await api.video.PUT('/v1/videos/{video_id}/subtitles/{lang}', {
+          params: { path: { video_id: videoId, lang: sub.meta.lang } },
+          body: {
+            label: sub.meta.label,
+            content: sub.content,
+            kind: sub.meta.kind,
+          },
+        });
+
+        if (!response.ok) {
+          const errDetail =
+            (error as any)?.detail || (error as any)?.code || 'Failed to upload subtitle';
+          if (subItem) {
+            subItem.status = 'error';
+            subItem.error = errDetail;
+          }
+          throw new Error(errDetail);
+        }
+
+        if (subItem) {
+          subItem.status = 'completed';
+          subItem.percent = 100;
+        }
+      } catch (err: any) {
+        if (subItem) {
+          subItem.status = 'error';
+          subItem.error = err?.message || 'Subtitle upload error';
+        }
+        throw err;
+      }
+    });
+
+    // 2. Audio tracks uploaded one at a time (at most video + 1 audio track open)
+    const audioSeqPromise = (async () => {
+      for (const track of this.mediaPackage.audioTracks) {
+        if (this.isCancelled) break;
+        await this.uploadAudioTrackWithRetry(videoId, track);
+      }
+    })();
+
+    await Promise.all([...subPromises, audioSeqPromise]);
+  }
+
+  private async uploadAudioTrackWithRetry(
+    videoId: string,
+    track: LoadedMediaPackage['audioTracks'][number],
+    maxRetries = 10,
+  ): Promise<void> {
+    const key = `${track.meta.lang}:${track.meta.kind}`;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      if (this.isCancelled) return;
+      attempt++;
+
       const uploader = new AudioTrackUploader({
         videoId,
         file: track.file,
@@ -202,72 +262,48 @@ export class PackageUploader {
       });
 
       this.audioUploaders.set(key, uploader);
-      promises.push(
-        uploader
-          .start()
-          .then(() => {
-            const item = this.audioProgress.get(key);
-            if (item) {
-              item.percent = 100;
-              item.status = 'completed';
-            }
-          })
-          .catch((err) => {
-            const item = this.audioProgress.get(key);
-            if (item) {
-              item.status = 'error';
-              item.error = err?.message || 'Audio upload error';
-            }
-            throw err;
-          }),
-      );
-    }
 
-    // 2. Subtitles uploads in parallel
-    for (const sub of this.mediaPackage.subtitles) {
-      const key = sub.meta.lang;
-      const subItem = this.subtitleProgress.get(key);
-      if (subItem) {
-        subItem.status = 'uploading';
-        subItem.percent = 50;
+      try {
+        await uploader.start();
+        const item = this.audioProgress.get(key);
+        if (item) {
+          item.percent = 100;
+          item.status = 'completed';
+          item.error = undefined;
+          this.notify('uploading');
+        }
+        return;
+      } catch (err: any) {
+        if (this.isCancelled) return;
+
+        const is429 =
+          err?.code === 'UPLOAD_QUOTA_EXCEEDED' ||
+          err?.status === 429 ||
+          err?.retryAfter != null ||
+          err?.message?.includes('UPLOAD_QUOTA_EXCEEDED') ||
+          err?.message?.includes('giới hạn tải lên');
+
+        if (is429 && attempt < maxRetries) {
+          const retrySeconds = err?.retryAfter ?? err?.retryAfterSeconds ?? 2;
+          const item = this.audioProgress.get(key);
+          if (item) {
+            item.status = 'uploading';
+            item.error = 'waiting for a free slot';
+            this.notify('uploading');
+          }
+          await new Promise((resolve) => setTimeout(resolve, retrySeconds * 1000));
+          continue;
+        }
+
+        const item = this.audioProgress.get(key);
+        if (item) {
+          item.status = 'error';
+          item.error = err?.message || 'Audio upload error';
+          this.notify('uploading');
+        }
+        throw err;
       }
-
-      promises.push(
-        api.video
-          .PUT('/v1/videos/{video_id}/subtitles/{lang}', {
-            params: { path: { video_id: videoId, lang: sub.meta.lang } },
-            body: {
-              label: sub.meta.label,
-              content: sub.content,
-              kind: sub.meta.kind,
-            },
-          })
-          .then(({ response, error }) => {
-            if (!response.ok) {
-              const errDetail =
-                (error as any)?.detail || (error as any)?.code || 'Failed to upload subtitle';
-              if (subItem) {
-                subItem.status = 'error';
-                subItem.error = errDetail;
-              }
-              throw new Error(errDetail);
-            }
-            if (subItem) {
-              subItem.status = 'completed';
-              subItem.percent = 100;
-            }
-          })
-          .catch((err) => {
-            if (subItem) {
-              subItem.status = 'error';
-              subItem.error = err?.message || 'Subtitle upload error';
-            }
-            throw err;
-          }),
-      );
     }
-
-    await Promise.all(promises);
   }
 
   public async cancel(): Promise<void> {

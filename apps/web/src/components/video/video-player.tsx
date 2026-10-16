@@ -38,6 +38,34 @@ export interface VideoPlayerProps {
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
 }
 
+function findPreferredAudioTrackIndex(tracks: AudioTrackOption[]): number {
+  if (tracks.length === 0) return 0;
+  try {
+    const savedChoice = localStorage.getItem('winkey.audio_choice');
+    const savedLang = localStorage.getItem('winkey.audio_lang');
+
+    if (savedChoice && savedChoice.includes(':')) {
+      const [lang, kind] = savedChoice.split(':');
+      // 1. Try exact match on lang + kind
+      const exactIdx = tracks.findIndex((t) => t.lang === lang && t.kind === kind);
+      if (exactIdx !== -1) return exactIdx;
+      // 2. Fall back to lang alone
+      const langIdx = tracks.findIndex((t) => t.lang === lang);
+      if (langIdx !== -1) return langIdx;
+    } else if (savedChoice || savedLang) {
+      const lang = savedChoice || savedLang;
+      const langIdx = tracks.findIndex((t) => t.lang === lang);
+      if (langIdx !== -1) return langIdx;
+    }
+
+    const defIdx = tracks.findIndex((t) => t.isDefault);
+    if (defIdx !== -1) return defIdx;
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 export function VideoPlayer({
   videoId,
   durationMs,
@@ -120,28 +148,12 @@ export function VideoPlayer({
   const [audioTracksList, setAudioTracksList] = useState<AudioTrackOption[]>(initialAudioOptions);
   const [currentAudioIndex, setCurrentAudioIndex] = useState<number>(0);
 
-  // Sync initial audio options from props and restore preferred audio language
+  // Sync initial audio options from props and restore preferred audio choice (lang+kind, fallback lang)
   useEffect(() => {
     setAudioTracksList(initialAudioOptions);
     if (initialAudioOptions.length > 0) {
-      try {
-        const savedLang = localStorage.getItem('winkey.audio_lang');
-        if (savedLang) {
-          const matchIdx = initialAudioOptions.findIndex((t) => t.lang === savedLang);
-          if (matchIdx !== -1) {
-            setCurrentAudioIndex(matchIdx);
-            return;
-          }
-        }
-        const defIdx = initialAudioOptions.findIndex((t) => t.isDefault);
-        if (defIdx !== -1) {
-          setCurrentAudioIndex(defIdx);
-          return;
-        }
-      } catch {
-        // ignore storage errors
-      }
-      setCurrentAudioIndex(0);
+      const preferredIdx = findPreferredAudioTrackIndex(initialAudioOptions);
+      setCurrentAudioIndex(preferredIdx);
     } else {
       setCurrentAudioIndex(0);
     }
@@ -153,6 +165,8 @@ export function VideoPlayer({
       hlsRef.current.audioTrack = track.index;
     }
     try {
+      const choice = track.kind ? `${track.lang}:${track.kind}` : track.lang;
+      localStorage.setItem('winkey.audio_choice', choice);
       localStorage.setItem('winkey.audio_lang', track.lang);
     } catch {
       // ignore storage errors
@@ -486,25 +500,7 @@ export function VideoPlayer({
 
         setAudioTracksList(hlsTracks);
 
-        let selectedIdx = 0;
-        try {
-          const savedLang = localStorage.getItem('winkey.audio_lang');
-          if (savedLang) {
-            const foundIdx = hlsTracks.findIndex((t) => t.lang === savedLang);
-            if (foundIdx !== -1) {
-              selectedIdx = foundIdx;
-            } else {
-              const defIdx = hlsTracks.findIndex((t) => t.isDefault);
-              if (defIdx !== -1) selectedIdx = defIdx;
-            }
-          } else {
-            const defIdx = hlsTracks.findIndex((t) => t.isDefault);
-            if (defIdx !== -1) selectedIdx = defIdx;
-          }
-        } catch {
-          // ignore
-        }
-
+        const selectedIdx = findPreferredAudioTrackIndex(hlsTracks);
         setCurrentAudioIndex(selectedIdx);
         if (hls.audioTrack !== selectedIdx) {
           hls.audioTrack = selectedIdx;

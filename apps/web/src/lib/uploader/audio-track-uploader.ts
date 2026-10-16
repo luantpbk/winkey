@@ -155,12 +155,20 @@ export class AudioTrackUploader {
       if (!response.ok || !data) {
         if (response.status === 429) {
           const retryHeader = response.headers.get('Retry-After');
-          const seconds = retryHeader ? parseInt(retryHeader, 10) : 60;
+          const seconds = retryHeader ? parseInt(retryHeader, 10) : 5;
           const msg = `Vượt quá giới hạn tải lên. Vui lòng thử lại sau ${seconds} giây.`;
           this.notify('error', msg, seconds);
           const err = new Error(msg);
-          (err as unknown as { code?: string; retryAfter?: number }).code = 'UPLOAD_QUOTA_EXCEEDED';
-          (err as unknown as { retryAfter?: number }).retryAfter = seconds;
+          const customErr = err as unknown as {
+            code?: string;
+            retryAfter?: number;
+            retryAfterSeconds?: number;
+            status?: number;
+          };
+          customErr.code = 'UPLOAD_QUOTA_EXCEEDED';
+          customErr.retryAfter = seconds;
+          customErr.retryAfterSeconds = seconds;
+          customErr.status = 429;
           throw err;
         }
 
