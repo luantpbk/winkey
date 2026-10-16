@@ -147,16 +147,17 @@ server {
         proxy_buffering on;
         proxy_cache winkey_media;
         proxy_cache_key "$scheme$request_method$host$uri";
-        proxy_cache_valid 200 206 30d;
+        proxy_cache_valid 200 30d;
         proxy_cache_valid 404 1m;
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         proxy_cache_lock on;
         proxy_cache_revalidate on;
         proxy_ignore_headers X-Accel-Expires;
 
-        # Range request support for seeking video segments
-        proxy_set_header Range $http_range;
-        proxy_set_header If-Range $http_if_range;
+        # Range requests (#372): never forward Range/If-Range to the origin. With proxy_cache on, nginx drops
+        # them itself, fetches and caches the whole 200, and answers ranges from the cached copy. Forwarding them
+        # cached one client's 206 partial body under the full-object key ($uri), served to everyone for 30 days.
+        proxy_force_ranges on;
 
         proxy_hide_header Access-Control-Allow-Origin;
         add_header X-Cache-Status $upstream_cache_status;
@@ -187,16 +188,17 @@ server {
         proxy_buffering on;
         proxy_cache winkey_media;
         proxy_cache_key "$scheme$request_method$host$uri";
-        proxy_cache_valid 200 206 30d;
+        proxy_cache_valid 200 30d;
         proxy_cache_valid 404 1m;
         proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
         proxy_cache_lock on;
         proxy_cache_revalidate on;
         proxy_ignore_headers X-Accel-Expires;
 
-        # Range request support for seeking video segments
-        proxy_set_header Range $http_range;
-        proxy_set_header If-Range $http_if_range;
+        # Range requests (#372): never forward Range/If-Range to the origin. With proxy_cache on, nginx drops
+        # them itself, fetches and caches the whole 200, and answers ranges from the cached copy. Forwarding them
+        # cached one client's 206 partial body under the full-object key ($uri), served to everyone for 30 days.
+        proxy_force_ranges on;
 
         proxy_hide_header Access-Control-Allow-Origin;
         add_header X-Cache-Status $upstream_cache_status;
