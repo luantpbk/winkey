@@ -48,29 +48,56 @@ export function isMediaFilename(filename: string): boolean {
 }
 
 async function decompressDeflateRaw(
-  compressed: Uint8Array,
+  compressed: Uint8Array | ArrayBuffer,
   maxAllowedBytes = 5 * 1024 * 1024,
 ): Promise<Uint8Array> {
-  // If running in Node/Vitest, use node:zlib
-  if (typeof process !== 'undefined' && process.versions?.node) {
-    try {
-      const zlib = await import('node:zlib');
-      const result = zlib.inflateRawSync(compressed, { maxOutputLength: maxAllowedBytes });
-      return new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
-    } catch (err: any) {
-      if (err?.code === 'ERR_BUFFER_TOO_LARGE') {
-        throw new Error(`Tập tin nén vượt quá giới hạn tối đa ${maxAllowedBytes} bytes.`);
-      }
-      throw err;
-    }
+  const bodyBytes =
+    compressed instanceof Uint8Array ? compressed : new Uint8Array(compressed);
+
+  const compressedStream = new Response(bodyBytes as BodyInit).body;
+  if (!compressedStream) {
+    throw new Error('Không thể khởi tạo readable stream từ compressed buffer.');
+  }
+
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('DecompressionStream API không được hỗ trợ trong môi trường này.');
   }
 
   const ds = new DecompressionStream('deflate-raw');
-  const writer = ds.writable.getWriter();
-  writer.write(compressed as BufferSource);
-  writer.close();
-  const arrayBuffer = await new Response(ds.readable).arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  const reader = compressedStream.pipeThrough(ds).getReader();
+
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (value) {
+        totalLength += value.byteLength;
+        if (totalLength > maxAllowedBytes) {
+          await reader.cancel('Exceeded maximum allowed decompressed size.');
+          throw new Error(
+            `Tập tin giải nén vượt quá giới hạn tối đa ${maxAllowedBytes} bytes (hiện tại: ${totalLength} bytes).`,
+          );
+        }
+        chunks.push(value);
+      }
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => {});
+    throw err;
+  }
+
+  const resultBytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    resultBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return resultBytes;
 }
 
 function getUint64(view: DataView, offset: number): number {
