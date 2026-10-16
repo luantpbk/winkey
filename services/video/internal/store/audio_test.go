@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -157,5 +158,54 @@ func TestSubtitleKindRoundTrip(t *testing.T) {
 	got, err := st.GetVideo(ctx, v.ID)
 	if err != nil || len(got.Subtitles) != 1 || got.Subtitles[0].Kind != "captions" {
 		t.Fatalf("%+v %v", got.Subtitles, err)
+	}
+}
+
+// A video with an AV1 set (ENC2, ADR-041): every audio change rewrites both masters in the same transaction.
+func TestAudioTrackChangeRewritesAV1Master(t *testing.T) {
+	st, pg := setup(t)
+	ctx := context.Background()
+	owner := testutil.SeedUser(t, pg.Pool, "alice", nil, "")
+	v := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: owner.ID})
+	av1 := "v/" + v.ID.String() + "/av1/r1/master.m3u8"
+	if _, err := pg.Pool.Exec(ctx, `UPDATE media.videos SET hls_av1_master_key = $2 WHERE id = $1`, v.ID, av1); err != nil {
+		t.Fatal(err)
+	}
+	av1Of := func() string {
+		var k string
+		_ = pg.Pool.QueryRow(ctx, `SELECT hls_av1_master_key FROM media.videos WHERE id = $1`, v.ID).Scan(&k)
+		return k
+	}
+	vi := seedTrack(t, pg.Pool, v.ID, "vi", "voiceover", domain.StatusReady, true)
+	h264 := masterKeyOf(t, pg.Pool, v.ID)
+
+	rw := &rewriter{}
+	label := "Tiếng Việt"
+	if _, err := st.UpdateAudioTrack(ctx, v.ID, vi, domain.AudioTrackUpdate{Label: &label}, rw.fn); err != nil {
+		t.Fatal(err)
+	}
+	newAV1 := av1Of()
+	if len(rw.calls) != 2 || masterKeyOf(t, pg.Pool, v.ID) == h264 || newAV1 == av1 || !strings.HasPrefix(newAV1, av1+".v") ||
+		rw.calls[1][0].Label != label {
+		t.Fatalf("calls %+v, av1 %s", rw.calls, newAV1)
+	}
+
+	// A failing AV1 rewrite rolls everything back, the H.264 master included.
+	h264 = masterKeyOf(t, pg.Pool, v.ID)
+	n := 0
+	half := func(ctx context.Context, id uuid.UUID, key string, ready []domain.AudioTrack) (string, error) {
+		if n++; n == 2 {
+			return "", errors.New("garage down")
+		}
+		return rw.fn(ctx, id, key, ready)
+	}
+	if _, err := st.DeleteAudioTrack(ctx, v.ID, vi, half); err == nil {
+		t.Fatal("delete succeeded although the AV1 rewrite failed")
+	}
+	if masterKeyOf(t, pg.Pool, v.ID) != h264 || av1Of() != newAV1 {
+		t.Fatal("not rolled back")
+	}
+	if all, _ := st.ListAudioTracks(ctx, v.ID); len(all) != 1 {
+		t.Fatalf("track deleted: %+v", all)
 	}
 }

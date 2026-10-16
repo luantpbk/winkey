@@ -109,9 +109,10 @@ func (p *Postgres) CompleteAudio(ctx context.Context, trackID uuid.UUID, playlis
 		return false, fmt.Errorf("get audio track: %w", err)
 	}
 	var videoStatus string
-	var master *string
-	err = tx.QueryRow(ctx, `SELECT owner_id, status::text, hls_master_key FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
-		Scan(&ownerID, &videoStatus, &master)
+	var master, av1Master *string
+	err = tx.QueryRow(ctx, `
+		SELECT owner_id, status::text, hls_master_key, hls_av1_master_key FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
+		Scan(&ownerID, &videoStatus, &master, &av1Master)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -144,6 +145,16 @@ func (p *Postgres) CompleteAudio(ctx context.Context, trackID uuid.UUID, playlis
 		}
 		if _, err := tx.Exec(ctx, `UPDATE media.videos SET hls_master_key = $2 WHERE id = $1`, videoID, key); err != nil {
 			return false, fmt.Errorf("store master key: %w", err)
+		}
+		// The separate AV1 set (ENC2, ADR-041) carries the same audio group.
+		if av1Master != nil {
+			av1Key, err := rewrite(ctx, *av1Master, ready)
+			if err != nil {
+				return false, fmt.Errorf("rewrite av1 master: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE media.videos SET hls_av1_master_key = $2 WHERE id = $1`, videoID, av1Key); err != nil {
+				return false, fmt.Errorf("store av1 master key: %w", err)
+			}
 		}
 	}
 	if err := outbox.Enqueue(ctx, tx, "media", "video.audio_ready", audioReadyEvent{

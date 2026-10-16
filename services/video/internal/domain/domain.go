@@ -73,10 +73,13 @@ type Video struct {
 	HLSMasterKey *string    `json:"hls_master_key"`
 	ThumbnailKey *string    `json:"thumbnail_key"`
 	// StoryboardKey is the key of storyboard.vtt (seek preview, V5a); nil when there is none.
-	StoryboardKey *string     `json:"storyboard_key"`
-	Owner         Profile     `json:"owner"`
-	Renditions    []Rendition `json:"renditions"`
-	Subtitles     []Subtitle  `json:"subtitles"` // READY videos only, sorted by lang (V5b)
+	StoryboardKey *string `json:"storyboard_key"`
+	// HLSAV1MasterKey is the master of the separate AV1 set (ENC2, ADR-041); nil when the video has none.
+	// Renditions then also lists its codec='av1' rows, after the H.264 ones.
+	HLSAV1MasterKey *string     `json:"hls_av1_master_key"`
+	Owner           Profile     `json:"owner"`
+	Renditions      []Rendition `json:"renditions"`
+	Subtitles       []Subtitle  `json:"subtitles"` // READY videos only, sorted by lang (V5b)
 	// AudioTracks are the READY extra audio tracks (MUX1), READY videos only, sorted by lang then kind.
 	AudioTracks []AudioTrack `json:"audio_tracks"`
 
@@ -359,7 +362,7 @@ type Store interface {
 	ListAudioTracks(ctx context.Context, videoID uuid.UUID) ([]AudioTrack, error)
 	// UpdateAudioTrack applies u in ONE transaction that locks the video row; when the video has a master and
 	// READY tracks before or after the change, it calls rewrite and stores the new hls_master_key in the same
-	// transaction. ErrNotFound if the track is not the video's.
+	// transaction, and does the same for hls_av1_master_key when the video has an AV1 set (ENC2). ErrNotFound if the track is not the video's.
 	UpdateAudioTrack(ctx context.Context, videoID, trackID uuid.UUID, u AudioTrackUpdate, rewrite MasterRewrite) (AudioTrack, error)
 	// DeleteAudioTrack deletes a track that is not UPLOADING (ErrAudioTrackUploading) the same way and returns
 	// the deleted row. ErrNotFound if the track is not the video's.

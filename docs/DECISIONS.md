@@ -1087,6 +1087,14 @@ Quyết định:
 
 Hai mẫu s11 và s12 có VMAF bất thường ở mọi setting, kể cả H.264. Đó là lỗi đo, sẽ sửa trong công cụ.
 
+**Bổ sung 2026-10-16 (pha 2, kiến trúc sư).** `av1-upgrade` và `hls_av1_url`:
+- **Migration 000024:** `media.videos.hls_av1_master_key` (null khi chưa có bộ AV1, CHECK phải nằm dưới `v/{id}/av1/`). Bộ AV1 là các dòng `codec='av1'` của `media.video_renditions` cộng khoá này. video-svc chỉ trả rendition AV1 khi có khoá, nên một bộ dở dang không bao giờ lộ ra.
+- **Layout:** `v/{id}/av1/{uuidv7}/` thay cho `hls-av1/` trong thiết kế. Thư mục nằm ngoài `a{n}/` (giống `audio/`), nên lần encode lại H.264 không xoá nó và không cần encode lại AV1 (cùng file gốc, cùng ladder).
+- **Chọn video:** `READY`, chưa có bộ AV1, tổng `starts` 7 ngày gần nhất trong `analytics.video_daily` ≥ `AV1_MIN_STARTS_7D` (mặc định 50), nhiều lượt nhất trước, tối đa `AV1_UPGRADE_LIMIT` (20) mỗi lần chạy, tuần tự từng video. Nguồn là file raw (`raw_bucket/raw_key`); ladder phải trùng tên với bộ H.264, nếu không thì bỏ qua video đó.
+- **Ghi:** upload hết rồi mới ghi DB trong một giao dịch giữ khoá dòng video: kiểm tra vẫn `READY`, thay các dòng `codec='av1'` (`bitrate_kbps` = trần AV1), áp nhóm âm thanh MUX1 vào master AV1, đặt `hls_av1_master_key`. Thua race thì xoá bộ vừa upload.
+- **Âm thanh (MUX1):** mọi thay đổi track âm thanh (transcoder `CompleteAudio`, video-svc PATCH/DELETE) ghi lại cả hai master trong cùng giao dịch.
+- **Cache playback:** không cần xoá riêng. Cache của video-svc hết hạn sau `CACHE_TTL`, và key master mới không trùng key cũ.
+
 ### ADR-042 — Track âm thanh và phụ đề tách riêng (MUX1, thiết kế)
 
 **Bối cảnh.** User muốn upload riêng phần video gốc, các track thuyết minh/lồng tiếng và phụ đề, để người xem đổi ngôn ngữ âm thanh và bật/tắt phụ đề ngay trong player. Phụ đề WebVTT theo từng ngôn ngữ đã có từ V5b (ADR-018). Track âm thanh riêng thì chưa có: hiện mỗi rendition HLS ghép sẵn một track âm thanh.

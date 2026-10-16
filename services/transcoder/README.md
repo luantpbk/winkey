@@ -240,3 +240,40 @@ A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDelive
 
 A video re-encode re-applies the audio group: `store.Complete` locks the row and, when the video has `READY` tracks, stores a rewritten copy of the new master as `hls_master_key`. **Apply migration 000023 before deploying this version**, because `Complete` reads `media.video_audio_tracks`.
 
+
+## AV1 upgrade (ENC2 phase 2, ADR-041)
+
+New videos are encoded in H.264 only. `av1-upgrade` (`cmd/av1-upgrade`, installed in both images) adds the separate AV1 set to the most watched `READY` videos, off-peak, one video at a time (the GPU is shared).
+
+1. **Select** `READY` videos with `hls_av1_master_key IS NULL` whose `analytics.video_daily.starts` over the last 7 days (today and the 6 days before, Asia/Ho_Chi_Minh) reach `AV1_MIN_STARTS_7D`, most starts first, at most `AV1_UPGRADE_LIMIT`.
+2. Download the raw source, probe it, and take the ladder `media.Select` gives. It must have exactly the rendition names of the video's H.264 set, otherwise the video fails (`step=ladder`) and nothing is encoded.
+3. Encode with `av1_nvenc` (`AV1_FFMPEG_PATH`, FFmpeg 8), CQ `AV1_CQ` (35) with a ceiling of `AV1_MAXRATE_PCT` (85 %) of each H.264 rung, and verify the output like the worker does.
+4. Upload to `v/{id}/av1/{uuidv7}/`: segments first, then the media playlists, the master last. The directory is outside `a{n}/`, so H.264 re-encodes keep it; deleting the video removes it with the rest of `v/{id}/`.
+5. `CommitAV1`, one transaction under the video row lock: the video must still be `READY`, the `codec='av1'` rows of `media.video_renditions` are replaced (`bitrate_kbps` = the AV1 ceiling), the audio group of the `READY` audio tracks is applied to the AV1 master (a new `master-{uuidv7}.m3u8` next to it, MUX1), and `hls_av1_master_key` is set. Lost race (deleted or re-encoding) or failure: the uploaded set is deleted. A set it replaced is deleted after the commit.
+
+From then on every audio-track change (`CompleteAudio` here, PATCH/DELETE in video-svc) rewrites both masters in the same transaction. video-svc returns the set as `Playback.hls_av1_url`. **Apply migration 000024 before deploying this version**, because `CompleteAudio` reads `hls_av1_master_key`.
+
+Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected= done= failed= lost_race= [would_do= dry_run=true] duration=`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | required | PostgreSQL, role `media_svc` |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_MEDIA_BUCKET` | as the worker | the raw bucket comes from each video row |
+| `AV1_FFMPEG_PATH` | required | FFmpeg 8 with a working `av1_nvenc` (`/opt/ffmpeg-8/bin/ffmpeg` on gpu-01, BtbN `n8.0.1-66`); `FFMPEG_PATH` is not used |
+| `FFPROBE_PATH` | required | any ffprobe |
+| `HWACCEL_DECODE` | `true` | as the worker; `false` decodes on the CPU |
+| `AV1_MIN_STARTS_7D` | `50` | playback starts over 7 days, at least 1 |
+| `AV1_UPGRADE_LIMIT` | `20` | videos per run, 1 to 1000 |
+| `AV1_CQ` | `35` (`media.DefaultAV1CQ`) | 1 to 63 |
+| `AV1_MAXRATE_PCT` | `85` (`media.DefaultAV1MaxratePct`) | 10 to 100 |
+| `SCRATCH_DIR` | `<os temp>/winkey-scratch` | one `av1-<video id>-*` directory per video, removed afterwards |
+| `LOG_LEVEL` | `info` | JSON logs |
+
+```bash
+# gpu-01: FFmpeg 8 is mounted read-only from the host
+docker run --rm --gpus all --env-file /etc/winkey/transcoder.env \
+  -v /opt/ffmpeg-8:/opt/ffmpeg-8:ro -e AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg \
+  --entrypoint /usr/local/bin/av1-upgrade <transcoder-nvenc image> -dry-run
+```
+
+Tests: `internal/av1up` runs the real ffmpeg with x264 in place of `av1_nvenc` (CI has no GPU) and checks the ladder, layout, upload order, ceilings, audio group, races and cleanup; `internal/store` checks the selection window, the commit and the double rewrite on Postgres.

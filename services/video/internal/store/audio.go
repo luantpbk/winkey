@@ -115,8 +115,9 @@ func (p *Postgres) changeAudio(ctx context.Context, videoID, trackID uuid.UUID, 
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	var master *string
-	err = tx.QueryRow(ctx, `SELECT hls_master_key FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).Scan(&master)
+	var master, av1Master *string
+	err = tx.QueryRow(ctx, `SELECT hls_master_key, hls_av1_master_key FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
+		Scan(&master, &av1Master)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.AudioTrack{}, domain.ErrNotFound
 	}
@@ -149,6 +150,16 @@ func (p *Postgres) changeAudio(ctx context.Context, videoID, trackID uuid.UUID, 
 		}
 		if _, err := tx.Exec(ctx, `UPDATE media.videos SET hls_master_key = $2 WHERE id = $1`, videoID, newKey); err != nil {
 			return domain.AudioTrack{}, fmt.Errorf("store master key: %w", err)
+		}
+		// The separate AV1 set (ENC2, ADR-041) carries the same audio group.
+		if av1Master != nil {
+			av1Key, err := rewrite(ctx, videoID, *av1Master, readyAfter)
+			if err != nil {
+				return domain.AudioTrack{}, fmt.Errorf("rewrite av1 master: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE media.videos SET hls_av1_master_key = $2 WHERE id = $1`, videoID, av1Key); err != nil {
+				return domain.AudioTrack{}, fmt.Errorf("store av1 master key: %w", err)
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

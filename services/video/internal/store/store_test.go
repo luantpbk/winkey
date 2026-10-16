@@ -33,9 +33,9 @@ func TestGetVideo(t *testing.T) {
 	proc := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID, Status: "PROCESSING", Visibility: "PRIVATE"})
 	orphan := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: ghost.ID})
 
-	// An AV1 set (ENC2, ADR-041) is not part of the H.264 playback renditions.
+	// AV1 rows without a committed AV1 set (ENC2, ADR-041) are not part of the playback renditions.
 	if _, err := pg.Pool.Exec(ctx, `INSERT INTO media.video_renditions (video_id, codec, name, width, height, bitrate_kbps, playlist_key)
-		VALUES ($1, 'av1', '1080p', 1920, 1080, 3000, 'v/x/hls-av1/1080p/index.m3u8')`, ready.ID); err != nil {
+		VALUES ($1, 'av1', '1080p', 1920, 1080, 3000, 'v/x/av1/r1/1080p/index.m3u8')`, ready.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -60,6 +60,19 @@ func TestGetVideo(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "1080p,720p,480p" { // highest first, whatever the insert order
 		t.Fatalf("renditions %v", names)
+	}
+	if v.HLSAV1MasterKey != nil {
+		t.Fatalf("av1 master %v", *v.HLSAV1MasterKey)
+	}
+	// With a committed AV1 set: its key, and its renditions after the H.264 ones.
+	av1Key := "v/" + ready.ID.String() + "/av1/r1/master.m3u8"
+	if _, err := pg.Pool.Exec(ctx, `UPDATE media.videos SET hls_av1_master_key = $2 WHERE id = $1`, ready.ID, av1Key); err != nil {
+		t.Fatal(err)
+	}
+	v, err = st.GetVideo(ctx, ready.ID)
+	if err != nil || v.HLSAV1MasterKey == nil || *v.HLSAV1MasterKey != av1Key || len(v.Renditions) != 4 ||
+		v.Renditions[2].Codec != "h264" || v.Renditions[3].Codec != "av1" || v.Renditions[3].Name != "1080p" {
+		t.Fatalf("with av1: %+v %v", v.Renditions, err)
 	}
 
 	p, err := st.GetVideo(ctx, proc.ID)
