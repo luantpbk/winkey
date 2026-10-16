@@ -31,7 +31,7 @@ var _ domain.Store = (*Postgres)(nil)
 const videoSelect = `
 	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.tag_slugs, v.visibility::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
-	       v.hls_master_key, v.thumbnail_key, v.storyboard_key,
+	       v.hls_master_key, v.thumbnail_key, v.storyboard_key, v.hls_av1_master_key,
 	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
 	       v.moderation_state::text, v.moderation_reason, v.moderated_by, v.moderated_at
 	FROM media.videos v
@@ -42,7 +42,7 @@ func scanVideo(row pgx.Row) (domain.Video, error) {
 	var ownerActive bool
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.TagSlugs, &v.Visibility, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
-		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey,
+		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey, &v.HLSAV1MasterKey,
 		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
 		&v.ModerationState, &v.ModerationReason, &v.ModeratedBy, &v.ModeratedAt)
 	v.Owner.ID = v.OwnerID
@@ -131,7 +131,8 @@ func (p *Postgres) loadRenditions(ctx context.Context, v *domain.Video) error {
 	}
 	rows, err := p.Pool.Query(ctx, `
 		SELECT name, width, height, bitrate_kbps, codec FROM media.video_renditions
-		WHERE video_id = $1 AND codec = 'h264' ORDER BY height DESC, width DESC, name`, v.ID)
+		WHERE video_id = $1 AND (codec = 'h264' OR ($2 AND codec = 'av1'))
+		ORDER BY codec = 'av1', height DESC, width DESC, name`, v.ID, v.HLSAV1MasterKey != nil)
 	if err != nil {
 		return fmt.Errorf("load renditions: %w", err)
 	}

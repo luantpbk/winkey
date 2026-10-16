@@ -337,3 +337,53 @@ func TestPlaybackStoryboardURL(t *testing.T) {
 		}
 	}
 }
+
+func withAV1(v *domain.Video) {
+	key := "v/" + v.ID.String() + "/av1/r1/master.m3u8"
+	v.HLSAV1MasterKey = &key
+	v.Renditions = append(v.Renditions, domain.Rendition{Name: "1080p", Width: 1920, Height: 1080, BitrateKbps: 4505, Codec: "av1"})
+}
+
+// ENC2 (ADR-041): playback.hls_av1_url is signed exactly like hls_url, null when the video has no AV1 set, and
+// the AV1 renditions are listed with codec av1.
+func TestPlaybackAV1URL(t *testing.T) {
+	e := newEnv(t, false)
+	pub := e.video(alice, withAV1)
+	private := e.video(alice, visibility(domain.VisPrivate), withAV1)
+	none := e.video(alice)
+	noneSigned := e.video(alice, visibility(domain.VisPrivate))
+	exp := testNow.Add(mediaLinkTTL)
+
+	body := func(u *who, v domain.Video) (videoJSON, string) {
+		w := e.req(u, "GET", "/v1/videos/"+v.ID.String(), "")
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+		return decode[videoJSON](t, w), w.Body.String()
+	}
+
+	out, _ := body(anon, pub)
+	if out.Playback.HLSAV1URL == nil || *out.Playback.HLSAV1URL != mediaBase+"/"+*pub.HLSAV1MasterKey {
+		t.Fatalf("public: %v", out.Playback.HLSAV1URL)
+	}
+	last := out.Playback.Renditions[len(out.Playback.Renditions)-1]
+	if last.Codec != "av1" || last.Name != "1080p" || out.Playback.Renditions[0].Codec != "h264" {
+		t.Fatalf("renditions %+v", out.Playback.Renditions)
+	}
+
+	out, _ = body(alice, private)
+	want := signMediaURL(mediaBase, []byte(testLinkSecret), private.ID, *private.HLSAV1MasterKey, exp.Unix())
+	if out.Playback.HLSAV1URL == nil || *out.Playback.HLSAV1URL != want {
+		t.Fatalf("private: %v, want %s", out.Playback.HLSAV1URL, want)
+	}
+
+	for name, c := range map[string]struct {
+		u *who
+		v domain.Video
+	}{"public without av1": {anon, none}, "private without av1": {alice, noneSigned}} {
+		out, raw := body(c.u, c.v)
+		if out.Playback.HLSAV1URL != nil || !strings.Contains(raw, `"hls_av1_url":null`) {
+			t.Errorf("%s: %v in %s", name, out.Playback.HLSAV1URL, raw)
+		}
+	}
+}

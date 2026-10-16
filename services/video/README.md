@@ -390,6 +390,11 @@ Extra audio tracks (dub, voice-over, commentary) are uploaded through upload-svc
 - **Playback.** `Playback.audio_tracks` is always present. It is empty when no track is `READY`. Otherwise it lists, in master order: the variants' muxed original first (`id` = the video id, `lang` = `und`, label `Âm thanh gốc`, kind `original`; an uploaded track of kind `original` replaces it), then the `READY` tracks by `lang` then `kind`. Exactly one entry has `is_default`. The list comes from `libs/go/hlsmaster.Group`, the same function that writes the master, so the menu and the manifest cannot disagree. `GetVideo` reads the `READY` tracks of a `READY` video with one query.
 - **Master rewrite.** A PATCH or DELETE runs in one transaction that locks the video row (`FOR UPDATE`; the transcoder takes the same lock when a track becomes `READY`). If the video has `READY` tracks before or after the change, video-svc reads the current master from `S3_MEDIA_BUCKET`, replaces its audio group (`hlsmaster.With`), uploads it under a **new** key next to it (`…/hls/master-{uuidv7}.m3u8`, immutable), and stores that key as `hls_master_key` in the same transaction. A failed read or upload rolls everything back (`500`). Old masters stay in place, because players and caches may still hold them.
 - **Delete** removes the track's directory (`v/{id}/audio/{track_id}/`) after the commit, best effort. Only prefixes inside the video's own `v/{id}/` are ever deleted.
+- **AV1 set (ENC2).** When the video has `hls_av1_master_key`, the same transaction rewrites that master too and stores its new key; either failure rolls both back.
+
+## AV1 set (ENC2, ADR-041)
+
+`playback.hls_av1_url` is the media URL of `media.videos.hls_av1_master_key` (written by the transcoder's `av1-upgrade`, migration 000024): plain for a publicly watchable video, **signed exactly like `hls_url`** (same function, same `expires_at`) otherwise, and `null` when the video has no AV1 set. `playback.renditions` then also lists the `codec='av1'` rows after the H.264 ones; `codec='av1'` rows of a video without the key are never returned. No extra query: the key comes with the video row and the renditions with the same rendition query.
 
 ## Configuration
 
