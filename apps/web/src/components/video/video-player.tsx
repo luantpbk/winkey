@@ -1026,8 +1026,8 @@ export function VideoPlayer({
                 />
               )}
 
-              {/* Audio Menu (hidden when audioTracksList is empty) */}
-              {audioTracksList.length > 0 && (
+              {/* Audio Menu (only shown when there are 2 or more audio tracks) */}
+              {audioTracksList.length >= 2 && (
                 <AudioMenu
                   tracks={audioTracksList}
                   selectedIndex={currentAudioIndex}
