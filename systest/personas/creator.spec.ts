@@ -151,7 +151,14 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
     // Find a video in studio
     await page.goto('/studio');
     await expect(page.locator('body')).toBeVisible();
-    if (page.url().includes('/login')) {
+    const isLoggedOut =
+      page.url().includes('/login') ||
+      (await page
+        .locator('header a[href*="/login"], a[href*="/login"]')
+        .first()
+        .isVisible()
+        .catch(() => false));
+    if (isLoggedOut) {
       await ensureCreatorLoggedIn();
       await page.goto('/studio');
     }
@@ -193,9 +200,17 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
       }
     }
 
-    // Save changes
+    // Save changes: wait for PATCH 200 before asserting UI
+    const patchResponsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/v1/videos/${videoId}`) && res.request().method() === 'PATCH',
+      { timeout: 15000 },
+    );
+
     const saveBtn = page.locator('[data-testid="save-video-changes-btn"]').first();
     await saveBtn.click();
+
+    const patchRes = await patchResponsePromise;
+    expect(patchRes.status()).toBe(200);
 
     await expect(
       page.getByText(/Đã lưu thay đổi thành công|Đã lưu|Thành công/).first(),
@@ -227,7 +242,14 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
   test('/thu-vien: create "Bộ phim", add 3 videos, publish -> shows on home "Phim bộ" and series page', async () => {
     await page.goto('/thu-vien');
     await expect(page.locator('body')).toBeVisible();
-    if (page.url().includes('/login')) {
+    const isLoggedOutInLibrary =
+      page.url().includes('/login') ||
+      (await page
+        .locator('header a[href*="/login"], a[href*="/login"]')
+        .first()
+        .isVisible()
+        .catch(() => false));
+    if (isLoggedOutInLibrary) {
       await ensureCreatorLoggedIn();
       await page.goto('/thu-vien');
     }
