@@ -405,6 +405,9 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 		return Stats{}, err
 	}
 
+	if err := NormalizeMaster(filepath.Join(hlsDir, media.MasterPlaylist)); err != nil {
+		return Stats{}, &EncoderError{Op: "normalize master", Err: err}
+	}
 	if err := media.VerifyOutput(hlsDir, rs); err != nil {
 		return Stats{}, &EncoderError{Op: "verify output", Err: err}
 	}

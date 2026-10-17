@@ -67,14 +67,18 @@ func TestHLSOutputWithRealFFmpeg(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// ffprobe reads every variant playlist and finds video + audio.
+			// ffprobe reads every variant playlist (video only) and the audio rendition (ADR-042 addendum).
+			if ai, err := tools.ProbeAudio(ctx, filepath.Join(out, media.AudioRendition, "index.m3u8")); err != nil ||
+				ai.Codec != "aac" || ai.Channels != 2 || ai.SampleRate != 48000 {
+				t.Errorf("audio rendition (also for silent sources): %+v %v", ai, err)
+			}
 			for _, r := range rs {
 				vi, err := tools.Probe(ctx, filepath.Join(out, r.Name, "index.m3u8"))
 				if err != nil {
 					t.Fatalf("ffprobe %s: %v", r.Name, err)
 				}
-				if vi.DisplayW != r.Width || vi.DisplayH != r.Height || !vi.HasAudio {
-					t.Errorf("%s: %+v, want %dx%d with audio (also for silent sources)", r.Name, vi, r.Width, r.Height)
+				if vi.DisplayW != r.Width || vi.DisplayH != r.Height || vi.HasAudio {
+					t.Errorf("%s: %+v, want %dx%d without audio", r.Name, vi, r.Width, r.Height)
 				}
 				if vi.PixFmt != "yuv420p" {
 					t.Errorf("%s: pix_fmt %s", r.Name, vi.PixFmt)

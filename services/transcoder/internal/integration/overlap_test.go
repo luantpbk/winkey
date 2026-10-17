@@ -110,6 +110,9 @@ func preOverlapOutput(t *testing.T, tools job.Tools, clip string) string {
 	if err := deterministicEncode(ctx, tools, plan, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := job.NormalizeMaster(filepath.Join(hls, media.MasterPlaylist)); err != nil { // as the pipeline does
+		t.Fatal(err)
+	}
 	if err := media.VerifyOutput(hls, rs); err != nil {
 		t.Fatal(err)
 	}

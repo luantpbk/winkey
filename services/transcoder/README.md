@@ -228,6 +228,24 @@ docker buildx build --platform linux/amd64,linux/arm64 -f services/transcoder/Do
 
 `transcoder-nvenc` needs `--gpus all` (NVIDIA Container Toolkit) and sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` (without `video`, NVENC is invisible in the container). Both run as non-root.
 
+## HLS layout (ADR-042 addendum 2026-10-17)
+
+Every encode (H.264 worker and `av1-upgrade`) writes **video-only variants** and one **original-audio rendition** in `audio/` next to the master (AAC-LC 128 kb/s, 48 kHz, stereo; a silent source gets `anullsrc`). FFmpeg's master is normalised by `job.NormalizeMaster` (`libs/go/hlsmaster.With` with no track):
+- the `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud"` group lists the original first with `URI="audio/index.m3u8"`;
+- every `#EXT-X-STREAM-INF` names the group;
+- FFmpeg's audio-only rung is dropped from the ladder.
+
+`media.VerifyOutput` requires the audio rendition. Extra tracks are added to the same group. hls.js cannot switch between audio muxed into the variants and an alternate rendition, which is why the variants carry no audio.
+
+### Re-encoding videos with the legacy layout (`cmd/reencode`)
+
+Videos encoded before this change have muxed variants. Extra audio tracks do not play on them in hls.js. `reencode` runs the worker's own pipeline in process, one video at a time:
+1. It selects the READY videos whose master has no `audio/index.m3u8` (or `-ids a,b` with `-force`).
+2. In one transaction it sets the video to `PROCESSING` and drops its AV1 set (`codec='av1'` rows and `hls_av1_master_key`; the objects are deleted after success).
+3. It encodes from the raw source into a new attempt, which deletes the old ones. The READY audio tracks are re-applied by `store.Complete`.
+
+It uses the worker's env file and needs no NATS: the running worker's outbox relay publishes `video.ready`. Transient failures are retried 3 times; a permanent one leaves the video `FAILED` like a normal job. Afterwards, run `av1-upgrade` to rebuild the AV1 sets. On gpu-01, see `deploy/gpu-01/README.md` section 10.
+
 ## Audio tracks (MUX1, ADR-042)
 
 A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDeliver` unlimited, bounded by the job at 200 deliveries), encodes extra audio tracks on their own. The video is never re-encoded.

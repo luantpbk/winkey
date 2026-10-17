@@ -12,7 +12,8 @@ RUN cd services/transcoder && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/transcoder ./cmd/transcoder \
  && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/replay-dlq ./cmd/replay-dlq \
  &&CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/storyboard-backfill ./cmd/storyboard-backfill \
- &&CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/av1-upgrade ./cmd/av1-upgrade
+ &&CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/av1-upgrade ./cmd/av1-upgrade \
+ &&CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/reencode ./cmd/reencode
 
 # FFmpeg pinned to a dated BtbN FFmpeg-Builds release (static GPL, libx264), the same build
 # as Dockerfile.nvenc: FFmpeg n7.1.5-12-g1fdbca85aa, release autobuild-2026-07-31-14-10
@@ -42,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && useradd --system --uid 10001 --create-home --home-dir /home/transcoder transcoder \
  && mkdir -p /scratch /archive && chown transcoder /scratch /archive
 COPY --from=ffmpeg /ffmpeg/ffmpeg /ffmpeg/ffprobe /usr/local/bin/
-COPY --from=build /out/transcoder /out/replay-dlq /out/storyboard-backfill /out/av1-upgrade /usr/local/bin/
+COPY --from=build /out/transcoder /out/replay-dlq /out/storyboard-backfill /out/av1-upgrade /out/reencode /usr/local/bin/
 ENV ENCODER=x264 \
     SCRATCH_DIR=/scratch \
     FFMPEG_PATH=/usr/local/bin/ffmpeg \

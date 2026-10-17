@@ -9,7 +9,7 @@
 # This script never calls sudo and never touches the miner or ComfyUI. Everything it does runs as
 # the invoking user inside $PREFIX. Steps that need root are PRINTED for a human to run.
 #
-# Layout:  $PREFIX/<git-sha>/transcoder (+ replay-dlq, av1-upgrade, VERSION)   one directory per version
+# Layout:  $PREFIX/<git-sha>/transcoder (+ replay-dlq, av1-upgrade, reencode, VERSION)   one directory per version
 #          $PREFIX/current  -> <git-sha>                           what the service runs
 #          $PREFIX/previous -> <git-sha>                           what `rollback` returns to
 #
@@ -114,6 +114,7 @@ build_version() {
     "$go_cmd" build -trimpath -ldflags="-s -w" -o "${tmp}/transcoder" ./cmd/transcoder
     "$go_cmd" build -trimpath -ldflags="-s -w" -o "${tmp}/replay-dlq" ./cmd/replay-dlq
     "$go_cmd" build -trimpath -ldflags="-s -w" -o "${tmp}/av1-upgrade" ./cmd/av1-upgrade
+    "$go_cmd" build -trimpath -ldflags="-s -w" -o "${tmp}/reencode" ./cmd/reencode
   ) || {
     rm -rf "$tmp"
     die "build failed"
@@ -134,7 +135,7 @@ build_version() {
     printf 'built_by=%s\n' "$(id -un)"
     printf 'commit=%s\n' "$(git -C "$MODULE_DIR" rev-parse HEAD)"
   } >"${tmp}/VERSION"
-  chmod 0755 "${tmp}/transcoder" "${tmp}/replay-dlq" "${tmp}/av1-upgrade"
+  chmod 0755 "${tmp}/transcoder" "${tmp}/replay-dlq" "${tmp}/av1-upgrade" "${tmp}/reencode"
   rm -rf "$dest"
   mv -T "$tmp" "$dest"
   info "installed ${dest}"

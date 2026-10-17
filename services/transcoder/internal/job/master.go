@@ -9,10 +9,27 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/luantpbk/winkey/libs/go/hlsmaster"
+	"github.com/luantpbk/winkey/services/transcoder/internal/media"
 )
 
 // CacheImmutable is the Cache-Control of every media object: keys are never reused.
 const CacheImmutable = cacheControlValue
+
+// NormalizeMaster rewrites the master FFmpeg left at local into the ADR-042 layout (hlsmaster.With with no
+// extra track): the "aud" group with the original audio rendition and its URI, without FFmpeg's audio-only
+// rung in the ladder.
+func NormalizeMaster(local string) error {
+	data, err := os.ReadFile(local) // #nosec G304 -- a file this process just wrote in its scratch dir
+	if err != nil {
+		return err
+	}
+	const key = "out/" + media.MasterPlaylist // any key: same directory in and out
+	out, err := hlsmaster.With(data, key, key, hlsmaster.OriginalLabel, nil)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(local, out, 0o600)
+}
 
 // RewriteMaster downloads masterKey into dir, rewrites its audio group for ready (task MUX1) and uploads
 // the result under hlsmaster.NewKey. The audio job uses it.

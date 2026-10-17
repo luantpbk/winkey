@@ -1146,3 +1146,29 @@ Hai mẫu s11 và s12 có VMAF bất thường ở mọi setting, kể cả H.26
 - **Một chỗ ghi master: `libs/go/hlsmaster`.** Ba nơi gọi nó: transcoder khi track `READY`, transcoder khi encode lại video có track `READY` (`store.Complete`), và video-svc khi đổi tên, đổi mặc định hoặc xoá track. Cả ba đều chạy trong transaction giữ khoá dòng `media.videos` (`FOR UPDATE`), nên không ghi đè lẫn nhau. Master mới luôn có key mới, cạnh master cũ (`…/hls/master-{uuid}.m3u8`), vì master được cache immutable.
 - Track lệch thời lượng quá ±100 ms so với video thì `FAILED` với `AUDIO_DURATION_MISMATCH`. Track upload khi video chưa `READY` sẽ chờ (job trả về và thử lại sau 2 phút, tối đa khoảng 6 giờ). Một lần upload track được tính vào quota upload như một video (chiếm một slot đồng thời và có một dòng trong ledger).
 - **Thứ tự triển khai:** migration 000023 phải được áp dụng ở production **trước** khi deploy transcoder, video-svc và upload-svc mới, vì `store.Complete` của transcoder đọc `media.video_audio_tracks`.
+
+**Addendum 2026-10-17 (sửa layout, kiến trúc sư). Thay gạch đầu tiên của addendum 2026-10-14.**
+
+*Bối cảnh.* Video đầu tiên có track thuyết minh thật trên production hiện menu tai nghe, nhưng player báo không phát được.
+
+Kiến trúc sư tái hiện lỗi trên Chromium với hls.js 1.7.3 (bản web đang dùng): hls.js **không chuyển được giữa âm thanh muxed trong variant và một audio rendition riêng**.
+- Track phụ là mặc định: lỗi fatal `bufferAppendError: Attempting to append to the audio SourceBuffer, but it does not exist`.
+- Âm thanh gốc là mặc định: phát được, nhưng đổi sang thuyết minh thì lỗi fatal.
+- Thêm URI cho âm thanh gốc mà variant vẫn muxed: vẫn lỗi.
+- Variant chỉ có hình, còn mọi âm thanh (kể cả gốc) là rendition riêng có URI: phát được, đổi qua lại đều được.
+
+*Quyết định.* Quay về đúng thiết kế ban đầu của ADR-042:
+- **Variant chỉ có hình.** Âm thanh gốc là rendition riêng `audio/` cạnh master (AAC-LC 128 kb/s, 48 kHz, stereo; nguồn không có tiếng thì dùng `anullsrc` như trước). Master luôn có nhóm `GROUP-ID="aud"`: âm thanh gốc đứng đầu với `URI="audio/index.m3u8"`, sau đó là các track `READY`.
+- Không có track nào thì nhóm vẫn còn, chỉ gồm âm thanh gốc (`DEFAULT=YES`). `Playback.audio_tracks` vẫn rỗng khi không có track `READY` (giữ nguyên contract).
+- FFmpeg ghi thêm một rung chỉ có âm thanh vào ladder. `hlsmaster.With` bỏ rung này đi để player không chọn phát chỉ âm thanh.
+- `libs/go/hlsmaster` vẫn là chỗ duy nhất ghi master. Master cũ (muxed, không có `audio/index.m3u8`) vẫn được ghi theo cách cũ, nhưng những video đó phải được encode lại trước khi có track.
+- **Video đã có:** lệnh `reencode` (`services/transcoder/cmd/reencode`) chạy pipeline của worker để encode lại các video `READY` còn master cũ. Lệnh bỏ bộ AV1 cũ; `av1-upgrade` dựng lại bộ AV1 theo layout mới. Bộ AV1 cũng có rendition `audio/` riêng.
+
+*Hệ quả.* Mỗi video thêm một rendition âm thanh khoảng 1 MB/phút. Variant không còn chứa âm thanh nên tổng dung lượng gần như không đổi.
+
+**Thứ tự triển khai:**
+1. Deploy transcoder (worker, `av1-upgrade`, `reencode`) và video-svc cùng bản.
+2. Chạy `reencode`.
+3. Chạy `av1-upgrade`.
+
+Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa chọn (Antigravity 1), vì giờ mọi master đều có một rendition âm thanh.

@@ -45,6 +45,9 @@ func ParseMaster(text string) []Variant {
 				break
 			}
 		}
+		if v.URI == AudioRendition+"/index.m3u8" {
+			continue // FFmpeg's audio-only rung for the original audio rendition: not a video variant
+		}
 		out = append(out, v)
 	}
 	return out
@@ -61,10 +64,20 @@ var (
 //
 // ffmpeg appends the variant index/name to -hls_fmp4_init_filename (e.g.
 // init_0.mp4), so the init file is located through #EXT-X-MAP, not by name.
+//
+// The variants carry no audio (ADR-042 addendum 2026-10-17): the master must
+// reference the original audio rendition in AudioRendition, which is checked
+// like a variant.
 func VerifyOutput(dir string, rs []Rendition) error {
 	raw, err := os.ReadFile(filepath.Join(dir, MasterPlaylist)) // #nosec G304 -- fixed playlist name inside worker-generated local output.
 	if err != nil {
 		return fmt.Errorf("master playlist missing: %w", err)
+	}
+	if !strings.Contains(string(raw), `URI="`+AudioRendition+`/index.m3u8"`) {
+		return fmt.Errorf("master has no audio rendition %s/index.m3u8", AudioRendition)
+	}
+	if err := verifyVariant(filepath.Join(dir, AudioRendition)); err != nil {
+		return fmt.Errorf("audio rendition: %w", err)
 	}
 	vars := ParseMaster(string(raw))
 	if len(vars) != len(rs) {

@@ -1,10 +1,15 @@
 // Package hlsmaster rewrites the alternate audio group of an HLS master playlist (task MUX1, ADR-042).
 //
-// The video variants written by the transcoder keep their muxed original audio. When a video has extra
-// audio tracks that are READY, the master gets one `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud"` group: the
-// original first, WITHOUT a URI (its audio is in the variants, RFC 8216 §4.3.4.1), then one rendition per
-// extra track pointing at that track's own playlist, and every `#EXT-X-STREAM-INF` names the group. With
-// no extra track the group is removed, so the master is the plain one again.
+// Layout (ADR-042 addendum 2026-10-17): the video variants carry no audio. The original audio is its own
+// rendition at OriginalAudioURI next to the master, and the master has one
+// `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud"` group: the original first (with that URI), then one rendition per
+// extra READY track pointing at that track's own playlist; every `#EXT-X-STREAM-INF` names the group. The
+// group stays with the original alone when there is no extra track. FFmpeg's audio-only variant for the
+// original is dropped from the ladder.
+//
+// Legacy masters (variants with muxed audio, no OriginalAudioURI) keep the old behaviour: the original has
+// no URI and the group is removed when there is no track. hls.js cannot switch between muxed and alternate
+// audio, so such videos are re-encoded (cmd/reencode) before they get tracks.
 //
 // The transcoder (a track becomes READY) and video-svc (a track is renamed, made default or deleted) both
 // call With, each under a row lock on the video, and store the result under a NEW key next to the old
@@ -31,6 +36,9 @@ const ContentType = "application/vnd.apple.mpegurl"
 // MaxSize bounds a master read back from the bucket (a few variants and at most 9 renditions).
 const MaxSize = 64 << 10
 
+// OriginalAudioURI is the media playlist of the original audio rendition, relative to the master.
+const OriginalAudioURI = "audio/index.m3u8"
+
 // NewKey is the key of a rewritten master next to masterKey; id is a fresh UUIDv7.
 func NewKey(masterKey, id string) string {
 	return path.Dir(masterKey) + "/master-" + id + ".m3u8"
@@ -50,7 +58,8 @@ type Track struct {
 	PlaylistKey string // object key of the track's media playlist
 }
 
-// Rendition is one entry of the audio group in master order; Original is true for the muxed audio.
+// Rendition is one entry of the audio group in master order; Original is true for the video's own audio
+// (a rendition at OriginalAudioURI, or muxed into the variants of a legacy master).
 type Rendition struct {
 	Track
 	Original bool
@@ -112,21 +121,32 @@ func With(master []byte, masterKey, newKey, originalLabel string, tracks []Track
 	if !strings.HasPrefix(text, "#EXTM3U") {
 		return nil, errors.New("hlsmaster: not a playlist (no #EXTM3U)")
 	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	separate := hasOriginalAudio(lines)
 	group := Group(originalLabel, tracks)
+	if separate && len(group) == 0 {
+		// Video-only variants always need the original in the group.
+		group = []Rendition{{Original: true, Track: Track{Lang: OriginalLang, Label: originalLabel, Kind: "original", Default: true}}}
+	}
 	dir := path.Dir(newKey)
 
 	var out []string
 	variants := 0
 	inserted := false
-	for _, l := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
 		if audioMediaRe.MatchString(l) {
 			continue // the old group; the new one is written before the first variant
 		}
 		if strings.HasPrefix(l, "#EXT-X-STREAM-INF:") {
+			if j := nextURI(lines, i); j > 0 && strings.TrimSpace(lines[j]) == OriginalAudioURI {
+				i = j // FFmpeg's audio-only variant: the original is a rendition, not a ladder rung
+				continue
+			}
 			variants++
 			if !inserted {
 				for _, r := range group {
-					line, err := mediaLine(r, dir)
+					line, err := mediaLine(r, dir, separate)
 					if err != nil {
 						return nil, err
 					}
@@ -144,10 +164,40 @@ func With(master []byte, masterKey, newKey, originalLabel string, tracks []Track
 	if variants == 0 {
 		return nil, errors.New("hlsmaster: no #EXT-X-STREAM-INF in master")
 	}
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1] // left behind by a dropped audio-only variant
+	}
 	return []byte(strings.Join(out, "\n") + "\n"), nil
 }
 
-func mediaLine(r Rendition, dir string) (string, error) {
+// hasOriginalAudio reports whether the master references the original audio rendition (a video-only
+// ladder written by the current transcoder, or a master this package already rewrote).
+func hasOriginalAudio(lines []string) bool {
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == OriginalAudioURI || (audioMediaRe.MatchString(l) && strings.Contains(l, `URI="`+OriginalAudioURI+`"`)) {
+			return true
+		}
+	}
+	return false
+}
+
+// nextURI is the index of the URI line that follows the tag at i, or -1.
+func nextURI(lines []string, i int) int {
+	for j := i + 1; j < len(lines); j++ {
+		l := strings.TrimSpace(lines[j])
+		if l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "#") {
+			return -1
+		}
+		return j
+	}
+	return -1
+}
+
+func mediaLine(r Rendition, dir string, separate bool) (string, error) {
 	var b strings.Builder
 	b.WriteString(`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="` + GroupID + `"`)
 	if r.Lang != OriginalLang {
@@ -159,7 +209,10 @@ func mediaLine(r Rendition, dir string) (string, error) {
 	} else {
 		b.WriteString(`,DEFAULT=NO,AUTOSELECT=YES`)
 	}
-	if !r.Original {
+	switch {
+	case r.Original && separate:
+		b.WriteString(`,URI="` + OriginalAudioURI + `"`)
+	case !r.Original:
 		rel, err := relative(dir, r.PlaylistKey)
 		if err != nil {
 			return "", err
