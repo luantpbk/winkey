@@ -200,6 +200,33 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
   - Ticket không mang `sid`, nên đăng xuất một phiên (khóa `sid`) không cắt WebSocket. Chỉ khóa tài khoản, đổi role và xóa tài khoản mới cắt.
   - Valkey lỗi thì bỏ qua lượt kiểm tra đó (fail-open, có metric).
 
+**Bổ sung 2026-10-17 (thời gian ân hạn khi refresh, kiến trúc sư).**
+
+*Bối cảnh.* Sim (#377) cho thấy người dùng bị đăng xuất ngang trong một phiên trình duyệt bình thường. Client chỉ gửi một refresh mỗi lúc (single-flight, Web Locks), nhưng nếu trang chuyển hoặc reload khi `POST /v1/auth/refresh` chưa xong thì trình duyệt bỏ response. auth-svc đã xoay token, nhưng cookie chứa token con không bao giờ được lưu. Lần tải trang sau gửi lại token cũ, auth-svc coi là dùng lại, thu hồi cả family, và người dùng bị `401` ở mọi nơi.
+
+*Quyết định.* Token cha `T` có `rotated_at` khác null được coi là **thử lại hợp lệ** (không phải dùng lại) khi thoả cả ba điều kiện:
+1. `now() - T.rotated_at <= REFRESH_REUSE_GRACE` (mặc định **30 s**, tối đa 60 s, biến môi trường của auth-svc);
+2. **mọi** token con của `T` (`parent_id = T.id`) đều chưa được dùng: `rotated_at IS NULL` và `revoked_at IS NULL`;
+3. `T` chưa hết hạn và chưa bị thu hồi (đã kiểm sẵn).
+
+Khi đó, trong cùng giao dịch đang giữ khoá dòng của `T` (`FOR UPDATE`): đặt `revoked_at = now()` cho các token con chưa dùng, rồi cấp một token con mới cho `T` (cùng family, `parent_id = T.id`) và trả về như một lần refresh thường. Log ở mức `info` với `refresh retry within grace`, kèm `family_id` và `token_id` (không log token), và tăng metric `auth_refresh_total{result="grace_retry"}`.
+
+Ngoài cửa sổ ân hạn, hoặc khi đã có một token con được dùng (hai người cùng giữ token, dấu hiệu bị lộ), thì giữ nguyên hành vi cũ: thu hồi cả family và ghi khoá `sid` vào Valkey.
+
+*Đồng thời.* Một lần dùng token con hợp lệ cũng `SELECT … FOR UPDATE` dòng con. Thao tác revoke ở trên cũng lấy khoá dòng đó, nên hai việc luôn chạy tuần tự:
+- con được xoay trước: điều kiện 2 sai, coi là dùng lại;
+- con bị revoke trước: lần dùng con trả `401`, đúng vì đó là token chưa ai nhận.
+
+Không cần migration, vì `parent_id` đã có.
+
+*Hệ quả.* Kẻ trộm cầm token cha trong ≤ 30 s mà token con chưa ai dùng sẽ được cấp phiên. Rủi ro này tương đương việc trộm được token con, và là đánh đổi phổ biến (thời gian ân hạn khi xoay refresh token). Người dùng không còn bị đăng xuất vì chuyển trang đúng lúc refresh.
+
+**Thực hiện:** Antigravity 3 (`services/auth`), gồm test đồng thời trên Postgres thật:
+- thử lại trong cửa sổ ân hạn thì được;
+- thử lại sau cửa sổ thì bị coi là dùng lại;
+- con đã dùng rồi cha bị dùng lại thì bị coi là dùng lại;
+- hai lần thử lại cùng lúc thì chỉ đúng một token con còn sống.
+
 ### ADR-020 — Feed thịnh hành v1 (R2-a)
 **Bối cảnh.** Trang chủ mới chỉ có feed "mới nhất". Recommendation v1 (R2) cần một nguồn ứng viên đầu tiên chạy được trên hạ tầng hiện có (PostgreSQL, không ClickHouse), dựa trên dữ liệu đã tin cậy được: lượt xem đã lọc view ảo của C3.
 **Quyết định.**
