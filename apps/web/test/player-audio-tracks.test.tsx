@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { VideoPlayer } from '../src/components/video/video-player';
 import type { PlaybackAudioTrack, SubtitleTrack } from '@winkey/api-client';
 
@@ -131,6 +131,44 @@ describe('VideoPlayer Audio and Subtitle switching & persistence', () => {
         audioTracks={[]}
       />,
     );
+
+    expect(screen.queryByTestId('audio-menu-button')).toBeNull();
+  });
+
+  it('hides audio menu when only 1 audio track is available', () => {
+    const singleAudioTrack: PlaybackAudioTrack[] = [
+      {
+        id: '018f0000-0000-7000-8000-000000000001',
+        lang: 'und',
+        label: 'Âm thanh gốc',
+        kind: 'original',
+        is_default: true,
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-single-audio"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        audioTracks={singleAudioTrack}
+      />,
+    );
+
+    expect(screen.queryByTestId('audio-menu-button')).toBeNull();
+  });
+
+  it('hides audio menu when HLS manifest updates to only 1 audio track', () => {
+    render(
+      <VideoPlayer videoId="video-hls-single" src="https://cdn.winkey.vn/hls/test/master.m3u8" />,
+    );
+
+    expect(_latestHlsInstance).toBeTruthy();
+    if (_latestHlsInstance) {
+      _latestHlsInstance.audioTracks = [{ id: 0, name: 'Main', lang: 'und', default: true }];
+      act(() => {
+        _latestHlsInstance!.emit('hlsAudioTracksUpdated', {});
+      });
+    }
 
     expect(screen.queryByTestId('audio-menu-button')).toBeNull();
   });
