@@ -30,10 +30,10 @@ func (p *Postgres) SelectAV1(ctx context.Context, minStarts int64, limit int) ([
 			WHERE day > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - $3::int
 			GROUP BY video_id
 		)
-		SELECT v.id, v.raw_bucket, v.raw_key, s.starts
-		FROM starts s JOIN media.videos v ON v.id = s.video_id
-		WHERE v.status = 'READY' AND v.hls_av1_master_key IS NULL AND s.starts >= $1
-		ORDER BY s.starts DESC, v.id
+		SELECT v.id, v.raw_bucket, v.raw_key, coalesce(s.starts, 0)
+		FROM media.videos v LEFT JOIN starts s ON s.video_id = v.id
+		WHERE v.status = 'READY' AND v.hls_av1_master_key IS NULL AND coalesce(s.starts, 0) >= $1
+		ORDER BY coalesce(s.starts, 0) DESC, v.created_at DESC, v.id
 		LIMIT $2`, minStarts, limit, av1Window)
 	if err != nil {
 		return nil, fmt.Errorf("select videos: %w", err)

@@ -35,7 +35,8 @@ func TestLoadAV1UpgradeValidation(t *testing.T) {
 	}{
 		"overrides":        {map[string]string{"AV1_CQ": "30", "AV1_MAXRATE_PCT": "70", "AV1_UPGRADE_LIMIT": "1000"}, ""},
 		"no ffmpeg 8":      {map[string]string{"AV1_FFMPEG_PATH": ""}, "AV1_FFMPEG_PATH"},
-		"zero threshold":   {map[string]string{"AV1_MIN_STARTS_7D": "0"}, "AV1_MIN_STARTS_7D"},
+		"every video":      {map[string]string{"AV1_MIN_STARTS_7D": "0"}, ""},
+		"negative":         {map[string]string{"AV1_MIN_STARTS_7D": "-1"}, "AV1_MIN_STARTS_7D"},
 		"limit too big":    {map[string]string{"AV1_UPGRADE_LIMIT": "1001"}, "AV1_UPGRADE_LIMIT"},
 		"cq out of range":  {map[string]string{"AV1_CQ": "64"}, "AV1_CQ"},
 		"ceiling too high": {map[string]string{"AV1_MAXRATE_PCT": "101"}, "AV1_MAXRATE_PCT"},

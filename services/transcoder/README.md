@@ -262,7 +262,7 @@ Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected
 | `AV1_FFMPEG_PATH` | required | FFmpeg 8 with a working `av1_nvenc` (`/opt/ffmpeg-8/bin/ffmpeg` on gpu-01, BtbN `n8.0.1-66`); `FFMPEG_PATH` is not used |
 | `FFPROBE_PATH` | required | any ffprobe |
 | `HWACCEL_DECODE` | `true` | as the worker; `false` decodes on the CPU |
-| `AV1_MIN_STARTS_7D` | `50` | playback starts over 7 days, at least 1 |
+| `AV1_MIN_STARTS_7D` | `50` | playback starts over 7 days; `0` = every READY video without an AV1 set, watched or not |
 | `AV1_UPGRADE_LIMIT` | `20` | videos per run, 1 to 1000 |
 | `AV1_CQ` | `35` (`media.DefaultAV1CQ`) | 1 to 63 |
 | `AV1_MAXRATE_PCT` | `85` (`media.DefaultAV1MaxratePct`) | 10 to 100 |

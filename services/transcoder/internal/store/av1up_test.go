@@ -83,6 +83,21 @@ func TestSelectAV1(t *testing.T) {
 	if cands, _ := st.SelectAV1(ctx, 81, 10); len(cands) != 0 {
 		t.Fatalf("threshold: %+v", cands)
 	}
+	// 0: every READY video without an AV1 set, watched or not (no analytics row, or only old ones), most
+	// watched first; still never a video that is not READY or already has a set.
+	never, o6 := seed(t, pg, "UPLOADED")
+	encode(t, st, never, o6, nil)
+	all, err := st.SelectAV1(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]int64{}
+	for _, c := range all {
+		got[c.ID] = c.Starts7d
+	}
+	if len(all) != 4 || all[0].ID != hot || all[1].ID != warm || got[cold] != 0 || got[never] != 0 || len(all[3].H264Names) != 2 {
+		t.Fatalf("every video: %+v", all)
+	}
 }
 
 func TestCommitAV1(t *testing.T) {

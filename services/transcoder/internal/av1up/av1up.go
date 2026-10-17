@@ -46,7 +46,7 @@ type Commit struct {
 // Store is the persistence port.
 type Store interface {
 	// SelectAV1 returns at most limit READY videos with no AV1 set whose analytics.video_daily starts over the
-	// last 7 days are at least minStarts, most watched first.
+	// last 7 days are at least minStarts (0: every such video, watched or not), most watched first, then newest.
 	SelectAV1(ctx context.Context, minStarts int64, limit int) ([]Candidate, error)
 	// CommitAV1, in one transaction holding the video row lock: requires the video to be READY, replaces its
 	// codec='av1' renditions, applies the audio group of its READY audio tracks to the AV1 master (rewrite,
