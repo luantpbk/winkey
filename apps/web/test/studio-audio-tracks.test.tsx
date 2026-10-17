@@ -202,6 +202,43 @@ describe('Studio VideoAudioTracksSection', () => {
     });
   });
 
+  it('clears default audio track via updateAudioTrack PATCH { is_default: false } when unchecking', async () => {
+    vi.mocked(api.video.PATCH).mockResolvedValue({
+      data: { ...mockTracks[0], is_default: false },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    renderWithClient(
+      <VideoAudioTracksSection
+        videoId="018f1234-5678-7000-8000-000000000001"
+        initialTracks={mockTracks}
+      />,
+    );
+
+    const defaultCheckbox = screen.getByTestId(
+      'make-default-track-018f0001-0000-7000-8000-000000000001',
+    ) as HTMLInputElement;
+    expect(defaultCheckbox.checked).toBe(true);
+
+    fireEvent.click(defaultCheckbox);
+
+    await waitFor(() => {
+      expect(api.video.PATCH).toHaveBeenCalledWith(
+        '/v1/videos/{video_id}/audio-tracks/{track_id}',
+        {
+          params: {
+            path: {
+              video_id: '018f1234-5678-7000-8000-000000000001',
+              track_id: '018f0001-0000-7000-8000-000000000001',
+            },
+          },
+          body: { is_default: false },
+        },
+      );
+      expect(screen.getByTestId('audio-tracks-success-alert')).toBeTruthy();
+    });
+  });
+
   it('renames a track via updateAudioTrack PATCH', async () => {
     vi.mocked(api.video.PATCH).mockResolvedValue({
       data: { ...mockTracks[0], label: 'Tiếng Việt Bản Mới' },

@@ -257,7 +257,11 @@
       "uploading": "Đang tải lên...",
       "delete": "Xóa",
       "deleteConfirm": "Bạn có chắc chắn muốn xóa bản phụ đề này không?",
+      "isDefault": "Đặt làm phụ đề mặc định",
+      "isDefaultBadge": "Mặc định",
+      "isDefaultCheckbox": "Mặc định",
       "successUpload": "Tải lên phụ đề thành công!",
+      "successUpdate": "Cập nhật phụ đề thành công!",
       "successDelete": "Xóa phụ đề thành công!",
       "errors": {
         "tooLarge": "Tập tin phụ đề quá lớn (tối đa 512 KiB)",

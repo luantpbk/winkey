@@ -382,11 +382,28 @@ export function VideoPlayer({
 
     try {
       const savedPref = localStorage.getItem('winkey.subtitle_lang');
-      if (savedPref && savedPref !== 'off') {
+      if (savedPref !== null) {
+        if (savedPref === 'off') {
+          setSelectedSubtitleLang(null);
+          applySubtitleMode(null);
+          return;
+        }
         const hasTrack = activeSubtitles.some((t) => t.lang === savedPref);
         if (hasTrack) {
           setSelectedSubtitleLang(savedPref);
           applySubtitleMode(savedPref);
+          return;
+        } else {
+          setSelectedSubtitleLang(null);
+          applySubtitleMode(null);
+          return;
+        }
+      } else {
+        // No saved preference -> auto-activate track with is_default: true if present (DEF1)
+        const defaultTrack = activeSubtitles.find((s) => s.is_default);
+        if (defaultTrack) {
+          setSelectedSubtitleLang(defaultTrack.lang);
+          applySubtitleMode(defaultTrack.lang);
           return;
         }
       }
@@ -1026,8 +1043,8 @@ export function VideoPlayer({
                 />
               )}
 
-              {/* Audio Menu (hidden when audioTracksList is empty) */}
-              {audioTracksList.length > 0 && (
+              {/* Audio Menu (only shown when at least 2 audio track choices are available) */}
+              {audioTracksList.length >= 2 && (
                 <AudioMenu
                   tracks={audioTracksList}
                   selectedIndex={currentAudioIndex}

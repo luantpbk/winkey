@@ -257,7 +257,11 @@
       "uploading": "Uploading...",
       "delete": "Delete",
       "deleteConfirm": "Are you sure you want to delete this subtitle track?",
+      "isDefault": "Set as default subtitle",
+      "isDefaultBadge": "Default",
+      "isDefaultCheckbox": "Default",
       "successUpload": "Subtitle track uploaded successfully!",
+      "successUpdate": "Subtitle updated successfully!",
       "successDelete": "Subtitle track deleted successfully!",
       "errors": {
         "tooLarge": "Subtitle file is too large (max 512 KiB)",

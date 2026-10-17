@@ -2352,11 +2352,25 @@ export const handlers = [
       );
     }
 
+    const isDefault =
+      body.is_default !== undefined
+        ? body.is_default
+        : existingIndex !== -1
+          ? Boolean(currentSubtitles[existingIndex].is_default)
+          : false;
+
+    if (isDefault) {
+      currentSubtitles.forEach((t) => {
+        t.is_default = false;
+      });
+    }
+
     const track: SubtitleTrack = {
       lang,
       label: body.label || lang,
       kind: body.kind || 'subtitles',
       source: 'UPLOAD',
+      is_default: isDefault,
       url: `/v1/mock-subtitles/${videoId}/${lang}.vtt`,
       updated_at: new Date().toISOString(),
     };
@@ -2444,6 +2458,84 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.patch('*/v1/videos/:id/subtitles/:lang', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.id as string;
+    const lang = params.lang as string;
+    const body = (await request.json()) as { label?: string; is_default?: boolean };
+
+    const currentVideos = [...getDynamicVideos()];
+    const videoIndex = currentVideos.findIndex((v) => v.id === videoId);
+    if (videoIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Video not found',
+          status: 404,
+          code: 'VIDEO_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const video = { ...currentVideos[videoIndex] };
+    const currentSubtitles = [...(video.playback?.subtitles || [])];
+    const trackIndex = currentSubtitles.findIndex((t) => t.lang === lang);
+
+    if (trackIndex === -1) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Subtitle track not found',
+          status: 404,
+          code: 'SUBTITLE_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+
+    const track = { ...currentSubtitles[trackIndex] };
+    if (body.label !== undefined) {
+      track.label = body.label;
+    }
+    if (body.is_default !== undefined) {
+      if (body.is_default === true) {
+        currentSubtitles.forEach((t) => {
+          t.is_default = false;
+        });
+        track.is_default = true;
+      } else {
+        track.is_default = false;
+      }
+    }
+    track.updated_at = new Date().toISOString();
+
+    currentSubtitles[trackIndex] = track;
+    if (video.playback) {
+      video.playback = {
+        ...video.playback,
+        subtitles: currentSubtitles,
+      };
+    }
+
+    currentVideos[videoIndex] = video;
+    setDynamicVideos(currentVideos);
+
+    return HttpResponse.json(track, { status: 200 });
+  }),
+
   http.get('*/v1/mock-subtitles/:id/:file', () => {
     const vtt = `WEBVTT
 
@@ -2505,11 +2597,15 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     if (body.label !== undefined) {
       track.label = body.label;
     }
-    if (body.is_default === true) {
-      tracks.forEach((t) => {
-        t.is_default = false;
-      });
-      track.is_default = true;
+    if (body.is_default !== undefined) {
+      if (body.is_default === true) {
+        tracks.forEach((t) => {
+          t.is_default = false;
+        });
+        track.is_default = true;
+      } else {
+        track.is_default = false;
+      }
     }
     track.updated_at = new Date().toISOString();
     return HttpResponse.json(track);
