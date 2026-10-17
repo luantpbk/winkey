@@ -102,6 +102,7 @@ describe('PackageUploader', () => {
           lang: 'en',
           kind: 'captions',
           label: 'English CC',
+          default: true,
         },
       ],
     },
@@ -126,6 +127,7 @@ describe('PackageUploader', () => {
           lang: 'en',
           kind: 'captions',
           label: 'English CC',
+          default: true,
         },
         file: new File(['WEBVTT'], 'en.vtt', { type: 'text/vtt' }),
         content: 'WEBVTT\n\n00:00.000 --> 00:01.000\nHello',
@@ -168,6 +170,7 @@ describe('PackageUploader', () => {
         label: 'English CC',
         content: 'WEBVTT\n\n00:00.000 --> 00:01.000\nHello',
         kind: 'captions',
+        is_default: true,
       },
     });
 

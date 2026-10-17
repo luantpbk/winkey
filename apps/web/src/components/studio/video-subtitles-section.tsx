@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   FileText,
   Clock,
+  Star,
 } from 'lucide-react';
 import type { Video, SubtitleTrack } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
@@ -68,7 +69,9 @@ export function VideoSubtitlesSection({
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
 
+  const [isDefaultSubtitle, setIsDefaultSubtitle] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [updatingDefaultLang, setUpdatingDefaultLang] = useState<string | null>(null);
   const [deletingLang, setDeletingLang] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
@@ -167,6 +170,7 @@ export function VideoSubtitlesSection({
             label: trackLabel.trim(),
             content: fileContent,
             kind: trackKind,
+            ...(isDefaultSubtitle ? { is_default: true } : {}),
           },
         },
       );
@@ -175,6 +179,7 @@ export function VideoSubtitlesSection({
         setSuccessMessage(t('successUpload'));
         setFileContent('');
         setFileName('');
+        setIsDefaultSubtitle(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
 
         await queryClient.invalidateQueries({ queryKey: ['video', videoId] });
@@ -210,6 +215,38 @@ export function VideoSubtitlesSection({
       setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleDefault = async (track: SubtitleTrack, isDefault: boolean) => {
+    setUpdatingDefaultLang(track.lang);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const { error: apiErr, response } = await api.video.PATCH(
+        '/v1/videos/{video_id}/subtitles/{lang}',
+        {
+          params: { path: { video_id: videoId, lang: track.lang } },
+          body: { is_default: isDefault },
+        },
+      );
+
+      if (response.status === 200) {
+        setSuccessMessage(t('successUpdate'));
+        await queryClient.invalidateQueries({ queryKey: ['video', videoId] });
+        await queryClient.invalidateQueries({ queryKey: ['studio', 'videos'] });
+      } else if (response.status === 403) {
+        setErrorMessage(t('errors.forbidden'));
+      } else if (response.status === 404) {
+        setErrorMessage(t('errors.notFound'));
+      } else {
+        setErrorMessage(apiErr?.detail || 'Lỗi khi cập nhật phụ đề mặc định');
+      }
+    } catch {
+      setErrorMessage('Lỗi mạng khi cập nhật phụ đề');
+    } finally {
+      setUpdatingDefaultLang(null);
     }
   };
 
@@ -326,6 +363,15 @@ export function VideoSubtitlesSection({
                       CC
                     </span>
                   )}
+                  {track.is_default && (
+                    <span
+                      data-testid={`subtitle-default-badge-${track.lang}`}
+                      className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 shrink-0"
+                    >
+                      <Star className="h-3 w-3 fill-amber-300 text-amber-300" />
+                      {t('isDefaultBadge')}
+                    </span>
+                  )}
                   <div className="flex flex-col">
                     <span className="text-xs font-medium text-gray-900 dark:text-gray-200">
                       {track.label}
@@ -337,16 +383,31 @@ export function VideoSubtitlesSection({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  data-testid={`delete-subtitle-${track.lang}`}
-                  disabled={deletingLang === track.lang}
-                  onClick={() => handleDelete(track.lang)}
-                  aria-label={`Xóa phụ đề ${track.label}`}
-                  className="rounded-lg p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(track.is_default)}
+                      disabled={isVideoFailed || updatingDefaultLang !== null}
+                      onChange={(e) => handleToggleDefault(track, e.target.checked)}
+                      data-testid={`make-default-subtitle-${track.lang}`}
+                      aria-label={`Mặc định ${track.label}`}
+                      className="h-4 w-4 rounded bg-[#1f1f1f] border-gray-600 text-red-600 focus:ring-red-500 cursor-pointer disabled:opacity-50"
+                    />
+                    <span className="text-xs">{t('isDefaultBadge')}</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    data-testid={`delete-subtitle-${track.lang}`}
+                    disabled={deletingLang === track.lang || updatingDefaultLang !== null}
+                    onClick={() => handleDelete(track.lang)}
+                    aria-label={`Xóa phụ đề ${track.label}`}
+                    className="rounded-lg p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -460,6 +521,25 @@ export function VideoSubtitlesSection({
             <option value="subtitles">Phụ đề dịch nghĩa (Subtitles)</option>
             <option value="captions">Phụ đề hỗ trợ khiếm thính (Captions - CC)</option>
           </select>
+        </div>
+
+        {/* Checkbox: Is Default Subtitle */}
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            type="checkbox"
+            id="subtitle-is-default-checkbox"
+            checked={isDefaultSubtitle}
+            disabled={isVideoFailed || isSubmitting}
+            onChange={(e) => setIsDefaultSubtitle(e.target.checked)}
+            data-testid="subtitle-is-default-checkbox"
+            className="h-4 w-4 rounded bg-[#1f1f1f] border-gray-600 text-red-600 focus:ring-red-500 cursor-pointer"
+          />
+          <label
+            htmlFor="subtitle-is-default-checkbox"
+            className="text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+          >
+            {t('isDefault')}
+          </label>
         </div>
 
         {/* Submit button */}

@@ -343,4 +343,138 @@ describe('VideoPlayer Audio and Subtitle switching & persistence', () => {
     const ccButton = screen.getByTestId('cc-menu-button');
     expect(ccButton.textContent).toContain('English CC');
   });
+
+  it('automatically applies default subtitle track when viewer has no saved preference (DEF1)', () => {
+    const subsWithDefault: SubtitleTrack[] = [
+      {
+        lang: 'vi',
+        label: 'Tiếng Việt',
+        kind: 'subtitles',
+        is_default: true,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/vi.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+      {
+        lang: 'en',
+        label: 'English CC',
+        kind: 'captions',
+        is_default: false,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/en.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-def1"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        subtitles={subsWithDefault}
+      />,
+    );
+
+    const ccButton = screen.getByTestId('cc-menu-button');
+    expect(ccButton.textContent).toContain('Tiếng Việt');
+  });
+
+  it('keeps subtitles off when viewer has saved "off" preference, even if a track is default', () => {
+    localStorage.setItem('winkey.subtitle_lang', 'off');
+
+    const subsWithDefault: SubtitleTrack[] = [
+      {
+        lang: 'vi',
+        label: 'Tiếng Việt',
+        kind: 'subtitles',
+        is_default: true,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/vi.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-def1-off"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        subtitles={subsWithDefault}
+      />,
+    );
+
+    const ccButton = screen.getByTestId('cc-menu-button');
+    expect(ccButton.textContent).toBe('CC');
+    fireEvent.click(ccButton);
+    expect(screen.getByTestId('cc-option-off')).toBeTruthy();
+  });
+
+  it('respects stored language preference over default subtitle track', () => {
+    localStorage.setItem('winkey.subtitle_lang', 'en');
+
+    const subsWithDefault: SubtitleTrack[] = [
+      {
+        lang: 'vi',
+        label: 'Tiếng Việt',
+        kind: 'subtitles',
+        is_default: true,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/vi.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+      {
+        lang: 'en',
+        label: 'English CC',
+        kind: 'captions',
+        is_default: false,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/en.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-def1-stored"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        subtitles={subsWithDefault}
+      />,
+    );
+
+    const ccButton = screen.getByTestId('cc-menu-button');
+    expect(ccButton.textContent).toContain('English CC');
+  });
+
+  it('falls back to the default subtitle track when the stored language is not available (DEF1)', () => {
+    localStorage.setItem('winkey.subtitle_lang', 'fr');
+
+    const subs: SubtitleTrack[] = [
+      {
+        lang: 'en',
+        label: 'English CC',
+        kind: 'captions',
+        is_default: false,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/en.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+      {
+        lang: 'vi',
+        label: 'Tiếng Việt',
+        kind: 'subtitles',
+        is_default: true,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/vi.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-def1-missing-pref"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        subtitles={subs}
+      />,
+    );
+
+    expect(screen.getByTestId('cc-menu-button').textContent).toContain('Tiếng Việt');
+  });
 });

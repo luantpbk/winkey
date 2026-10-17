@@ -251,13 +251,16 @@ export function VideoAudioTracksSection({
     }
   };
 
-  // Make default handler
-  const handleMakeDefault = async (track: AudioTrack) => {
+  // Toggle default handler
+  const [updatingDefaultTrackId, setUpdatingDefaultTrackId] = useState<string | null>(null);
+
+  const handleToggleDefault = async (track: AudioTrack, isDefault: boolean) => {
     clearNotifications();
+    setUpdatingDefaultTrackId(track.id);
     try {
       const res = await api.video.PATCH('/v1/videos/{video_id}/audio-tracks/{track_id}', {
         params: { path: { video_id: videoId, track_id: track.id } },
-        body: { is_default: true },
+        body: { is_default: isDefault },
       });
       if (!res?.response?.ok) {
         throw new Error((res?.error as any)?.detail || 'Lỗi đặt track mặc định');
@@ -266,6 +269,8 @@ export function VideoAudioTracksSection({
       queryClient.invalidateQueries({ queryKey: ['video-audio-tracks', videoId] });
     } catch (err: any) {
       setErrorMessage(err.message || 'Lỗi khi cập nhật track');
+    } finally {
+      setUpdatingDefaultTrackId(null);
     }
   };
 
@@ -610,18 +615,18 @@ export function VideoAudioTracksSection({
 
                   {/* Actions */}
                   <div className="flex items-center gap-1">
-                    {!track.is_default && (
-                      <button
-                        type="button"
-                        onClick={() => handleMakeDefault(track)}
-                        disabled={track.status === 'FAILED'}
+                    <label className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-gray-300 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={track.is_default}
+                        onChange={(e) => handleToggleDefault(track, e.target.checked)}
+                        disabled={track.status === 'FAILED' || updatingDefaultTrackId !== null}
                         data-testid={`make-default-track-${track.id}`}
-                        title={t('makeDefault')}
-                        className="px-2 py-1 text-xs font-medium text-gray-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded transition disabled:opacity-40"
-                      >
-                        {t('makeDefault')}
-                      </button>
-                    )}
+                        aria-label={`Mặc định ${track.label}`}
+                        className="h-4 w-4 rounded bg-[#202020] border-gray-600 text-red-600 focus:ring-red-500 cursor-pointer disabled:opacity-40"
+                      />
+                      <span className="text-xs">{t('isDefaultBadge')}</span>
+                    </label>
 
                     <button
                       type="button"

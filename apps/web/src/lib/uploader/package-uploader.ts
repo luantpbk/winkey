@@ -187,6 +187,7 @@ export class PackageUploader {
             label: sub.meta.label,
             content: sub.content,
             kind: sub.meta.kind,
+            is_default: sub.meta.default,
           },
         });
 

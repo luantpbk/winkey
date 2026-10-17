@@ -57,6 +57,7 @@ vi.mock('../src/lib/api-client', () => ({
     video: {
       GET: vi.fn(),
       PUT: vi.fn(),
+      PATCH: vi.fn(),
       DELETE: vi.fn(),
     },
   },
@@ -629,5 +630,142 @@ describe('Studio Subtitles Management', () => {
     expect(kindSelect.value).toBe('subtitles');
     fireEvent.change(kindSelect, { target: { value: 'captions' } });
     expect(kindSelect.value).toBe('captions');
+  });
+
+  it('sets a subtitle track as default via PATCH { is_default: true }', async () => {
+    vi.mocked(api.video.PATCH).mockResolvedValue({
+      data: { ...mockVideoWithSubtitles.playback!.subtitles![0], is_default: true },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    renderWithClient(
+      <VideoSubtitlesSection
+        videoId="018f1234-5678-7000-8000-000000000001"
+        initialVideo={mockVideoWithSubtitles}
+      />,
+    );
+
+    const defaultCheckbox = screen.getByTestId('make-default-subtitle-vi');
+    expect(defaultCheckbox).toBeTruthy();
+    expect((defaultCheckbox as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(defaultCheckbox);
+
+    await waitFor(() => {
+      expect(api.video.PATCH).toHaveBeenCalledWith('/v1/videos/{video_id}/subtitles/{lang}', {
+        params: {
+          path: {
+            video_id: '018f1234-5678-7000-8000-000000000001',
+            lang: 'vi',
+          },
+        },
+        body: { is_default: true },
+      });
+      expect(screen.getByTestId('subtitles-success-alert')).toBeTruthy();
+    });
+  });
+
+  it('clears default subtitle track via PATCH { is_default: false } when unchecking', async () => {
+    const videoWithDefaultSub: Video = {
+      ...mockVideoWithSubtitles,
+      playback: {
+        ...mockVideoWithSubtitles.playback!,
+        subtitles: [
+          {
+            lang: 'vi',
+            label: 'Tiếng Việt',
+            source: 'UPLOAD',
+            is_default: true,
+            url: 'https://cdn.winkey.vn/subtitles/test/vi.vtt',
+            updated_at: '2026-09-30T10:00:00Z',
+          },
+        ],
+      },
+    };
+
+    vi.mocked(api.video.PATCH).mockResolvedValue({
+      data: { ...videoWithDefaultSub.playback!.subtitles![0], is_default: false },
+      response: new Response(null, { status: 200 }),
+    } as any);
+
+    renderWithClient(
+      <VideoSubtitlesSection
+        videoId="018f1234-5678-7000-8000-000000000001"
+        initialVideo={videoWithDefaultSub}
+      />,
+    );
+
+    expect(screen.getByTestId('subtitle-default-badge-vi')).toBeTruthy();
+
+    const defaultCheckbox = screen.getByTestId('make-default-subtitle-vi') as HTMLInputElement;
+    expect(defaultCheckbox.checked).toBe(true);
+
+    fireEvent.click(defaultCheckbox);
+
+    await waitFor(() => {
+      expect(api.video.PATCH).toHaveBeenCalledWith('/v1/videos/{video_id}/subtitles/{lang}', {
+        params: {
+          path: {
+            video_id: '018f1234-5678-7000-8000-000000000001',
+            lang: 'vi',
+          },
+        },
+        body: { is_default: false },
+      });
+    });
+  });
+
+  it('sends is_default: true in PUT request when upload checkbox is ticked', async () => {
+    vi.mocked(api.video.PUT).mockResolvedValue({
+      data: {
+        lang: 'ja',
+        label: '日本語',
+        source: 'UPLOAD',
+        is_default: true,
+        url: 'https://cdn.winkey.vn/subtitles/test/ja.vtt',
+        updated_at: '2026-10-18T00:00:00Z',
+      },
+      response: new Response(null, { status: 201 }),
+    } as any);
+
+    renderWithClient(
+      <VideoSubtitlesSection
+        videoId="018f1234-5678-7000-8000-000000000001"
+        initialVideo={mockVideoWithSubtitles}
+      />,
+    );
+
+    // Select language ja
+    const langSelect = screen.getByTestId('subtitle-lang-select');
+    fireEvent.change(langSelect, { target: { value: 'ja' } });
+
+    // Tick isDefault checkbox
+    const isDefaultCheckbox = screen.getByTestId('subtitle-is-default-checkbox');
+    fireEvent.click(isDefaultCheckbox);
+    expect((isDefaultCheckbox as HTMLInputElement).checked).toBe(true);
+
+    // Provide file
+    const fileInput = screen.getByTestId('subtitle-file-input');
+    const validFile = new File(['WEBVTT\n\n00:00.000 --> 00:05.000\nKonnichiwa'], 'ja.vtt', {
+      type: 'text/vtt',
+    });
+    fireEvent.change(fileInput, { target: { files: [validFile] } });
+
+    // Submit form
+    const submitBtn = screen.getByTestId('upload-subtitle-button') as HTMLButtonElement;
+    await waitFor(() => expect(submitBtn.disabled).toBe(false));
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(api.video.PUT).toHaveBeenCalledWith(
+        '/v1/videos/{video_id}/subtitles/{lang}',
+        expect.objectContaining({
+          params: { path: { video_id: '018f1234-5678-7000-8000-000000000001', lang: 'ja' } },
+          body: expect.objectContaining({
+            is_default: true,
+          }),
+        }),
+      );
+    });
   });
 });
