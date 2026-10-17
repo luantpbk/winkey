@@ -442,4 +442,39 @@ describe('VideoPlayer Audio and Subtitle switching & persistence', () => {
     const ccButton = screen.getByTestId('cc-menu-button');
     expect(ccButton.textContent).toContain('English CC');
   });
+
+  it('falls back to the default subtitle track when the stored language is not available (DEF1)', () => {
+    localStorage.setItem('winkey.subtitle_lang', 'fr');
+
+    const subs: SubtitleTrack[] = [
+      {
+        lang: 'en',
+        label: 'English CC',
+        kind: 'captions',
+        is_default: false,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/en.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+      {
+        lang: 'vi',
+        label: 'Tiếng Việt',
+        kind: 'subtitles',
+        is_default: true,
+        source: 'UPLOAD',
+        url: 'https://cdn.winkey.vn/subtitles/vi.vtt',
+        updated_at: '2026-10-14T00:00:00Z',
+      },
+    ];
+
+    render(
+      <VideoPlayer
+        videoId="video-def1-missing-pref"
+        src="https://cdn.winkey.vn/hls/test/master.m3u8"
+        subtitles={subs}
+      />,
+    );
+
+    expect(screen.getByTestId('cc-menu-button').textContent).toContain('Tiếng Việt');
+  });
 });

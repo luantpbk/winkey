@@ -381,31 +381,21 @@ export function VideoPlayer({
     }
 
     try {
+      // DEF1: the viewer's stored choice wins ("off" included); a stored language this video does not have,
+      // or no stored choice, falls back to the creator's default track, else no subtitles.
       const savedPref = localStorage.getItem('winkey.subtitle_lang');
-      if (savedPref !== null) {
-        if (savedPref === 'off') {
-          setSelectedSubtitleLang(null);
-          applySubtitleMode(null);
-          return;
-        }
-        const hasTrack = activeSubtitles.some((t) => t.lang === savedPref);
-        if (hasTrack) {
-          setSelectedSubtitleLang(savedPref);
-          applySubtitleMode(savedPref);
-          return;
-        } else {
-          setSelectedSubtitleLang(null);
-          applySubtitleMode(null);
-          return;
-        }
-      } else {
-        // No saved preference -> auto-activate track with is_default: true if present (DEF1)
-        const defaultTrack = activeSubtitles.find((s) => s.is_default);
-        if (defaultTrack) {
-          setSelectedSubtitleLang(defaultTrack.lang);
-          applySubtitleMode(defaultTrack.lang);
-          return;
-        }
+      if (savedPref === 'off') {
+        setSelectedSubtitleLang(null);
+        applySubtitleMode(null);
+        return;
+      }
+      const lang =
+        activeSubtitles.find((t) => t.lang === savedPref)?.lang ??
+        activeSubtitles.find((t) => t.is_default)?.lang;
+      if (lang) {
+        setSelectedSubtitleLang(lang);
+        applySubtitleMode(lang);
+        return;
       }
     } catch {
       // Ignore localStorage exceptions
