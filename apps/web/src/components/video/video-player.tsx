@@ -28,7 +28,6 @@ export interface VideoPlayerProps {
   durationMs?: number | null;
   src?: string;
   hlsAv1Url?: string | null;
-  hls_av1_url?: string | null;
   poster?: string;
   title?: string;
   renditions?: Rendition[];
@@ -87,7 +86,6 @@ export function VideoPlayer({
   durationMs,
   src,
   hlsAv1Url,
-  hls_av1_url,
   poster,
   title,
   renditions,
@@ -102,7 +100,7 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  const rawAv1Url = hlsAv1Url ?? hls_av1_url ?? null;
+  const rawAv1Url = hlsAv1Url ?? null;
 
   // Determine active codec for this video session: once determined, never switch codec mid-playback
   const [activeCodec, setActiveCodec] = useState<'av1' | 'h264'>(() => {
@@ -131,8 +129,10 @@ export function VideoPlayer({
 
   const activeSrc =
     activeCodec === 'av1'
-      ? (refreshedPlayback?.hls_av1_url ?? rawAv1Url ?? refreshedPlayback?.hls_url ?? src)
-      : (refreshedPlayback?.hls_url ?? src);
+      ? refreshedPlayback
+        ? (refreshedPlayback.hls_av1_url ?? refreshedPlayback.hls_url ?? src ?? '')
+        : (rawAv1Url ?? src ?? '')
+      : (refreshedPlayback?.hls_url ?? src ?? '');
 
   const activeRenditions = useMemo(() => {
     if (!renditions || renditions.length === 0) return [];
@@ -154,6 +154,7 @@ export function VideoPlayer({
 
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isUsingHls, setIsUsingHls] = useState<boolean>(false);
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([
     { index: -1, label: 'Tự động' },
   ]);
@@ -496,6 +497,7 @@ export function VideoPlayer({
     }
 
     if (Hls.isSupported()) {
+      setIsUsingHls(true);
       const hls = new Hls({
         enableWorker: true,
       });
@@ -611,6 +613,7 @@ export function VideoPlayer({
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS for Safari/iOS
+      setIsUsingHls(false);
       video.src = activeSrc;
 
       if (activeRenditions && activeRenditions.length > 0) {
@@ -628,6 +631,7 @@ export function VideoPlayer({
         trackerRef.current?.setRendition(`${first.height}p`, first.bitrate_kbps);
       }
     } else {
+      setIsUsingHls(false);
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
@@ -1032,7 +1036,7 @@ export function VideoPlayer({
               )}
 
               {/* Quality Menu */}
-              {qualityLevels.length > 1 && (
+              {isUsingHls && qualityLevels.length > 1 && (
                 <QualityMenu
                   levels={qualityLevels}
                   currentLevel={currentLevel}

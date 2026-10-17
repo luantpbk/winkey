@@ -2730,61 +2730,72 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     expect(persistedSubtitle).toBe('en');
   });
 
-  test('ENC2-web: AV1 player stream selection & quality menu deduplication (ADR-041)', async ({
-    page,
-  }) => {
-    // 1. Case A: With AV1 support in browser
-    await page.addInitScript(() => {
-      window.MediaSource = {
-        isTypeSupported: (mime: string) => mime.includes('av01'),
-      } as any;
+  test('ENC2-web: AV1 player stream selection when AV1 supported (ADR-041)', async ({ page }) => {
+    const av1MasterPattern = /\/v\/.*\/av1\/.*\/master\.m3u8/;
+
+    // Stub only av01 capability, keep real MediaSource
+    await page.addInitScript((av1) => {
+      const orig = MediaSource.isTypeSupported.bind(MediaSource);
+      MediaSource.isTypeSupported = (m) => (m.includes('av01') ? av1 : orig(m));
+    }, true);
+
+    // Intercept AV1 master playlist so nothing leaves the runner
+    await page.route(av1MasterPattern, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/vnd.apple.mpegurl',
+        body: '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\nchunk_av1.m3u8\n',
+      });
     });
 
+    const av1RequestPromise = page.waitForRequest((req) => av1MasterPattern.test(req.url()));
     await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
-    await page.waitForLoadState('domcontentloaded');
 
+    const req = await av1RequestPromise;
+    expect(req.url()).toMatch(av1MasterPattern);
+
+    await page.waitForLoadState('domcontentloaded');
     const video = page.locator('video');
     await expect(video).toBeVisible({ timeout: 15000 });
-
-    const qualityBtn = page.locator('[data-testid="quality-menu-button"]');
-    await expect(qualityBtn).toBeVisible({ timeout: 10000 });
-    await qualityBtn.click();
-
-    // Verify quality options: only AV1 renditions + Tự động. No duplicate 1080p!
-    const options = page.locator('[data-testid="quality-option"]');
-    const optionTexts = await options.allTextContents();
-    const trimmed = optionTexts.map((t) => t.trim());
-
-    // Verify deduplication: 1080p appears only once
-    const count1080p = trimmed.filter((t) => t === '1080p').length;
-    expect(count1080p).toBe(1);
   });
 
   test('ENC2-web: Fallback to H.264 when AV1 is unsupported (ADR-041)', async ({ page }) => {
-    // 2. Case B: Without AV1 support
-    await page.addInitScript(() => {
-      window.MediaSource = {
-        isTypeSupported: () => false,
-      } as any;
+    const av1MasterPattern = /\/v\/.*\/av1\/.*\/master\.m3u8/;
+
+    // Stub only av01 capability as false, keep real MediaSource
+    await page.addInitScript((av1) => {
+      const orig = MediaSource.isTypeSupported.bind(MediaSource);
+      MediaSource.isTypeSupported = (m) => (m.includes('av01') ? av1 : orig(m));
+    }, false);
+
+    let av1Requested = false;
+    page.on('request', (req) => {
+      if (av1MasterPattern.test(req.url())) {
+        av1Requested = true;
+      }
     });
 
-    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
-    await page.waitForLoadState('domcontentloaded');
+    // Abort any AV1 URL if requested
+    await page.route(av1MasterPattern, (route) => route.abort());
 
+    // Expect hls_url (x36xhzz.m3u8) to be requested
+    const h264RequestPromise = page.waitForRequest(
+      (req) =>
+        req.url().includes('x36xhzz.m3u8') ||
+        (req.url().includes('.m3u8') && !req.url().includes('/av1/')),
+    );
+
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+
+    const h264Req = await h264RequestPromise;
+    expect(h264Req.url()).toContain('x36xhzz.m3u8');
+
+    await page.waitForLoadState('domcontentloaded');
     const video = page.locator('video');
     await expect(video).toBeVisible({ timeout: 15000 });
 
-    const qualityBtn = page.locator('[data-testid="quality-menu-button"]');
-    await expect(qualityBtn).toBeVisible({ timeout: 10000 });
-    await qualityBtn.click();
-
-    // Verify quality options: only H.264 renditions. No duplicate 1080p!
-    const options = page.locator('[data-testid="quality-option"]');
-    const optionTexts = await options.allTextContents();
-    const trimmed = optionTexts.map((t) => t.trim());
-
-    const count1080p = trimmed.filter((t) => t === '1080p').length;
-    expect(count1080p).toBe(1);
+    // Assert AV1 master was never requested
+    expect(av1Requested).toBe(false);
   });
 });
 

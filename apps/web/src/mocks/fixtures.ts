@@ -143,7 +143,8 @@ export const mockVideos: Video[] = [
     tag_slugs: ['phim-ngan', 'cong-nghe', 'hoc-lap-trinh'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      hls_av1_url: 'https://cdn.winkey.vn/hls-av1/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/master.m3u8',
+      hls_av1_url:
+        'https://cdn.winkey.vn/v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/av1/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c20/master.m3u8',
       thumbnail_url:
         'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
       renditions: [

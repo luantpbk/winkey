@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { VideoPlayer } from '../src/components/video/video-player';
+import { PlaybackTracker } from '../src/lib/video/playback-tracker';
 import type { Rendition } from '@winkey/api-client';
 
 type HlsHandler = (event: string, data: unknown) => void;
@@ -154,12 +155,14 @@ describe('VideoPlayer AV1 Playback Support (ADR-041 ENC2)', () => {
     expect(latestHlsInstance?.loadSource).toHaveBeenCalledWith(hlsUrl);
   });
 
-  it('Case 4: Native Safari HLS with AV1 filters only AV1 renditions without duplicate 1080p', () => {
+  it('Case 4: Native Safari HLS with AV1 selects AV1 src, hides QualityMenu, and sets initial AV1 rendition', () => {
     isHlsSupportedValue = false; // Trigger native HLS path
 
     vi.stubGlobal('MediaSource', {
       isTypeSupported: vi.fn().mockImplementation((type: string) => type.includes('av01')),
     });
+
+    const setRenditionSpy = vi.spyOn(PlaybackTracker.prototype, 'setRendition');
 
     // Mock HTMLMediaElement.prototype.canPlayType for Safari HLS
     const canPlayTypeSpy = vi
@@ -181,26 +184,24 @@ describe('VideoPlayer AV1 Playback Support (ADR-041 ENC2)', () => {
     const video = container.querySelector('video') as HTMLVideoElement;
     expect(video.src).toBe(hlsAv1Url);
 
-    // Open Quality Menu
-    const qualityButton = screen.getByTestId('quality-menu-button');
-    fireEvent.click(qualityButton);
+    // QualityMenu is gated on isUsingHls, which is false in native Safari HLS
+    expect(screen.queryByTestId('quality-menu-button')).toBeNull();
 
-    const qualityOptions = screen.getAllByTestId('quality-option');
-    // Expected options: "Tự động" (-1), "1080p" (av1), "720p" (av1).
-    // Exactly 3 items, NO duplicate 1080p, NO H.264 renditions!
-    expect(qualityOptions).toHaveLength(3);
-    const labels = qualityOptions.map((opt) => opt.textContent?.trim());
-    expect(labels).toEqual(['Tự động', '1080p', '720p']);
+    // Initial rendition tracked from activeRenditions[0] (AV1 1080p, 3000 kbps, not H.264 5000 kbps)
+    expect(setRenditionSpy).toHaveBeenCalledWith('1080p', 3000);
 
     canPlayTypeSpy.mockRestore();
+    setRenditionSpy.mockRestore();
   });
 
-  it('Case 5: Native Safari HLS without AV1 filters only H.264 & legacy renditions without duplicate 1080p', () => {
+  it('Case 5: Native Safari HLS without AV1 selects H.264 src, hides QualityMenu, and sets initial H.264 rendition', () => {
     isHlsSupportedValue = false;
 
     vi.stubGlobal('MediaSource', {
       isTypeSupported: vi.fn().mockReturnValue(false),
     });
+
+    const setRenditionSpy = vi.spyOn(PlaybackTracker.prototype, 'setRendition');
 
     const canPlayTypeSpy = vi
       .spyOn(HTMLMediaElement.prototype, 'canPlayType')
@@ -221,18 +222,14 @@ describe('VideoPlayer AV1 Playback Support (ADR-041 ENC2)', () => {
     const video = container.querySelector('video') as HTMLVideoElement;
     expect(video.src).toBe(hlsUrl);
 
-    // Open Quality Menu
-    const qualityButton = screen.getByTestId('quality-menu-button');
-    fireEvent.click(qualityButton);
+    // QualityMenu is gated on isUsingHls, which is false in native Safari HLS
+    expect(screen.queryByTestId('quality-menu-button')).toBeNull();
 
-    const qualityOptions = screen.getAllByTestId('quality-option');
-    // Expected options: "Tự động" (-1), "1080p" (h264), "720p" (h264), "480p" (legacy).
-    // Exactly 4 items, NO duplicate 1080p, NO AV1 renditions!
-    expect(qualityOptions).toHaveLength(4);
-    const labels = qualityOptions.map((opt) => opt.textContent?.trim());
-    expect(labels).toEqual(['Tự động', '1080p', '720p', '480p']);
+    // Initial rendition tracked from activeRenditions[0] (H.264 1080p, 5000 kbps, not AV1 3000 kbps)
+    expect(setRenditionSpy).toHaveBeenCalledWith('1080p', 5000);
 
     canPlayTypeSpy.mockRestore();
+    setRenditionSpy.mockRestore();
   });
 
   it('Case 6: does NOT switch codec mid-playback even if MediaSource capability changes', () => {
