@@ -121,7 +121,7 @@ func TestAudioTrackEndToEnd(t *testing.T) {
 	}
 	// ADR-042 addendum 2026-10-17: the original is its own rendition (with a URI) and the ladder has only
 	// video variants, the layout hls.js can switch; FFmpeg's audio-only rung is gone.
-	if !strings.Contains(body, `NAME="Âm thanh gốc",DEFAULT=NO,AUTOSELECT=YES,URI="audio/index.m3u8"`) ||
+	if !strings.Contains(body, `NAME="Âm thanh gốc",DEFAULT=YES,AUTOSELECT=YES,URI="audio/index.m3u8"`) || // the seeded track is not default
 		strings.Contains(body, "\naudio/index.m3u8") || len(media.ParseMaster(body)) == 0 {
 		t.Fatalf("master layout:\n%s", body)
 	}

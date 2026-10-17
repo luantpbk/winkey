@@ -323,9 +323,13 @@ func (s *stack) probeFromStorage(t *testing.T, prefix string, vars []media.Varia
 		if err != nil {
 			t.Fatalf("ffprobe %s: %v", v.URI, err)
 		}
-		if !info.HasAudio || info.DurationSec <= 0 {
-			t.Errorf("%s: %+v", v.URI, info)
+		if info.HasAudio || info.DurationSec <= 0 {
+			t.Errorf("%s: %+v (video-only variant)", v.URI, info)
 		}
+	}
+	// The audio rendition every variant plays with (ADR-042 addendum 2026-10-17).
+	if ai, err := s.tools.ProbeAudio(ctx, filepath.Join(dir, media.AudioRendition, "index.m3u8")); err != nil || ai.Codec != "aac" {
+		t.Errorf("audio rendition: %+v %v", ai, err)
 	}
 }
 

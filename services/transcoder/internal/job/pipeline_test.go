@@ -78,9 +78,12 @@ func TestProcessHappyPath(t *testing.T) {
 	tools := testutil.ToolsFromEnv(t)
 	for _, rd := range r.Renditions {
 		vi, err := tools.Probe(context.Background(), filepath.Join(pub, rd.Name, "index.m3u8"))
-		if err != nil || vi.DisplayW != rd.Width || vi.DisplayH != rd.Height || !vi.HasAudio {
-			t.Errorf("%s: %+v %v", rd.Name, vi, err)
+		if err != nil || vi.DisplayW != rd.Width || vi.DisplayH != rd.Height || vi.HasAudio {
+			t.Errorf("%s: %+v %v (video-only variant)", rd.Name, vi, err)
 		}
+	}
+	if ai, err := tools.ProbeAudio(context.Background(), filepath.Join(pub, media.AudioRendition, "index.m3u8")); err != nil || ai.Codec != "aac" {
+		t.Errorf("audio rendition: %+v %v", ai, err)
 	}
 
 	// Progress: throttled events on core NATS, envelope + stage + monotonic.

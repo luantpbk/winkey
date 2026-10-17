@@ -53,9 +53,13 @@ func writeControlled(file, text string) error {
 }
 func controlledHLS(plan media.HLSPlan, text string) error {
 	files := map[string]string{
-		"master.m3u8":     "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360,CODECS=\"avc1.64001e,mp4a.40.2\"\n360p/index.m3u8\n",
+		"master.m3u8": "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"group_aud\",NAME=\"audio_1\",DEFAULT=YES,URI=\"audio/index.m3u8\"\n" +
+			"#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360,CODECS=\"avc1.64001e,mp4a.40.2\",AUDIO=\"group_aud\"\n360p/index.m3u8\n" +
+			"#EXT-X-STREAM-INF:BANDWIDTH=140800,CODECS=\"mp4a.40.2\",AUDIO=\"group_aud\"\naudio/index.m3u8\n",
 		"360p/index.m3u8": "#EXTM3U\n#EXT-X-MAP:URI=\"init_0.mp4\"\n#EXTINF:4,\nseg_00000.m4s\n#EXTINF:4,\nseg_00001.m4s\n#EXT-X-ENDLIST\n",
 		"360p/init_0.mp4": text + "init", "360p/seg_00000.m4s": text + "0", "360p/seg_00001.m4s": text + "1", "360p/seg_00002.m4s.tmp": "unfinished",
+		"audio/index.m3u8": "#EXTM3U\n#EXT-X-MAP:URI=\"init_1.mp4\"\n#EXTINF:4,\nseg_00000.m4s\n#EXT-X-ENDLIST\n",
+		"audio/init_1.mp4": text + "ainit", "audio/seg_00000.m4s": text + "a0",
 	}
 	for rel, val := range files {
 		if err := writeControlled(filepath.Join(plan.OutDir, filepath.FromSlash(rel)), val); err != nil {
@@ -273,8 +277,8 @@ func TestOverlapScannerOnceTmpMasterLastAndArchiveJoined(t *testing.T) {
 			t.Errorf("%s uploaded %d times", key, n)
 		}
 	}
-	if len(o.order) != 8 {
-		t.Errorf("uploaded %v, want 8 complete objects", o.order)
+	if len(o.order) != 11 { // 360p: 2 segments + init + playlist; audio: segment + init + playlist; poster; 2 storyboard files; master
+		t.Errorf("uploaded %v, want 11 complete objects", o.order)
 	}
 	if last := o.order[len(o.order)-1]; !strings.HasSuffix(last, "hls/master.m3u8") {
 		t.Errorf("last %s", last)
