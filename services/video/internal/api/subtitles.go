@@ -36,6 +36,8 @@ type putSubtitleRequest struct {
 	Label   *string `json:"label"`
 	Content *string `json:"content"`
 	Kind    *string `json:"kind"` // MUX1: subtitles (absent) or captions
+	// DEF1: true makes it the default, false clears it; absent keeps a replaced track's flag.
+	IsDefault *bool `json:"is_default"`
 }
 
 type subtitleJSON struct {
@@ -43,6 +45,7 @@ type subtitleJSON struct {
 	Label     string    `json:"label"`
 	Kind      string    `json:"kind"`
 	Source    string    `json:"source"`
+	IsDefault bool      `json:"is_default"`
 	URL       string    `json:"url"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -60,7 +63,7 @@ func (h *Handler) subtitleTracks(v domain.Video, signedUntil *time.Time) []subti
 		if kind == "" {
 			kind = "subtitles" // a record cached before MUX1
 		}
-		out = append(out, subtitleJSON{Lang: s.Lang, Label: s.Label, Kind: kind, Source: s.Source, URL: u, UpdatedAt: s.UpdatedAt.UTC()})
+		out = append(out, subtitleJSON{Lang: s.Lang, Label: s.Label, Kind: kind, Source: s.Source, IsDefault: s.IsDefault, URL: u, UpdatedAt: s.UpdatedAt.UTC()})
 	}
 	return out
 }
@@ -172,6 +175,7 @@ func (h *Handler) putSubtitle(w http.ResponseWriter, r *http.Request) {
 	// 2. ... then the row, in one transaction with the limit checked under a lock on the video.
 	res, err := h.Store.PutSubtitle(r.Context(), domain.SubtitleWrite{
 		VideoID: v.ID, Lang: lang, Label: label, Kind: kind, ObjectKey: key, SizeBytes: len(normalised),
+		Default: req.IsDefault,
 	})
 	if err != nil {
 		h.deleteObject(key, v, "discard subtitle after a failed update") // the row does not point at it
@@ -195,18 +199,76 @@ func (h *Handler) putSubtitle(w http.ResponseWriter, r *http.Request) {
 		h.deleteObject(res.PreviousKey, v, "delete the replaced subtitle object")
 	}
 
+	status := http.StatusOK
+	if res.Created {
+		status = http.StatusCreated
+	}
+	h.writeSubtitle(w, v, res.Track, status)
+}
+
+// writeSubtitle answers with one track, signed like the playback tracks when the video is not public.
+func (h *Handler) writeSubtitle(w http.ResponseWriter, v domain.Video, t domain.Subtitle, status int) {
 	var signedUntil *time.Time
 	if !v.PubliclyWatchable() {
 		exp := h.mediaExpiry()
 		signedUntil = &exp
 	}
-	track := h.subtitleTracks(domain.Video{ID: v.ID, Subtitles: []domain.Subtitle{res.Track}}, signedUntil)[0]
-	status := http.StatusOK
-	if res.Created {
-		status = http.StatusCreated
-	}
+	track := h.subtitleTracks(domain.Video{ID: v.ID, Subtitles: []domain.Subtitle{t}}, signedUntil)[0]
 	w.Header().Set("Cache-Control", cachePrivate)
 	httpx.WriteJSON(w, status, track)
+}
+
+// ---- PATCH /v1/videos/{video_id}/subtitles/{lang} -------------------------------
+
+type updateSubtitleRequest struct {
+	Label     *string `json:"label"`
+	IsDefault *bool   `json:"is_default"`
+}
+
+// updateSubtitle renames a track or sets/clears its default flag (DEF1) without uploading the file again.
+func (h *Handler) updateSubtitle(w http.ResponseWriter, r *http.Request) {
+	v, _, ok := h.ownedVideo(w, r)
+	if !ok {
+		return
+	}
+	lang := chi.URLParam(r, "lang")
+	if !langRe.MatchString(lang) {
+		notFound(w, r) // no such track, whatever it was
+		return
+	}
+	var req updateSubtitleRequest
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	var fe []httpx.FieldError
+	u := domain.SubtitleUpdate{Default: req.IsDefault}
+	if req.Label == nil && req.IsDefault == nil {
+		fe = append(fe, httpx.FieldError{Field: "label", Message: "label or is_default is required"})
+	}
+	if req.Label != nil {
+		label := strings.TrimSpace(*req.Label)
+		if label == "" || utf8.RuneCountInString(label) > maxLabelRunes || !utf8.ValidString(label) {
+			fe = append(fe, httpx.FieldError{Field: "label", Message: "must be 1-50 characters"})
+		}
+		u.Label = &label
+	}
+	if len(fe) > 0 {
+		httpx.BadRequest(w, r, "VALIDATION_ERROR", "request validation failed", fe...)
+		return
+	}
+	t, err := h.Store.UpdateSubtitle(r.Context(), v.ID, lang, u)
+	if errors.Is(err, domain.ErrNotFound) {
+		notFound(w, r)
+		return
+	}
+	if err != nil {
+		h.fail(w, r, "update subtitle", err)
+		return
+	}
+	if h.Cache != nil {
+		h.Cache.Invalidate(r.Context(), v.ID)
+	}
+	h.writeSubtitle(w, v, t, http.StatusOK)
 }
 
 // ---- DELETE /v1/videos/{video_id}/subtitles/{lang} -----------------------------

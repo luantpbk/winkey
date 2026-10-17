@@ -203,3 +203,94 @@ func (s *sqlLog) count(sub string) int {
 	}
 	return n
 }
+
+// DEF1: one default per video, moved by PutSubtitle and UpdateSubtitle under the video lock; nil keeps the flag.
+func TestSubtitleDefault(t *testing.T) {
+	st, pg := setup(t)
+	ctx := context.Background()
+	owner := testutil.SeedUser(t, pg.Pool, "alice", nil, "")
+	v := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: owner.ID})
+	yes, no := true, false
+	defaults := func() string {
+		got, err := st.GetVideo(ctx, v.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, s := range got.Subtitles {
+			if s.IsDefault {
+				out = append(out, s.Lang)
+			}
+		}
+		return strings.Join(out, ",")
+	}
+
+	if r, err := st.PutSubtitle(ctx, sw(v, "en")); err != nil || r.Track.IsDefault {
+		t.Fatalf("plain create: %+v %v", r, err)
+	}
+	w := sw(v, "vi")
+	w.Default = &yes
+	if r, err := st.PutSubtitle(ctx, w); err != nil || !r.Track.IsDefault {
+		t.Fatalf("default create: %+v %v", r, err)
+	}
+	if d := defaults(); d != "vi" {
+		t.Fatalf("defaults %q", d)
+	}
+	if r, err := st.PutSubtitle(ctx, sw(v, "vi")); err != nil || !r.Track.IsDefault || r.Created { // replace keeps it
+		t.Fatalf("replace: %+v %v", r, err)
+	}
+	w = sw(v, "en")
+	w.Default = &yes
+	if _, err := st.PutSubtitle(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	if d := defaults(); d != "en" {
+		t.Fatalf("after moving through PUT: %q", d)
+	}
+
+	label := "Tiếng Việt"
+	s, err := st.UpdateSubtitle(ctx, v.ID, "vi", domain.SubtitleUpdate{Label: &label, Default: &yes})
+	if err != nil || !s.IsDefault || s.Label != label || s.Lang != "vi" || s.ObjectKey == "" {
+		t.Fatalf("update: %+v %v", s, err)
+	}
+	if d := defaults(); d != "vi" {
+		t.Fatalf("after moving through PATCH: %q", d)
+	}
+	if s, err := st.UpdateSubtitle(ctx, v.ID, "vi", domain.SubtitleUpdate{Label: &label}); err != nil || !s.IsDefault {
+		t.Fatalf("rename keeps the flag: %+v %v", s, err)
+	}
+	if _, err := st.UpdateSubtitle(ctx, v.ID, "vi", domain.SubtitleUpdate{Default: &no}); err != nil {
+		t.Fatal(err)
+	}
+	if d := defaults(); d != "" {
+		t.Fatalf("after clearing: %q", d)
+	}
+	if _, err := st.UpdateSubtitle(ctx, v.ID, "fr", domain.SubtitleUpdate{Default: &yes}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("no track: %v", err)
+	}
+	if _, err := st.UpdateSubtitle(ctx, ids.New(), "vi", domain.SubtitleUpdate{Default: &yes}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown video: %v", err)
+	}
+
+	// Concurrent moves never break the one-default index.
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		lang := []string{"en", "vi"}[i%2]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := st.UpdateSubtitle(ctx, v.ID, lang, domain.SubtitleUpdate{Default: &yes}); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent: %v", err)
+	}
+	if d := defaults(); d != "en" && d != "vi" {
+		t.Fatalf("after concurrent moves: %q", d)
+	}
+}

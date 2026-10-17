@@ -21,7 +21,7 @@ func (p *Postgres) loadSubtitles(ctx context.Context, v *domain.Video) error {
 		return nil
 	}
 	rows, err := p.Pool.Query(ctx, `
-		SELECT lang, label, kind, source, object_key, size_bytes, updated_at
+		SELECT lang, label, kind, source, is_default, object_key, size_bytes, updated_at
 		FROM media.video_subtitles WHERE video_id = $1`, v.ID)
 	if err != nil {
 		return fmt.Errorf("load subtitles: %w", err)
@@ -29,7 +29,7 @@ func (p *Postgres) loadSubtitles(ctx context.Context, v *domain.Video) error {
 	defer rows.Close()
 	for rows.Next() {
 		var s domain.Subtitle
-		if err := rows.Scan(&s.Lang, &s.Label, &s.Kind, &s.Source, &s.ObjectKey, &s.SizeBytes, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.Lang, &s.Label, &s.Kind, &s.Source, &s.IsDefault, &s.ObjectKey, &s.SizeBytes, &s.UpdatedAt); err != nil {
 			return err
 		}
 		v.Subtitles = append(v.Subtitles, s)
@@ -76,16 +76,21 @@ func (p *Postgres) PutSubtitle(ctx context.Context, w domain.SubtitleWrite) (dom
 		}
 	}
 
+	if err := clearOtherDefaults(ctx, tx, w.VideoID, w.Lang, w.Default); err != nil {
+		return domain.SubtitleResult{}, err
+	}
 	var res domain.SubtitleResult
+	// $7 NULL: a new track is not the default, a replaced one keeps its flag.
 	err = tx.QueryRow(ctx, `
-		INSERT INTO media.video_subtitles (video_id, lang, label, kind, source, object_key, size_bytes)
-		VALUES ($1, $2, $3, $4, 'UPLOAD', $5, $6)
+		INSERT INTO media.video_subtitles (video_id, lang, label, kind, source, object_key, size_bytes, is_default)
+		VALUES ($1, $2, $3, $4, 'UPLOAD', $5, $6, coalesce($7::boolean, false))
 		ON CONFLICT (video_id, lang) DO UPDATE SET
 			label = EXCLUDED.label, kind = EXCLUDED.kind, source = 'UPLOAD', object_key = EXCLUDED.object_key,
-			size_bytes = EXCLUDED.size_bytes, updated_at = now()
-		RETURNING (xmax = 0), lang, label, kind, source, object_key, size_bytes, updated_at`,
-		w.VideoID, w.Lang, w.Label, w.Kind, w.ObjectKey, w.SizeBytes).
-		Scan(&res.Created, &res.Track.Lang, &res.Track.Label, &res.Track.Kind, &res.Track.Source, &res.Track.ObjectKey, &res.Track.SizeBytes, &res.Track.UpdatedAt)
+			size_bytes = EXCLUDED.size_bytes, is_default = coalesce($7::boolean, media.video_subtitles.is_default),
+			updated_at = now()
+		RETURNING (xmax = 0), `+subtitleCols,
+		w.VideoID, w.Lang, w.Label, w.Kind, w.ObjectKey, w.SizeBytes, w.Default).
+		Scan(&res.Created, &res.Track.Lang, &res.Track.Label, &res.Track.Kind, &res.Track.Source, &res.Track.IsDefault, &res.Track.ObjectKey, &res.Track.SizeBytes, &res.Track.UpdatedAt)
 	if err != nil {
 		var pe *pgconn.PgError
 		if errors.As(err, &pe) && pe.Code == "23503" { // the video was deleted (foreign key)
@@ -100,6 +105,62 @@ func (p *Postgres) PutSubtitle(ctx context.Context, w domain.SubtitleWrite) (dom
 		return domain.SubtitleResult{}, fmt.Errorf("commit: %w", err)
 	}
 	return res, nil
+}
+
+// subtitleCols are the columns scanned into a domain.Subtitle, in its field order.
+const subtitleCols = `lang, label, kind, source, is_default, object_key, size_bytes, updated_at`
+
+// clearOtherDefaults unsets the default of the video's other tracks when def is true, so the partial unique
+// index video_subtitles_one_default never fires. The caller holds the video row lock.
+func clearOtherDefaults(ctx context.Context, tx pgx.Tx, videoID uuid.UUID, lang string, def *bool) error {
+	if def == nil || !*def {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE media.video_subtitles SET is_default = false, updated_at = now()
+		WHERE video_id = $1 AND is_default AND lang <> $2`, videoID, lang); err != nil {
+		return fmt.Errorf("clear default subtitle: %w", err)
+	}
+	return nil
+}
+
+// UpdateSubtitle changes the label and/or the default flag of a track under the video row lock (the same
+// lock PutSubtitle takes, so two calls cannot both leave a default).
+func (p *Postgres) UpdateSubtitle(ctx context.Context, videoID uuid.UUID, lang string, u domain.SubtitleUpdate) (domain.Subtitle, error) {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return domain.Subtitle{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+
+	var one int
+	err = tx.QueryRow(ctx, `SELECT 1 FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Subtitle{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Subtitle{}, fmt.Errorf("update subtitle: lock: %w", err)
+	}
+	if err := clearOtherDefaults(ctx, tx, videoID, lang, u.Default); err != nil {
+		return domain.Subtitle{}, err
+	}
+	var s domain.Subtitle
+	err = tx.QueryRow(ctx, `
+		UPDATE media.video_subtitles
+		SET label = coalesce($3, label), is_default = coalesce($4::boolean, is_default), updated_at = now()
+		WHERE video_id = $1 AND lang = $2
+		RETURNING `+subtitleCols, videoID, lang, u.Label, u.Default).
+		Scan(&s.Lang, &s.Label, &s.Kind, &s.Source, &s.IsDefault, &s.ObjectKey, &s.SizeBytes, &s.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Subtitle{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Subtitle{}, fmt.Errorf("update subtitle: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Subtitle{}, fmt.Errorf("commit: %w", err)
+	}
+	return s, nil
 }
 
 func (p *Postgres) DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (string, error) {

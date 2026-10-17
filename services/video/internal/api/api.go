@@ -101,6 +101,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Patch("/v1/videos/{video_id}", h.updateVideo)
 		r.Delete("/v1/videos/{video_id}", h.deleteVideo)
 		r.Put("/v1/videos/{video_id}/subtitles/{lang}", h.putSubtitle)
+		r.Patch("/v1/videos/{video_id}/subtitles/{lang}", h.updateSubtitle)
 		r.Delete("/v1/videos/{video_id}/subtitles/{lang}", h.deleteSubtitle)
 		r.Get("/v1/videos/{video_id}/audio-tracks", h.listAudioTracks)
 		r.Patch("/v1/videos/{video_id}/audio-tracks/{track_id}", h.updateAudioTrack)

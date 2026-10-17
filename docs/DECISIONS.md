@@ -1172,3 +1172,17 @@ Kiến trúc sư tái hiện lỗi trên Chromium với hls.js 1.7.3 (bản web 
 3. Chạy `av1-upgrade`.
 
 Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa chọn (Antigravity 1), vì giờ mọi master đều có một rendition âm thanh.
+
+**Addendum 2026-10-17 (DEF1, phụ đề và âm thanh mặc định, kiến trúc sư).**
+
+*Bối cảnh.* Người dùng muốn creator tích chọn được phụ đề mặc định và track âm thanh mặc định. Không tích gì thì video phát nguyên gốc: không phụ đề, âm thanh gốc.
+
+*Quyết định.*
+- **Phụ đề:** cột mới `media.video_subtitles.is_default` (migration 000025), mặc định `false`, tối đa một track mặc định mỗi video (partial unique index `video_subtitles_one_default`).
+  - `SubtitleTrack.is_default` luôn được trả về (trong schema là optional, vì `default` trong schema làm field TS thành bắt buộc).
+  - `PUT …/subtitles/{lang}` nhận `is_default` tuỳ chọn: `true` đặt mặc định và bỏ cờ ở các track khác; `false` bỏ cờ; không gửi thì track thay thế giữ cờ cũ, track mới là `false`.
+  - `PATCH …/subtitles/{lang}` mới (`label` và/hoặc `is_default`) đổi tên hoặc đổi cờ mà không phải tải file lại.
+  - Mọi thay đổi cờ chạy trong transaction giữ khoá dòng video, nên hai request đồng thời không thể để lại hai track mặc định.
+  - Player bật phụ đề mặc định khi người xem chưa lưu lựa chọn nào. Lựa chọn đã lưu của người xem (kể cả "tắt") luôn thắng.
+- **Âm thanh:** `PATCH …/audio-tracks/{id}` nhận cả `is_default: false`, tức bỏ cờ của track đó. Master được ghi lại, và âm thanh gốc thành `DEFAULT=YES` (quy tắc sẵn có của `hlsmaster.Group`).
+- Không có cột hay cờ nào cho "gốc": không track nào mặc định nghĩa là gốc.

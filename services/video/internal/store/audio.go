@@ -81,9 +81,9 @@ func (p *Postgres) UpdateAudioTrack(ctx context.Context, videoID, trackID uuid.U
 		}
 		t, err := scanAudio(tx.QueryRow(ctx, `
 			UPDATE media.video_audio_tracks
-			SET label = coalesce($3, label), is_default = is_default OR $4, updated_at = now()
+			SET label = coalesce($3, label), is_default = (is_default OR $4) AND NOT $5, updated_at = now()
 			WHERE id = $1 AND video_id = $2
-			RETURNING `+audioCols, trackID, videoID, u.Label, u.MakeDefault))
+			RETURNING `+audioCols, trackID, videoID, u.Label, u.MakeDefault, u.ClearDefault))
 		if err != nil {
 			return domain.AudioTrack{}, fmt.Errorf("update audio track: %w", err)
 		}

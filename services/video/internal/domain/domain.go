@@ -176,8 +176,9 @@ const MaxSubtitles = 20
 type Subtitle struct {
 	Lang      string    `json:"lang"`
 	Label     string    `json:"label"`
-	Kind      string    `json:"kind"`   // subtitles or captions (MUX1)
-	Source    string    `json:"source"` // UPLOAD; AUTO is reserved for V5c
+	Kind      string    `json:"kind"`       // subtitles or captions (MUX1)
+	Source    string    `json:"source"`     // UPLOAD; AUTO is reserved for V5c
+	IsDefault bool      `json:"is_default"` // turned on when the viewer has no preference (DEF1)
 	ObjectKey string    `json:"object_key"`
 	SizeBytes int       `json:"size_bytes"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -191,6 +192,15 @@ type SubtitleWrite struct {
 	Kind      string // subtitles or captions
 	ObjectKey string
 	SizeBytes int
+	// Default: nil keeps the current flag of a replaced track (false for a new one); true makes it the
+	// video's default subtitle and clears the others; false clears it (DEF1).
+	Default *bool
+}
+
+// SubtitleUpdate is a PATCH of a track's metadata: a nil field keeps it; Default as in SubtitleWrite.
+type SubtitleUpdate struct {
+	Label   *string
+	Default *bool
 }
 
 // SubtitleResult is what Store.PutSubtitle committed.
@@ -230,10 +240,12 @@ type AudioTrack struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// AudioTrackUpdate is a PATCH of a track: a nil Label keeps it; MakeDefault moves the default to it.
+// AudioTrackUpdate is a PATCH of a track: a nil Label keeps it; MakeDefault moves the default to it;
+// ClearDefault unsets it, so the video's own audio becomes the default (DEF1). At most one of the two.
 type AudioTrackUpdate struct {
-	Label       *string
-	MakeDefault bool
+	Label        *string
+	MakeDefault  bool
+	ClearDefault bool
 }
 
 // MasterRewrite builds the HLS master of a video for its READY audio tracks (hlsmaster.With) from the
@@ -358,6 +370,9 @@ type Store interface {
 	PutSubtitle(ctx context.Context, w SubtitleWrite) (SubtitleResult, error)
 	// DeleteSubtitle removes the row and returns its object key; ErrNotFound if there is no such track.
 	DeleteSubtitle(ctx context.Context, videoID uuid.UUID, lang string) (objectKey string, err error)
+	// UpdateSubtitle applies u to the track in ONE transaction that locks the video row (a default set here
+	// clears the others) and returns the track. ErrNotFound if the video or the track does not exist.
+	UpdateSubtitle(ctx context.Context, videoID uuid.UUID, lang string, u SubtitleUpdate) (Subtitle, error)
 	// ListAudioTracks returns every audio track of the video in every status, sorted by lang then kind.
 	ListAudioTracks(ctx context.Context, videoID uuid.UUID) ([]AudioTrack, error)
 	// UpdateAudioTrack applies u in ONE transaction that locks the video row; when the video has a master and

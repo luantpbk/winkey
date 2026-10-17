@@ -112,6 +112,9 @@ func (s *memStore) UpdateAudioTrack(ctx context.Context, videoID, trackID uuid.U
 			}
 			ts[i].IsDefault = true
 		}
+		if u.ClearDefault {
+			ts[i].IsDefault = false
+		}
 		if u.Label != nil {
 			ts[i].Label = *u.Label
 		}
@@ -253,6 +256,32 @@ func TestUpdateAudioTrackRewritesMaster(t *testing.T) {
 	}
 }
 
+// DEF1: is_default false clears the track's default, so the video's own audio is the default again.
+func TestUpdateAudioTrackClearDefault(t *testing.T) {
+	e := newEnv(t, true)
+	v := e.audioVideo(alice)
+	vi := e.store.addTrack(v.ID, domain.AudioTrack{Lang: "vi", Label: "Thuyết minh", Kind: "voiceover", Status: domain.StatusReady, IsDefault: true})
+
+	w := e.req(alice, "PATCH", audioPath(v, "/"+vi.ID.String()), `{"is_default":false}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if got := decode[audioTrackJSON](t, w); got.IsDefault || got.Label != "Thuyết minh" {
+		t.Fatalf("track = %+v", got)
+	}
+	_, body := e.master(v)
+	var media []string
+	for _, l := range strings.Split(body, "\n") {
+		if strings.HasPrefix(l, "#EXT-X-MEDIA:") {
+			media = append(media, l)
+		}
+	}
+	if len(media) != 2 || !strings.Contains(media[0], "DEFAULT=YES") || strings.Contains(media[0], `LANGUAGE="vi"`) ||
+		!strings.Contains(media[1], `LANGUAGE="vi",NAME="Thuyết minh",DEFAULT=NO`) {
+		t.Fatalf("master:\n%s", body)
+	}
+}
+
 func TestUpdateAudioTrackValidation(t *testing.T) {
 	e := newEnv(t, false)
 	v := e.audioVideo(alice)
@@ -260,7 +289,6 @@ func TestUpdateAudioTrackValidation(t *testing.T) {
 	p := audioPath(v, "/"+tr.ID.String())
 	for name, body := range map[string]string{
 		"empty":         `{}`,
-		"default false": `{"is_default":false}`,
 		"blank label":   `{"label":"   "}`,
 		"long label":    `{"label":"` + strings.Repeat("a", 51) + `"}`,
 		"unknown field": `{"label":"x","lang":"en"}`,

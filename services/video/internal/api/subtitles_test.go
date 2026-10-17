@@ -379,3 +379,95 @@ func TestSubtitleChangesInvalidateTheCache(t *testing.T) {
 		t.Fatal("a deleted track is still visible")
 	}
 }
+
+func defaultBody(label string, def bool) string {
+	b, _ := json.Marshal(map[string]any{"label": label, "content": goodVTT, "is_default": def})
+	return string(b)
+}
+
+// DEF1: at most one default subtitle per video; none means the video starts without subtitles.
+func TestSubtitleDefault(t *testing.T) {
+	e := newEnv(t, true)
+	v := e.video(alice)
+	defaults := func() map[string]bool {
+		out := map[string]bool{}
+		for _, s := range decode[videoJSON](t, e.req(anon, "GET", "/v1/videos/"+v.ID.String(), "")).Playback.Subtitles {
+			out[s.Lang] = s.IsDefault
+		}
+		return out
+	}
+
+	// A new track is not the default unless asked.
+	if w := e.req(alice, "PUT", subPath(v, "en"), putBody("English", goodVTT)); w.Code != http.StatusCreated || decode[subtitleJSON](t, w).IsDefault {
+		t.Fatalf("plain create: %d %s", w.Code, w.Body)
+	}
+	if w := e.req(alice, "PUT", subPath(v, "vi"), defaultBody("Tiếng Việt", true)); w.Code != http.StatusCreated || !decode[subtitleJSON](t, w).IsDefault {
+		t.Fatalf("default create: %d %s", w.Code, w.Body)
+	}
+	if d := defaults(); !d["vi"] || d["en"] {
+		t.Fatalf("after create: %v", d)
+	}
+	// Replacing the file without is_default keeps the flag.
+	if w := e.req(alice, "PUT", subPath(v, "vi"), putBody("Tiếng Việt", goodVTT)); w.Code != http.StatusOK || !decode[subtitleJSON](t, w).IsDefault {
+		t.Fatalf("replace: %d %s", w.Code, w.Body)
+	}
+	// PATCH moves the default; the other track loses it.
+	w := e.req(alice, "PATCH", subPath(v, "en"), `{"is_default":true}`)
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("patch: %d %s", w.Code, w.Body)
+	}
+	if got := decode[subtitleJSON](t, w); !got.IsDefault || got.Label != "English" || !strings.HasPrefix(got.URL, mediaBase+"/v/") {
+		t.Fatalf("patched: %+v", got)
+	}
+	if d := defaults(); d["vi"] || !d["en"] {
+		t.Fatalf("after move: %v", d)
+	}
+	// false clears it: no default at all. A rename keeps the flag.
+	if w := e.req(alice, "PATCH", subPath(v, "en"), `{"is_default":false,"label":" Anh "}`); w.Code != http.StatusOK {
+		t.Fatalf("clear: %d %s", w.Code, w.Body)
+	}
+	if d := defaults(); d["vi"] || d["en"] {
+		t.Fatalf("after clear: %v", d)
+	}
+	if got := decode[videoJSON](t, e.req(anon, "GET", "/v1/videos/"+v.ID.String(), "")).Playback.Subtitles; got[0].Label != "Anh" {
+		t.Fatalf("label: %+v", got)
+	}
+	if e.cache.inval == 0 {
+		t.Error("cache not invalidated")
+	}
+}
+
+func TestUpdateSubtitleValidation(t *testing.T) {
+	e := newEnv(t, false)
+	v := e.video(alice)
+	private := e.video(alice, visibility(domain.VisPrivate))
+	e.req(alice, "PUT", subPath(v, "vi"), putBody("Tiếng Việt", goodVTT))
+	for name, body := range map[string]string{
+		"empty":         `{}`,
+		"blank label":   `{"label":"   "}`,
+		"long label":    `{"label":"` + strings.Repeat("a", 51) + `"}`,
+		"unknown field": `{"label":"x","content":"WEBVTT"}`,
+		"not a bool":    `{"is_default":"yes"}`,
+	} {
+		if w := e.req(alice, "PATCH", subPath(v, "vi"), body); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	for name, c := range map[string]struct {
+		who  *who
+		path string
+		want int
+	}{
+		"other user":  {bob, subPath(v, "vi"), 403},
+		"moderator":   {mod, subPath(v, "vi"), 403},
+		"anonymous":   {anon, subPath(v, "vi"), 401},
+		"invisible":   {bob, subPath(private, "vi"), 404},
+		"unknown":     {alice, "/v1/videos/" + ids.NewString() + "/subtitles/vi", 404},
+		"no track":    {alice, subPath(v, "fr"), 404},
+		"invalid tag": {alice, subPath(v, "VI"), 404},
+	} {
+		if w := e.req(c.who, "PATCH", c.path, `{"is_default":true}`); w.Code != c.want {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+}

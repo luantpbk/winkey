@@ -318,8 +318,9 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename a track or make it the default (owner only).
-         * @description Setting `is_default: true` clears it on the video's other tracks in the same transaction. The HLS master
+         * Rename a track, or make it the default or not (owner only).
+         * @description Setting `is_default: true` clears it on the video's other tracks in the same transaction; `false` clears
+         *     it on this track, so the video's own audio is the default (task DEF1). The HLS master
          *     playlist is rewritten under a NEW key so cached copies never mix old and new track lists.
          */
         patch: operations["updateAudioTrack"];
@@ -359,7 +360,13 @@ export interface paths {
         delete: operations["deleteSubtitle"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a subtitle track or make it the default (owner only).
+         * @description Task DEF1. `is_default: true` makes this the track the player turns on for a viewer who has not chosen
+         *     one, and clears it on the video's other tracks in the same transaction; `is_default: false` clears it,
+         *     so subtitles are off by default. Same authorisation as `putSubtitle`. No new object is written.
+         */
+        patch: operations["updateSubtitle"];
         trace?: never;
     };
     "/internal/media-access/{video_id}": {
@@ -863,11 +870,8 @@ export interface components {
         };
         UpdateAudioTrackRequest: {
             label?: string;
-            /**
-             * @description Only `true`; to move the default, set it on another track.
-             * @enum {boolean}
-             */
-            is_default?: true;
+            /** @description `true` makes this the default track (clearing the others). `false` clears it (task DEF1): the video's own audio is then the default. */
+            is_default?: boolean;
         };
         SubtitleTrack: {
             lang: string;
@@ -883,6 +887,8 @@ export interface components {
              * @enum {string}
              */
             source: "UPLOAD" | "AUTO";
+            /** @description Task DEF1: the track the player turns on for a viewer who has not chosen subtitles; at most one per video, none means subtitles are off by default. Always sent; optional only so that older servers stay valid. */
+            is_default?: boolean;
             /**
              * Format: uri
              * @description The `.vtt` file. Signed like `Playback.hls_url` when the video is not publicly watchable (SEC1).
@@ -900,6 +906,13 @@ export interface components {
              * @enum {string}
              */
             kind?: "subtitles" | "captions";
+            /** @description Task DEF1: `true` makes this the default track (clearing the others), `false` clears it. Absent keeps the current value when a track is replaced, and means `false` for a new track. */
+            is_default?: boolean;
+        };
+        UpdateSubtitleRequest: {
+            label?: string;
+            /** @description `true` makes this the default track (clearing the others); `false` clears it. */
+            is_default?: boolean;
         };
         ModerateVideoRequest: {
             /** @enum {string} */
@@ -1522,6 +1535,46 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown video, video the caller may not see, or no track for this language. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateSubtitle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+                /** @description BCP 47 language tag, lowercase language + optional uppercase region (`vi`, `en`, `en-US`). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSubtitleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleTrack"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description Unknown video, video the caller may not see, or no track for this language. */

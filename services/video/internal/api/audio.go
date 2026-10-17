@@ -157,11 +157,8 @@ func (h *Handler) updateAudioTrack(w http.ResponseWriter, r *http.Request) {
 		}
 		u.Label = &label
 	}
-	if req.IsDefault != nil {
-		if !*req.IsDefault {
-			fe = append(fe, httpx.FieldError{Field: "is_default", Message: "only true; set it on another track to move the default"})
-		}
-		u.MakeDefault = *req.IsDefault
+	if req.IsDefault != nil { // false: the video's own audio becomes the default (DEF1)
+		u.MakeDefault, u.ClearDefault = *req.IsDefault, !*req.IsDefault
 	}
 	if len(fe) > 0 {
 		httpx.BadRequest(w, r, "VALIDATION_ERROR", "request validation failed", fe...)

@@ -540,9 +540,10 @@ paths:
     patch:
       tags: [audio-tracks]
       operationId: updateAudioTrack
-      summary: Rename a track or make it the default (owner only).
+      summary: Rename a track, or make it the default or not (owner only).
       description: |
-        Setting `is_default: true` clears it on the video's other tracks in the same transaction. The HLS master
+        Setting `is_default: true` clears it on the video's other tracks in the same transaction; `false` clears
+        it on this track, so the video's own audio is the default (task DEF1). The HLS master
         playlist is rewritten under a NEW key so cached copies never mix old and new track lists.
       security:
         - bearerAuth: []
@@ -647,6 +648,41 @@ paths:
           $ref: './common.yaml#/components/responses/NotFound'
         '409':
           $ref: './common.yaml#/components/responses/Conflict'
+    patch:
+      tags: [subtitles]
+      operationId: updateSubtitle
+      summary: Rename a subtitle track or make it the default (owner only).
+      description: |
+        Task DEF1. `is_default: true` makes this the track the player turns on for a viewer who has not chosen
+        one, and clears it on the video's other tracks in the same transaction; `is_default: false` clears it,
+        so subtitles are off by default. Same authorisation as `putSubtitle`. No new object is written.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubtitleRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubtitleTrack'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: Unknown video, video the caller may not see, or no track for this language.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
     delete:
       tags: [subtitles]
       operationId: deleteSubtitle
@@ -1599,8 +1635,9 @@ components:
           maxLength: 50
         is_default:
           type: boolean
-          enum: [true]
-          description: Only `true`; to move the default, set it on another track.
+          description: >-
+            `true` makes this the default track (clearing the others). `false` clears it (task DEF1): the video's
+            own audio is then the default.
 
     SubtitleTrack:
       type: object
@@ -1623,6 +1660,12 @@ components:
           type: string
           enum: [UPLOAD, AUTO]
           description: '`AUTO` is reserved for auto-captions (V5c); only `UPLOAD` exists today.'
+        is_default:
+          type: boolean
+          description: >-
+            Task DEF1: the track the player turns on for a viewer who has not chosen subtitles; at most one per
+            video, none means subtitles are off by default. Always sent; optional only so that older servers stay
+            valid.
         url:
           type: string
           format: uri
@@ -1649,6 +1692,24 @@ components:
           type: string
           enum: [subtitles, captions]
           description: Task MUX1; absent means `subtitles`. One track per language whatever its kind. (No schema `default`, so generated clients keep it optional.)
+        is_default:
+          type: boolean
+          description: >-
+            Task DEF1: `true` makes this the default track (clearing the others), `false` clears it. Absent keeps
+            the current value when a track is replaced, and means `false` for a new track.
+
+    UpdateSubtitleRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 50
+        is_default:
+          type: boolean
+          description: '`true` makes this the default track (clearing the others); `false` clears it.'
 
     ModerateVideoRequest:
       type: object
