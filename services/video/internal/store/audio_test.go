@@ -95,6 +95,16 @@ func TestAudioTracksListLoadUpdateDelete(t *testing.T) {
 		t.Fatal("hls_master_key not updated")
 	}
 
+	// DEF1: is_default false clears it (the video's own audio is the default again), rewriting the master.
+	tr, err = st.UpdateAudioTrack(ctx, v.ID, en, domain.AudioTrackUpdate{ClearDefault: true}, rw.fn)
+	if err != nil || tr.IsDefault || tr.Label != label {
+		t.Fatalf("clear default: %+v %v", tr, err)
+	}
+	if len(rw.calls) != 2 || rw.calls[1][0].IsDefault || rw.calls[1][1].IsDefault {
+		t.Fatalf("rewrite after clear saw %+v", rw.calls)
+	}
+	after = masterKeyOf(t, pg.Pool, v.ID)
+
 	// A failing rewrite rolls the change back.
 	rw.err = errors.New("garage down")
 	other := "x"

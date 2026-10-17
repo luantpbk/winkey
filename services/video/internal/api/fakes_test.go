@@ -293,6 +293,7 @@ func (s *memStore) PutSubtitle(_ context.Context, w domain.SubtitleWrite) (domai
 	for i, t := range subs {
 		if t.Lang == w.Lang {
 			res.Created, res.PreviousKey = false, t.ObjectKey
+			track.IsDefault = t.IsDefault
 			subs = append(append([]domain.Subtitle{}, subs[:i]...), subs[i+1:]...)
 			break
 		}
@@ -300,11 +301,51 @@ func (s *memStore) PutSubtitle(_ context.Context, w domain.SubtitleWrite) (domai
 	if res.Created && len(subs) >= domain.MaxSubtitles {
 		return domain.SubtitleResult{}, domain.ErrTooManySubtitles
 	}
+	if w.Default != nil {
+		track.IsDefault = *w.Default
+		subs = clearSubtitleDefault(subs, *w.Default)
+	}
+	res.Track = track
 	subs = append(subs, track)
 	sort.Slice(subs, func(i, j int) bool { return subs[i].Lang < subs[j].Lang })
 	v.Subtitles = subs
 	s.videos[w.VideoID] = v
 	return res, nil
+}
+
+// clearSubtitleDefault returns a copy of subs with no default when def is true (the new default takes it).
+func clearSubtitleDefault(subs []domain.Subtitle, def bool) []domain.Subtitle {
+	out := append([]domain.Subtitle{}, subs...)
+	if def {
+		for i := range out {
+			out[i].IsDefault = false
+		}
+	}
+	return out
+}
+
+func (s *memStore) UpdateSubtitle(_ context.Context, id uuid.UUID, lang string, u domain.SubtitleUpdate) (domain.Subtitle, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.videos[id]
+	if !ok {
+		return domain.Subtitle{}, domain.ErrNotFound
+	}
+	for i, t := range v.Subtitles {
+		if t.Lang != lang {
+			continue
+		}
+		if u.Default != nil {
+			v.Subtitles = clearSubtitleDefault(v.Subtitles, *u.Default)
+			v.Subtitles[i].IsDefault = *u.Default
+		}
+		if u.Label != nil {
+			v.Subtitles[i].Label = *u.Label
+		}
+		s.videos[id] = v
+		return v.Subtitles[i], nil
+	}
+	return domain.Subtitle{}, domain.ErrNotFound
 }
 
 func (s *memStore) DeleteSubtitle(_ context.Context, id uuid.UUID, lang string) (string, error) {

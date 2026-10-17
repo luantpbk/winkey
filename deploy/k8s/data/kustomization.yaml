@@ -64,6 +64,8 @@ configMapGenerator:
       - migrations/000023_audio_tracks.down.sql
       - migrations/000024_av1_master.up.sql
       - migrations/000024_av1_master.down.sql
+      - migrations/000025_subtitle_default.up.sql
+      - migrations/000025_subtitle_default.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
