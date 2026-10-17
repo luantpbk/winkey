@@ -178,6 +178,9 @@ func (r *Runner) one(ctx context.Context, c Candidate) outcome {
 	if err := r.Media.RunHLS(ctx, plan, info.DurationSec, func(float64) {}); err != nil {
 		return r.fail(ctx, log, "encode", err)
 	}
+	if err := job.NormalizeMaster(filepath.Join(out, media.MasterPlaylist)); err != nil {
+		return r.fail(ctx, log, "normalize", err)
+	}
 	if err := r.setCodecs(ctx, out, rs); err != nil {
 		return r.fail(ctx, log, "codecs", err)
 	}
@@ -228,7 +231,8 @@ func (r *Runner) one(ctx context.Context, c Candidate) outcome {
 }
 
 // setCodecs writes CODECS into the AV1 master, which FFmpeg's HLS muxer leaves out for AV1: each variant's
-// av01 string comes from probing that variant's own playlist (profile, level, bit depth), plus the muxed AAC.
+// av01 string comes from probing that variant's own playlist (profile, level, bit depth), plus the AAC of the
+// audio rendition every variant plays with.
 func (r *Runner) setCodecs(ctx context.Context, out string, rs []media.Rendition) error {
 	codecs := map[string]string{}
 	for _, rd := range rs {
@@ -240,9 +244,8 @@ func (r *Runner) setCodecs(ctx context.Context, out string, rs []media.Rendition
 		if err != nil {
 			return fmt.Errorf("%s: %w", rd.Name, err)
 		}
-		if info.HasAudio {
-			c += "," + media.AACCodec
-		}
+		// The variants are video-only; their audio is the group's AAC rendition (ADR-042 addendum).
+		c += "," + media.AACCodec
 		codecs[rd.Name] = c
 	}
 	path := filepath.Join(out, media.MasterPlaylist)

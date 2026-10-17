@@ -119,6 +119,16 @@ func TestAudioTrackEndToEnd(t *testing.T) {
 	if !strings.Contains(body, `URI="`+uri+`"`) || !strings.Contains(body, `AUDIO="aud"`) {
 		t.Fatalf("master:\n%s", body)
 	}
+	// ADR-042 addendum 2026-10-17: the original is its own rendition (with a URI) and the ladder has only
+	// video variants, the layout hls.js can switch; FFmpeg's audio-only rung is gone.
+	if !strings.Contains(body, `NAME="Âm thanh gốc",DEFAULT=NO,AUTOSELECT=YES,URI="audio/index.m3u8"`) ||
+		strings.Contains(body, "\naudio/index.m3u8") || len(media.ParseMaster(body)) == 0 {
+		t.Fatalf("master layout:\n%s", body)
+	}
+	plain := string(get(plainMaster))
+	if !strings.Contains(plain, `GROUP-ID="aud",NAME="Âm thanh gốc",DEFAULT=YES,AUTOSELECT=YES,URI="audio/index.m3u8"`) {
+		t.Fatalf("plain master:\n%s", plain)
+	}
 
 	// The rendition the master points at plays: download it with its layout and let ffprobe read it.
 	local := filepath.Join(dir, "media")

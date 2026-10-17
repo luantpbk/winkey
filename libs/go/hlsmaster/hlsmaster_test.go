@@ -130,3 +130,70 @@ func TestNewKey(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// What FFmpeg writes for video-only variants and one audio rendition (var_stream_map with agroup:aud),
+// including the audio-only variant it adds to the ladder.
+const ffmpegSeparateMaster = `#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="audio_2",DEFAULT=YES,URI="audio/index.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=5300000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="group_aud"
+1080p/index.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=1210000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2",AUDIO="group_aud"
+360p/index.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=140800,CODECS="mp4a.40.2",AUDIO="group_aud"
+audio/index.m3u8
+`
+
+// The separate layout (ADR-042 addendum 2026-10-17): the original is a rendition with a URI, FFmpeg's
+// audio-only variant is dropped, and the group stays with the original alone when there is no track.
+func TestWithSeparateOriginalAudio(t *testing.T) {
+	plain, err := With([]byte(ffmpegSeparateMaster), masterKey, masterKey, "Âm thanh gốc", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPlain := `#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="Âm thanh gốc",DEFAULT=YES,AUTOSELECT=YES,URI="audio/index.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=5300000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud"
+1080p/index.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=1210000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2",AUDIO="aud"
+360p/index.m3u8
+`
+	if string(plain) != wantPlain {
+		t.Fatalf("plain:\n%s\nwant:\n%s", plain, wantPlain)
+	}
+
+	tracks := []Track{{ID: "t1", Lang: "vi", Label: "Thuyết minh", Kind: "voiceover", Default: true, PlaylistKey: vid + "/audio/t1/index.m3u8"}}
+	got, err := With(plain, masterKey, newKey, "Âm thanh gốc", tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="Âm thanh gốc",DEFAULT=NO,AUTOSELECT=YES,URI="audio/index.m3u8"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",LANGUAGE="vi",NAME="Thuyết minh",DEFAULT=YES,AUTOSELECT=YES,URI="../../audio/t1/index.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=5300000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="aud"
+1080p/index.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=1210000,RESOLUTION=640x360,CODECS="avc1.64001e,mp4a.40.2",AUDIO="aud"
+360p/index.m3u8
+`
+	if string(got) != want {
+		t.Fatalf("with a track:\n%s\nwant:\n%s", got, want)
+	}
+	// The raw FFmpeg master gives the same result, and removing the track keeps the original alone.
+	if raw, err := With([]byte(ffmpegSeparateMaster), masterKey, newKey, "Âm thanh gốc", tracks); err != nil || string(raw) != want {
+		t.Fatalf("from the raw master (%v):\n%s", err, raw)
+	}
+	if back, err := With(got, newKey, masterKey, "Âm thanh gốc", nil); err != nil || string(back) != wantPlain {
+		t.Fatalf("removing the track (%v):\n%s", err, back)
+	}
+	// An uploaded track of kind original replaces the video's own audio in the group.
+	repl, err := With(plain, masterKey, newKey, "Âm thanh gốc", []Track{{ID: "o", Lang: "zh", Label: "Gốc (zh)", Kind: "original", PlaylistKey: vid + "/audio/o/index.m3u8"}})
+	if err != nil || strings.Contains(string(repl), `URI="audio/index.m3u8"`) || !strings.Contains(string(repl), `URI="../../audio/o/index.m3u8"`) {
+		t.Fatalf("original replaced (%v):\n%s", err, repl)
+	}
+}

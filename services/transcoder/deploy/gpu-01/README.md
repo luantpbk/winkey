@@ -17,7 +17,7 @@ Ansible will wrap these later (Antigravity 2); this directory is the source of t
 
 | Path | What |
 |---|---|
-| `/opt/winkey/transcoder/<git-sha>/` | one directory per installed version: `transcoder`, `replay-dlq`, `av1-upgrade`, `VERSION` |
+| `/opt/winkey/transcoder/<git-sha>/` | one directory per installed version: `transcoder`, `replay-dlq`, `av1-upgrade`, `reencode`, `VERSION` |
 | `/opt/winkey/transcoder/current`, `previous` | symlinks: what runs, and what `rollback` returns to |
 | `/etc/winkey/transcoder.env` | configuration and credentials, `root:root` `0600` |
 | `/etc/systemd/system/winkey-transcoder.service` | the unit |
@@ -244,3 +244,17 @@ before this change has no `av1-upgrade`; rebuild it with `REBUILD=1 ./install.sh
 
 Change the threshold or the limit with a drop-in (`sudo systemctl edit winkey-av1-upgrade.service`, then
 `Environment=AV1_UPGRADE_LIMIT=40`). Stop the nightly runs with `sudo systemctl disable --now winkey-av1-upgrade.timer`.
+
+## 10. Re-encode into the current HLS layout (ADR-042 addendum 2026-10-17)
+
+Once, after installing a version that has `reencode`. Videos are unavailable (`PROCESSING`) while their turn runs.
+```bash
+# list the videos with the legacy layout, change nothing
+sudo systemd-run --wait --pipe --uid=winkey-transcoder --gid=winkey-transcoder -p EnvironmentFile=/etc/winkey/transcoder.env \
+  /opt/winkey/transcoder/current/reencode -dry-run
+# re-encode them in the background (follow with journalctl)
+sudo systemd-run --unit=reencode --uid=winkey-transcoder --gid=winkey-transcoder -p Nice=10 -p EnvironmentFile=/etc/winkey/transcoder.env \
+  /opt/winkey/transcoder/current/reencode
+journalctl -fu reencode -o cat
+```
+Then rebuild the AV1 sets with the `av1-upgrade` command of section 9 (`AV1_MIN_STARTS_7D=0` while there are no real viewers).

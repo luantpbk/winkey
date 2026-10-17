@@ -70,6 +70,10 @@ type HLSPlan struct {
 // MasterPlaylist is the master playlist file name inside OutDir.
 const MasterPlaylist = "master.m3u8"
 
+// AudioRendition is the directory of the original audio rendition inside OutDir. Its playlist is
+// hlsmaster.OriginalAudioURI relative to the master.
+const AudioRendition = "audio"
+
 // BuildHLSArgs returns the ffmpeg arguments (without the binary name) for one
 // process that produces every rendition (ADR-006): filter_complex split →
 // per-rendition scale/fps/format, HLS fMP4 with 4 s segments and a keyframe
@@ -123,13 +127,9 @@ func BuildHLSArgs(p HLSPlan) []string {
 	for i := 0; i < n; i++ {
 		a = append(a, "-map", fmt.Sprintf("[v%d]", i))
 	}
-	for i := 0; i < n; i++ { // one audio output stream per variant
-		if audioInput == 0 {
-			a = append(a, "-map", "0:a:0")
-		} else {
-			a = append(a, "-map", "1:a:0")
-		}
-	}
+	// One audio output stream: the original audio rendition (AudioRendition), shared by every
+	// video-only variant through the "aud" group (ADR-042 addendum 2026-10-17).
+	a = append(a, "-map", strconv.Itoa(audioInput)+":a:0")
 	a = append(a, "-map_metadata", "-1", "-map_chapters", "-1")
 
 	capped := p.RateControl == RateControlCappedCRF
@@ -185,10 +185,11 @@ func BuildHLSArgs(p HLSPlan) []string {
 		a = append(a, "-shortest") // anullsrc is infinite
 	}
 
-	vsm := make([]string, n)
+	vsm := make([]string, 0, n+1)
 	for i, r := range p.Renditions {
-		vsm[i] = fmt.Sprintf("v:%d,a:%d,name:%s", i, i, r.Name)
+		vsm = append(vsm, fmt.Sprintf("v:%d,agroup:aud,name:%s", i, r.Name))
 	}
+	vsm = append(vsm, "a:0,agroup:aud,name:"+AudioRendition)
 	out := filepath.ToSlash(p.OutDir)
 	a = append(a,
 		"-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod",

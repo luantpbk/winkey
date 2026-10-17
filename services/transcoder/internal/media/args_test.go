@@ -143,11 +143,15 @@ func TestArgInvariants(t *testing.T) {
 				"-hls_flags independent_segments", "-hls_fmp4_init_filename init.mp4",
 				"-master_pl_name master.m3u8", "expr:gte(t,n_forced*2)",
 				"-c:a aac -b:a 128k -ar 48000 -ac 2", "-map_metadata -1",
-				"v:0,a:0,name:1080p v:1,a:1,name:720p v:2,a:2,name:480p",
+				"v:0,agroup:aud,name:1080p v:1,agroup:aud,name:720p v:2,agroup:aud,name:480p a:0,agroup:aud,name:audio",
 			} {
 				if !strings.Contains(joined, must) {
 					t.Errorf("%s audio=%v: missing %q", enc, audio, must)
 				}
+			}
+			// ADR-042 addendum 2026-10-17: video-only variants and exactly one audio output stream.
+			if c := strings.Count(joined, ":a:0"); c != 1 {
+				t.Errorf("%s audio=%v: %d audio maps, want 1", enc, audio, c)
 			}
 			if strings.Contains(joined, "hwaccel_output_format") {
 				t.Errorf("%s: -hwaccel_output_format would break CPU filters", enc)
@@ -208,7 +212,7 @@ func TestAV1UsesCQAndScaledCeiling(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"-c:v av1_nvenc", "-hwaccel cuda", "-forced-idr 1", "-no-scenecut 1",
-		"expr:gte(t,n_forced*2)", "-hls_segment_type fmp4", "v:0,a:0,name:1080p v:1,a:1,name:720p v:2,a:2,name:480p"} {
+		"expr:gte(t,n_forced*2)", "-hls_segment_type fmp4", "v:0,agroup:aud,name:1080p v:1,agroup:aud,name:720p v:2,agroup:aud,name:480p a:0,agroup:aud,name:audio"} {
 		if !strings.Contains(cs, want) {
 			t.Errorf("missing %q", want)
 		}
