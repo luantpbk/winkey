@@ -143,12 +143,16 @@ export const mockVideos: Video[] = [
     tag_slugs: ['phim-ngan', 'cong-nghe', 'hoc-lap-trinh'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+      hls_av1_url: 'https://cdn.winkey.vn/hls-av1/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/master.m3u8',
       thumbnail_url:
         'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
       renditions: [
-        { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 },
-        { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800 },
-        { name: '480p', width: 854, height: 480, bitrate_kbps: 1400 },
+        { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000, codec: 'h264' },
+        { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800, codec: 'h264' },
+        { name: '480p', width: 854, height: 480, bitrate_kbps: 1400, codec: 'h264' },
+        { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 3000, codec: 'av1' },
+        { name: '720p', width: 1280, height: 720, bitrate_kbps: 1700, codec: 'av1' },
+        { name: '480p', width: 854, height: 480, bitrate_kbps: 850, codec: 'av1' },
       ],
       subtitles: [
         {

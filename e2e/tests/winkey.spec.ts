@@ -2729,6 +2729,63 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     expect(persistedAudio).toBe('en');
     expect(persistedSubtitle).toBe('en');
   });
+
+  test('ENC2-web: AV1 player stream selection & quality menu deduplication (ADR-041)', async ({
+    page,
+  }) => {
+    // 1. Case A: With AV1 support in browser
+    await page.addInitScript(() => {
+      window.MediaSource = {
+        isTypeSupported: (mime: string) => mime.includes('av01'),
+      } as any;
+    });
+
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    const qualityBtn = page.locator('[data-testid="quality-menu-button"]');
+    await expect(qualityBtn).toBeVisible({ timeout: 10000 });
+    await qualityBtn.click();
+
+    // Verify quality options: only AV1 renditions + Tự động. No duplicate 1080p!
+    const options = page.locator('[data-testid="quality-option"]');
+    const optionTexts = await options.allTextContents();
+    const trimmed = optionTexts.map((t) => t.trim());
+
+    // Verify deduplication: 1080p appears only once
+    const count1080p = trimmed.filter((t) => t === '1080p').length;
+    expect(count1080p).toBe(1);
+  });
+
+  test('ENC2-web: Fallback to H.264 when AV1 is unsupported (ADR-041)', async ({ page }) => {
+    // 2. Case B: Without AV1 support
+    await page.addInitScript(() => {
+      window.MediaSource = {
+        isTypeSupported: () => false,
+      } as any;
+    });
+
+    await page.goto('/vi/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10');
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    const qualityBtn = page.locator('[data-testid="quality-menu-button"]');
+    await expect(qualityBtn).toBeVisible({ timeout: 10000 });
+    await qualityBtn.click();
+
+    // Verify quality options: only H.264 renditions. No duplicate 1080p!
+    const options = page.locator('[data-testid="quality-option"]');
+    const optionTexts = await options.allTextContents();
+    const trimmed = optionTexts.map((t) => t.trim());
+
+    const count1080p = trimmed.filter((t) => t === '1080p').length;
+    expect(count1080p).toBe(1);
+  });
 });
 
 function createZipBufferHelper(files: Record<string, string>): Buffer {

@@ -27,6 +27,8 @@ export interface VideoPlayerProps {
   videoId?: string;
   durationMs?: number | null;
   src?: string;
+  hlsAv1Url?: string | null;
+  hls_av1_url?: string | null;
   poster?: string;
   title?: string;
   renditions?: Rendition[];
@@ -36,6 +38,20 @@ export interface VideoPlayerProps {
   expiresAt?: string | null;
   surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
+}
+
+export function isAv1Supported(): boolean {
+  if (typeof window === 'undefined' || typeof window.MediaSource === 'undefined') {
+    return false;
+  }
+  if (typeof window.MediaSource.isTypeSupported !== 'function') {
+    return false;
+  }
+  try {
+    return window.MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"');
+  } catch {
+    return false;
+  }
 }
 
 function findPreferredAudioTrackIndex(tracks: AudioTrackOption[]): number {
@@ -70,6 +86,8 @@ export function VideoPlayer({
   videoId,
   durationMs,
   src,
+  hlsAv1Url,
+  hls_av1_url,
   poster,
   title,
   renditions,
@@ -84,9 +102,22 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
+  const rawAv1Url = hlsAv1Url ?? hls_av1_url ?? null;
+
+  // Determine active codec for this video session: once determined, never switch codec mid-playback
+  const [activeCodec, setActiveCodec] = useState<'av1' | 'h264'>(() => {
+    return rawAv1Url && isAv1Supported() ? 'av1' : 'h264';
+  });
+
+  // Re-evaluate only when the videoId or stream URLs change
+  useEffect(() => {
+    setActiveCodec(rawAv1Url && isAv1Supported() ? 'av1' : 'h264');
+  }, [videoId, src, rawAv1Url]);
+
   // Playback overrides populated after a signed-URL auto-refresh
   const [refreshedPlayback, setRefreshedPlayback] = useState<{
     hls_url?: string;
+    hls_av1_url?: string | null;
     subtitles?: SubtitleTrack[];
     audio_tracks?: PlaybackAudioTrack[];
     storyboard_url?: string | null;
@@ -96,9 +127,20 @@ export function VideoPlayer({
   // Reset refreshed playback if videoId or src changes
   useEffect(() => {
     setRefreshedPlayback(null);
-  }, [videoId, src]);
+  }, [videoId, src, rawAv1Url]);
 
-  const activeSrc = refreshedPlayback?.hls_url ?? src;
+  const activeSrc =
+    activeCodec === 'av1'
+      ? (refreshedPlayback?.hls_av1_url ?? rawAv1Url ?? refreshedPlayback?.hls_url ?? src)
+      : (refreshedPlayback?.hls_url ?? src);
+
+  const activeRenditions = useMemo(() => {
+    if (!renditions || renditions.length === 0) return [];
+    return renditions.filter((r) => {
+      const renditionCodec = r.codec || 'h264';
+      return renditionCodec === activeCodec;
+    });
+  }, [renditions, activeCodec]);
   const activeSubtitles = useMemo(
     () => refreshedPlayback?.subtitles ?? subtitles ?? [],
     [refreshedPlayback?.subtitles, subtitles],
@@ -112,7 +154,6 @@ export function VideoPlayer({
 
   const [hasError, setHasError] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isUsingHls, setIsUsingHls] = useState<boolean>(false);
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([
     { index: -1, label: 'Tự động' },
   ]);
@@ -376,20 +417,26 @@ export function VideoPlayer({
 
       setRefreshedPlayback({
         hls_url: newPlayback.hls_url,
+        hls_av1_url: newPlayback.hls_av1_url,
         subtitles: newPlayback.subtitles,
         audio_tracks: newPlayback.audio_tracks,
         storyboard_url: newPlayback.storyboard_url,
         expires_at: newPlayback.expires_at,
       });
 
+      const nextUrl =
+        activeCodec === 'av1' && newPlayback.hls_av1_url
+          ? newPlayback.hls_av1_url
+          : newPlayback.hls_url;
+
       if (hlsRef.current) {
-        hlsRef.current.loadSource(newPlayback.hls_url);
+        hlsRef.current.loadSource(nextUrl);
         video.currentTime = savedTime;
         if (wasPlaying) {
           void video.play().catch(() => {});
         }
       } else {
-        video.src = newPlayback.hls_url;
+        video.src = nextUrl;
         video.currentTime = savedTime;
         if (wasPlaying) {
           void video.play().catch(() => {});
@@ -398,7 +445,7 @@ export function VideoPlayer({
     } catch (err) {
       console.warn('[VideoPlayer] Failed to refresh signed URLs:', err);
     }
-  }, [videoId]);
+  }, [videoId, activeCodec]);
 
   // Schedule timer to refresh ~5 minutes before expires_at
   useEffect(() => {
@@ -449,7 +496,6 @@ export function VideoPlayer({
     }
 
     if (Hls.isSupported()) {
-      setIsUsingHls(true);
       const hls = new Hls({
         enableWorker: true,
       });
@@ -565,12 +611,11 @@ export function VideoPlayer({
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS for Safari/iOS
-      setIsUsingHls(false);
       video.src = activeSrc;
 
-      if (renditions && renditions.length > 0) {
+      if (activeRenditions && activeRenditions.length > 0) {
         const levels: QualityLevel[] = [{ index: -1, label: 'Tự động' }];
-        renditions.forEach((r, idx) => {
+        activeRenditions.forEach((r, idx) => {
           levels.push({
             index: idx,
             label: r.name,
@@ -579,15 +624,14 @@ export function VideoPlayer({
           });
         });
         setQualityLevels(levels);
-        const first = renditions[0];
+        const first = activeRenditions[0];
         trackerRef.current?.setRendition(`${first.height}p`, first.bitrate_kbps);
       }
     } else {
-      setIsUsingHls(false);
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
-  }, [activeSrc, renditions, activeExpiresAt, refreshSignedUrls]);
+  }, [activeSrc, activeRenditions, activeExpiresAt, refreshSignedUrls]);
 
   useEffect(() => {
     setupMedia();
@@ -611,12 +655,12 @@ export function VideoPlayer({
           const bitrateKbps = lvl.bitrate ? Math.round(lvl.bitrate / 1000) : null;
           trackerRef.current?.setRendition(renditionName, bitrateKbps);
         }
-      } else if (renditions && renditions[levelIndex]) {
-        const r = renditions[levelIndex];
+      } else if (activeRenditions && activeRenditions[levelIndex]) {
+        const r = activeRenditions[levelIndex];
         trackerRef.current?.setRendition(`${r.height}p`, r.bitrate_kbps);
       }
     },
-    [renditions],
+    [activeRenditions],
   );
 
   // Controls auto-hide
@@ -988,7 +1032,7 @@ export function VideoPlayer({
               )}
 
               {/* Quality Menu */}
-              {isUsingHls && qualityLevels.length > 1 && (
+              {qualityLevels.length > 1 && (
                 <QualityMenu
                   levels={qualityLevels}
                   currentLevel={currentLevel}

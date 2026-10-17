@@ -51,6 +51,7 @@ export function QualityMenu({
     <div className="relative inline-block text-left" ref={menuRef}>
       <button
         type="button"
+        data-testid="quality-menu-button"
         onClick={() => setIsOpen(!isOpen)}
         aria-label="Chọn chất lượng video"
         aria-expanded={isOpen}
@@ -75,6 +76,7 @@ export function QualityMenu({
                 <button
                   key={lvl.index}
                   role="menuitem"
+                  data-testid="quality-option"
                   type="button"
                   onClick={() => {
                     onSelectLevel(lvl.index);
