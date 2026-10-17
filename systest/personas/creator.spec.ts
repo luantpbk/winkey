@@ -193,9 +193,20 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
       }
     }
 
-    // Save changes
+    // Save changes: wait for PATCH 200 before asserting UI
+    const patchResponsePromise = page.waitForResponse(
+      (res) => res.url().includes(`/v1/videos/${videoId}`) && res.request().method() === 'PATCH',
+      { timeout: 15000 },
+    );
+
     const saveBtn = page.locator('[data-testid="save-video-changes-btn"]').first();
     await saveBtn.click();
+
+    const patchRes = await patchResponsePromise;
+    if (patchRes.status() === 401) {
+      throw new Error('creator session lost (refresh reuse?)');
+    }
+    expect(patchRes.status()).toBe(200);
 
     await expect(
       page.getByText(/Đã lưu thay đổi thành công|Đã lưu|Thành công/).first(),
