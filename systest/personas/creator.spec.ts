@@ -151,14 +151,7 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
     // Find a video in studio
     await page.goto('/studio');
     await expect(page.locator('body')).toBeVisible();
-    const isLoggedOut =
-      page.url().includes('/login') ||
-      (await page
-        .locator('header a[href*="/login"], a[href*="/login"]')
-        .first()
-        .isVisible()
-        .catch(() => false));
-    if (isLoggedOut) {
+    if (page.url().includes('/login')) {
       await ensureCreatorLoggedIn();
       await page.goto('/studio');
     }
@@ -210,6 +203,9 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
     await saveBtn.click();
 
     const patchRes = await patchResponsePromise;
+    if (patchRes.status() === 401) {
+      throw new Error('creator session lost (refresh reuse?)');
+    }
     expect(patchRes.status()).toBe(200);
 
     await expect(
@@ -242,14 +238,7 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
   test('/thu-vien: create "Bộ phim", add 3 videos, publish -> shows on home "Phim bộ" and series page', async () => {
     await page.goto('/thu-vien');
     await expect(page.locator('body')).toBeVisible();
-    const isLoggedOutInLibrary =
-      page.url().includes('/login') ||
-      (await page
-        .locator('header a[href*="/login"], a[href*="/login"]')
-        .first()
-        .isVisible()
-        .catch(() => false));
-    if (isLoggedOutInLibrary) {
+    if (page.url().includes('/login')) {
       await ensureCreatorLoggedIn();
       await page.goto('/thu-vien');
     }
