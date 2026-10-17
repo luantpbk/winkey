@@ -473,6 +473,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
+    await pool.query('DELETE FROM auth.mail_queue WHERE to_email = $1', ['grace_ok@winkey.vn']);
     const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 2. Normal rotation: use parent token to get child 1
@@ -545,9 +546,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     const aliveChildren = allChildren.filter((c) => c.revoked_at === null && c.rotated_at === null);
     expect(aliveChildren).toHaveLength(1);
 
-    // Metric auth_refresh_total{result="grace_retry"} is exported
+    // Metric auth_refresh_total{result="grace_retry"} is exported (prom-client adds default service label)
     const metricsRes = await app.inject({ method: 'GET', url: '/metrics' });
-    expect(metricsRes.payload).toContain('auth_refresh_total{result="grace_retry"}');
+    expect(metricsRes.payload).toMatch(/auth_refresh_total\{[^}]*result="grace_retry"[^}]*\} 1/);
 
     // Using child 1 now should fail (since it was revoked)
     const failChild1 = await app.inject({
@@ -581,6 +582,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
+    await pool.query('DELETE FROM auth.mail_queue WHERE to_email = $1', [
+      'grace_expired@winkey.vn',
+    ]);
     const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 2. Normal rotation: use parent token to get child
@@ -640,6 +644,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
+    await pool.query('DELETE FROM auth.mail_queue WHERE to_email = $1', ['child_used@winkey.vn']);
     const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 2. Normal rotation: use parent token to get child
@@ -702,6 +707,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       },
     });
     expect(regRes.statusCode).toBe(201);
+    await pool.query('DELETE FROM auth.mail_queue WHERE to_email = $1', [
+      'concurrent_grace@winkey.vn',
+    ]);
     const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
 
     // 2. Initial rotation: creates Child 1
@@ -1804,6 +1812,15 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(refreshLegit.statusCode).toBe(200);
       const tokenLegit = refreshLegit.json().access_token;
+      const rt2 = refreshLegit.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+      // Legitimate client uses child rt2 first (rotates it -> child is used)
+      const refreshLegit2 = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: rt2 },
+      });
+      expect(refreshLegit2.statusCode).toBe(200);
 
       // Verify tokenLegit is valid before reuse attack
       const vLegitBefore = await app.inject({
@@ -1813,7 +1830,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(vLegitBefore.statusCode).toBe(204);
 
-      // Attacker uses old rt1 -> triggers reuse detection
+      // Attacker uses old rt1 -> triggers reuse detection (child rt2 was already rotated!)
       const reuseAttack = await app.inject({
         method: 'POST',
         url: '/v1/auth/refresh',
@@ -1931,6 +1948,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       if (!app || !pool || !mailWorker) return;
 
       await clearMailpitMessages();
+      await pool.query('DELETE FROM auth.mail_queue');
 
       // 1. Register new user
       const regRes = await app.inject({
@@ -1998,6 +2016,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       if (!app || !pool || !mailWorker) return;
 
       await clearMailpitMessages();
+      await pool.query('DELETE FROM auth.mail_queue');
 
       const forgotRes = await app.inject({
         method: 'POST',
