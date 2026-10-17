@@ -174,6 +174,7 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
           videoId={video.id}
           durationMs={video.duration_ms}
           src={video.playback?.hls_url}
+          hlsAv1Url={video.playback?.hls_av1_url}
           poster={video.playback?.thumbnail_url}
           title={video.title}
           renditions={video.playback?.renditions}
