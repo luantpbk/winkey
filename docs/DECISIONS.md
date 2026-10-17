@@ -206,7 +206,7 @@ Trạng thái: **Accepted**, trừ khi ghi khác.
 
 *Quyết định.* Token cha `T` có `rotated_at` khác null được coi là **thử lại hợp lệ** (không phải dùng lại) khi thoả cả ba điều kiện:
 1. `now() - T.rotated_at <= REFRESH_REUSE_GRACE` (mặc định **30 s**, tối đa 60 s, biến môi trường của auth-svc);
-2. **mọi** token con của `T` (`parent_id = T.id`) đều chưa được dùng: `rotated_at IS NULL` và `revoked_at IS NULL`;
+2. **không** token con nào của `T` (`parent_id = T.id`) đã được dùng (`rotated_at IS NULL` cho mọi con). Token con đã bị thu hồi mà chưa dùng, ví dụ do một lần thử lại trước đó, không chặn lần thử lại tiếp theo trong cửa sổ;
 3. `T` chưa hết hạn và chưa bị thu hồi (đã kiểm sẵn).
 
 Khi đó, trong cùng giao dịch đang giữ khoá dòng của `T` (`FOR UPDATE`): đặt `revoked_at = now()` cho các token con chưa dùng, rồi cấp một token con mới cho `T` (cùng family, `parent_id = T.id`) và trả về như một lần refresh thường. Log ở mức `info` với `refresh retry within grace`, kèm `family_id` và `token_id` (không log token), và tăng metric `auth_refresh_total{result="grace_retry"}`.
