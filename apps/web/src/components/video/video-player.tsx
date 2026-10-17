@@ -1043,7 +1043,7 @@ export function VideoPlayer({
                 />
               )}
 
-              {/* Audio Menu (only shown when at least 2 audio track choices are available) */}
+              {/* Audio Menu (only shown when there are 2 or more audio tracks) */}
               {audioTracksList.length >= 2 && (
                 <AudioMenu
                   tracks={audioTracksList}
