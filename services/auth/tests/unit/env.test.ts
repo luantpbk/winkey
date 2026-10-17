@@ -157,3 +157,62 @@ describe('envSchema REGISTRATION_MODE and INVITE_CODES validation', () => {
     expect((parsed as Record<string, unknown>).INVITE_CODES).toBeUndefined();
   });
 });
+
+describe('envSchema REFRESH_REUSE_GRACE validation', () => {
+  const validBase = {
+    JWT_PRIVATE_KEY: 'test-key',
+  };
+
+  it('defaults REFRESH_REUSE_GRACE to 30', () => {
+    const parsed = envSchema.parse({
+      ...validBase,
+    });
+    expect(parsed.REFRESH_REUSE_GRACE).toBe(30);
+  });
+
+  it('parses valid numeric and string values with optional s suffix', () => {
+    const parsed1 = envSchema.parse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: 15,
+    });
+    expect(parsed1.REFRESH_REUSE_GRACE).toBe(15);
+
+    const parsed2 = envSchema.parse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: '45',
+    });
+    expect(parsed2.REFRESH_REUSE_GRACE).toBe(45);
+
+    const parsed3 = envSchema.parse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: '60s',
+    });
+    expect(parsed3.REFRESH_REUSE_GRACE).toBe(60);
+
+    const parsedZero = envSchema.parse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: 0,
+    });
+    expect(parsedZero.REFRESH_REUSE_GRACE).toBe(0);
+  });
+
+  it('rejects values less than 0 or greater than 60', () => {
+    const resNegative = envSchema.safeParse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: -1,
+    });
+    expect(resNegative.success).toBe(false);
+
+    const resOverMax = envSchema.safeParse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: 61,
+    });
+    expect(resOverMax.success).toBe(false);
+
+    const resOverMaxStr = envSchema.safeParse({
+      ...validBase,
+      REFRESH_REUSE_GRACE: '90s',
+    });
+    expect(resOverMaxStr.success).toBe(false);
+  });
+});

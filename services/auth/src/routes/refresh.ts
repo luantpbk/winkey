@@ -13,6 +13,7 @@ import type { Env } from '../config/env.js';
 import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RevocationService } from '../revocation/revocation.js';
+import { authRefreshCounter } from '../metrics.js';
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '').toLowerCase();
@@ -60,30 +61,63 @@ export const refreshRoute: FastifyPluginAsync<{
         throw ProblemError.unauthorized('Refresh token is expired or revoked');
       }
 
-      // Reuse detection: token was already rotated!
+      let isGraceRetry = false;
+      const now = new Date();
+
+      // Reuse detection or Grace retry (ADR-019 addendum)
       if (token.rotated_at != null) {
-        // Revoke the entire family
-        await trx
-          .updateTable('auth.refresh_tokens')
-          .set({ revoked_at: new Date() })
+        const graceMs = env.REFRESH_REUSE_GRACE * 1000;
+        const elapsedMs = now.getTime() - new Date(token.rotated_at).getTime();
+        const isWithinGrace = env.REFRESH_REUSE_GRACE > 0 && elapsedMs >= 0 && elapsedMs <= graceMs;
+
+        // Query and lock all direct children in ascending ID order to prevent deadlock
+        const children = await trx
+          .selectFrom('auth.refresh_tokens')
+          .select(['id', 'rotated_at', 'revoked_at'])
           .where('family_id', '=', token.family_id)
-          .where('revoked_at', 'is', null)
+          .where('parent_id', '=', token.id)
+          .orderBy('id', 'asc')
+          .forUpdate()
           .execute();
 
-        return {
-          kind: 'reuse' as const,
-          familyId: token.family_id,
-          userId: token.user_id,
-          tokenId: token.id,
-        };
-      }
+        const hasUsedChild = children.some((child) => child.rotated_at !== null);
 
-      // Mark current token rotated
-      await trx
-        .updateTable('auth.refresh_tokens')
-        .set({ rotated_at: new Date() })
-        .where('id', '=', token.id)
-        .execute();
+        if (isWithinGrace && !hasUsedChild) {
+          // Grace retry: revoke unused children from previous rotation
+          await trx
+            .updateTable('auth.refresh_tokens')
+            .set({ revoked_at: now })
+            .where('family_id', '=', token.family_id)
+            .where('parent_id', '=', token.id)
+            .where('revoked_at', 'is', null)
+            .execute();
+
+          isGraceRetry = true;
+          // Parent's rotated_at is IMMUTABLE during grace retry to prevent sliding grace window
+        } else {
+          // Outside grace window OR child token was already used -> Revoke whole family
+          await trx
+            .updateTable('auth.refresh_tokens')
+            .set({ revoked_at: now })
+            .where('family_id', '=', token.family_id)
+            .where('revoked_at', 'is', null)
+            .execute();
+
+          return {
+            kind: 'reuse' as const,
+            familyId: token.family_id,
+            userId: token.user_id,
+            tokenId: token.id,
+          };
+        }
+      } else {
+        // Mark current token rotated
+        await trx
+          .updateTable('auth.refresh_tokens')
+          .set({ rotated_at: now })
+          .where('id', '=', token.id)
+          .execute();
+      }
 
       // Issue child refresh token with the same family_id
       const newOpaqueToken = generateRefreshToken();
@@ -118,7 +152,6 @@ export const refreshRoute: FastifyPluginAsync<{
         user.suspended_until &&
         new Date(user.suspended_until) <= new Date()
       ) {
-        const now = new Date();
         await trx
           .updateTable('auth.users')
           .set({
@@ -148,10 +181,12 @@ export const refreshRoute: FastifyPluginAsync<{
       }
 
       return {
-        kind: 'ok' as const,
+        kind: isGraceRetry ? ('grace_retry' as const) : ('ok' as const),
         user,
         familyId: token.family_id,
         newOpaqueToken,
+        tokenId: token.id,
+        newChildId,
       };
     });
 
@@ -171,6 +206,19 @@ export const refreshRoute: FastifyPluginAsync<{
 
       reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
       throw ProblemError.unauthorized('Refresh token reuse detected');
+    }
+
+    if (result.kind === 'grace_retry') {
+      authRefreshCounter.inc({ result: 'grace_retry' });
+      request.log.info(
+        {
+          family_id: result.familyId,
+          token_id: result.tokenId,
+          new_token_id: result.newChildId,
+          user_id: result.user.id,
+        },
+        'refresh retry within grace',
+      );
     }
 
     // 4. Issue new access token
