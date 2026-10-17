@@ -286,3 +286,46 @@ func TestUnitAgreesWithTheEnvExample(t *testing.T) {
 		}
 	}
 }
+
+// ENC2: the AV1 upgrade unit runs av1-upgrade with the worker's env file plus its own AV1_* lines, and
+// together they must be a valid AV1Upgrade configuration with the same scratch directory the unit may write.
+func TestAV1UpgradeUnitAgreesWithTheEnvExample(t *testing.T) {
+	u := parseUnit(t, "../../deploy/gpu-01/winkey-av1-upgrade.service")
+	timer := parseUnit(t, "../../deploy/gpu-01/winkey-av1-upgrade.timer")
+	svc := func(k string) string { return first(u, "Service", k) }
+
+	env := parseEnvFile(t, gpuEnvExample)
+	for _, kv := range u["Service"]["Environment"] {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	cfg, err := LoadAV1UpgradeFrom(func(k string) (string, bool) { v, ok := env[k]; return v, ok })
+	if err != nil {
+		t.Fatalf("env example + unit Environment= is not a valid AV1Upgrade configuration: %v", err)
+	}
+	if cfg.AV1FFmpegPath != "/opt/ffmpeg-8/bin/ffmpeg" {
+		t.Errorf("AV1_FFMPEG_PATH=%q, want the FFmpeg 8 build at /opt/ffmpeg-8 (ADR-041)", cfg.AV1FFmpegPath)
+	}
+	if svc("Type") != "oneshot" || svc("User") != "winkey-transcoder" || svc("EnvironmentFile") != "/etc/winkey/transcoder.env" ||
+		svc("ExecStart") != "/opt/winkey/transcoder/current/av1-upgrade" {
+		t.Errorf("Type=%q User=%q EnvironmentFile=%q ExecStart=%q", svc("Type"), svc("User"), svc("EnvironmentFile"), svc("ExecStart"))
+	}
+	if rw := u["Service"]["ReadWritePaths"]; len(rw) != 1 || rw[0] != filepath.ToSlash(cfg.ScratchDir) {
+		t.Errorf("ReadWritePaths=%v, want exactly SCRATCH_DIR %s", rw, cfg.ScratchDir)
+	}
+	if svc("TimeoutStartSec") == "" || svc("ProtectSystem") != "strict" || svc("NoNewPrivileges") != "yes" {
+		t.Errorf("TimeoutStartSec=%q ProtectSystem=%q NoNewPrivileges=%q", svc("TimeoutStartSec"), svc("ProtectSystem"), svc("NoNewPrivileges"))
+	}
+	for _, k := range []string{"PrivateDevices", "MemoryDenyWriteExecute", "ProcSubset", "SystemCallFilter", "DeviceAllow", "DevicePolicy"} {
+		if _, set := u["Service"][k]; set {
+			t.Errorf("%s must not be set: it can hide /dev/nvidia* or break the NVIDIA libraries", k)
+		}
+	}
+	// Off-peak, outside the LT2 window (02:00-03:30 ICT), never caught up in the daytime.
+	if cal := first(timer, "Timer", "OnCalendar"); !strings.HasSuffix(cal, "Asia/Ho_Chi_Minh") || !strings.Contains(cal, " 04:") {
+		t.Errorf("OnCalendar=%q, want a 04:xx Asia/Ho_Chi_Minh time", cal)
+	}
+	if first(timer, "Timer", "Persistent") != "false" {
+		t.Error("Persistent must be false: a missed night must not run in the daytime")
+	}
+}

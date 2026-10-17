@@ -17,13 +17,15 @@ Ansible will wrap these later (Antigravity 2); this directory is the source of t
 
 | Path | What |
 |---|---|
-| `/opt/winkey/transcoder/<git-sha>/` | one directory per installed version: `transcoder`, `replay-dlq`, `VERSION` |
+| `/opt/winkey/transcoder/<git-sha>/` | one directory per installed version: `transcoder`, `replay-dlq`, `av1-upgrade`, `VERSION` |
 | `/opt/winkey/transcoder/current`, `previous` | symlinks: what runs, and what `rollback` returns to |
 | `/etc/winkey/transcoder.env` | configuration and credentials, `root:root` `0600` |
 | `/etc/systemd/system/winkey-transcoder.service` | the unit |
 | `/mnt/nvme_models/winkey/scratch` | `SCRATCH_DIR` (fast NVMe), group `winkey` |
 | `/mnt/hdd_storage/winkey/archive` | `ARCHIVE_DIR` (raw archive), group `winkey` |
 | `/opt/ffmpeg-7.1/bin/{ffmpeg,ffprobe}` | FFmpeg n7.1.5 with NVENC (`FFMPEG_PATH`, `FFPROBE_PATH`) |
+| `/opt/ffmpeg-8/bin/ffmpeg` | FFmpeg n8.0.1-66 with `av1_nvenc`, used only by `av1-upgrade` (`AV1_FFMPEG_PATH`, ADR-041) |
+| `/etc/systemd/system/winkey-av1-upgrade.{service,timer}` | the nightly AV1 upgrade (section 9) |
 
 The service user `winkey-transcoder` is a system user in the groups `video` and `render` (GPU device nodes)
 and `winkey` (owns scratch and archive). It has no shell and no home.
@@ -210,3 +212,35 @@ only NVENC.
 | `permission denied` writing under scratch | the service user is not in group `winkey`, or the directory is not group-writable |
 | readiness is red for `nats` / `postgres` / `s3` | the Tailscale path or ACL to edge-1 (`tailscale status`, ports 30422 / 30432 / 30900), or the credentials |
 | jobs sit in `PROCESSING` after a crash | wait for the reconciler (10 min), or check `transcoder_reconciled_jobs_total` |
+
+## 9. AV1 upgrade (ENC2, ADR-041)
+
+`av1-upgrade` (`../../README.md`, "AV1 upgrade") is installed with every version, next to `transcoder`. It
+runs as a oneshot service started by a timer at **04:10 Asia/Ho_Chi_Minh**, after the LT2 window. The
+service uses the worker's user, env file and scratch directory, adds `AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg`,
+`AV1_MIN_STARTS_7D` and `AV1_UPGRADE_LIMIT`, and is stopped after 3 h at most (`TimeoutStartSec`). The
+current video's partial upload is then removed, and it is picked again the next night.
+
+First the binary must exist: `./install.sh upgrade` builds it with a new version. A version installed
+before this change has no `av1-upgrade`; rebuild it with `REBUILD=1 ./install.sh upgrade`.
+
+1. Dry run by hand, with the same environment as the service (prints the candidates, writes nothing):
+   ```bash
+   sudo systemd-run --wait --pipe --uid=winkey-transcoder --gid=winkey-transcoder \
+     -p EnvironmentFile=/etc/winkey/transcoder.env -p Environment=AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg \
+     /opt/winkey/transcoder/current/av1-upgrade -dry-run
+   ```
+2. One real video: add `-p Environment=AV1_UPGRADE_LIMIT=1` to the same command, without `-dry-run`. Check the
+   summary line (`done=1`) and play the video in a browser that supports AV1.
+3. Install and enable the timer:
+   ```bash
+   sudo install -m 0644 winkey-av1-upgrade.service winkey-av1-upgrade.timer /etc/systemd/system/
+   sudo systemctl daemon-reload
+   systemd-analyze verify /etc/systemd/system/winkey-av1-upgrade.service /etc/systemd/system/winkey-av1-upgrade.timer
+   sudo systemctl enable --now winkey-av1-upgrade.timer
+   systemctl list-timers winkey-av1-upgrade.timer
+   ```
+4. Logs: `journalctl -u winkey-av1-upgrade -o cat`. The last line of each run is the `summary:` line.
+
+Change the threshold or the limit with a drop-in (`sudo systemctl edit winkey-av1-upgrade.service`, then
+`Environment=AV1_UPGRADE_LIMIT=40`). Stop the nightly runs with `sudo systemctl disable --now winkey-av1-upgrade.timer`.

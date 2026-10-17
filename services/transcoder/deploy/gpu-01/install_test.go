@@ -80,7 +80,7 @@ func TestInstallScript(t *testing.T) {
 	if link("current") != "v1" || link("previous") != "" {
 		t.Fatalf("after install: current=%q previous=%q\n%s", link("current"), link("previous"), out)
 	}
-	for _, f := range []string{"transcoder", "replay-dlq", "VERSION"} {
+	for _, f := range []string{"transcoder", "replay-dlq", "av1-upgrade", "VERSION"} {
 		if _, err := os.Stat(filepath.Join(prefix, "v1", f)); err != nil {
 			t.Errorf("v1/%s missing: %v", f, err)
 		}
