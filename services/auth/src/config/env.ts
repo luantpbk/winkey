@@ -40,6 +40,17 @@ export const envSchema = z
     // Closed-beta registration mode & invite codes (ADR-034, task BETA1)
     REGISTRATION_MODE: z.enum(['open', 'invite']).default('open'),
     INVITE_CODES: z.string().optional(),
+
+    // Refresh token reuse grace period in seconds (ADR-019 addendum, default 30s, max 60s)
+    REFRESH_REUSE_GRACE: z
+      .preprocess((val) => {
+        if (val === undefined || val === '') return 30;
+        if (typeof val === 'string' && val.endsWith('s')) {
+          return Number(val.slice(0, -1));
+        }
+        return Number(val);
+      }, z.number().int().min(0).max(60))
+      .default(30),
   })
   .superRefine((data, ctx) => {
     if (data.MAIL_TRANSPORT === 'smtp' && !data.SMTP_URL) {

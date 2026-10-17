@@ -423,7 +423,12 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     expect(parentQuery.rows[0].revoked_at).toBeNull();
     const familyId = parentQuery.rows[0].family_id;
 
-    // 3. REUSE DETECTION: Present old rotated initial token again!
+    // 3. REUSE DETECTION: Present old rotated initial token outside grace window
+    await pool.query(
+      "UPDATE auth.refresh_tokens SET rotated_at = now() - interval '65 seconds' WHERE id = $1",
+      [parentQuery.rows[0].id],
+    );
+
     const reuseRes = await app.inject({
       method: 'POST',
       url: '/v1/auth/refresh',
@@ -451,6 +456,303 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       cookies: { [REFRESH_COOKIE_NAME]: childCookie },
     });
     expect(subsequentRes.statusCode).toBe(401);
+  }, 60_000);
+
+  it('ADR-019 grace retry: retry within grace window succeeds, revokes unused child, and leaves parent rotated_at immutable', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register a user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'grace_ok@winkey.vn',
+        password: 'Password123!',
+        handle: 'grace_ok',
+        display_name: 'Grace OK Test',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // 2. Normal rotation: use parent token to get child 1
+    const rotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(rotRes.statusCode).toBe(200);
+    const child1Cookie = rotRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // Check parent and child1 in DB
+    const parentRowBefore = (
+      await pool.query(
+        'SELECT id, family_id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = $1',
+        [regRes.json().user.id],
+      )
+    ).rows[0];
+    expect(parentRowBefore.rotated_at).not.toBeNull();
+    const rotatedAtBefore = new Date(parentRowBefore.rotated_at).getTime();
+
+    const child1RowBefore = (
+      await pool.query(
+        'SELECT id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id = $1',
+        [parentRowBefore.id],
+      )
+    ).rows[0];
+    expect(child1RowBefore.revoked_at).toBeNull();
+    expect(child1RowBefore.rotated_at).toBeNull();
+
+    // 3. Retry with parent token within grace window (e.g. immediately)
+    const retryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(retryRes.statusCode).toBe(200);
+    const child2Cookie = retryRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+    expect(child2Cookie).not.toBe(parentCookie);
+    expect(child2Cookie).not.toBe(child1Cookie);
+    expect(retryRes.json().access_token).toBeDefined();
+
+    // Check DB state:
+    // Parent rotated_at is IMMUTABLE (unchanged)
+    const parentRowAfter = (
+      await pool.query('SELECT rotated_at, revoked_at FROM auth.refresh_tokens WHERE id = $1', [
+        parentRowBefore.id,
+      ])
+    ).rows[0];
+    expect(new Date(parentRowAfter.rotated_at).getTime()).toBe(rotatedAtBefore);
+    expect(parentRowAfter.revoked_at).toBeNull();
+
+    // Child 1 is revoked
+    const child1RowAfter = (
+      await pool.query('SELECT revoked_at, rotated_at FROM auth.refresh_tokens WHERE id = $1', [
+        child1RowBefore.id,
+      ])
+    ).rows[0];
+    expect(child1RowAfter.revoked_at).not.toBeNull();
+    expect(child1RowAfter.rotated_at).toBeNull();
+
+    // Child 2 is alive
+    const allChildren = (
+      await pool.query(
+        'SELECT id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id = $1 ORDER BY issued_at ASC',
+        [parentRowBefore.id],
+      )
+    ).rows;
+    expect(allChildren).toHaveLength(2);
+    const aliveChildren = allChildren.filter((c) => c.revoked_at === null && c.rotated_at === null);
+    expect(aliveChildren).toHaveLength(1);
+
+    // Metric auth_refresh_total{result="grace_retry"} is exported
+    const metricsRes = await app.inject({ method: 'GET', url: '/metrics' });
+    expect(metricsRes.payload).toContain('auth_refresh_total{result="grace_retry"}');
+
+    // Using child 1 now should fail (since it was revoked)
+    const failChild1 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: child1Cookie },
+    });
+    expect(failChild1.statusCode).toBe(401);
+
+    // Using child 2 succeeds
+    const successChild2 = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: child2Cookie },
+    });
+    expect(successChild2.statusCode).toBe(200);
+  }, 60_000);
+
+  it('ADR-019 grace retry: retry after grace window is treated as reuse and revokes entire family', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register a user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'grace_expired@winkey.vn',
+        password: 'Password123!',
+        handle: 'grace_expired',
+        display_name: 'Grace Expired Test',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // 2. Normal rotation: use parent token to get child
+    const rotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(rotRes.statusCode).toBe(200);
+
+    const parentRow = (
+      await pool.query(
+        'SELECT id, family_id FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = $1',
+        [regRes.json().user.id],
+      )
+    ).rows[0];
+
+    // Artificially move parent.rotated_at past REFRESH_REUSE_GRACE (e.g. 45s ago > 30s)
+    await pool.query(
+      "UPDATE auth.refresh_tokens SET rotated_at = now() - interval '45 seconds' WHERE id = $1",
+      [parentRow.id],
+    );
+
+    // 3. Retry with parent token outside grace window -> 401 reuse detected
+    const retryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(retryRes.statusCode).toBe(401);
+    expect(retryRes.json().detail).toBe('Refresh token reuse detected');
+
+    // 4. Entire family revoked in DB
+    const familyTokens = (
+      await pool.query('SELECT id, revoked_at FROM auth.refresh_tokens WHERE family_id = $1', [
+        parentRow.family_id,
+      ])
+    ).rows;
+    expect(familyTokens.length).toBeGreaterThanOrEqual(2);
+    for (const t of familyTokens) {
+      expect(t.revoked_at).not.toBeNull();
+    }
+  }, 60_000);
+
+  it('ADR-019 grace retry: retry after child token was used is treated as reuse and revokes entire family', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register a user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'child_used@winkey.vn',
+        password: 'Password123!',
+        handle: 'child_used',
+        display_name: 'Child Used Test',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // 2. Normal rotation: use parent token to get child
+    const rotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(rotRes.statusCode).toBe(200);
+    const childCookie = rotRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    const parentRow = (
+      await pool.query(
+        'SELECT id, family_id FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = $1',
+        [regRes.json().user.id],
+      )
+    ).rows[0];
+
+    // 3. Child token is USED (rotated) to get grandchild
+    const childRotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: childCookie },
+    });
+    expect(childRotRes.statusCode).toBe(200);
+
+    // 4. Now parent token is retried (even within grace period window)
+    const parentRetryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(parentRetryRes.statusCode).toBe(401);
+    expect(parentRetryRes.json().detail).toBe('Refresh token reuse detected');
+
+    // 5. Entire family revoked in DB
+    const familyTokens = (
+      await pool.query('SELECT id, revoked_at FROM auth.refresh_tokens WHERE family_id = $1', [
+        parentRow.family_id,
+      ])
+    ).rows;
+    expect(familyTokens.length).toBeGreaterThanOrEqual(3);
+    for (const t of familyTokens) {
+      expect(t.revoked_at).not.toBeNull();
+    }
+  }, 60_000);
+
+  it('ADR-019 grace retry: two concurrent retries leave exactly 1 child token alive', async () => {
+    if (!app || !pool) return;
+
+    // 1. Register a user
+    const regRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: 'concurrent_grace@winkey.vn',
+        password: 'Password123!',
+        handle: 'concurrent_grace',
+        display_name: 'Concurrent Grace Test',
+      },
+    });
+    expect(regRes.statusCode).toBe(201);
+    const parentCookie = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
+
+    // 2. Initial rotation: creates Child 1
+    const rotRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/refresh',
+      cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+    });
+    expect(rotRes.statusCode).toBe(200);
+
+    const parentRow = (
+      await pool.query(
+        'SELECT id, family_id FROM auth.refresh_tokens WHERE parent_id IS NULL AND user_id = $1',
+        [regRes.json().user.id],
+      )
+    ).rows[0];
+
+    // 3. Fire 2 concurrent retries with parent token
+    const [retryA, retryB] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        cookies: { [REFRESH_COOKIE_NAME]: parentCookie },
+      }),
+    ]);
+
+    expect(retryA.statusCode).toBe(200);
+    expect(retryB.statusCode).toBe(200);
+
+    // 4. Verify DB state: total 3 children created for parent, but EXACTLY 1 child is alive
+    const children = (
+      await pool.query(
+        'SELECT id, rotated_at, revoked_at FROM auth.refresh_tokens WHERE parent_id = $1',
+        [parentRow.id],
+      )
+    ).rows;
+    expect(children).toHaveLength(3);
+
+    const aliveChildren = children.filter((c) => c.revoked_at === null && c.rotated_at === null);
+    expect(aliveChildren).toHaveLength(1);
+
+    // Parent should NOT be revoked
+    const parentAfter = (
+      await pool.query('SELECT revoked_at FROM auth.refresh_tokens WHERE id = $1', [parentRow.id])
+    ).rows[0];
+    expect(parentAfter.revoked_at).toBeNull();
   }, 60_000);
 
   async function createAdminUser(adminId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b0001') {

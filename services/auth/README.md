@@ -38,6 +38,7 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 | `MAIL_FROM` | RFC 5322 From address used for outbound authentication emails | `Winkey <no-reply@winkey.vn>` |
 | `REGISTRATION_MODE` | Account registration mode (`open` or `invite`, task BETA1, ADR-034) | `open` |
 | `INVITE_CODES` | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes) | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678` |
+| `REFRESH_REUSE_GRACE` | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s) | `30` |
 
 ---
 
@@ -148,6 +149,7 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
 | `auth_revocation_write_total` | Counter | `result="ok"`, `result="error"` | Tracks revocation key write attempts to Valkey. |
 | `auth_verify_revocation_check_total` | Counter | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`. |
+| `auth_refresh_total` | Counter | `result="grace_retry"` | Tracks token refresh attempts partitioned by outcome (including grace period retries). |
 | `auth_mail_sent_total` | Counter | `template` | Total successfully sent outbound emails by template (`VERIFY_EMAIL`, `RESET_PASSWORD`, `PASSWORD_CHANGED`). |
 | `auth_mail_failed_total` | Counter | `template` | Total failed outbound email delivery attempts by template. |
 | `auth_mail_dead_total` | Counter | None | Total emails abandoned after 8 failed delivery attempts. |
