@@ -37,12 +37,18 @@ type Info struct {
 	FPS         string // avg frame rate as an ffmpeg rational, already capped at MaxFPS
 	HasAudio    bool
 	VideoCodec  string
+	// VideoProfile and VideoLevel are ffprobe's profile name and level of the video stream (for AV1 the
+	// seq_profile name and seq_level_idx); -99 or 0 when unknown.
+	VideoProfile string
+	VideoLevel   int
 }
 
 type probeOutput struct {
 	Streams []struct {
 		CodecType        string `json:"codec_type"`
 		CodecName        string `json:"codec_name"`
+		Profile          string `json:"profile"`
+		Level            int    `json:"level"`
 		Width            int    `json:"width"`
 		Height           int    `json:"height"`
 		PixFmt           string `json:"pix_fmt"`
@@ -82,6 +88,7 @@ func ParseProbe(data []byte) (Info, error) {
 		case s.CodecType == "video" && s.Disposition.AttachedPic == 0 && !found:
 			found = true
 			info.VideoCodec = s.CodecName
+			info.VideoProfile, info.VideoLevel = s.Profile, s.Level
 			info.PixFmt = s.PixFmt
 			info.BitDepth = bitDepth(s.PixFmt, s.BitsPerRawSample)
 			info.FPS = chooseFPS(s.AvgFrameRate, s.RFrameRate)

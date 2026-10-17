@@ -247,7 +247,7 @@ New videos are encoded in H.264 only. `av1-upgrade` (`cmd/av1-upgrade`, installe
 
 1. **Select** `READY` videos with `hls_av1_master_key IS NULL` whose `analytics.video_daily.starts` over the last 7 days (today and the 6 days before, Asia/Ho_Chi_Minh) reach `AV1_MIN_STARTS_7D`, most starts first, at most `AV1_UPGRADE_LIMIT`.
 2. Download the raw source, probe it, and take the ladder `media.Select` gives. It must have exactly the rendition names of the video's H.264 set, otherwise the video fails (`step=ladder`) and nothing is encoded.
-3. Encode with `av1_nvenc` (`AV1_FFMPEG_PATH`, FFmpeg 8), CQ `AV1_CQ` (35) with a ceiling of `AV1_MAXRATE_PCT` (85 %) of each H.264 rung, and verify the output like the worker does.
+3. Encode with `av1_nvenc` (`AV1_FFMPEG_PATH`, FFmpeg 8), CQ `AV1_CQ` (35) with a ceiling of `AV1_MAXRATE_PCT` (85 %) of each H.264 rung, then write `CODECS` into the master (FFmpeg's HLS muxer leaves it out for AV1: each variant's `av01.P.LLM.DD` comes from probing that variant, plus `mp4a.40.2`), and verify the output like the worker does.
 4. Upload to `v/{id}/av1/{uuidv7}/`: segments first, then the media playlists, the master last. The directory is outside `a{n}/`, so H.264 re-encodes keep it; deleting the video removes it with the rest of `v/{id}/`.
 5. `CommitAV1`, one transaction under the video row lock: the video must still be `READY`, the `codec='av1'` rows of `media.video_renditions` are replaced (`bitrate_kbps` = the AV1 ceiling), the audio group of the `READY` audio tracks is applied to the AV1 master (a new `master-{uuidv7}.m3u8` next to it, MUX1), and `hls_av1_master_key` is set. Lost race (deleted or re-encoding) or failure: the uploaded set is deleted. A set it replaced is deleted after the commit.
 

@@ -178,6 +178,9 @@ func (r *Runner) one(ctx context.Context, c Candidate) outcome {
 	if err := r.Media.RunHLS(ctx, plan, info.DurationSec, func(float64) {}); err != nil {
 		return r.fail(ctx, log, "encode", err)
 	}
+	if err := r.setCodecs(ctx, out, rs); err != nil {
+		return r.fail(ctx, log, "codecs", err)
+	}
 	if err := media.VerifyOutput(out, rs); err != nil {
 		return r.fail(ctx, log, "verify", err)
 	}
@@ -222,6 +225,36 @@ func (r *Runner) one(ctx context.Context, c Candidate) outcome {
 	log.InfoContext(ctx, "AV1 set ready", "master_key", commit.MasterKey, "renditions", len(rs),
 		"encode_seconds", time.Since(started).Seconds())
 	return outDone
+}
+
+// setCodecs writes CODECS into the AV1 master, which FFmpeg's HLS muxer leaves out for AV1: each variant's
+// av01 string comes from probing that variant's own playlist (profile, level, bit depth), plus the muxed AAC.
+func (r *Runner) setCodecs(ctx context.Context, out string, rs []media.Rendition) error {
+	codecs := map[string]string{}
+	for _, rd := range rs {
+		info, err := r.Media.Probe(ctx, filepath.Join(out, rd.Name, "index.m3u8"))
+		if err != nil {
+			return fmt.Errorf("probe %s: %w", rd.Name, err)
+		}
+		c, err := media.AV1Codec(info)
+		if err != nil {
+			return fmt.Errorf("%s: %w", rd.Name, err)
+		}
+		if info.HasAudio {
+			c += "," + media.AACCodec
+		}
+		codecs[rd.Name] = c
+	}
+	path := filepath.Join(out, media.MasterPlaylist)
+	data, err := os.ReadFile(path) // #nosec G304 -- the master ffmpeg just wrote in our scratch dir
+	if err != nil {
+		return err
+	}
+	data, err = media.SetMasterCodecs(data, codecs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 // upload sends every file of out to prefix: segments first, then the media playlists, the master last, so no

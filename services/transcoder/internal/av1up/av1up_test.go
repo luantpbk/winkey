@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -78,16 +79,28 @@ func (f *fakeStore) CommitAV1(ctx context.Context, c av1up.Commit, rewrite func(
 }
 
 // x264Media is the real ffmpeg with the AV1 encoder swapped for x264: CI has no av1_nvenc, and the runner's
-// job is everything around the encode (ladder, layout, upload order, commit).
+// job is everything around the encode (ladder, layout, codecs, upload order, commit). It mimics FFmpeg's HLS
+// muxer on AV1: the master it leaves has no CODECS, and a variant playlist probes as AV1 (profile Main,
+// level 4 = 3.0 for this 360p clip; TestSetCodecsOnRealAV1 covers a real AV1 stream).
 type x264Media struct {
-	tools job.Tools
-	plans []media.HLSPlan
-	err   error
+	tools    job.Tools
+	plans    []media.HLSPlan
+	err      error
+	probeErr error
 }
 
 func (m *x264Media) Probe(ctx context.Context, p string) (media.Info, error) {
-	return m.tools.Probe(ctx, p)
+	info, err := m.tools.Probe(ctx, p)
+	if err == nil && strings.HasSuffix(p, "index.m3u8") {
+		if m.probeErr != nil {
+			return media.Info{}, m.probeErr
+		}
+		info.VideoCodec, info.VideoProfile, info.VideoLevel = "av1", "Main", 4
+	}
+	return info, err
 }
+
+var codecsRe = regexp.MustCompile(`,CODECS="[^"]*"`)
 
 func (m *x264Media) RunHLS(ctx context.Context, plan media.HLSPlan, dur float64, on func(float64)) error {
 	m.plans = append(m.plans, plan)
@@ -95,7 +108,15 @@ func (m *x264Media) RunHLS(ctx context.Context, plan media.HLSPlan, dur float64,
 		return m.err
 	}
 	plan.Encoder, plan.AV1CQ, plan.AV1MaxratePct, plan.X264Preset = media.EncoderX264, 0, 0, "ultrafast"
-	return m.tools.RunHLS(ctx, plan, dur, on)
+	if err := m.tools.RunHLS(ctx, plan, dur, on); err != nil {
+		return err
+	}
+	master := filepath.Join(plan.OutDir, media.MasterPlaylist)
+	data, err := os.ReadFile(master) // #nosec G304 -- test output
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(master, codecsRe.ReplaceAll(data, nil), 0o600)
 }
 
 type fixture struct {
@@ -182,6 +203,10 @@ func TestUpgradeEncodesUploadsAndCommits(t *testing.T) {
 	m, _ := f.objs.Get(bucket, prefix+media.MasterPlaylist)
 	if m.ContentType != hlsmaster.ContentType || m.CacheControl != job.CacheImmutable {
 		t.Fatalf("master headers %q %q", m.ContentType, m.CacheControl)
+	}
+	// FFmpeg leaves CODECS out for AV1; the uploaded master has it, from the probed variant.
+	if vars := media.ParseMaster(string(m.Data)); len(vars) != 1 || vars[0].Codecs != "av01.0.04M.08,mp4a.40.2" {
+		t.Fatalf("master variants %+v\n%s", vars, m.Data)
 	}
 
 	if len(f.store.commits) != 1 {
@@ -272,6 +297,14 @@ func TestUpgradeFailuresCleanUp(t *testing.T) {
 	t.Run("encode", func(t *testing.T) {
 		f := newFixture(t)
 		f.media.err = errors.New("av1_nvenc: no capable devices found")
+		sum, err := f.runner(t, av1up.Options{}).Run(context.Background())
+		if err != nil || sum.Failed != 1 || len(f.objs.UploadOrder) != 0 || len(f.store.commits) != 0 {
+			t.Fatalf("run: %+v %v uploads %v", sum, err, f.objs.UploadOrder)
+		}
+	})
+	t.Run("codecs", func(t *testing.T) {
+		f := newFixture(t)
+		f.media.probeErr = errors.New("probe failed")
 		sum, err := f.runner(t, av1up.Options{}).Run(context.Background())
 		if err != nil || sum.Failed != 1 || len(f.objs.UploadOrder) != 0 || len(f.store.commits) != 0 {
 			t.Fatalf("run: %+v %v uploads %v", sum, err, f.objs.UploadOrder)
