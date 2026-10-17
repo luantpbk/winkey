@@ -1,0 +1,63 @@
+# Winkey AV1 upgrade on gpu-01 (ENC2, ADR-041): a one-shot run of av1-upgrade, started by
+# winkey-av1-upgrade.timer. It adds the AV1 HLS set to the most watched READY videos, one at a
+# time, with FFmpeg 8 (/opt/ffmpeg-8, av1_nvenc). Same user, credentials and writable paths as the
+# worker; lower priority, because it is optional work on a shared GPU.
+#
+# Install:  see README.md next to this file ("AV1 upgrade").
+# Verify:   systemd-analyze verify winkey-av1-upgrade.service
+[Unit]
+Description=Winkey AV1 upgrade (one run, av1_nvenc)
+Documentation=https://github.com/luantpbk/winkey/blob/main/services/transcoder/README.md
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=oneshot
+User=winkey-transcoder
+Group=winkey-transcoder
+# The worker's env file: DATABASE_URL, S3_*, FFPROBE_PATH, SCRATCH_DIR, HWACCEL_DECODE.
+EnvironmentFile=/etc/winkey/transcoder.env
+# AV1-only settings (not in the worker's Config, so they live here; override with a drop-in).
+Environment=AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg
+Environment=AV1_MIN_STARTS_7D=50
+Environment=AV1_UPGRADE_LIMIT=20
+ExecStart=/opt/winkey/transcoder/current/av1-upgrade
+
+# Stop before the morning: SIGTERM lets the current video's encode be cancelled and its upload
+# removed; the next run picks the video again. A run never overlaps the next (oneshot + timer).
+TimeoutStartSec=3h
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=150
+
+# Lower than the worker (Nice=10): uploads from viewers come first.
+Nice=15
+CPUWeight=20
+IOWeight=20
+MemoryHigh=8G
+MemoryMax=12G
+TasksMax=1024
+OOMScoreAdjust=500
+
+# Hardening: the same as winkey-transcoder.service (see the comments there for what is
+# deliberately not set because of the NVIDIA driver).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/mnt/nvme_models/winkey/scratch
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027

@@ -2,7 +2,7 @@
 
 This is the format for exporting a film or episode to Winkey with **separate audio tracks** (original, dubbed or voice-over in any language) and **separate subtitles**. Viewers can then switch audio language and turn subtitles on or off in the player.
 
-Status: **specification**. Subtitles (WebVTT per language) already work today in Studio. Separate audio tracks arrive with MUX1 (see "Rollout").
+Status: **implemented** (MUX1, 2026-10-16). Studio uploads a package as a folder or a `.zip` with `manifest.json`; see "Rollout".
 
 ## 1. Folder layout
 
@@ -115,11 +115,18 @@ Field rules:
 
 ## 7. Rollout (MUX1)
 
-- **Today:** the video upload plus subtitles. Upload the video normally, then add each `.vtt` in Studio (one per language, through `PUT /v1/videos/{id}/subtitles/{lang}`).
-- **MUX1, planned:**
-  1. Contract change: audio tracks on the upload and playback APIs (`Playback.audio_tracks`) plus subtitle `kind`.
-  2. Migration `media.video_audio_tracks`.
-  3. Transcoder: each extra track becomes an HLS alternate audio rendition (`#EXT-X-MEDIA:TYPE=AUDIO`). The variants keep the original audio, which the player lists first as "Âm thanh gốc". An audio track added after publishing is encoded on its own; the video is not re-encoded (ADR-042 addendum).
-  4. Studio "upload package" (folder or `.zip` with `manifest.json`) and per-track add/replace/remove.
-  5. Player: audio-language and subtitle menus, remembered per viewer.
-- Videos uploaded before MUX1 can get extra audio tracks too: their variants keep the original audio, as for new videos.
+Done (2026-10-16):
+- **Upload:** Studio "upload package" takes a folder or a `.zip` (read lazily, ZIP64). It creates the video,
+  then uploads each audio track one at a time (`POST /v1/videos/{id}/audio-tracks`) and each subtitle
+  (`PUT /v1/videos/{id}/subtitles/{lang}`).
+- **Encoding:** each audio track becomes an HLS alternate audio rendition (`#EXT-X-MEDIA:TYPE=AUDIO`, AAC-LC
+  128 kb/s), encoded on its own. The video is never re-encoded. The variants keep the original audio, which
+  the player lists first as "Âm thanh gốc".
+- **Studio and player:** Studio can rename tracks, set the default and delete them. The player has audio and
+  subtitle menus and remembers the choice per viewer.
+- Videos uploaded before MUX1 can get extra audio tracks too.
+
+Not carried yet:
+- `video.original_audio.lang` and `label`: the upload API has no field for them. The original audio is shown
+  as `und` / "Âm thanh gốc" (ADR-042 addendum).
+- `title`: only the default title of the new video.

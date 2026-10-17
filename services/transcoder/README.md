@@ -269,11 +269,6 @@ Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected
 | `SCRATCH_DIR` | `<os temp>/winkey-scratch` | one `av1-<video id>-*` directory per video, removed afterwards |
 | `LOG_LEVEL` | `info` | JSON logs |
 
-```bash
-# gpu-01: FFmpeg 8 is mounted read-only from the host
-docker run --rm --gpus all --env-file /etc/winkey/transcoder.env \
-  -v /opt/ffmpeg-8:/opt/ffmpeg-8:ro -e AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg \
-  --entrypoint /usr/local/bin/av1-upgrade <transcoder-nvenc image> -dry-run
-```
+On gpu-01 it runs nightly as `winkey-av1-upgrade.service` / `.timer` (04:10 ICT, at most 3 h); install and dry-run steps in [`deploy/gpu-01/README.md`](deploy/gpu-01/README.md) section 9.
 
 Tests: `internal/av1up` runs the real ffmpeg with x264 in place of `av1_nvenc` (CI has no GPU) and checks the ladder, layout, upload order, ceilings, audio group, races and cleanup; `internal/store` checks the selection window, the commit and the double rewrite on Postgres.

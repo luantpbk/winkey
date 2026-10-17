@@ -1,0 +1,14 @@
+# Starts winkey-av1-upgrade.service every night at 04:10 Asia/Ho_Chi_Minh: after the LT2 window
+# (02:00-03:30 ICT) and before morning traffic; the service stops itself after 3 h at most.
+# Verify:   systemd-analyze verify winkey-av1-upgrade.timer
+[Unit]
+Description=Nightly Winkey AV1 upgrade
+
+[Timer]
+OnCalendar=*-*-* 04:10:00 Asia/Ho_Chi_Minh
+RandomizedDelaySec=5min
+# A night missed while the machine was off is skipped, not run in the daytime.
+Persistent=false
+
+[Install]
+WantedBy=timers.target
