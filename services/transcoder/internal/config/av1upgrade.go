@@ -48,8 +48,8 @@ func LoadAV1UpgradeFrom(lookup func(string) (string, bool)) (AV1Upgrade, error) 
 		return c, err
 	}
 	var errs []error
-	if c.MinStarts7d < 1 {
-		errs = append(errs, errors.New("AV1_MIN_STARTS_7D must be at least 1"))
+	if c.MinStarts7d < 0 {
+		errs = append(errs, errors.New("AV1_MIN_STARTS_7D must be 0 (every video) or more"))
 	}
 	if c.Limit < 1 || c.Limit > AV1UpgradeMaxLimit {
 		errs = append(errs, fmt.Errorf("AV1_UPGRADE_LIMIT must be between 1 and %d", AV1UpgradeMaxLimit))
