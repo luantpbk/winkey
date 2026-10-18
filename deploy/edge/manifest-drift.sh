@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # deploy/edge/manifest-drift.sh
-# Detects and reconciles drift between canonical repository manifests and
-# host auto-deploy manifests in /var/lib/rancher/k3s/server/manifests/ on edge nodes (ADR-009, task EDGE).
+# Detects drift between canonical repository manifests and host manifests
+# in /var/lib/rancher/k3s/server/manifests/ on edge nodes (ADR-009, ADR-015, task EDGE).
 #
 # Prevents recurrence of Incident #350/#351 where host k3s auto-deploy manifests
 # overwrote live cluster resources on node reboot.
+#
+# NOTE: Winkey manifests (ingressroute, middlewares, nodeports, clusterip-services, whoami)
+# in /var/lib/rancher/k3s/server/manifests/ have been RETIRED in favor of direct
+# 'kubectl apply -f /var/lib/rancher/k3s/edge-manifests/'.
+# In --check mode, this script asserts that NO winkey-*.yaml manifests remain in
+# the k3s auto-deploy directory (exiting 1 if any exist) and verifies traefik-config.yaml.
 #
 # Usage:
 #   ./deploy/edge/manifest-drift.sh [--check]              # Check drift locally (default, exit 1 on drift)
@@ -18,11 +24,11 @@ MODE="check"
 REMOTE_HOST="${REMOTE_HOST:-}"
 SSH_USER="${SSH_USER:-opc}"
 MANIFESTS_DIR="${MANIFESTS_DIR:-/var/lib/rancher/k3s/server/manifests}"
-TAILSCALE_IP="${TAILSCALE_IP:-100.113.240.3}"
-NODE_EXTERNAL_IP="${NODE_EXTERNAL_IP:-138.2.93.173}"
+TAILSCALE_IP="${TAILSCALE_IP:-}"
+NODE_EXTERNAL_IP="${NODE_EXTERNAL_IP:-}"
 
 # Determine repository root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
 usage() {
@@ -31,11 +37,13 @@ Usage: $(basename "$0") [OPTIONS]
 
 Options:
   --check               Verify manifests on host match repository (default mode).
-                        Exits 0 if zero drift, exits 1 if drift detected.
+                        Exits 0 if zero drift, exits 1 if drift detected or winkey-*.yaml exists.
   --sync                Synchronize canonical manifests from repo to host directory.
   --remote <host>       Execute checks or sync remotely over SSH against <host> (e.g. edge-1).
   --repo <path>         Path to winkey repository root.
   --manifests-dir <dir> Path to k3s manifests directory (default: /var/lib/rancher/k3s/server/manifests).
+  --tailscale-ip <ip>   Node Tailscale IP (detected via 'tailscale ip -4' if omitted).
+  --external-ip <ip>    Node public/external IP (detected via external probe if omitted).
   -h, --help            Show this help message.
 
 Environment variables:
@@ -43,8 +51,8 @@ Environment variables:
   SSH_USER              SSH username (default: opc).
   REPO_ROOT             Path to repository root.
   MANIFESTS_DIR         Manifest directory on host.
-  TAILSCALE_IP          Node Tailscale IP (default: 100.113.240.3).
-  NODE_EXTERNAL_IP      Node public IP (default: 138.2.93.173).
+  TAILSCALE_IP          Node Tailscale IP (detected via 'tailscale ip -4' if unset).
+  NODE_EXTERNAL_IP      Node public IP (detected via external probe if unset).
 EOF
     exit 0
 }
@@ -71,6 +79,14 @@ while [[ $# -gt 0 ]]; do
             MANIFESTS_DIR="$2"
             shift 2
             ;;
+        --tailscale-ip)
+            TAILSCALE_IP="$2"
+            shift 2
+            ;;
+        --external-ip)
+            NODE_EXTERNAL_IP="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             ;;
@@ -80,6 +96,41 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Resolve TAILSCALE_IP dynamically if unset
+if [ -z "$TAILSCALE_IP" ]; then
+    if [ -n "$REMOTE_HOST" ]; then
+        TAILSCALE_IP=$(ssh -q -o LogLevel=ERROR -o ConnectTimeout=10 "${SSH_USER}@${REMOTE_HOST}" "tailscale ip -4 2>/dev/null" | tr -d '\r\n' || true)
+    else
+        if command -v tailscale >/dev/null 2>&1; then
+            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | tr -d '\r\n' || true)
+        fi
+    fi
+fi
+
+if [ -z "$TAILSCALE_IP" ]; then
+    echo "ERROR: TAILSCALE_IP is required but unset, and could not be detected via 'tailscale ip -4'." >&2
+    echo "Please specify --tailscale-ip <ip> or export TAILSCALE_IP=<ip>." >&2
+    exit 1
+fi
+
+# Resolve NODE_EXTERNAL_IP dynamically if unset
+if [ -z "$NODE_EXTERNAL_IP" ]; then
+    if [ -n "$REMOTE_HOST" ]; then
+        NODE_EXTERNAL_IP=$(ssh -q -o LogLevel=ERROR -o ConnectTimeout=10 "${SSH_USER}@${REMOTE_HOST}" "curl -s -m 5 -4 https://ifconfig.me 2>/dev/null || curl -s -m 5 -4 https://icanhazip.com 2>/dev/null" | tr -d '\r\n' || true)
+    else
+        if command -v curl >/dev/null 2>&1; then
+            NODE_EXTERNAL_IP=$(curl -s -m 5 -4 https://ifconfig.me 2>/dev/null || curl -s -m 5 -4 https://icanhazip.com 2>/dev/null || true)
+            NODE_EXTERNAL_IP=$(echo "$NODE_EXTERNAL_IP" | tr -d '\r\n')
+        fi
+    fi
+fi
+
+if [ -z "$NODE_EXTERNAL_IP" ]; then
+    echo "ERROR: NODE_EXTERNAL_IP is required but unset, and could not be auto-detected." >&2
+    echo "Please specify --external-ip <ip> or export NODE_EXTERNAL_IP=<ip>." >&2
+    exit 1
+fi
 
 # Known default k3s addons to ignore in manifests directory
 IGNORE_LIST=(
@@ -93,14 +144,11 @@ IGNORE_LIST=(
 )
 
 # Canonical manifests configuration
+# Note: Winkey manifests in /var/lib/rancher/k3s/server/manifests/ are retired.
+# Only the k3s-managed Traefik HelmChartConfig is tracked here.
 # Format: host_filename:repo_relative_path:mode:type
-# Types: static, template_middleware, template_traefik
+# Types: static, template_traefik
 MANAGED_MANIFESTS=(
-    "winkey-ingressroute.yaml:deploy/k8s/edge/ingressroute.yaml:0644:static"
-    "winkey-middlewares.yaml:deploy/k8s/edge/middlewares.yaml:0644:template_middleware"
-    "winkey-nodeports.yaml:deploy/k8s/edge/nodeports.yaml:0644:static"
-    "winkey-services.yaml:deploy/k8s/edge/clusterip-services.yaml:0644:static"
-    "winkey-whoami.yaml:deploy/k8s/edge/whoami.yaml:0644:static"
     "traefik-config.yaml:deploy/ansible/roles/k3s_server/templates/traefik-config.yaml.j2:0600:template_traefik"
 )
 
@@ -181,21 +229,11 @@ render_canonical() {
 
     case "$type" in
         static)
-            # Normalize trailing whitespace/newlines
             awk '{sub(/[ \t\r]+$/, "")}1' "$src_file" | awk 'NF {p=1} p' > "$out_file"
-            # Ensure single final newline
-            echo "" >> "$out_file"
-            sed -i -e :a -e '/^\n*$/{$d;N;};/\n$/ba' "$out_file"
-            ;;
-        template_middleware)
-            # Substitute {{ tailscale_ipv4 }} with the actual tailscale IP
-            sed "s/{{ tailscale_ipv4 }}/${TAILSCALE_IP}/g" "$src_file" | \
-                awk '{sub(/[ \t\r]+$/, "")}1' | awk 'NF {p=1} p' > "$out_file"
             echo "" >> "$out_file"
             sed -i -e :a -e '/^\n*$/{$d;N;};/\n$/ba' "$out_file"
             ;;
         template_traefik)
-            # Substitute variables in traefik-config.yaml.j2
             local trusted_ips_json="[\"127.0.0.1/32\", \"10.42.0.1/32\", \"${TAILSCALE_IP}/32\", \"${NODE_EXTERNAL_IP}/32\"]"
             sed -e "s/{{ traefik_service_type }}/NodePort/g" \
                 -e "s/{{ traefik_nodeport_web }}/30080/g" \
@@ -211,13 +249,19 @@ render_canonical() {
 DRIFT_COUNT=0
 UNEXPECTED_COUNT=0
 
-# Step 1: Check for unexpected / rogue files in host manifests directory
-echo "==> [1/3] Checking for unexpected manifests in ${MANIFESTS_DIR}..."
+# Step 1: Check for retired winkey-*.yaml manifests and unexpected files in host manifests directory
+echo "==> [1/3] Checking for retired winkey-*.yaml and unexpected manifests in ${MANIFESTS_DIR}..."
 TARGET_FILES=$(list_target_files)
 
 while IFS= read -r item; do
     [ -z "$item" ] && continue
     if is_ignored "$item"; then
+        continue
+    fi
+    if [[ "$item" == winkey-*.yaml ]]; then
+        echo "  [DRIFT] Retired static manifest found on host: ${item}"
+        echo "          Winkey manifests in ${MANIFESTS_DIR} have been retired in favor of direct kubectl apply."
+        DRIFT_COUNT=$((DRIFT_COUNT + 1))
         continue
     fi
     is_managed=0
@@ -234,10 +278,10 @@ while IFS= read -r item; do
     fi
 done <<< "$TARGET_FILES"
 
-if [ "$UNEXPECTED_COUNT" -eq 0 ]; then
-    echo "  Clean: No unexpected manifests found."
+if [ "$DRIFT_COUNT" -eq 0 ] && [ "$UNEXPECTED_COUNT" -eq 0 ]; then
+    echo "  Clean: No retired winkey manifests or unexpected files found."
 else
-    echo "  Found ${UNEXPECTED_COUNT} unexpected manifest(s) on host."
+    echo "  Found ${DRIFT_COUNT} retired winkey manifest(s), ${UNEXPECTED_COUNT} unexpected file(s)."
 fi
 
 # Step 2: Compare each managed manifest
@@ -303,11 +347,8 @@ fi
 if [ "$DRIFT_COUNT" -gt 0 ] || [ "$UNEXPECTED_COUNT" -gt 0 ]; then
     echo "=========================================================="
     echo " FAILED: Drift detected! (Drifted: ${DRIFT_COUNT}, Unexpected: ${UNEXPECTED_COUNT})"
-    echo " To reconcile host manifests with repository, run:"
-    if [ -n "$REMOTE_HOST" ]; then
-        echo "   ./deploy/edge/manifest-drift.sh --remote ${REMOTE_HOST} --sync"
-    else
-        echo "   ./deploy/edge/manifest-drift.sh --sync"
+    if [ "$DRIFT_COUNT" -gt 0 ]; then
+        echo " Note: Retired winkey-*.yaml manifests must be removed from ${MANIFESTS_DIR}."
     fi
     echo "=========================================================="
     exit 1

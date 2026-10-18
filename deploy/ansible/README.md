@@ -32,7 +32,7 @@ that passes the string `"false"`. The roles filter with `| bool` anyway.
 | `storage` | LV `ocivolume/data` (110 GB, XFS) on `/var/lib/rancher/k3s/storage`, so Garage/Postgres cannot fill `/` |
 | `k3s_server` | `/etc/rancher/k3s/config.yaml`, pinned k3s install, Traefik `HelmChartConfig`; asserts `FLANNEL_MTU <= 1230` |
 | `nginx_front` | only where `nginx_front` is set: `/etc/nginx/conf.d/winkey.conf` with dedicated vhosts (`winkey.vn`, `www.winkey.vn` 301 redirect, `media.winkey.vn`), `proxy_cache` on host LV data (40 GB max, ADR-032), and Certbot TLS |
-| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432 (ADR-015), and `whoami` smoke service via `/var/lib/rancher/k3s/server/manifests/` |
+| `edge_ingress` | Traefik `IngressRoute` and `Middleware` (strip-user-headers, auth-verify forwardAuth, rate-limit), fixed internal NodePorts 30422/30432 (ADR-015), ClusterIP services, and `whoami` smoke service applied directly via `kubectl apply -f` (ADR-009, ADR-015) |
 | `data_k3s` | CloudNativePG operator, PostgreSQL 17 cluster, NATS JetStream, Valkey, and database setup jobs (task DATA) |
 | `apps_k3s` | Winkey product services (auth, upload, video, social, realtime, web) via Kustomize (task I2) |
 
@@ -93,12 +93,13 @@ Verifies:
 
 ### Manifest Drift Guard (`manifest-drift.sh`)
 
-To prevent host manifest drift from overriding cluster state on k3s reboot (Incident #350/#351 guard):
-```bash
-# Check host vs repo drift (exit 1 if drifted):
-./deploy/edge/manifest-drift.sh --remote edge-1
+Static `winkey-*.yaml` auto-deploy manifests in `/var/lib/rancher/k3s/server/manifests/` are officially **retired** in favor of explicit `kubectl apply -f deploy/k8s/edge/` (Incident #350/#351 guard).
 
-# Reconcile host manifests with repo:
+```bash
+# Check host vs repo drift (exit 1 if drifted or if any winkey-*.yaml exists):
+./deploy/edge/manifest-drift.sh --remote edge-1 --check
+
+# Reconcile traefik-config.yaml with repo:
 ./deploy/edge/manifest-drift.sh --remote edge-1 --sync
 ```
 
