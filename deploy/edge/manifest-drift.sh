@@ -8,7 +8,7 @@
 #
 # NOTE: Winkey manifests (ingressroute, middlewares, nodeports, clusterip-services, whoami)
 # in /var/lib/rancher/k3s/server/manifests/ have been RETIRED in favor of direct
-# 'kubectl apply -f deploy/k8s/edge/'.
+# 'kubectl apply -f /var/lib/rancher/k3s/edge-manifests/'.
 # In --check mode, this script asserts that NO winkey-*.yaml manifests remain in
 # the k3s auto-deploy directory (exiting 1 if any exist) and verifies traefik-config.yaml.
 #
@@ -24,8 +24,8 @@ MODE="check"
 REMOTE_HOST="${REMOTE_HOST:-}"
 SSH_USER="${SSH_USER:-opc}"
 MANIFESTS_DIR="${MANIFESTS_DIR:-/var/lib/rancher/k3s/server/manifests}"
-TAILSCALE_IP="${TAILSCALE_IP:-100.113.240.3}"
-NODE_EXTERNAL_IP="${NODE_EXTERNAL_IP:-138.2.93.173}"
+TAILSCALE_IP="${TAILSCALE_IP:-}"
+NODE_EXTERNAL_IP="${NODE_EXTERNAL_IP:-}"
 
 # Determine repository root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -42,6 +42,8 @@ Options:
   --remote <host>       Execute checks or sync remotely over SSH against <host> (e.g. edge-1).
   --repo <path>         Path to winkey repository root.
   --manifests-dir <dir> Path to k3s manifests directory (default: /var/lib/rancher/k3s/server/manifests).
+  --tailscale-ip <ip>   Node Tailscale IP (detected via 'tailscale ip -4' if omitted).
+  --external-ip <ip>    Node public/external IP (detected via external probe if omitted).
   -h, --help            Show this help message.
 
 Environment variables:
@@ -49,8 +51,8 @@ Environment variables:
   SSH_USER              SSH username (default: opc).
   REPO_ROOT             Path to repository root.
   MANIFESTS_DIR         Manifest directory on host.
-  TAILSCALE_IP          Node Tailscale IP (default: 100.113.240.3).
-  NODE_EXTERNAL_IP      Node public IP (default: 138.2.93.173).
+  TAILSCALE_IP          Node Tailscale IP (detected via 'tailscale ip -4' if unset).
+  NODE_EXTERNAL_IP      Node public IP (detected via external probe if unset).
 EOF
     exit 0
 }
@@ -77,6 +79,14 @@ while [[ $# -gt 0 ]]; do
             MANIFESTS_DIR="$2"
             shift 2
             ;;
+        --tailscale-ip)
+            TAILSCALE_IP="$2"
+            shift 2
+            ;;
+        --external-ip)
+            NODE_EXTERNAL_IP="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             ;;
@@ -86,6 +96,41 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Resolve TAILSCALE_IP dynamically if unset
+if [ -z "$TAILSCALE_IP" ]; then
+    if [ -n "$REMOTE_HOST" ]; then
+        TAILSCALE_IP=$(ssh -q -o LogLevel=ERROR -o ConnectTimeout=10 "${SSH_USER}@${REMOTE_HOST}" "tailscale ip -4 2>/dev/null" | tr -d '\r\n' || true)
+    else
+        if command -v tailscale >/dev/null 2>&1; then
+            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | tr -d '\r\n' || true)
+        fi
+    fi
+fi
+
+if [ -z "$TAILSCALE_IP" ]; then
+    echo "ERROR: TAILSCALE_IP is required but unset, and could not be detected via 'tailscale ip -4'." >&2
+    echo "Please specify --tailscale-ip <ip> or export TAILSCALE_IP=<ip>." >&2
+    exit 1
+fi
+
+# Resolve NODE_EXTERNAL_IP dynamically if unset
+if [ -z "$NODE_EXTERNAL_IP" ]; then
+    if [ -n "$REMOTE_HOST" ]; then
+        NODE_EXTERNAL_IP=$(ssh -q -o LogLevel=ERROR -o ConnectTimeout=10 "${SSH_USER}@${REMOTE_HOST}" "curl -s -m 5 -4 https://ifconfig.me 2>/dev/null || curl -s -m 5 -4 https://icanhazip.com 2>/dev/null" | tr -d '\r\n' || true)
+    else
+        if command -v curl >/dev/null 2>&1; then
+            NODE_EXTERNAL_IP=$(curl -s -m 5 -4 https://ifconfig.me 2>/dev/null || curl -s -m 5 -4 https://icanhazip.com 2>/dev/null || true)
+            NODE_EXTERNAL_IP=$(echo "$NODE_EXTERNAL_IP" | tr -d '\r\n')
+        fi
+    fi
+fi
+
+if [ -z "$NODE_EXTERNAL_IP" ]; then
+    echo "ERROR: NODE_EXTERNAL_IP is required but unset, and could not be auto-detected." >&2
+    echo "Please specify --external-ip <ip> or export NODE_EXTERNAL_IP=<ip>." >&2
+    exit 1
+fi
 
 # Known default k3s addons to ignore in manifests directory
 IGNORE_LIST=(
