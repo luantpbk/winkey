@@ -62,7 +62,7 @@ go run ./cmd/quality-bench -encoder nvenc -ffmpeg "$FFMPEG_PATH" -ffprobe "$FFPR
   -json bench.json source1.mp4 source2.mov > bench.md
 ```
 
-The first setting is the baseline for the "Size vs" column. VMAF is computed at the source size (the rendition is upscaled like a player would do) after both sides are resampled to the encode's frame rate, so variable-frame-rate phone uploads stay aligned; `VMAF p5` is the 5th-percentile frame score. The output ends with the **ADR-039 verdict**: per setting the bytes saved, the mean VMAF drop on top and lower renditions, pass/fail, and `RECOMMENDED: capped_crf:N` (or none). `-anonymize` labels sources `s01…`; `-from-json bench.json` re-evaluates a previous run without encoding.
+The first setting is the baseline for the "Size vs" column. VMAF is computed at the source size (the rendition is upscaled like a player would do) after both sides are resampled to the encode's frame rate, so variable-frame-rate phone uploads stay aligned. Both sides keep the file timeline (no per-stream timestamp reset): when a source's video starts after its audio, the encode repeats the first picture to fill the gap, and the metric pairs frames by time. The earlier per-stream reset shifted every frame of such sources (s11/s12 of the ENC2 bench: VMAF ~40–55, p5 = 0 at every setting); `VMAF p5` is the 5th-percentile frame score. The output ends with the **ADR-039 verdict**: per setting the bytes saved, the mean VMAF drop on top and lower renditions, pass/fail, and `RECOMMENDED: capped_crf:N` (or none). `-anonymize` labels sources `s01…`; `-from-json bench.json` re-evaluates a previous run without encoding.
 
 ### Calibrating NVENC_CQ on gpu-01 (one command, no sudo)
 

@@ -255,22 +255,31 @@ func segmentBytes(dir string) (int64, error) {
 	return n, err
 }
 
-// vmaf scores a rendition against the source at the source display size
-// (the distorted picture is upscaled, as a viewer's player would do).
-// Both inputs are resampled to the encode's constant frame rate first.
-func vmaf(ctx context.Context, ff, dist, src string, info media.Info, logPath string) (float64, float64, error) {
-	w, h := info.DisplayW&^1, info.DisplayH&^1
-	// Both sides go through the same constant frame rate as the encode, so a
-	// variable-frame-rate phone upload stays frame-aligned with its rendition.
-	fps := info.FPS
+// alignGraph is the filter graph up to the metric: the rendition ([0:v]) and the source ([1:v]) at the
+// source display size (the distorted picture is upscaled, as a viewer's player would do), both through the
+// encode's constant frame rate, labelled [d] and [r].
+//
+// The timestamps are NOT reset per stream (no setpts=PTS-STARTPTS): when a source's video starts after its
+// audio (common for phone recordings), the encode fills the gap by repeating the first picture, so the
+// rendition has extra leading frames and resetting both streams to 0 shifted every frame (VMAF ~40-55 and
+// p5 = 0 at every setting, s11/s12 of the ENC2 bench). On the shared file timeline the metric's frame sync
+// pairs the pictures by time instead.
+func alignGraph(fps string, w, h int) string {
 	if fps == "" {
 		fps = "30"
 	}
-	graph := fmt.Sprintf(
-		"[0:v]setpts=PTS-STARTPTS,fps=%s,scale=%d:%d:flags=bicubic,format=yuv420p[d];"+
-			"[1:v]setpts=PTS-STARTPTS,fps=%s,scale=%d:%d,format=yuv420p[r];"+
-			"[d][r]libvmaf=n_threads=%d:shortest=1:log_fmt=json:log_path=%s",
-		fps, w, h, fps, w, h, runtime.NumCPU(), strings.ReplaceAll(filepath.ToSlash(logPath), ":", `\:`))
+	return fmt.Sprintf(
+		"[0:v]fps=%s,scale=%d:%d:flags=bicubic,format=yuv420p[d];"+
+			"[1:v]fps=%s,scale=%d:%d,format=yuv420p[r]",
+		fps, w&^1, h&^1, fps, w&^1, h&^1)
+}
+
+// vmaf scores a rendition against the source (alignGraph) and returns the pooled mean and the 5th
+// percentile frame score.
+func vmaf(ctx context.Context, ff, dist, src string, info media.Info, logPath string) (float64, float64, error) {
+	graph := alignGraph(info.FPS, info.DisplayW, info.DisplayH) + fmt.Sprintf(
+		";[d][r]libvmaf=n_threads=%d:shortest=1:log_fmt=json:log_path=%s",
+		runtime.NumCPU(), strings.ReplaceAll(filepath.ToSlash(logPath), ":", `\:`))
 	if err := run(ctx, ff, "-hide_banner", "-nostdin", "-loglevel", "error",
 		"-i", dist, "-i", src, "-lavfi", graph, "-f", "null", "-"); err != nil {
 		return 0, 0, err
