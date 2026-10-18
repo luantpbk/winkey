@@ -1,37 +1,33 @@
 ---
 # Role: edge_ingress
-# Deploys Traefik IngressRoute, Middlewares, fixed NodePorts, and whoami smoke test service to k3s.
-# Uses k3s auto-deploy manifests directory (/var/lib/rancher/k3s/server/manifests)
+# Deploys Traefik IngressRoute, Middlewares, fixed NodePorts, ClusterIP services, and whoami smoke test service to k3s.
+# Applies manifests directly via kubectl apply (replaces k3s auto-deploy manifests).
 
-- name: Deploy Traefik middlewares manifest
+- name: Render Traefik middlewares manifest
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../k8s/edge/middlewares.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/winkey-middlewares.yaml
-    mode: "0644"
+    dest: /tmp/winkey-middlewares.yaml
+    mode: "0600"
 
-- name: Deploy Traefik IngressRoute manifest
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../k8s/edge/ingressroute.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/winkey-ingressroute.yaml
-    mode: "0644"
+- name: Apply Traefik middlewares manifest
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -f /tmp/winkey-middlewares.yaml
 
-- name: Deploy NodePort services manifest (ADR-015)
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../k8s/edge/nodeports.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/winkey-nodeports.yaml
-    mode: "0644"
+- name: Remove rendered middlewares temp file
+  ansible.builtin.file:
+    path: /tmp/winkey-middlewares.yaml
+    state: absent
 
-- name: Deploy ClusterIP backend services manifest
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../k8s/edge/clusterip-services.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/winkey-services.yaml
-    mode: "0644"
+- name: Apply Traefik IngressRoute manifest
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -f "{{ playbook_dir }}/../k8s/edge/ingressroute.yaml"
 
-- name: Deploy whoami smoke test workload
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../k8s/edge/whoami.yaml"
-    dest: /var/lib/rancher/k3s/server/manifests/winkey-whoami.yaml
-    mode: "0644"
+- name: Apply NodePort services manifest (ADR-015)
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -f "{{ playbook_dir }}/../k8s/edge/nodeports.yaml"
+
+- name: Apply ClusterIP backend services manifest
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -f "{{ playbook_dir }}/../k8s/edge/clusterip-services.yaml"
+
+- name: Apply whoami smoke test workload
+  ansible.builtin.command: /usr/local/bin/k3s kubectl apply -f "{{ playbook_dir }}/../k8s/edge/whoami.yaml"
 
 - name: Wait for whoami deployment rollout
   ansible.builtin.command: /usr/local/bin/k3s kubectl rollout status deployment/whoami -n default --timeout=60s
