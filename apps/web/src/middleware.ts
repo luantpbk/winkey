@@ -25,9 +25,17 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl, 308);
   }
 
+  // 3. /<locale>/embed/... -> 308 redirect to /embed/...
+  const embedLocaleMatch = pathname.match(/^\/(?:vi|en)(\/embed(?:\/.*)?)$/);
+  if (embedLocaleMatch) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = embedLocaleMatch[1];
+    return NextResponse.redirect(redirectUrl, 308);
+  }
+
   return intlMiddleware(request);
 }
 
 export const config = {
-  matcher: ['/((?!api|_next|_vercel|v1|mockServiceWorker.js|healthz|readyz|.*\\..*).*)'],
+  matcher: ['/((?!api|_next|_vercel|v1|embed|mockServiceWorker.js|healthz|readyz|.*\\..*).*)'],
 };

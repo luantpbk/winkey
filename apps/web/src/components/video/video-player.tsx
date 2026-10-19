@@ -37,6 +37,7 @@ export interface VideoPlayerProps {
   expiresAt?: string | null;
   surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
+  className?: string;
 }
 
 export function isAv1Supported(): boolean {
@@ -95,6 +96,7 @@ export function VideoPlayer({
   expiresAt,
   surface,
   onRecordView,
+  className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -927,7 +929,9 @@ export function VideoPlayer({
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
-      className="group relative aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-2xl flex items-center justify-center select-none"
+      className={`group relative overflow-hidden bg-black flex items-center justify-center select-none ${
+        className ?? 'aspect-video w-full rounded-2xl shadow-2xl'
+      }`}
     >
       <video
         ref={videoRef}

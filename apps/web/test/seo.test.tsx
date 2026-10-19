@@ -20,6 +20,15 @@ import { jsonLd } from '../src/lib/seo/json-ld';
 import robots from '../src/app/robots';
 import { generateMetadata as generateWatchMetadata } from '../src/app/[locale]/watch/[id]/page';
 import { generateMetadata as generateChannelMetadata } from '../src/app/[locale]/c/[handle]/page';
+import {
+  generateMetadata as generateEmbedMetadata,
+  default as EmbedPage,
+} from '../src/app/embed/[id]/page';
+import { notFound } from 'next/navigation';
+
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(),
+}));
 
 const mockPublicVideo: Video = {
   id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
@@ -114,8 +123,17 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
       expect(schema?.thumbnailUrl).toEqual([mockPublicVideo.playback!.thumbnail_url]);
       expect(schema?.uploadDate).toBe(mockPublicVideo.published_at);
       expect(schema?.duration).toBe('PT12M4S');
-      expect(schema?.embedUrl).toBe(`https://winkey.vn/watch/${mockPublicVideo.id}`);
+      expect(schema?.embedUrl).toBe(`https://winkey.vn/embed/${mockPublicVideo.id}`);
       expect(schema?.url).toBe(`https://winkey.vn/watch/${mockPublicVideo.id}`);
+      expect(schema?.contentUrl).toBe(mockPublicVideo.playback!.hls_url);
+      expect(schema?.publisher).toEqual({
+        '@type': 'Organization',
+        name: 'Winkey',
+        logo: {
+          '@type': 'ImageObject',
+          url: 'https://winkey.vn/logo.png',
+        },
+      });
       expect(schema?.interactionStatistic).toEqual({
         '@type': 'InteractionCounter',
         interactionType: {
@@ -187,6 +205,29 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
       });
       expect(metadata.robots).toEqual({ index: true, follow: true });
       expect((metadata.openGraph as Record<string, unknown>)?.type).toBe('video.other');
+      expect(metadata.openGraph?.videos).toEqual([
+        {
+          url: `https://winkey.vn/embed/${mockPublicVideo.id}`,
+          secureUrl: `https://winkey.vn/embed/${mockPublicVideo.id}`,
+          type: 'text/html',
+          width: 1280,
+          height: 720,
+        },
+      ]);
+      expect(metadata.twitter).toEqual({
+        card: 'player',
+        title: mockPublicVideo.title,
+        description: formatMetaDescription(mockPublicVideo.description),
+        images: [mockPublicVideo.playback!.thumbnail_url],
+        players: [
+          {
+            playerUrl: `https://winkey.vn/embed/${mockPublicVideo.id}`,
+            streamUrl: mockPublicVideo.playback!.hls_url,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      });
     });
 
     it('generates noindex, nofollow metadata for UNLISTED video', async () => {
@@ -353,7 +394,38 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
       expect(xml).toContain(
         `<video:publication_date>${mockPublicVideo.published_at}</video:publication_date>`,
       );
-      expect(xml).toContain(`https://winkey.vn/watch/${mockPublicVideo.id}`);
+      expect(xml).toContain(`<loc>https://winkey.vn/watch/${mockPublicVideo.id}</loc>`);
+      expect(xml).toContain(
+        `<video:player_loc>https://winkey.vn/embed/${mockPublicVideo.id}</video:player_loc>`,
+      );
+    });
+
+    it('ensures video:player_loc points to embed URL and differs from loc for every entry (ADR-043)', () => {
+      const sampleVideos: VideoSummary[] = [
+        mockPublicVideoSummary,
+        {
+          ...mockPublicVideoSummary,
+          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c99',
+          title: 'Another Video',
+        },
+      ];
+
+      const xml = generateSitemapXml(sampleVideos, { siteBaseUrl: 'https://winkey.vn' });
+      const urlBlocks = xml.split('<url>').slice(1);
+      const videoBlocks = urlBlocks.filter((b) => b.includes('<video:video>'));
+
+      expect(videoBlocks.length).toBe(2);
+      for (const block of videoBlocks) {
+        const locMatch = block.match(/<loc>(.*?)<\/loc>/);
+        const playerLocMatch = block.match(/<video:player_loc>(.*?)<\/video:player_loc>/);
+        expect(locMatch).toBeTruthy();
+        expect(playerLocMatch).toBeTruthy();
+        const loc = locMatch![1];
+        const playerLoc = playerLocMatch![1];
+        expect(loc).toContain('/watch/');
+        expect(playerLoc).toContain('/embed/');
+        expect(playerLoc).not.toBe(loc);
+      }
     });
 
     it('uses real description in video:description when present, and falls back to title', () => {
@@ -641,6 +713,116 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
       // Verify round-trip integrity
       const parsed = JSON.parse(serialized);
       expect(parsed).toEqual(complexPayload);
+    });
+  });
+
+  describe('8. Embed Player Page (/embed/[id]) - ADR-043', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('generates canonical metadata pointing to watch page without noindex for PUBLIC video', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockPublicVideo,
+      } as Response);
+
+      const metadata = await generateEmbedMetadata({
+        params: Promise.resolve({ id: mockPublicVideo.id }),
+      });
+
+      expect(metadata.title).toBe(mockPublicVideo.title);
+      expect(metadata.alternates?.canonical).toBe(`https://winkey.vn/watch/${mockPublicVideo.id}`);
+      expect(metadata.robots).toBeUndefined();
+    });
+
+    it('calls notFound() in generateEmbedMetadata for UNLISTED or PRIVATE or non-existent video', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockUnlistedVideo,
+      } as Response);
+
+      await generateEmbedMetadata({
+        params: Promise.resolve({ id: mockUnlistedVideo.id }),
+      });
+      expect(notFound).toHaveBeenCalled();
+
+      vi.clearAllMocks();
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockPrivateVideo,
+      } as Response);
+
+      await generateEmbedMetadata({
+        params: Promise.resolve({ id: mockPrivateVideo.id }),
+      });
+      expect(notFound).toHaveBeenCalled();
+
+      vi.clearAllMocks();
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await generateEmbedMetadata({
+        params: Promise.resolve({ id: 'missing-id' }),
+      });
+      expect(notFound).toHaveBeenCalled();
+    });
+
+    it('renders minimal player page with Winkey link for PUBLIC video', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockPublicVideo,
+      } as Response);
+
+      const pageJsx = await EmbedPage({
+        params: Promise.resolve({ id: mockPublicVideo.id }),
+      });
+
+      expect(notFound).not.toHaveBeenCalled();
+      expect(pageJsx).toBeDefined();
+    });
+
+    it('triggers notFound() when video is UNLISTED, PRIVATE, or missing', async () => {
+      // 1. UNLISTED video -> notFound
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockUnlistedVideo,
+      } as Response);
+
+      await EmbedPage({
+        params: Promise.resolve({ id: mockUnlistedVideo.id }),
+      });
+      expect(notFound).toHaveBeenCalled();
+
+      vi.clearAllMocks();
+
+      // 2. PRIVATE video -> notFound
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockPrivateVideo,
+      } as Response);
+
+      await EmbedPage({
+        params: Promise.resolve({ id: mockPrivateVideo.id }),
+      });
+      expect(notFound).toHaveBeenCalled();
+
+      vi.clearAllMocks();
+
+      // 3. 404 video -> notFound
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await EmbedPage({
+        params: Promise.resolve({ id: 'non-existent' }),
+      });
+      expect(notFound).toHaveBeenCalled();
     });
   });
 });

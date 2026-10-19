@@ -2797,6 +2797,38 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     // Assert AV1 master was never requested
     expect(av1Requested).toBe(false);
   });
+
+  test('SEO4-web: /embed/{id} returns 200 with frame-ancestors header for PUBLIC video, and returns 404 for PRIVATE video (ADR-043)', async ({
+    page,
+    request,
+  }) => {
+    const publicVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10';
+    const privateVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c19';
+
+    // 1. Verify headers via API request to /embed/{id}
+    const publicRes = await request.get(`/embed/${publicVideoId}`);
+    expect(publicRes.status()).toBe(200);
+
+    const headers = publicRes.headers();
+    expect(headers['content-security-policy']).toContain('frame-ancestors *');
+    expect(headers['x-frame-options']).toBeUndefined();
+
+    // 2. Verify page rendering in browser: VideoPlayer, Winkey link to /watch/{id}
+    await page.goto(`/embed/${publicVideoId}`);
+    await page.waitForLoadState('domcontentloaded');
+
+    const video = page.locator('video');
+    await expect(video).toBeVisible({ timeout: 15000 });
+
+    const winkeyLink = page.locator('a:has-text("Winkey")');
+    await expect(winkeyLink).toBeVisible();
+    await expect(winkeyLink).toHaveAttribute('href', `https://winkey.vn/watch/${publicVideoId}`);
+    await expect(winkeyLink).toHaveAttribute('target', '_blank');
+
+    // 3. Verify private video returns 404
+    const privateRes = await request.get(`/embed/${privateVideoId}`);
+    expect(privateRes.status()).toBe(404);
+  });
 });
 
 function createZipBufferHelper(files: Record<string, string>): Buffer {

@@ -178,6 +178,7 @@ export function generateSitemapXml(
   for (const video of videos) {
     if (urls.length >= maxUrls) break;
     const watchUrl = `${siteBaseUrl}/watch/${video.id}`;
+    const embedUrl = `${siteBaseUrl}/embed/${video.id}`;
     const pubDate =
       video.published_at || (video as unknown as { created_at?: string }).created_at || '';
     const thumb = video.thumbnail_url || `${siteBaseUrl}/og-default.jpg`;
@@ -195,7 +196,7 @@ export function generateSitemapXml(
       <video:thumbnail_loc>${xmlEscape(thumb)}</video:thumbnail_loc>
       <video:title>${title}</video:title>
       <video:description>${desc}</video:description>
-      <video:player_loc>${watchUrl}</video:player_loc>
+      <video:player_loc>${embedUrl}</video:player_loc>
       <video:duration>${durationSeconds}</video:duration>
       <video:publication_date>${pubDate}</video:publication_date>
     </video:video>
