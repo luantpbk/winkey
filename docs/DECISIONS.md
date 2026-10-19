@@ -1186,3 +1186,22 @@ Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa ch
   - Player bật phụ đề mặc định khi người xem chưa lưu lựa chọn nào. Lựa chọn đã lưu của người xem (kể cả "tắt") luôn thắng.
 - **Âm thanh:** `PATCH …/audio-tracks/{id}` nhận cả `is_default: false`, tức bỏ cờ của track đó. Master được ghi lại, và âm thanh gốc thành `DEFAULT=YES` (quy tắc sẵn có của `hlsmaster.Group`).
 - Không có cột hay cờ nào cho "gốc": không track nào mặc định nghĩa là gốc.
+
+### ADR-043 — Video lên kết quả video của Google (SEO4)
+
+*Bối cảnh (2026-10-19).* Người dùng thấy Google chỉ hiện trang chủ, với tiêu đề và mô tả cũ (bản crawl trước SEO3), chưa có video nào trong kết quả video. Kiến trúc sư rà code trên main:
+- **`player_loc` trong video sitemap trùng `<loc>`** (đều là `/watch/{id}`). Đặc tả video sitemap của Google yêu cầu `player_loc` khác `loc`, nên Google bỏ qua mọi mục `<video:video>`.
+- JSON-LD `VideoObject` có `embedUrl` là trang xem (không phải player) và **không có `contentUrl`**. Google cần ít nhất một trong hai trỏ tới file video hoặc một player nhúng được.
+- `og:video` cũng trỏ về trang xem.
+- Không có trang player nhúng nào (`/embed/{id}`).
+- Còn lại đã đúng từ SEO1–SEO3: `VideoObject`, canonical, `noindex` cho video không công khai, `robots.txt`, sitemap động, thumbnail công khai trên `media.winkey.vn` (không bị chặn; `/robots.txt` ở đó trả 404, tức là cho phép tất cả).
+
+*Quyết định.* Chỉ sửa web (Antigravity 1), không đổi contract hay Go:
+1. **Trang `/embed/{id}`.** Player tối giản cho video `PUBLIC` (không header, footer hay comment). Cho phép nhúng iframe: `Content-Security-Policy: frame-ancestors *` chỉ trên đường dẫn này. Canonical về `/watch/{id}`. Video không công khai hoặc không tồn tại trả 404. Không bị chặn trong `robots.ts`.
+2. **JSON-LD trên trang xem:** `embedUrl` là `/embed/{id}`, `contentUrl` là `playback.hls_url` (chỉ video công khai, vì URL không ký). Thêm `publisher` là `Organization` Winkey kèm logo.
+3. **Video sitemap:** `player_loc` là `/embed/{id}`.
+4. **Open Graph và Twitter:** `og:video` (cùng `og:video:secure_url`, `og:video:type=text/html`, width, height) là `/embed/{id}`; Twitter card `player`.
+5. **HTML render phía server của trang xem** có sẵn thẻ `<video>` với `poster` là thumbnail, cùng `<h1>` tiêu đề và mô tả dạng text, để Google thấy video là nội dung chính ngay cả trước khi chạy JS.
+6. **Đo:** Rich Results Test (mục Video) sạch lỗi cho 2 trang xem; sitemap hợp lệ, có `player_loc` khác `loc`.
+
+*Hệ quả.* Đây là những điều kiện kỹ thuật để video được Google lập chỉ mục. Video có lên kết quả hay không, và khi nào, vẫn do Google quyết định. Thường mất vài ngày tới vài tuần sau khi nộp lại sitemap. Người dùng xem tiến độ ở báo cáo "Video indexing" (Lập chỉ mục video) trong Search Console.
