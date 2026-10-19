@@ -10,6 +10,15 @@ export interface VideoObjectSchema {
   duration: string;
   embedUrl: string;
   url: string;
+  contentUrl?: string;
+  publisher: {
+    '@type': 'Organization';
+    name: string;
+    logo: {
+      '@type': 'ImageObject';
+      url: string;
+    };
+  };
   keywords?: string;
   interactionStatistic: {
     '@type': 'InteractionCounter';
@@ -79,6 +88,7 @@ export function buildVideoObjectSchema(
 
   const thumbUrl = video.playback?.thumbnail_url || `${baseUrl}/og-default.jpg`;
   const watchUrl = `${baseUrl}/watch/${video.id}`;
+  const embedUrl = `${baseUrl}/embed/${video.id}`;
   const channelUrl = `${baseUrl}/c/${video.owner.handle}`;
   const uploadDate = video.published_at || video.created_at;
 
@@ -90,8 +100,16 @@ export function buildVideoObjectSchema(
     thumbnailUrl: [thumbUrl],
     uploadDate,
     duration: msToIsoDuration(video.duration_ms),
-    embedUrl: watchUrl,
+    embedUrl,
     url: watchUrl,
+    publisher: {
+      '@type': 'Organization',
+      name: 'Winkey',
+      logo: {
+        '@type': 'ImageObject',
+        url: `${baseUrl}/logo.png`,
+      },
+    },
     interactionStatistic: {
       '@type': 'InteractionCounter',
       interactionType: {
@@ -105,6 +123,10 @@ export function buildVideoObjectSchema(
       url: channelUrl,
     },
   };
+
+  if (video.playback?.hls_url) {
+    schema.contentUrl = video.playback.hls_url;
+  }
 
   if (video.tags && video.tags.length > 0) {
     schema.keywords = video.tags.join(', ');

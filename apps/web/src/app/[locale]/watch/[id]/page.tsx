@@ -49,6 +49,8 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
   const metaDescription = formatMetaDescription(video.description);
   const thumbUrl = video.playback?.thumbnail_url || 'https://winkey.vn/og-default.jpg';
   const watchUrl = `https://winkey.vn/watch/${video.id}`;
+  const embedUrl = `https://winkey.vn/embed/${video.id}`;
+  const hlsUrl = video.playback?.hls_url || '';
 
   return {
     title: video.title,
@@ -74,7 +76,15 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
       description: metaDescription,
       type: 'video.other',
       url: watchUrl,
-      videos: [watchUrl],
+      videos: [
+        {
+          url: embedUrl,
+          secureUrl: embedUrl,
+          type: 'text/html',
+          width: 1280,
+          height: 720,
+        },
+      ],
       images: [
         {
           url: thumbUrl,
@@ -86,10 +96,18 @@ export async function generateMetadata({ params }: WatchPageProps): Promise<Meta
       siteName: 'Winkey',
     },
     twitter: {
-      card: 'summary_large_image',
+      card: 'player',
       title: video.title,
       description: metaDescription,
       images: [thumbUrl],
+      players: [
+        {
+          playerUrl: embedUrl,
+          streamUrl: hlsUrl,
+          width: 1280,
+          height: 720,
+        },
+      ],
     },
   };
 }

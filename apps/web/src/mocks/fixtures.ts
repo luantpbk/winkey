@@ -286,6 +286,26 @@ export const mockVideos: Video[] = [
       moderated_at: '2026-09-28T10:00:00Z',
     },
   },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c19',
+    title: 'Video Riêng Tư Kiểm Thử',
+    description: 'Video này ở chế độ riêng tư để kiểm thử phân quyền.',
+    owner: mockPublicProfiles.winkey_creator,
+    visibility: 'PRIVATE',
+    status: 'READY',
+    duration_ms: 120000,
+    width: 1920,
+    height: 1080,
+    view_count: 10,
+    like_count: 1,
+    published_at: '2026-09-28T10:00:00Z',
+    created_at: '2026-09-28T09:00:00Z',
+    playback: {
+      hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+      thumbnail_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800',
+      renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
+    },
+  },
 ];
 
 export const mockStudioVideos: StudioVideo[] = [
