@@ -10,6 +10,7 @@ export default function robots(): MetadataRoute.Robots {
         '/admin',
         '/upload',
         '/thu-vien',
+        '/lich-su',
         '/settings',
         '/notifications',
         '/login',

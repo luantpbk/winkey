@@ -15,7 +15,6 @@ import {
 import { server } from '../src/mocks/server';
 import viMessages from '../messages/vi.json';
 import enMessages from '../messages/en.json';
-import type { HistoryItem } from '@winkey/api-client';
 
 // --- Locale Mock ---
 const activeLocale: 'vi' | 'en' = 'vi';
