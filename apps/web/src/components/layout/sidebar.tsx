@@ -62,8 +62,7 @@ export function Sidebar({
       ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
       : []),
     { href: '/thu-vien', label: t('library'), icon: FolderHeart },
-    // Hidden until architect ships HIST1 (ADR-044)
-    // { href: '#history', label: t('history'), icon: History },
+    { href: '#history', label: t('history'), icon: History },
   ];
 
   const exploreItems = [
