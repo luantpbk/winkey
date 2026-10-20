@@ -11,6 +11,7 @@ CLIP_PATH="${RUN_DIR}/clip.mp4"
 
 RESET=0
 SIM=0
+UI_AUDIT=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -20,12 +21,15 @@ for arg in "$@"; do
     --sim)
       SIM=1
       ;;
+    --ui-audit)
+      UI_AUDIT=1
+      ;;
     *)
       ;;
   esac
 done
 
-if [ "${SIM}" -eq 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+if [ "${SIM}" -eq 1 -o "${UI_AUDIT}" -eq 1 ] && ! command -v pnpm >/dev/null 2>&1; then
   echo "[systest] ERROR: 'pnpm' command not found. Please install pnpm (version 12.6.0) before running in --sim mode." >&2
   exit 1
 fi
@@ -117,7 +121,7 @@ fi
 
 # 4. Bring up full stack with apps override
 echo "[systest] Building and starting all services..."
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --force-recreate --wait
+docker compose --env-file "${GEN_ENV}" -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d --build --force-recreate --wait
 
 # 3b. Poll /readyz for services without internal healthcheck (3002, 3003, 8084)
 echo "[systest] Polling /readyz endpoints for upload-svc, video-svc, transcoder..."
@@ -137,7 +141,7 @@ for port in 3002 3003 8084; do
 done
 
 # In --sim mode, also poll web-svc:3000/healthz and gateway :8080/healthz
-if [ "${SIM}" -eq 1 ]; then
+if [ "${SIM}" -eq 1 -o "${UI_AUDIT}" -eq 1 ]; then
   echo "[systest] Polling web-svc and gateway health..."
   for _ in $(seq 1 60); do
     if curl -s "http://127.0.0.1:3000/healthz" >/dev/null 2>&1; then
@@ -245,6 +249,30 @@ if [ "${SIM}" -eq 1 ]; then
 
   # Step E: Generate summary.md
   node "${SCRIPT_DIR}/build-summary.mjs" || true
+fi
+
+if [ "${UI_AUDIT}" -eq 1 ]; then
+  echo "==================================================================="
+  echo "         UX1: AUTOMATED UI AUDIT ON 8 VIEWPORTS (ADR-044)          "
+  echo "==================================================================="
+
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Resetting auth rate limits before UI audit seed..."
+    "${SCRIPT_DIR}/reset-ratelimits.sh" || true
+    echo "[systest] Running deterministic Vietnamese seed if manifest missing..."
+    if [ ! -f "${SCRIPT_DIR}/.run/seed-manifest.json" ]; then
+      node "${SCRIPT_DIR}/seed/seed.mjs" || SUITE_EXIT=$?
+    fi
+  fi
+
+  if [ "${SUITE_EXIT}" -eq 0 ]; then
+    echo "[systest] Running UX1 Phase 0 UI Audit matrix..."
+    if [ -x "${SCRIPT_DIR}/ui-audit/node_modules/.bin/tsx" ]; then
+      "${SCRIPT_DIR}/ui-audit/node_modules/.bin/tsx" "${SCRIPT_DIR}/ui-audit/src/index.ts" --run "$@" || SUITE_EXIT=$?
+    else
+      pnpm --dir "${SCRIPT_DIR}/ui-audit" exec tsx src/index.ts --run "$@" || SUITE_EXIT=$?
+    fi
+  fi
 fi
 
 # 6. Dump app container logs on failure

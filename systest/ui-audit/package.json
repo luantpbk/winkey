@@ -1,0 +1,22 @@
+{
+  "name": "ui-audit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "audit": "tsx src/index.ts",
+    "sync-gh": "tsx src/reporting/sync-cli.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@types/node": "^22.13.0",
+    "playwright": "^1.50.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
