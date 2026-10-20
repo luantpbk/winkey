@@ -41,6 +41,8 @@ export type UploadStatus = UploadComponents['schemas']['UploadStatus'];
 
 export type Video = VideoComponents['schemas']['Video'];
 export type VideoSummary = VideoComponents['schemas']['VideoSummary'];
+export type HistoryItem = VideoComponents['schemas']['HistoryItem'];
+export type HistoryPage = VideoComponents['schemas']['HistoryPage'];
 export type RelatedVideos = VideoComponents['schemas']['RelatedVideos'];
 export type VideoPage = VideoComponents['schemas']['VideoPage'];
 export type StudioVideo = VideoComponents['schemas']['StudioVideo'];

@@ -57,6 +57,8 @@ import type {
   SeriesSummary,
   TagSummary,
   AudioTrack,
+  HistoryItem,
+  HistoryPage,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -146,6 +148,68 @@ export function resetAuthTokensMock() {
   if (mockUsers.spammer) {
     mockUsers.spammer.email_verified = false;
   }
+}
+
+const defaultWatchHistory: HistoryItem[] = [
+  {
+    video: {
+      id: mockVideos[0].id,
+      title: mockVideos[0].title,
+      owner: mockVideos[0].owner,
+      duration_ms: mockVideos[0].duration_ms ?? 0,
+      view_count: mockVideos[0].view_count,
+      published_at: mockVideos[0].published_at || mockVideos[0].created_at,
+      thumbnail_url:
+        mockVideos[0].playback?.thumbnail_url ||
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+    },
+    watched_at: '2026-10-20T10:00:00Z',
+    watched_ms: 600000,
+  },
+  {
+    video: {
+      id: mockVideos[1].id,
+      title: mockVideos[1].title,
+      owner: mockVideos[1].owner,
+      duration_ms: mockVideos[1].duration_ms ?? 0,
+      view_count: mockVideos[1].view_count,
+      published_at: mockVideos[1].published_at || mockVideos[1].created_at,
+      thumbnail_url:
+        mockVideos[1].playback?.thumbnail_url ||
+        'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&auto=format&fit=crop&q=80',
+    },
+    watched_at: '2026-10-19T14:30:00Z',
+    watched_ms: 120000,
+  },
+  {
+    video: {
+      id: mockVideos[2].id,
+      title: mockVideos[2].title,
+      owner: mockVideos[2].owner,
+      duration_ms: mockVideos[2].duration_ms ?? 0,
+      view_count: mockVideos[2].view_count,
+      published_at: mockVideos[2].published_at || mockVideos[2].created_at,
+      thumbnail_url:
+        mockVideos[2].playback?.thumbnail_url ||
+        'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&auto=format&fit=crop&q=80',
+    },
+    watched_at: '2026-10-18T09:15:00Z',
+    watched_ms: mockVideos[2].duration_ms ?? 0,
+  },
+];
+
+let dynamicWatchHistory: HistoryItem[] = [...defaultWatchHistory];
+
+export function getDynamicWatchHistory(): HistoryItem[] {
+  return dynamicWatchHistory;
+}
+
+export function setDynamicWatchHistory(items: HistoryItem[]) {
+  dynamicWatchHistory = [...items];
+}
+
+export function resetDynamicWatchHistory() {
+  dynamicWatchHistory = [...defaultWatchHistory];
 }
 
 const initialMockPlaylists: Playlist[] = [
@@ -4248,6 +4312,83 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     };
     dynamicNotifications.unshift(newNotif);
     return HttpResponse.json(newNotif, { status: 201 });
+  }),
+
+  // --- Watch History Endpoints (Task HIST1, ADR-044) ---
+
+  http.get('*/v1/me/history', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+          detail: 'Authentication required to access watch history',
+        },
+        { status: 401 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    const history = getDynamicWatchHistory();
+    const startIndex = cursor ? parseInt(cursor, 10) : 0;
+    const items = history.slice(startIndex, startIndex + limit);
+    const nextIndex = startIndex + limit;
+    const nextCursor = nextIndex < history.length ? nextIndex.toString() : null;
+
+    const page: HistoryPage = {
+      items,
+      next_cursor: nextCursor,
+    };
+
+    return HttpResponse.json(page, {
+      headers: {
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  }),
+
+  http.delete('*/v1/me/history/:video_id', async ({ params, request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    const videoId = params.video_id as string;
+    const current = getDynamicWatchHistory();
+    setDynamicWatchHistory(current.filter((item) => item.video.id !== videoId));
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/v1/me/history', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+
+    setDynamicWatchHistory([]);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // --- Playlist Endpoints (Task PL1) ---

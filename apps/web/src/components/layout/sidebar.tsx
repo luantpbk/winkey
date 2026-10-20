@@ -62,7 +62,7 @@ export function Sidebar({
       ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
       : []),
     { href: '/thu-vien', label: t('library'), icon: FolderHeart },
-    { href: '#history', label: t('history'), icon: History },
+    { href: '/lich-su', label: t('history'), icon: History },
   ];
 
   const exploreItems = [
