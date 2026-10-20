@@ -11,16 +11,27 @@ import { Link, useRouter, usePathname } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import type { VideoPage } from '@winkey/api-client';
 
-const CATEGORIES = [
-  'Tất cả',
-  'Công nghệ',
-  'Lập trình',
-  'Gaming',
-  'Âm nhạc',
-  'Trực tiếp',
-  'Kiến trúc máy tính',
-  'HLS',
+export interface CategoryChip {
+  id: string;
+  label: string;
+  tag?: string;
+}
+
+export const CATEGORY_CHIPS: readonly CategoryChip[] = [
+  { id: 'all', label: 'Tất cả' },
+  { id: 'cong-nghe', label: 'Công nghệ', tag: 'cong-nghe' },
+  { id: 'hoc-lap-trinh', label: 'Lập trình', tag: 'hoc-lap-trinh' },
+  { id: 'phim-ngan', label: 'Phim ngắn', tag: 'phim-ngan' },
+  { id: 'game', label: 'Gaming', tag: 'game' },
+  { id: 'am-nhac', label: 'Âm nhạc', tag: 'am-nhac' },
 ];
+
+function getValidCat(cat: string | null): string {
+  if (cat && CATEGORY_CHIPS.some((c) => c.id === cat)) {
+    return cat;
+  }
+  return 'all';
+}
 
 const VALID_TABS = ['for-you', 'latest', 'trending'] as const;
 type TabType = (typeof VALID_TABS)[number];
@@ -37,6 +48,9 @@ function KhamPhaContent() {
   const { user, isLoading } = useAuth();
 
   const tabParam = searchParams.get('tab');
+  const catParam = searchParams.get('cat');
+
+  const [selectedCat, setSelectedCat] = useState<string>(() => getValidCat(catParam));
 
   const [activeTab, setActiveTab] = useState<TabType | null>(() => {
     if (isValidTab(tabParam)) {
@@ -48,7 +62,7 @@ function KhamPhaContent() {
     return user ? 'for-you' : 'latest';
   });
 
-  // Sync state when URL tab param or auth status changes
+  // Sync state when URL tab or cat param or auth status changes
   useEffect(() => {
     if (isValidTab(tabParam)) {
       setActiveTab(tabParam);
@@ -57,15 +71,57 @@ function KhamPhaContent() {
     }
   }, [tabParam, user, isLoading]);
 
+  useEffect(() => {
+    setSelectedCat(getValidCat(catParam));
+  }, [catParam]);
+
   const handleTabChange = (newTab: TabType) => {
     setActiveTab(newTab);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', newTab);
-    router.push(`${pathname}?${params.toString()}`);
+    const queryString = params.toString();
+    router.push(`${pathname}${queryString ? `?${queryString}` : ''}`);
   };
+
+  const handleCatChange = (newCat: string) => {
+    setSelectedCat(newCat);
+    const params = new URLSearchParams(searchParams.toString());
+    if (newCat && newCat !== 'all') {
+      params.set('cat', newCat);
+    } else {
+      params.delete('cat');
+    }
+    const queryString = params.toString();
+    router.push(`${pathname}${queryString ? `?${queryString}` : ''}`);
+  };
+
+  const activeChip = CATEGORY_CHIPS.find((c) => c.id === selectedCat);
+  const activeTag = activeChip?.tag;
 
   // 1. "Dành cho bạn" (Recommended) feed fetcher
   const fetchRecommendedPage = async (pageParam: string | null): Promise<VideoPage> => {
+    if (activeTag) {
+      const {
+        data: page,
+        error: apiErr,
+        response,
+      } = await api.video.GET('/v1/videos', {
+        params: {
+          query: {
+            cursor: pageParam || undefined,
+            limit: 24,
+            tag: activeTag,
+          },
+        },
+      });
+
+      if (!response.ok || !page) {
+        throw new Error(apiErr?.detail || 'Failed to fetch videos by category');
+      }
+
+      return page as VideoPage;
+    }
+
     const {
       data: page,
       error: apiErr,
@@ -97,6 +153,7 @@ function KhamPhaContent() {
         query: {
           cursor: pageParam || undefined,
           limit: 12,
+          tag: activeTag,
         },
       },
     });
@@ -120,6 +177,7 @@ function KhamPhaContent() {
           sort: 'trending',
           cursor: pageParam || undefined,
           limit: 12,
+          tag: activeTag,
         },
       },
     });
@@ -184,20 +242,30 @@ function KhamPhaContent() {
       </div>
 
       {/* Category Pills (YouTube-like) */}
-      <div className="flex gap-3 overflow-x-auto pb-4 mb-4 scrollbar-none text-xs font-semibold">
-        {CATEGORIES.map((cat, idx) => (
-          <button
-            key={cat}
-            type="button"
-            className={`rounded-lg px-3 py-1.5 whitespace-nowrap transition ${
-              idx === 0
-                ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                : 'bg-gray-100 dark:bg-[#272727] text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-[#383838]'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
+      <div
+        role="group"
+        aria-label="Thể loại"
+        className="flex gap-3 overflow-x-auto pb-4 mb-4 scrollbar-none text-xs font-semibold"
+      >
+        {CATEGORY_CHIPS.map((chip) => {
+          const isSelected = selectedCat === chip.id;
+          return (
+            <button
+              key={chip.id}
+              type="button"
+              aria-pressed={isSelected}
+              data-testid={`category-chip-${chip.id}`}
+              onClick={() => handleCatChange(chip.id)}
+              className={`rounded-lg px-3 py-1.5 whitespace-nowrap transition cursor-pointer ${
+                isSelected
+                  ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+                  : 'bg-gray-100 dark:bg-[#272727] text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-[#383838]'
+              }`}
+            >
+              {chip.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab: Dành cho bạn */}
@@ -213,8 +281,16 @@ function KhamPhaContent() {
           </div>
         ) : (
           <VideoFeed
-            key={`feed-for-you-${user?.id ?? 'anon'}`}
-            queryKey={['feed', 'recommended', user?.id ?? 'anon']}
+            key={
+              selectedCat === 'all'
+                ? `feed-for-you-${user?.id ?? 'anon'}`
+                : `feed-for-you-${user?.id ?? 'anon'}-${selectedCat}`
+            }
+            queryKey={
+              selectedCat === 'all'
+                ? ['feed', 'recommended', user?.id ?? 'anon']
+                : ['feed', 'recommended', user?.id ?? 'anon', selectedCat]
+            }
             fetchPage={fetchRecommendedPage}
             staleTime={5 * 60 * 1000}
             surface="for_you"
@@ -259,8 +335,8 @@ function KhamPhaContent() {
       {/* Tab: Mới nhất */}
       {activeTab === 'latest' && (
         <VideoFeed
-          key="feed-latest"
-          queryKey={['feed', 'latest']}
+          key={selectedCat === 'all' ? 'feed-latest' : `feed-latest-${selectedCat}`}
+          queryKey={selectedCat === 'all' ? ['feed', 'latest'] : ['feed', 'latest', selectedCat]}
           fetchPage={fetchLatestPage}
           staleTime={5 * 60 * 1000}
           surface="latest"
@@ -275,8 +351,10 @@ function KhamPhaContent() {
       {/* Tab: Thịnh hành */}
       {activeTab === 'trending' && (
         <VideoFeed
-          key="feed-trending"
-          queryKey={['feed', 'trending']}
+          key={selectedCat === 'all' ? 'feed-trending' : `feed-trending-${selectedCat}`}
+          queryKey={
+            selectedCat === 'all' ? ['feed', 'trending'] : ['feed', 'trending', selectedCat]
+          }
           fetchPage={fetchTrendingPage}
           staleTime={5 * 60 * 1000}
           surface="trending"

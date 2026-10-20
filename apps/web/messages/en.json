@@ -703,6 +703,8 @@
     "fromSubscriptions": "From channels you follow",
     "viewAll": "View all",
     "similarVideos": "Similar videos",
+    "like": "Like",
+    "liked": "Liked",
     "share": "Share",
     "linkCopied": "Link copied to clipboard",
     "close": "Close",

@@ -34,6 +34,9 @@ export function CinemaDetailDialog({
   const [video, setVideo] = useState<Video | null>(null);
   const [relatedVideos, setRelatedVideos] = useState<VideoSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [liked, setLiked] = useState<boolean>(false);
+  const [likeCount, setLikeCount] = useState<number>(0);
+  const [isLikePending, setIsLikePending] = useState<boolean>(false);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
@@ -45,11 +48,13 @@ export function CinemaDetailDialog({
     }
   }, [videoId]);
 
-  // Load video detail and related videos when videoId changes
+  // Load video detail, related videos, and like status when videoId changes
   useEffect(() => {
     if (!videoId) {
       setVideo(null);
       setRelatedVideos([]);
+      setLiked(false);
+      setLikeCount(0);
       return;
     }
 
@@ -66,13 +71,34 @@ export function CinemaDetailDialog({
     ])
       .then(([detailRes, relatedRes]) => {
         if (!isMounted) return;
-        setVideo((detailRes.data as Video) || null);
+        const videoData = (detailRes.data as Video) || null;
+        setVideo(videoData);
         setRelatedVideos((relatedRes.data?.items as VideoSummary[]) || []);
+        if (videoData) {
+          setLiked(false);
+          setLikeCount(videoData.like_count || 0);
+        }
         setIsLoading(false);
       })
       .catch((err) => {
         console.warn('[CinemaDetailDialog] Failed to fetch video:', err);
         if (isMounted) setIsLoading(false);
+      });
+
+    // Safely fetch like state without blocking video detail
+    api.social
+      .GET('/v1/videos/{video_id}/like', {
+        params: { path: { video_id: videoId } },
+      })
+      .then(({ data, response }) => {
+        if (!isMounted) return;
+        if (response?.ok && data) {
+          setLiked(data.liked);
+          setLikeCount(data.like_count);
+        }
+      })
+      .catch(() => {
+        // Ignore social fetch error, keep default
       });
 
     return () => {
@@ -144,6 +170,61 @@ export function CinemaDetailDialog({
       return;
     }
     await addToWatchLater(videoId, { showToast });
+  };
+
+  const handleToggleLike = async () => {
+    if (!video) return;
+
+    if (!isAuthenticated) {
+      const returnTo =
+        typeof window !== 'undefined'
+          ? `${window.location.pathname}${window.location.search}`
+          : '/phim';
+      router.push(`/login?returnTo=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+
+    if (isLikePending) return;
+
+    const previousLiked = liked;
+    const previousCount = likeCount;
+
+    const nextLiked = !liked;
+    const nextCount = nextLiked ? previousCount + 1 : Math.max(0, previousCount - 1);
+    setLiked(nextLiked);
+    setLikeCount(nextCount);
+    setIsLikePending(true);
+
+    try {
+      if (nextLiked) {
+        const { data, response } = await api.social.PUT('/v1/videos/{video_id}/like', {
+          params: { path: { video_id: video.id } },
+        });
+        if (!response.ok || !data) {
+          setLiked(previousLiked);
+          setLikeCount(previousCount);
+        } else {
+          setLiked(data.liked);
+          setLikeCount(data.like_count);
+        }
+      } else {
+        const { data, response } = await api.social.DELETE('/v1/videos/{video_id}/like', {
+          params: { path: { video_id: video.id } },
+        });
+        if (!response.ok || !data) {
+          setLiked(previousLiked);
+          setLikeCount(previousCount);
+        } else {
+          setLiked(data.liked);
+          setLikeCount(data.like_count);
+        }
+      }
+    } catch {
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
+    } finally {
+      setIsLikePending(false);
+    }
   };
 
   const thumbnailUrl = video
@@ -238,10 +319,17 @@ export function CinemaDetailDialog({
                   {/* Like Button */}
                   <button
                     type="button"
-                    aria-label="Thích"
-                    className="w-12 h-12 rounded-full border-[1.5px] border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white inline-flex items-center justify-center transition active:scale-[0.98]"
+                    onClick={handleToggleLike}
+                    data-testid="cinema-detail-like-btn"
+                    aria-label={liked ? t('liked') : t('like')}
+                    aria-pressed={liked}
+                    className={`w-12 h-12 rounded-full border-[1.5px] transition active:scale-[0.98] inline-flex items-center justify-center ${
+                      liked
+                        ? 'border-red-500 bg-red-600/20 text-red-500'
+                        : 'border-white/55 bg-[#0A0A0D]/35 hover:bg-white/12 text-white'
+                    }`}
                   >
-                    <ThumbsUp className="w-5 h-5" />
+                    <ThumbsUp className={`w-5 h-5 ${liked ? 'fill-current' : ''}`} />
                   </button>
 
                   {/* Share Round Button */}
