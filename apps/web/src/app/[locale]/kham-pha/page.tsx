@@ -10,21 +10,7 @@ import { VideoSkeleton } from '../../../components/video/video-skeleton';
 import { Link, useRouter, usePathname } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import type { VideoPage } from '@winkey/api-client';
-
-export interface CategoryChip {
-  id: string;
-  label: string;
-  tag?: string;
-}
-
-export const CATEGORY_CHIPS: readonly CategoryChip[] = [
-  { id: 'all', label: 'Tất cả' },
-  { id: 'cong-nghe', label: 'Công nghệ', tag: 'cong-nghe' },
-  { id: 'hoc-lap-trinh', label: 'Lập trình', tag: 'hoc-lap-trinh' },
-  { id: 'phim-ngan', label: 'Phim ngắn', tag: 'phim-ngan' },
-  { id: 'game', label: 'Gaming', tag: 'game' },
-  { id: 'am-nhac', label: 'Âm nhạc', tag: 'am-nhac' },
-];
+import { CATEGORY_CHIPS } from '../../../lib/explore-categories';
 
 function getValidCat(cat: string | null): string {
   if (cat && CATEGORY_CHIPS.some((c) => c.id === cat)) {
