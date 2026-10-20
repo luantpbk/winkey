@@ -33,6 +33,7 @@ const (
 	cursorSearch        = "search"
 	cursorTrending      = "trending"
 	cursorSubscriptions = "subscriptions"
+	cursorHistory       = "history"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -109,6 +110,9 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
 		r.Get("/v1/feed/subscriptions", h.subscriptionFeed)
+		r.Get("/v1/me/history", h.getWatchHistory)
+		r.Delete("/v1/me/history", h.clearWatchHistory)
+		r.Delete("/v1/me/history/{video_id}", h.removeFromWatchHistory)
 		r.Get("/v1/studio/stats", h.getChannelStats)
 		r.Get("/v1/studio/videos/{video_id}/stats", h.getVideoStats)
 	})

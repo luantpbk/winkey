@@ -417,6 +417,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's watch history, most recent first (task HIST1, ADR-044).
+         * @description A video enters the history when the signed-in caller reports a counted-length watch of it (`POST
+         *     /v1/videos/{video_id}/views` past the view threshold, whether or not the view itself was counted again);
+         *     watching it again moves it to the top. Only videos the caller may still watch from a list are returned
+         *     (READY, PUBLIC or UNLISTED, not hidden by moderation, owner active); others are skipped, not removed. At most the 500 most
+         *     recent videos are kept. `Cache-Control: private, no-store`.
+         *     Gateway: `/v1/me/history` goes to video-svc.
+         */
+        get: operations["getWatchHistory"];
+        put?: never;
+        post?: never;
+        /** Clear the caller's whole watch history (task HIST1). */
+        delete: operations["clearWatchHistory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/history/{video_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove one video from the caller's watch history (task HIST1). */
+        delete: operations["removeFromWatchHistory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/feed/recommended": {
         parameters: {
             query?: never;
@@ -736,6 +779,23 @@ export interface components {
         };
         VideoPage: {
             items: components["schemas"]["VideoSummary"][];
+            next_cursor: string | null;
+        };
+        HistoryItem: {
+            video: components["schemas"]["VideoSummary"];
+            /**
+             * Format: date-time
+             * @description Last time the caller watched it.
+             */
+            watched_at: string;
+            /**
+             * Format: int64
+             * @description Milliseconds watched in the most recent session that reached the view threshold.
+             */
+            watched_ms: number;
+        };
+        HistoryPage: {
+            items: components["schemas"]["HistoryItem"][];
             next_cursor: string | null;
         };
         StudioVideo: {
@@ -1641,6 +1701,72 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getWatchHistory: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    clearWatchHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared (also when it was already empty). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    removeFromWatchHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                video_id: components["parameters"]["VideoId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed (also when it was not in the history). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
         };
     };

@@ -765,6 +765,61 @@ paths:
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
 
+  /v1/me/history:
+    get:
+      tags: [videos]
+      operationId: getWatchHistory
+      summary: The caller's watch history, most recent first (task HIST1, ADR-044).
+      description: |
+        A video enters the history when the signed-in caller reports a counted-length watch of it (`POST
+        /v1/videos/{video_id}/views` past the view threshold, whether or not the view itself was counted again);
+        watching it again moves it to the top. Only videos the caller may still watch from a list are returned
+        (READY, PUBLIC or UNLISTED, not hidden by moderation, owner active); others are skipped, not removed. At most the 500 most
+        recent videos are kept. `Cache-Control: private, no-store`.
+        Gateway: `/v1/me/history` goes to video-svc.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of the history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+    delete:
+      tags: [videos]
+      operationId: clearWatchHistory
+      summary: Clear the caller's whole watch history (task HIST1).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Cleared (also when it was already empty).
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/history/{video_id}:
+    delete:
+      tags: [videos]
+      operationId: removeFromWatchHistory
+      summary: Remove one video from the caller's watch history (task HIST1).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/VideoId'
+      responses:
+        '204':
+          description: Removed (also when it was not in the history).
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
   /v1/feed/recommended:
     get:
       tags: [videos]
@@ -1368,6 +1423,33 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/VideoSummary'
+        next_cursor:
+          type: [string, 'null']
+
+    HistoryItem:
+      type: object
+      required: [video, watched_at, watched_ms]
+      properties:
+        video:
+          $ref: '#/components/schemas/VideoSummary'
+        watched_at:
+          type: string
+          format: date-time
+          description: Last time the caller watched it.
+        watched_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Milliseconds watched in the most recent session that reached the view threshold.
+
+    HistoryPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryItem'
         next_cursor:
           type: [string, 'null']
 

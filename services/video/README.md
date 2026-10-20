@@ -22,6 +22,9 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PATCH /v1/videos/{id}/audio-tracks/{track_id}` | required | Owner only: `label` and/or `is_default` (`true` moves the default here; `false` clears it, so the video's own audio is the default again, DEF1). Rewrites the HLS master. `200 AudioTrack`, `400`, `403`, `404`. |
 | `DELETE /v1/videos/{id}/audio-tracks/{track_id}` | required | Owner only: remove a track that is not `UPLOADING` (`409` then; upload-svc aborts uploads). Rewrites the master, then removes the track's objects best effort. `204`, `403`, `404`, `409`. |
 | `GET /v1/feed/subscriptions` | required | The newest public videos of the channels the caller follows (task R2-b): see *Subscription feed*. `VideoPage`, `limit`, `cursor`; `401` without identity; `Cache-Control: private, no-store`. |
+| `GET /v1/me/history` | required | The caller's watch history, most recent first (task HIST1): `HistoryPage` (`video`, `watched_at`, `watched_ms`), `limit`, `cursor` bound to the caller; `Cache-Control: private, no-store`. |
+| `DELETE /v1/me/history` | required | Clear the caller's history. `204`. |
+| `DELETE /v1/me/history/{video_id}` | required | Remove one video from it. `204` (also when absent). |
 | `GET /v1/feed/recommended` | optional | Recommended videos (R2-v, ADR-028): see *Recommended feed*. `limit` 1..50 (default 20), opaque `cursor`. |
 | `POST /v1/playback/heartbeats` | optional | Player QoE and watch-time samples (task R1, ADR-022): see *Playback analytics*. `202 {accepted}`, `400`, `413`, `429`. |
 | `GET /v1/search?q=` | optional | Video search (task SR1): see *Search*. `VideoPage` ordered by relevance, `400`, `429`. |
@@ -460,3 +463,7 @@ PostgreSQL, never in Go: `media.videos.tag_slugs` is a generated column, `public
 `getTag` accept a slug or the text and derive the slug with `public.winkey_tag_slug` in SQL, so `Phim ngắn`,
 `phim  NGẮN` and `phim-ngan` are the same tag. Lookups use the partial GIN index `media.videos_tag_slugs_gin`.
 `listTags` aggregates all public videos' tags per request; fine at beta scale (cached 5 min by clients), see ADR-037.
+
+## Watch history (HIST1, ADR-044)
+
+A view report (`POST /v1/videos/{id}/views`) from a signed-in caller that passes the view threshold upserts `media.watch_history (user_id, video_id)` with `watched_at = now()`, whether or not the view itself is counted again. Best effort: a failure is logged (`watch history not recorded`) and never fails the report. The same transaction prunes the user to the newest 500 rows (`domain.MaxHistory`). `GET /v1/me/history` reads `watched_at DESC, video_id DESC` and skips videos that are no longer watchable from a list (not `READY`, `PRIVATE`, hidden, or owner suspended) without deleting them, so they come back if the video does. A deleted video takes its rows with it (FK cascade). The gateway sends `/v1/me/history` to video-svc.

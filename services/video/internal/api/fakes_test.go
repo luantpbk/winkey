@@ -38,7 +38,9 @@ type memStore struct {
 	daily           map[uuid.UUID][]domain.DailyStats // by video, for VideoStats
 	channel         domain.ChannelStatsData
 	statsReads      int
-	audio           map[uuid.UUID][]domain.AudioTrack // every audio track (MUX1), by video
+	audio           map[uuid.UUID][]domain.AudioTrack               // every audio track (MUX1), by video
+	history         map[uuid.UUID]map[uuid.UUID]domain.HistoryEntry // watch history (HIST1): user → video
+	historyClock    int
 
 	// related videos (R2-c): what the three queries return, and what they were asked
 	relSimilar, relChannel, relTrending []domain.Summary
@@ -608,4 +610,56 @@ func (s *memStore) GetTag(_ context.Context, tag string) (domain.Tag, error) {
 		return ts[0], nil
 	}
 	return domain.Tag{}, domain.ErrNotFound
+}
+
+// RecordWatch and the other history methods keep (user → video → entry) in memory (task HIST1).
+func (s *memStore) RecordWatch(_ context.Context, user, video uuid.UUID, watchedMs int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.history == nil {
+		s.history = map[uuid.UUID]map[uuid.UUID]domain.HistoryEntry{}
+	}
+	if s.history[user] == nil {
+		s.history[user] = map[uuid.UUID]domain.HistoryEntry{}
+	}
+	s.historyClock++
+	s.history[user][video] = domain.HistoryEntry{WatchedAt: time.Date(2026, 10, 20, 0, 0, s.historyClock, 0, time.UTC), WatchedMs: watchedMs}
+	return nil
+}
+
+func (s *memStore) ListHistory(_ context.Context, q domain.HistoryQuery) ([]domain.HistoryEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []domain.HistoryEntry
+	for id, e := range s.history[q.User] {
+		v, ok := s.videos[id]
+		if !ok || !v.PubliclyWatchable() {
+			continue
+		}
+		if q.After != nil && !less(e.WatchedAt, id, q.After.T, q.After.ID) {
+			continue
+		}
+		e.Video = domain.Summary{ID: v.ID, Title: v.Title, Owner: v.Owner, DurationMs: *v.DurationMs, ViewCount: v.ViewCount,
+			PublishedAt: *v.PublishedAt, ThumbnailKey: *v.ThumbnailKey}
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return less(out[j].WatchedAt, out[j].Video.ID, out[i].WatchedAt, out[i].Video.ID) })
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+func (s *memStore) RemoveFromHistory(_ context.Context, user, video uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.history[user], video)
+	return nil
+}
+
+func (s *memStore) ClearHistory(_ context.Context, user uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.history, user)
+	return nil
 }
