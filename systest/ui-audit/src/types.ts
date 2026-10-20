@@ -8,6 +8,7 @@ export type Severity = 'P0' | 'P1' | 'P2';
 
 export type ProbeCategory =
   | 'dead-control'
+  | 'click-failed'
   | 'overflow-x'
   | 'touch-target'
   | 'axe-a11y'
