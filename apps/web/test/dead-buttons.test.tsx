@@ -9,7 +9,7 @@ import { Sidebar } from '../src/components/layout/sidebar';
 import { ToastProvider } from '../src/components/ui/toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { api } from '../src/lib/api-client';
-import type { Video, VideoSummary } from '@winkey/api-client';
+import type { Video } from '@winkey/api-client';
 import viMessages from '../messages/vi.json';
 
 // --- Locale Mock ---
