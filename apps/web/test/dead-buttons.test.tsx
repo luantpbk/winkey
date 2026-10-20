@@ -325,12 +325,12 @@ describe('UX1 Phase 1 (ADR-044): Dead Controls & Button Rules', () => {
     });
   });
 
-  describe('4. Sidebar Navigation: Hide #history until HIST1', () => {
-    it('does not render #history link in sidebar', () => {
+  describe('4. Sidebar Navigation: history links to the HIST1 page', () => {
+    it('links "Lịch sử" to /lich-su and never to #history', () => {
       render(<Sidebar collapsed={false} mobileOpen={false} onCloseMobile={vi.fn()} />);
 
-      const historyLink = screen.queryByRole('link', { name: /lịch sử/i });
-      expect(historyLink).toBeNull();
+      const historyLink = screen.getByRole('link', { name: /lịch sử/i });
+      expect(historyLink.getAttribute('href')).toMatch(/\/lich-su$/);
 
       const deadHashLinks = screen
         .queryAllByRole('link')
