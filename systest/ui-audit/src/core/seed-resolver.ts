@@ -10,11 +10,19 @@ export function loadSeedManifest(): SeedContext {
       const content = fs.readFileSync(manifestPath, 'utf-8');
       const data = JSON.parse(content);
       return {
-        categorySlug: data.categorySlug || (data.categories && data.categories[0]?.slug) || 'dien-anh',
+        categorySlug:
+          data.categorySlug || (data.categories && data.categories[0]?.slug) || 'dien-anh',
         tagSlug: data.tagSlug || (data.tags && data.tags[0]?.slug) || 'phim-ngan',
-        videoId: data.videoId || (data.videos && data.videos[0]?.id) || '018f0000-0000-7000-8000-000000000001',
-        channelHandle: data.channelHandle || (data.channels && data.channels[0]?.handle) || 'sim_curator',
-        playlistId: data.playlistId || (data.playlists && data.playlists[0]?.id) || '018f0000-0000-7000-8000-000000000002',
+        videoId:
+          data.videoId ||
+          (data.videos && data.videos[0]?.id) ||
+          '018f0000-0000-7000-8000-000000000001',
+        channelHandle:
+          data.channelHandle || (data.channels && data.channels[0]?.handle) || 'sim_curator',
+        playlistId:
+          data.playlistId ||
+          (data.playlists && data.playlists[0]?.id) ||
+          '018f0000-0000-7000-8000-000000000002',
       };
     }
   } catch {

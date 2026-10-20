@@ -10,7 +10,10 @@ export function computeFindingHash(f: AuditFinding): string {
 export function aggregateFindings(rawFindings: AuditFinding[], durationMs: number): AuditSummary {
   const uniqueMap = new Map<string, AuditFinding>();
   const counts: Record<Severity, number> = { P0: 0, P1: 0, P2: 0 };
-  const matrix: Record<string, Record<string, { total: number; P0: number; P1: number; P2: number }>> = {};
+  const matrix: Record<
+    string,
+    Record<string, { total: number; P0: number; P1: number; P2: number }>
+  > = {};
 
   for (const f of rawFindings) {
     const id = computeFindingHash(f);

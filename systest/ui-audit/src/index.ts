@@ -34,7 +34,7 @@ export async function runUiAudit(): Promise<{ p0Count: number; reportPath: strin
 
   for (const persona of personas) {
     const routeTemplates = PERSONA_ROUTES[persona];
-    const resolvedRoutes = routeTemplates.map(r => resolveRoute(r, seed));
+    const resolvedRoutes = routeTemplates.map((r) => resolveRoute(r, seed));
 
     console.log(`\n--- Auditing Persona: [${persona}] (${resolvedRoutes.length} routes) ---`);
 
@@ -50,7 +50,9 @@ export async function runUiAudit(): Promise<{ p0Count: number; reportPath: strin
           await context.addInitScript(VITALS_INIT_SCRIPT);
           const page = await context.newPage();
 
-          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+          await page
+            .goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+            .catch(() => {});
           await page.waitForTimeout(500);
 
           // 1. Layout probe
@@ -85,7 +87,7 @@ export async function runUiAudit(): Promise<{ p0Count: number; reportPath: strin
           }
 
           await page.close();
-        } catch (err: any) {
+        } catch {
           // Log and continue gracefully
         } finally {
           if (context) await context.close();
@@ -93,12 +95,14 @@ export async function runUiAudit(): Promise<{ p0Count: number; reportPath: strin
       }
 
       // Pass 2: Active Mutation Probe (Dead Controls on Desktop & Mobile-s)
-      for (const activeVp of VIEWPORTS.filter(v => v.id === 'desktop' || v.id === 'mobile-s')) {
+      for (const activeVp of VIEWPORTS.filter((v) => v.id === 'desktop' || v.id === 'mobile-s')) {
         let activeContext;
         try {
           activeContext = await createPersonaContext(browser, persona, baseUrl, activeVp);
           const activePage = await activeContext.newPage();
-          await activePage.goto(targetUrl, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+          await activePage
+            .goto(targetUrl, { waitUntil: 'networkidle', timeout: 15000 })
+            .catch(() => {});
 
           const deadIssues = await runDeadControlProbes(activePage, activeVp, persona, route);
           rawFindings.push(...deadIssues);

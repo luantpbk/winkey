@@ -6,7 +6,7 @@ export async function runTvNavProbes(
   page: Page,
   vp: ViewportSpec,
   persona: PersonaRole,
-  route: string
+  route: string,
 ): Promise<AuditFinding[]> {
   if (vp.inputMode !== 'keyboard') {
     return [];
@@ -33,7 +33,10 @@ export async function runTvNavProbes(
         id: active.id || undefined,
         className: active.className ? String(active.className).split(' ')[0] : undefined,
         hasFocusRing,
-        text: (active as HTMLElement).innerText?.slice(0, 30) || active.getAttribute('aria-label') || '',
+        text:
+          (active as HTMLElement).innerText?.slice(0, 30) ||
+          active.getAttribute('aria-label') ||
+          '',
       };
     });
 

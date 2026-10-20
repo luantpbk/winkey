@@ -39,10 +39,10 @@ export function groupFindingsByRootCause(findings: AuditFinding[]): FindingGroup
       rootCauseKey = 'explore-chips-dead';
       title = '[UX1] Explore page category chips have no click handler';
     } else if (f.category === 'dead-control') {
-      rootCauseKey = `dead-control-${f.route.replace(/[\/:?=&]/g, '-')}`;
+      rootCauseKey = `dead-control-${f.route.replace(/[/:?=&]/g, '-')}`;
       title = `[UX1] Interactive elements not responsive on ${f.route}`;
     } else if (f.category === 'overflow-x') {
-      rootCauseKey = `overflow-${f.route.replace(/[\/:?=&]/g, '-')}`;
+      rootCauseKey = `overflow-${f.route.replace(/[/:?=&]/g, '-')}`;
       title = `[UX1] Horizontal layout overflow on ${f.route}`;
     } else if (f.category === 'touch-target') {
       rootCauseKey = 'touch-target-small';
@@ -111,8 +111,8 @@ export function syncFindingsToGitHub(summary: AuditSummary): void {
     body += `- **Severity**: **${g.severity}**\n`;
     body += `- **Category**: \`${g.category}\`\n`;
     body += `- **Classification**: ${g.isBackendGap ? '`backend` (API missing / contract gap)' : '`frontend` (Antigravity 1)'}\n`;
-    body += `- **Affected Viewports**: ${g.affectedViewports.map(v => `\`${v}\``).join(', ')}\n`;
-    body += `- **Affected Routes**: ${g.affectedRoutes.map(r => `\`${r}\``).join(', ')}\n\n`;
+    body += `- **Affected Viewports**: ${g.affectedViewports.map((v) => `\`${v}\``).join(', ')}\n`;
+    body += `- **Affected Routes**: ${g.affectedRoutes.map((r) => `\`${r}\``).join(', ')}\n\n`;
 
     body += `### Sample Selectors & Elements\n`;
     for (const sel of g.selectors.slice(0, 10)) {
@@ -160,9 +160,13 @@ export function syncFindingsToGitHub(summary: AuditSummary): void {
     }
 
     fs.writeFileSync(tempCommentBody, comment, 'utf-8');
-    execFileSync('gh', ['issue', 'comment', '47', '--repo', 'luantpbk/winkey', '--body-file', tempCommentBody], {
-      encoding: 'utf-8',
-    });
+    execFileSync(
+      'gh',
+      ['issue', 'comment', '47', '--repo', 'luantpbk/winkey', '--body-file', tempCommentBody],
+      {
+        encoding: 'utf-8',
+      },
+    );
     console.log('[GitHub Sync] Posted summary comment to Issue #47.');
   } catch (err: any) {
     console.warn('[GitHub Sync] Failed to post comment to Issue #47:', err.message || err);
@@ -170,6 +174,8 @@ export function syncFindingsToGitHub(summary: AuditSummary): void {
     try {
       if (fs.existsSync(tempIssueBody)) fs.unlinkSync(tempIssueBody);
       if (fs.existsSync(tempCommentBody)) fs.unlinkSync(tempCommentBody);
-    } catch {}
+    } catch {
+      // Best effort: a leftover temp file is harmless.
+    }
   }
 }

@@ -70,9 +70,9 @@ export function runSyncCli(): void {
     totalChecks: 5010,
     findings,
     counts: {
-      P0: findings.filter(f => f.severity === 'P0').length,
-      P1: findings.filter(f => f.severity === 'P1').length,
-      P2: findings.filter(f => f.severity === 'P2').length,
+      P0: findings.filter((f) => f.severity === 'P0').length,
+      P1: findings.filter((f) => f.severity === 'P1').length,
+      P2: findings.filter((f) => f.severity === 'P2').length,
     },
     matrix: {},
     durationMs: 2900200,

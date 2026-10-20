@@ -19,7 +19,9 @@ async function main() {
     hasTouch: true,
   });
   const pageMobile = await ctxMobile.newPage();
-  await pageMobile.goto('http://127.0.0.1:8080/', { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+  await pageMobile
+    .goto('http://127.0.0.1:8080/', { waitUntil: 'networkidle', timeout: 15000 })
+    .catch(() => {});
   const p397 = path.join(screenshotsDir, 'touch-target-397.png');
   await pageMobile.screenshot({ path: p397, fullPage: false });
   console.log(`[Capture] Saved #397 screenshot to ${p397}`);
@@ -30,7 +32,9 @@ async function main() {
     viewport: { width: 360, height: 800 },
   });
   const pageA11y = await ctxA11y.newPage();
-  await pageA11y.goto('http://127.0.0.1:8080/kham-pha', { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+  await pageA11y
+    .goto('http://127.0.0.1:8080/kham-pha', { waitUntil: 'networkidle', timeout: 15000 })
+    .catch(() => {});
   const p398 = path.join(screenshotsDir, 'a11y-wcag-398.png');
   await pageA11y.screenshot({ path: p398, fullPage: false });
   console.log(`[Capture] Saved #398 screenshot to ${p398}`);
@@ -41,7 +45,9 @@ async function main() {
     viewport: { width: 1280, height: 720 },
   });
   const pageTv = await ctxTv.newPage();
-  await pageTv.goto('http://127.0.0.1:8080/trending', { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+  await pageTv
+    .goto('http://127.0.0.1:8080/trending', { waitUntil: 'networkidle', timeout: 15000 })
+    .catch(() => {});
   await pageTv.keyboard.press('Tab');
   await pageTv.keyboard.press('Tab');
   await pageTv.keyboard.press('Tab');
@@ -55,7 +61,9 @@ async function main() {
     viewport: { width: 360, height: 800 },
   });
   const pageVitals = await ctxVitals.newPage();
-  await pageVitals.goto('http://127.0.0.1:8080/thu-vien', { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {});
+  await pageVitals
+    .goto('http://127.0.0.1:8080/thu-vien', { waitUntil: 'networkidle', timeout: 15000 })
+    .catch(() => {});
   const p408 = path.join(screenshotsDir, 'web-vitals-408.png');
   await pageVitals.screenshot({ path: p408, fullPage: false });
   console.log(`[Capture] Saved #408 screenshot to ${p408}`);
@@ -128,9 +136,13 @@ Khuyến nghị sửa: Bổ sung skeleton placeholder với kích thước cố 
     const tmp = path.join(screenshotsDir, `comment_${iss.id}.md`);
     fs.writeFileSync(tmp, iss.body, 'utf-8');
     try {
-      execFileSync('gh', ['issue', 'comment', iss.id, '--repo', 'luantpbk/winkey', '--body-file', tmp], {
-        encoding: 'utf-8',
-      });
+      execFileSync(
+        'gh',
+        ['issue', 'comment', iss.id, '--repo', 'luantpbk/winkey', '--body-file', tmp],
+        {
+          encoding: 'utf-8',
+        },
+      );
       console.log(`[Capture] Successfully posted concrete examples to issue #${iss.id}`);
     } catch (err: any) {
       console.warn(`[Capture] Failed to post to #${iss.id}:`, err.message || err);
@@ -142,7 +154,7 @@ Khuyến nghị sửa: Bổ sung skeleton placeholder với kích thước cố 
   console.log('[Capture] All screenshot examples captured and issues updated.');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('[Capture] Error:', err);
   process.exit(1);
 });

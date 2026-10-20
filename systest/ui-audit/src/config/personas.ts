@@ -35,12 +35,6 @@ export const PERSONA_ROUTES: Record<PersonaRole, string[]> = {
     '/settings',
     '/notifications',
   ],
-  creator: [
-    '/studio',
-    '/upload',
-    '/studio/series',
-  ],
-  admin: [
-    '/admin',
-  ],
+  creator: ['/studio', '/upload', '/studio/series'],
+  admin: ['/admin'],
 };

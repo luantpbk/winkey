@@ -7,7 +7,7 @@ export async function runA11yProbes(
   page: Page,
   vp: ViewportSpec,
   persona: PersonaRole,
-  route: string
+  route: string,
 ): Promise<AuditFinding[]> {
   const findings: AuditFinding[] = [];
 

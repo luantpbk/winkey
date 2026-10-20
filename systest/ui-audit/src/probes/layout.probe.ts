@@ -6,13 +6,14 @@ export async function runLayoutProbes(
   page: Page,
   vp: ViewportSpec,
   persona: PersonaRole,
-  route: string
+  route: string,
 ): Promise<AuditFinding[]> {
   const findings: AuditFinding[] = [];
 
   const layoutEval = await page.evaluate(
     ({ isTouch }) => {
-      const issues: { category: string; severity: string; selector: string; message: string }[] = [];
+      const issues: { category: string; severity: string; selector: string; message: string }[] =
+        [];
 
       // 1. Horizontal Overflow
       const scroller = document.scrollingElement || document.documentElement;
@@ -43,7 +44,7 @@ export async function runLayoutProbes(
       // 2. Touch targets < 44x44 CSS px
       if (isTouch) {
         const interactives = document.querySelectorAll<HTMLElement>(
-          'button, a[href], [role="button"], [role="tab"], [role="menuitem"], select, input, textarea'
+          'button, a[href], [role="button"], [role="tab"], [role="menuitem"], select, input, textarea',
         );
         for (const el of interactives) {
           // Allow inline text links inside paragraphs/spans
@@ -67,7 +68,9 @@ export async function runLayoutProbes(
       }
 
       // 3. Clipped or overlapping text (scrollWidth > clientWidth without ellipsis)
-      const textNodes = document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, p, span, a, button');
+      const textNodes = document.querySelectorAll<HTMLElement>(
+        'h1, h2, h3, h4, p, span, a, button',
+      );
       for (const el of textNodes) {
         if (el.children.length > 0) continue;
         const style = window.getComputedStyle(el);
@@ -85,7 +88,7 @@ export async function runLayoutProbes(
 
       return issues;
     },
-    { isTouch: vp.inputMode === 'touch' }
+    { isTouch: vp.inputMode === 'touch' },
   );
 
   for (const item of layoutEval) {

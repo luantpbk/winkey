@@ -27,15 +27,23 @@ test('UI Audit Calibration: Exactly 1 dead-control (P0) and 1 click-failed (P2)'
 
     const findings = await runDeadControlProbes(page, vp, 'anon', fixtureUrl);
 
-    const deadControls = findings.filter(f => f.category === 'dead-control');
-    const clickFailed = findings.filter(f => f.category === 'click-failed');
+    const deadControls = findings.filter((f) => f.category === 'dead-control');
+    const clickFailed = findings.filter((f) => f.category === 'click-failed');
 
     // Assertions
-    assert.strictEqual(deadControls.length, 1, `Expected exactly 1 dead control, got ${deadControls.length}`);
+    assert.strictEqual(
+      deadControls.length,
+      1,
+      `Expected exactly 1 dead control, got ${deadControls.length}`,
+    );
     assert.match(deadControls[0].selector, /dead-btn|Nút chết/);
     assert.strictEqual(deadControls[0].severity, 'P0');
 
-    assert.strictEqual(clickFailed.length, 1, `Expected exactly 1 click-failed, got ${clickFailed.length}`);
+    assert.strictEqual(
+      clickFailed.length,
+      1,
+      `Expected exactly 1 click-failed, got ${clickFailed.length}`,
+    );
     assert.match(clickFailed[0].selector, /covered-btn|Nút bị che/);
     assert.strictEqual(clickFailed[0].severity, 'P2');
   } finally {

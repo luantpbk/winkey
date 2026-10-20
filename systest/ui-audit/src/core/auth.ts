@@ -10,7 +10,7 @@ export async function createPersonaContext(
   browser: Browser,
   persona: PersonaRole,
   baseUrl: string,
-  vp: ViewportSpec
+  vp: ViewportSpec,
 ): Promise<BrowserContext> {
   if (!fs.existsSync(AUTH_CACHE_DIR)) {
     fs.mkdirSync(AUTH_CACHE_DIR, { recursive: true });
@@ -47,10 +47,16 @@ export async function createPersonaContext(
       admin: { email: 'sim_mod@example.com', pass: 'TestPassword123!' },
     };
 
-    const targetCred = creds[persona] || { email: `${persona}@example.com`, pass: 'TestPassword123!' };
+    const targetCred = creds[persona] || {
+      email: `${persona}@example.com`,
+      pass: 'TestPassword123!',
+    };
 
     await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle', timeout: 15000 });
-    await page.fill('input[type="email"], input[name="email"], input[name="login"]', targetCred.email);
+    await page.fill(
+      'input[type="email"], input[name="email"], input[name="login"]',
+      targetCred.email,
+    );
     await page.fill('input[type="password"], input[name="password"]', targetCred.pass);
     await page.click('button[type="submit"]');
     await page.waitForTimeout(2000);

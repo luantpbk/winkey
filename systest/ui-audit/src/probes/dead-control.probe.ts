@@ -32,8 +32,11 @@ export interface TargetCandidate {
   description: string;
 }
 
-export async function captureStateSignature(page: Page, networkCounter: { count: number }): Promise<StateSignature> {
-  const sig = await page.evaluate(`(() => {
+export async function captureStateSignature(
+  page: Page,
+  networkCounter: { count: number },
+): Promise<StateSignature> {
+  const sig = (await page.evaluate(`(() => {
     var docEl = document.documentElement;
     var htmlAttrs = {};
     if (docEl && docEl.attributes) {
@@ -92,7 +95,7 @@ export async function captureStateSignature(page: Page, networkCounter: { count:
         dialogs: document.querySelectorAll('dialog[open], [role="dialog"]:not([hidden])').length
       }
     };
-  })()`) as Omit<StateSignature, 'networkRequestsCount'>;
+  })()`)) as Omit<StateSignature, 'networkRequestsCount'>;
 
   return { ...sig, networkRequestsCount: networkCounter.count };
 }
@@ -114,7 +117,7 @@ export async function runDeadControlProbes(
   page: Page,
   vp: ViewportSpec,
   persona: PersonaRole,
-  route: string
+  route: string,
 ): Promise<AuditFinding[]> {
   const findings: AuditFinding[] = [];
   const initialPageUrl = page.url();
@@ -156,12 +159,16 @@ export async function runDeadControlProbes(
       }
 
       // Denylist check by selector
-      const isDenied = await loc.evaluate((el, selector) => el.matches(selector), DENYLIST_SELECTOR).catch(() => false);
+      const isDenied = await loc
+        .evaluate((el, selector) => el.matches(selector), DENYLIST_SELECTOR)
+        .catch(() => false);
       if (isDenied) {
         continue;
       }
 
-      const tagName = (await loc.evaluate(el => el.tagName.toLowerCase()).catch(() => 'control')) as string;
+      const tagName = (await loc
+        .evaluate((el) => el.tagName.toLowerCase())
+        .catch(() => 'control')) as string;
       const href = await loc.getAttribute('href').catch(() => null);
 
       // Skip self-referencing links
@@ -200,7 +207,9 @@ export async function runDeadControlProbes(
   // Reload and test each candidate in a clean state to prevent state leaks
   for (const target of candidates) {
     try {
-      await page.goto(initialPageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      await page
+        .goto(initialPageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+        .catch(() => {});
       await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
 
       const currentLocators = await page.locator(interactiveSelectors).all();
@@ -215,7 +224,9 @@ export async function runDeadControlProbes(
       } catch (err: any) {
         const errMsg = err?.message || String(err);
         let interceptor = '';
-        const match = errMsg.match(/intercepts pointer events[^<]*<([^>]+)>/i) || errMsg.match(/<([^>]+)>\s*intercepts/i);
+        const match =
+          errMsg.match(/intercepts pointer events[^<]*<([^>]+)>/i) ||
+          errMsg.match(/<([^>]+)>\s*intercepts/i);
         if (match) interceptor = match[1];
 
         findings.push({
@@ -235,7 +246,9 @@ export async function runDeadControlProbes(
       await loc.focus({ timeout: 1000 }).catch(() => {});
 
       const networkCounter = { count: 0 };
-      const onRequest = () => { networkCounter.count++; };
+      const onRequest = () => {
+        networkCounter.count++;
+      };
       page.on('request', onRequest);
 
       const beforeSig = await captureStateSignature(page, networkCounter);
@@ -244,9 +257,14 @@ export async function runDeadControlProbes(
       if (vp.inputMode === 'keyboard') {
         await page.keyboard.press('Enter').catch(() => {});
         await page.waitForTimeout(400);
-      } else if (target.tag === 'a' && target.href && !target.href.startsWith('#') && !target.href.startsWith('javascript:')) {
+      } else if (
+        target.tag === 'a' &&
+        target.href &&
+        !target.href.startsWith('#') &&
+        !target.href.startsWith('javascript:')
+      ) {
         await Promise.all([
-          page.waitForURL(u => u.href !== beforeSig.url, { timeout: 5000 }).catch(() => {}),
+          page.waitForURL((u) => u.href !== beforeSig.url, { timeout: 5000 }).catch(() => {}),
           loc.click({ timeout: 2000 }).catch(() => {}),
         ]);
       } else {

@@ -9,11 +9,11 @@
     "test": "tsx --test src/calibration.test.ts"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.14.0",
-    "@types/node": "^22.13.0",
-    "playwright": "^1.50.1",
-    "tsx": "^4.23.15",
-    "typescript": "^5.8.2"
+    "@axe-core/playwright": "4.14.0",
+    "@types/node": "22.20.5",
+    "playwright": "1.56.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
