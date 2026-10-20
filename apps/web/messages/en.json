@@ -752,5 +752,25 @@
     "noVideos": "No public videos found for this tag.",
     "loadMore": "Load more",
     "loadingMore": "Loading more..."
+  },
+  "history": {
+    "title": "Watch history",
+    "clearAll": "Clear all watch history",
+    "clearAllShort": "Clear all",
+    "clearConfirmTitle": "Clear watch history?",
+    "clearConfirmDesc": "This will clear your watch history on all devices. You cannot undo this action.",
+    "clearConfirmBtn": "Clear watch history",
+    "cancel": "Cancel",
+    "remove": "Remove from watch history",
+    "emptyTitle": "This list has no videos.",
+    "emptyDesc": "Videos you watch while signed in will appear here.",
+    "exploreNow": "Explore now",
+    "loginTitle": "Keep track of what you watch",
+    "loginDesc": "Sign in to access videos you've watched on Winkey across all your devices.",
+    "loginBtn": "Sign in",
+    "itemRemoved": "Video removed from watch history",
+    "allCleared": "All watch history cleared",
+    "watchedAt": "Watched {time}",
+    "loading": "Loading watch history..."
   }
 }

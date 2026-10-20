@@ -2829,6 +2829,81 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     const privateRes = await request.get(`/embed/${privateVideoId}`);
     expect(privateRes.status()).toBe(404);
   });
+
+  test('HIST1: Watch History flow (guest prompt, view history, remove item, clear all) (ADR-044)', async ({
+    page,
+  }) => {
+    // 1. Visit /lich-su as unauthenticated guest
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/vi/lich-su');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify guest login prompt is visible
+    const guestPrompt = page.locator('[data-testid="history-login-prompt"]');
+    await expect(guestPrompt).toBeVisible({ timeout: 15000 });
+    const loginBtn = page.locator('[data-testid="history-login-btn"]');
+    await expect(loginBtn).toBeVisible();
+
+    // 2. Click login button and log in as creator@winkey.vn
+    await loginBtn.click();
+    await page.waitForURL(/\/login/, { timeout: 15000 });
+
+    const loginForm = page.locator('form').filter({ has: page.locator('input[type="email"]') });
+    await loginForm.locator('input[type="email"]').fill('creator@winkey.vn');
+    await loginForm.locator('input[type="password"]').fill('Password123!');
+    const [loginRes] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes('/v1/auth/login') && res.status() === 200),
+      loginForm.locator('button[type="submit"]').click(),
+    ]);
+    expect(loginRes.status()).toBe(200);
+
+    // Mock refresh token cookie
+    await page.context().addCookies([
+      {
+        name: 'wk_rt',
+        value: 'mock-refresh-0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+        domain: 'localhost',
+        path: '/',
+      },
+    ]);
+
+    // 3. Navigate to /vi/lich-su
+    await page.goto('/vi/lich-su');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 4. Verify history items are rendered
+    await expect(page.locator('h1')).toContainText('Lịch sử xem');
+    const firstItem = page.locator('[data-testid^="history-item-"]').first();
+    await expect(firstItem).toBeVisible({ timeout: 15000 });
+    const clearAllBtn = page.locator('[data-testid="clear-all-history-btn"]');
+    await expect(clearAllBtn).toBeVisible();
+
+    // 5. Test removing single item
+    const firstRemoveBtn = page.locator('[data-testid^="remove-history-"]').first();
+    await firstRemoveBtn.click();
+
+    // 6. Test clearing all history with confirmation dialog
+    await clearAllBtn.click();
+    const clearDialog = page.locator('[data-testid="clear-history-dialog"]');
+    await expect(clearDialog).toBeVisible({ timeout: 5000 });
+
+    // Cancel first
+    const cancelBtn = page.locator('[data-testid="cancel-clear-history-btn"]');
+    await cancelBtn.click();
+    await expect(clearDialog).not.toBeVisible();
+
+    // Open again and confirm
+    await clearAllBtn.click();
+    await expect(clearDialog).toBeVisible();
+    const confirmBtn = page.locator('[data-testid="confirm-clear-history-btn"]');
+    await confirmBtn.click();
+
+    // 7. Empty state appears
+    await expect(page.locator('[data-testid="history-empty-state"]')).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator('[data-testid="history-explore-btn"]')).toBeVisible();
+  });
 });
 
 function createZipBufferHelper(files: Record<string, string>): Buffer {

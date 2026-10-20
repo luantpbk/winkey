@@ -752,5 +752,25 @@
     "noVideos": "Chưa có video nào với thẻ này.",
     "loadMore": "Xem thêm",
     "loadingMore": "Đang tải thêm..."
+  },
+  "history": {
+    "title": "Lịch sử xem",
+    "clearAll": "Xoá tất cả nhật ký xem",
+    "clearAllShort": "Xoá tất cả",
+    "clearConfirmTitle": "Xoá lịch sử xem video?",
+    "clearConfirmDesc": "Thao tác này sẽ xoá toàn bộ lịch sử xem video của tài khoản trên mọi thiết bị. Bạn sẽ không thể hoàn tác.",
+    "clearConfirmBtn": "Xoá lịch sử xem",
+    "cancel": "Huỷ",
+    "remove": "Xoá khỏi nhật ký xem",
+    "emptyTitle": "Danh sách này không có video nào.",
+    "emptyDesc": "Các video bạn xem khi đăng nhập sẽ xuất hiện ở đây.",
+    "exploreNow": "Khám phá ngay",
+    "loginTitle": "Lưu lại video bạn đã xem",
+    "loginDesc": "Đăng nhập để xem lịch sử phát video trên Winkey từ mọi thiết bị.",
+    "loginBtn": "Đăng nhập",
+    "itemRemoved": "Đã xoá video khỏi lịch sử xem",
+    "allCleared": "Đã xoá toàn bộ lịch sử xem",
+    "watchedAt": "Đã xem {time}",
+    "loading": "Đang tải lịch sử xem..."
   }
 }
