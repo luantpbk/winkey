@@ -1205,3 +1205,62 @@ Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa ch
 6. **Đo:** Rich Results Test (mục Video) sạch lỗi cho 2 trang xem; sitemap hợp lệ, có `player_loc` khác `loc`.
 
 *Hệ quả.* Đây là những điều kiện kỹ thuật để video được Google lập chỉ mục. Video có lên kết quả hay không, và khi nào, vẫn do Google quyết định. Thường mất vài ngày tới vài tuần sau khi nộp lại sitemap. Người dùng xem tiến độ ở báo cáo "Video indexing" (Lập chỉ mục video) trong Search Console.
+
+### ADR-044 — Kiểm thử và nâng cấp UI/UX trên mọi kích thước màn hình (UX1)
+
+*Bối cảnh (2026-10-20).* Người dùng thấy giao diện chưa tối ưu trên mọi màn hình (mobile, tablet, PC, TV) và có tính năng bấm vào không có gì xảy ra. Kiến trúc sư rà nhanh code web trên main `c864d95`:
+- **Nút chết (đã thấy trong code):**
+  - nút "Thích" trong hộp chi tiết phim (`components/cinema/cinema-detail-dialog.tsx`) không có xử lý;
+  - các chip thể loại ở `/kham-pha` không có xử lý (chip đầu luôn được chọn);
+  - mục "Lịch sử" ở sidebar trỏ tới `#history`, và chưa có API lịch sử xem.
+- **Màn hình lớn và TV:** web chỉ dùng breakpoint Tailwind tới `xl`, chưa có cỡ cho 1920 px trở lên. Chưa có điều hướng bằng phím mũi tên hay remote (TV không có chuột).
+- **Kiểm thử:** e2e chỉ chạy một viewport desktop 1440×900. Không có kiểm tra tràn ngang, cỡ vùng chạm, accessibility hay nút chết.
+
+*Quyết định.* Chương trình UX1 gồm 3 pha. Pha sau chỉ bắt đầu khi pha trước đạt tiêu chí.
+
+**Pha 0: Kiểm toán tự động (Antigravity 4, trong `systest/`).**
+- Bộ `systest/ui-audit/` dùng Playwright và `@axe-core/playwright`, chạy trên **stack systest local có seed** (không chạy trên production, vì bấm thử có thể tạo dữ liệu).
+- Có 8 viewport:
+
+  | Viewport | Kích thước | Ghi chú |
+  |---|---|---|
+  | `mobile-s` | 360×800 | touch |
+  | `mobile` | 390×844 | touch |
+  | `tablet-p` | 768×1024 | touch |
+  | `tablet-l` | 1024×768 | touch |
+  | `laptop` | 1366×768 | |
+  | `desktop` | 1920×1080 | |
+  | `tv-720` | 1280×720 | chỉ dùng bàn phím |
+  | `tv-1080` | 1920×1080, DPR 2 | chỉ dùng bàn phím |
+
+- Mỗi trang chính được kiểm tra với từng persona (khách, thành viên, creator, moderator hoặc admin), gồm:
+  1. **Nút chết.** Bấm từng phần tử tương tác, trừ một danh sách loại trừ các thao tác phá dữ liệu. Phần tử bị tính là chết khi sau khi bấm không có gì thay đổi: không chuyển URL, không đổi DOM hay `aria-*`, không gọi mạng, không mở dialog, không tải file.
+  2. **Tràn ngang** (`scrollWidth > clientWidth`).
+  3. **Vùng chạm nhỏ hơn 44×44 px** trên các viewport touch.
+  4. **axe:** lỗi `serious` và `critical`.
+  5. **Chữ bị cắt hoặc chồng nhau** (ảnh chụp kèm hộp đánh dấu).
+  6. **TV:** phải đi được tới mọi phần tử chính bằng phím mũi tên hoặc Tab, Enter, Esc, và luôn thấy focus.
+  7. **Hiệu năng:** CLS và LCP.
+- Kết quả gồm báo cáo Markdown kèm ảnh, và mỗi lỗi một issue gắn nhãn `ux1`, ghi mức độ (P0 không dùng được, P1 xấu hoặc khó dùng, P2 đánh bóng).
+
+**Pha 1: Sửa lỗi chức năng và nền tảng responsive (Antigravity 1, trong `apps/web`).**
+- Sửa mọi nút chết P0.
+- Lập bộ token thiết kế: khoảng cách, cỡ chữ theo viewport, breakpoint thêm `3xl` (1920) và `4xl` (2560), cỡ vùng chạm.
+- Sửa layout từng trang trên 8 viewport.
+- **Chế độ TV:** điều hướng không gian bằng phím mũi tên (D-pad), focus ring rõ, chữ và điều khiển player to hơn khi màn hình ≥ 1920, không có thao tác chỉ dùng hover.
+- Thêm các project viewport mobile, tablet và TV vào e2e.
+
+**Pha 2: Đánh bóng giao diện (Antigravity 1)** theo các issue P1 và P2. Antigravity 4 chạy lại kiểm toán sau mỗi PR lớn.
+
+**Phần backend.** Tính năng nào cần API mà chưa có thì kiến trúc sư làm (contract và Go). Việc đã biết là **lịch sử xem (HIST1)**: `GET /v1/me/history`. Trong lúc chờ, web ẩn mục "Lịch sử" chứ không để một nút chết.
+
+**Hạ tầng (Antigravity 2):** deploy web sau mỗi pha; thêm job CI chạy `ui-audit` hằng đêm trên stack systest và đăng tóm tắt lên #47.
+
+*Tiêu chí hoàn thành UX1* (đo bằng `ui-audit` trên 8 viewport):
+- 0 nút chết;
+- 0 trang tràn ngang;
+- 0 lỗi axe `serious` hoặc `critical`;
+- mọi vùng chạm ≥ 44 px trên touch;
+- TV đi được hết các luồng chính bằng bàn phím;
+- CLS < 0,1 trên mọi trang;
+- người dùng tự kiểm tra trên điện thoại, máy tính bảng và TV thật.
