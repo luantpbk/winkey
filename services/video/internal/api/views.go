@@ -126,6 +126,10 @@ func (h *Handler) recordView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if who.Authed { // HIST1: past the threshold, whether or not the view is counted again
+		h.recordHistory(r.Context(), who.ID, id, *req.WatchedMs)
+	}
+
 	if h.Views == nil {
 		views.ViewsTotal.WithLabelValues("valkey_down").Inc()
 		writeCounted(w, false)

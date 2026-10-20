@@ -263,6 +263,23 @@ type SubscriptionFeedQuery struct {
 	Limit      int // the store returns up to Limit rows; callers pass pageSize+1
 }
 
+// MaxHistory is the number of videos kept in a user's watch history (task HIST1).
+const MaxHistory = 500
+
+// HistoryQuery asks for one page of a user's watch history, most recent first (task HIST1).
+type HistoryQuery struct {
+	User  uuid.UUID
+	After *Position // keyset (watched_at, video id) of the last item of the previous page
+	Limit int       // the store returns up to Limit rows; callers pass pageSize+1
+}
+
+// HistoryEntry is one video of a watch history.
+type HistoryEntry struct {
+	Video     Summary
+	WatchedAt time.Time
+	WatchedMs int64
+}
+
 // TrendingQuery asks for the current trending ranking (task R2-a), best first.
 type TrendingQuery struct {
 	AfterRank int // 0 = from the top
@@ -385,6 +402,15 @@ type Store interface {
 	// ListSubscriptionFeed reads one page of the public-feed videos of the channels the subscriber follows
 	// (media.subscriptions, the projection of social.subscription.changed), newest first by (published_at, id).
 	ListSubscriptionFeed(ctx context.Context, q SubscriptionFeedQuery) ([]Summary, error)
+	// RecordWatch upserts (user, video) at the top of the user's history and prunes it to MaxHistory rows, in ONE
+	// transaction. A video deleted in the meantime is not an error (nothing is written). Task HIST1.
+	RecordWatch(ctx context.Context, user, video uuid.UUID, watchedMs int64) error
+	// ListHistory reads one page of the user's history, skipping videos the user can no longer watch from a list.
+	ListHistory(ctx context.Context, q HistoryQuery) ([]HistoryEntry, error)
+	// RemoveFromHistory deletes one row; a missing one is not an error.
+	RemoveFromHistory(ctx context.Context, user, video uuid.UUID) error
+	// ClearHistory deletes all of the user's rows.
+	ClearHistory(ctx context.Context, user uuid.UUID) error
 	// ListTrending reads media.trending by rank, joined to the videos and re-applying the public-feed predicate
 	// (a video made PRIVATE or HIDDEN since the last recompute is not returned) in ONE query.
 	ListTrending(ctx context.Context, q TrendingQuery) ([]TrendingItem, error)
