@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Calibration Fixture</title>
+  </head>
+  <body>
+    <!-- 1. Dead button (no handler, unmasked) -> dead-control -->
+    <button id="dead-btn">Nút chết</button>
+
+    <!-- 2. Valid link -> URL change -->
+    <a id="valid-link" href="?navigated=true">Chuyển trang</a>
+
+    <!-- 3. Theme toggle -> html attribute mutation -->
+    <button id="theme-btn" onclick="document.documentElement.classList.toggle('dark')">
+      Đổi theme
+    </button>
+
+    <!-- 4. Drawer toggle -> DOM visibility mutation -->
+    <button id="drawer-btn" onclick="document.getElementById('drawer').hidden = false">
+      Mở Drawer
+    </button>
+    <div id="drawer" hidden>Nội dung Drawer</div>
+
+    <!-- 5. Overlay covered button (scoped container) -> click-failed -->
+    <div style="position: relative; width: 120px; height: 50px; display: inline-block">
+      <div
+        id="overlay"
+        style="position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 10"
+      ></div>
+      <button id="covered-btn" style="position: absolute; inset: 0; z-index: 1">Nút bị che</button>
+    </div>
+  </body>
+</html>

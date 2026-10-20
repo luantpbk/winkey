@@ -1,0 +1,19 @@
+# Dependencies & Build artifacts
+node_modules/
+.pnpm-store/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# Auth & Runtime cache
+.auth-cache/
+*.log
+
+# Binary screenshot artifacts
+report/**/*.png
+report/**/*.jpg
+report/**/*.jpeg
+report/**/screenshots/
+
+# Explicitly keep markdown reports and summaries
+!report/**/report.md
+!report/**/summary.json
