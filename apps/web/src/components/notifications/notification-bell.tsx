@@ -161,7 +161,7 @@ export function NotificationBell() {
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         data-testid="notification-bell-button"
-        className="relative rounded-full p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition focus:outline-none focus:ring-2 focus:ring-red-600 cursor-pointer"
+        className="relative rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition focus:outline-none focus:ring-2 focus:ring-red-600 cursor-pointer"
       >
         <Bell className="h-5 w-5" />
         {showBadge && (

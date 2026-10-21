@@ -208,7 +208,7 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
                 disabled={!seriesContext.previous_video_id}
                 data-testid="series-prev-episode-btn"
                 aria-label={t('previousEpisode')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800 text-xs font-semibold text-white transition cursor-pointer disabled:cursor-not-allowed"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800 text-xs font-semibold text-white transition cursor-pointer disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">{t('previousEpisode')}</span>
@@ -220,7 +220,7 @@ export function WatchLayout({ video, initialPlaylistId, commentsSlot }: WatchLay
                 disabled={!seriesContext.next_video_id}
                 data-testid="series-next-episode-btn"
                 aria-label={t('nextEpisode')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800 text-xs font-semibold text-white transition cursor-pointer disabled:cursor-not-allowed"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800 text-xs font-semibold text-white transition cursor-pointer disabled:cursor-not-allowed"
               >
                 <span className="hidden sm:inline">{t('nextEpisode')}</span>
                 <ChevronRight className="h-4 w-4" />

@@ -119,7 +119,7 @@ export function Sidebar({
                 key={item.href}
                 href={item.href}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                   collapsed ? 'flex-col gap-1 px-1 py-3 text-[10px]' : ''
                 } ${
                   active
@@ -150,7 +150,7 @@ export function Sidebar({
                     key={item.href}
                     href={item.href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
@@ -176,7 +176,7 @@ export function Sidebar({
                     key={item.href}
                     href={item.href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
@@ -203,7 +203,7 @@ export function Sidebar({
                     key={cat.slug}
                     href={href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
