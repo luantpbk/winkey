@@ -28,138 +28,155 @@ export function WatchClientSection({ video }: { video: Video }) {
   return (
     <div className="flex flex-col gap-4">
       {/* Channel row + Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4 py-2 border-b border-[#272727] dark:border-[#272727] border-gray-200">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 py-2 border-b border-[#272727] dark:border-[#272727] border-gray-200">
         {/* Channel info */}
-        <div className="flex items-center gap-3">
-          <Link href={`/c/${video.owner.handle}`} className="shrink-0">
-            {video.owner.avatar_url ? (
-              <img
-                src={video.owner.avatar_url}
-                alt={video.owner.display_name}
-                className="h-10 w-10 rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600 font-bold text-white text-sm">
-                {video.owner.display_name.charAt(0)}
-              </div>
-            )}
-          </Link>
-          <div className="flex flex-col">
-            <Link
-              href={`/c/${video.owner.handle}`}
-              className="font-bold text-sm text-gray-900 dark:text-white hover:underline"
-            >
-              {video.owner.display_name}
+        <div className="flex items-center justify-between sm:justify-start gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href={`/c/${video.owner.handle}`} className="shrink-0">
+              {video.owner.avatar_url ? (
+                <img
+                  src={video.owner.avatar_url}
+                  alt={video.owner.display_name}
+                  className="h-10 w-10 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#D9002B] font-bold text-white text-sm">
+                  {video.owner.display_name.charAt(0)}
+                </div>
+              )}
             </Link>
-            <span className="text-xs text-gray-500 dark:text-gray-400">@{video.owner.handle}</span>
+            <div className="flex flex-col min-w-0">
+              <Link
+                href={`/c/${video.owner.handle}`}
+                className="font-bold text-sm text-gray-900 dark:text-white hover:underline truncate"
+              >
+                {video.owner.display_name}
+              </Link>
+              <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                @{video.owner.handle}
+              </span>
+            </div>
           </div>
 
-          <div className="ml-4">
+          <div className="shrink-0 ml-2">
             <SubscribeButton channelId={video.owner.id} />
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-2">
-          <LikeButton videoId={video.id} initialLikeCount={video.like_count} />
-
-          <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== 'undefined' && navigator.clipboard) {
-                navigator.clipboard.writeText(window.location.href);
-                alert('Đã sao chép liên kết video!');
-              }
-            }}
-            aria-label="Chia sẻ video"
-            className="flex items-center gap-2 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+        {/* Action buttons (horizontally scrollable, equal 40px height, right fade) */}
+        <div className="relative w-full lg:w-auto min-w-0 max-w-full">
+          <div
+            data-testid="watch-action-bar"
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 scroll-smooth w-full pr-6 lg:pr-0"
           >
-            <Share2 className="h-4 w-4" />
-            <span>Chia sẻ</span>
-          </button>
+            <LikeButton videoId={video.id} initialLikeCount={video.like_count} />
 
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={async () => {
-              if (isLoading) {
-                return;
-              }
-              if (!isAuthenticated) {
-                showToast({ title: 'Vui lòng đăng nhập để lưu vào Xem sau', type: 'info' });
-                return;
-              }
-              await addToWatchLater(video.id, { showToast });
-            }}
-            aria-label="Xem sau"
-            data-testid="watch-page-watch-later-btn"
-            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
-          >
-            <Clock className="h-4 w-4" />
-            <span>Xem sau</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={() => {
-              if (isLoading) {
-                return;
-              }
-              if (!isAuthenticated) {
-                const currentPath =
-                  pathname && pathname.startsWith('/watch')
-                    ? `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`
-                    : `/watch/${video.id}${typeof window !== 'undefined' ? window.location.search : ''}`;
-                router.push(`/login?return_to=${encodeURIComponent(currentPath)}`);
-                return;
-              }
-              setShowSaveDialog(true);
-            }}
-            aria-label="Lưu vào danh sách phát"
-            data-testid="watch-page-save-btn"
-            className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
-          >
-            <BookmarkPlus className="h-4 w-4" />
-            <span>Lưu</span>
-          </button>
-
-          {isOwner && (
-            <>
-              <Link
-                href={`/studio/videos/${video.id}/edit`}
-                aria-label="Chỉnh sửa video"
-                data-testid="owner-edit-video-btn"
-                className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
-              >
-                <Pencil className="h-4 w-4 text-red-500" />
-                <span>Chỉnh sửa</span>
-              </Link>
-
-              <button
-                type="button"
-                onClick={() => setShowSubtitlesDialog(true)}
-                aria-label="Quản lý phụ đề"
-                data-testid="owner-manage-subtitles"
-                className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
-              >
-                <Subtitles className="h-4 w-4 text-red-500" />
-                <span>Phụ đề</span>
-              </button>
-            </>
-          )}
-
-          {!isOwner && (
             <button
               type="button"
-              onClick={() => setShowReportDialog(true)}
-              aria-label="Báo cáo video"
-              className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-red-500 transition"
+              onClick={() => {
+                if (typeof window !== 'undefined' && navigator.clipboard) {
+                  navigator.clipboard.writeText(window.location.href);
+                  alert('Đã sao chép liên kết video!');
+                }
+              }}
+              aria-label="Chia sẻ video"
+              data-testid="watch-share-btn"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
             >
-              <Flag className="h-3.5 w-3.5 text-red-500" />
-              <span>Báo cáo</span>
+              <Share2 className="h-4 w-4" />
+              <span>Chia sẻ</span>
             </button>
-          )}
+
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={async () => {
+                if (isLoading) {
+                  return;
+                }
+                if (!isAuthenticated) {
+                  showToast({ title: 'Vui lòng đăng nhập để lưu vào Xem sau', type: 'info' });
+                  return;
+                }
+                await addToWatchLater(video.id, { showToast });
+              }}
+              aria-label="Xem sau"
+              data-testid="watch-page-watch-later-btn"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
+            >
+              <Clock className="h-4 w-4" />
+              <span>Xem sau</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => {
+                if (isLoading) {
+                  return;
+                }
+                if (!isAuthenticated) {
+                  const currentPath =
+                    pathname && pathname.startsWith('/watch')
+                      ? `${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`
+                      : `/watch/${video.id}${typeof window !== 'undefined' ? window.location.search : ''}`;
+                  router.push(`/login?return_to=${encodeURIComponent(currentPath)}`);
+                  return;
+                }
+                setShowSaveDialog(true);
+              }}
+              aria-label="Lưu vào danh sách phát"
+              data-testid="watch-page-save-btn"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
+            >
+              <BookmarkPlus className="h-4 w-4" />
+              <span>Lưu</span>
+            </button>
+
+            {isOwner && (
+              <>
+                <Link
+                  href={`/studio/videos/${video.id}/edit`}
+                  aria-label="Chỉnh sửa video"
+                  data-testid="owner-edit-video-btn"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+                >
+                  <Pencil className="h-4 w-4 text-red-500" />
+                  <span>Chỉnh sửa</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSubtitlesDialog(true)}
+                  aria-label="Quản lý phụ đề"
+                  data-testid="owner-manage-subtitles"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+                >
+                  <Subtitles className="h-4 w-4 text-red-500" />
+                  <span>Phụ đề</span>
+                </button>
+              </>
+            )}
+
+            {!isOwner && (
+              <button
+                type="button"
+                onClick={() => setShowReportDialog(true)}
+                aria-label="Báo cáo video"
+                data-testid="watch-report-btn"
+                className="inline-flex h-10 min-w-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-red-500 transition"
+              >
+                <Flag className="h-4 w-4 text-red-500" />
+                <span className="hidden sm:inline">Báo cáo</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right edge fade gradient on overflow */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-white dark:from-[#0f0f0f] to-transparent lg:hidden"
+          />
         </div>
       </div>
 
