@@ -25,7 +25,7 @@ export function BottomNav() {
     {
       href: '/lich-su',
       label: t('history'),
-      icon: t('history'),
+      icon: History,
       isActive: pathname.startsWith('/lich-su'),
     },
     {
@@ -45,7 +45,7 @@ export function BottomNav() {
     >
       <div className="flex items-center justify-around h-14">
         {navItems.map((item) => {
-          const Icon = item.icon === t('history') ? History : item.icon;
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}

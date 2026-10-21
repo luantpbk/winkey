@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('UX1 Responsive Framework E2E (ADR-044)', () => {
-  test('Mobile viewport displays BottomNav with essential links', async ({ page, isMobile }) => {
+  test('Mobile viewport displays BottomNav with essential links', async ({ page }) => {
     // Only run mobile assertion when mobile project or small viewport
     const viewport = page.viewportSize();
     if (!viewport || viewport.width >= 768) {
