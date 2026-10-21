@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastProvider } from '../src/components/ui/toast';
 import { LibraryView } from '../src/components/library/library-view';
 import RegisterPage from '../src/app/[locale]/register/page';
+import UploadPage from '../src/app/[locale]/upload/page';
 import { api } from '../src/lib/api-client';
 import viMessages from '../messages/vi.json';
 
@@ -35,6 +36,11 @@ vi.mock('next-intl', () => ({
     };
   },
   useLocale: () => 'vi',
+}));
+
+// --- Realtime Mock ---
+vi.mock('../src/lib/realtime/realtime-context', () => ({
+  useRealtimeRoom: vi.fn(),
 }));
 
 // --- Router & Params Mock ---
@@ -76,6 +82,7 @@ vi.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => ({
     isAuthenticated: mockIsAuthenticated,
     isLoading: mockIsAuthLoading,
+    isCreator: mockIsAuthenticated,
     user: mockIsAuthenticated
       ? {
           id: '0192f5e4-7c1a-7b3e-9d2a-user00000001',
@@ -103,7 +110,7 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
-describe('UX1: CLS Stability & Layout Shift Prevention (#408)', () => {
+describe('UX1: CLS Stability & Layout Shift Prevention (#408, #430)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsAuthenticated = true;
@@ -111,7 +118,7 @@ describe('UX1: CLS Stability & Layout Shift Prevention (#408)', () => {
     mockSearchParams = new URLSearchParams();
   });
 
-  describe('1. /thu-vien Layout Containment & Skeleton Geometry', () => {
+  describe('1. /thu-vien Layout Containment & Skeleton Geometry (#408, #430)', () => {
     it('renders static page header and skeleton grid immediately during loading instead of shifting with a blank spinner', async () => {
       // Return delayed response to observe initial skeleton
       vi.spyOn(api.social, 'GET').mockImplementation(
@@ -124,13 +131,23 @@ describe('UX1: CLS Stability & Layout Shift Prevention (#408)', () => {
       expect(screen.getByTestId('library-page-title')).toBeDefined();
       expect(screen.getByTestId('create-playlist-btn')).toBeDefined();
 
-      // Skeleton grid is rendered in place
+      // Content container has min-h-[520px] fixed constraint preventing height collapse
       const skeletonGrid = screen.getByTestId('library-playlists-skeleton');
       expect(skeletonGrid).toBeDefined();
+      expect(skeletonGrid.parentElement?.className).toContain('min-h-[520px]');
+
+      // Grid classes preserved
       expect(skeletonGrid.className).toContain('grid-cols-1');
       expect(skeletonGrid.className).toContain('sm:grid-cols-2');
       expect(skeletonGrid.className).toContain('md:grid-cols-3');
       expect(skeletonGrid.className).toContain('lg:grid-cols-4');
+
+      // 4 skeletons with items 3 and 4 hidden on mobile (<sm) to prevent ~2400px explosion
+      expect(skeletonGrid.children.length).toBe(4);
+      expect(skeletonGrid.children[0].className).toContain('block');
+      expect(skeletonGrid.children[1].className).toContain('block');
+      expect(skeletonGrid.children[2].className).toContain('hidden sm:block');
+      expect(skeletonGrid.children[3].className).toContain('hidden sm:block');
     });
 
     it('mounts playlist cards with intrinsic aspect-ratio and absolute cover image', async () => {
@@ -172,9 +189,19 @@ describe('UX1: CLS Stability & Layout Shift Prevention (#408)', () => {
       expect(thumbWrapper?.className).toContain('aspect-video');
       expect(thumbWrapper?.className).toContain('relative');
     });
+
+    it('renders static shell with min-h-[520px] when guest user visits /thu-vien prior to redirect', async () => {
+      mockIsAuthenticated = false;
+
+      renderWithProviders(<LibraryView />);
+
+      expect(screen.getByTestId('library-page-title')).toBeDefined();
+      const loaderContainer = document.querySelector('.min-h-\\[520px\\]');
+      expect(loaderContainer).toBeDefined();
+    });
   });
 
-  describe('2. /register Error Slot Reservation & Zero-Shift Form', () => {
+  describe('2. /register Error Slot Reservation & Zero-Shift Form (#408)', () => {
     it('maintains fixed error reservation slots preventing input displacement when errors appear', async () => {
       mockSearchParams = new URLSearchParams({ error: 'INVITE_REQUIRED' });
 
@@ -192,6 +219,43 @@ describe('UX1: CLS Stability & Layout Shift Prevention (#408)', () => {
         const slot = input.parentElement?.querySelector('.min-h-\\[18px\\]');
         expect(slot).toBeDefined();
       }
+    });
+  });
+
+  describe('3. /upload Static Shell & Dropzone Skeleton Reservation (#430)', () => {
+    it('renders page header, mode tab placeholders, and dropzone skeleton inside min-h-[320px] while auth is loading', () => {
+      mockIsAuthLoading = true;
+
+      renderWithProviders(<UploadPage />);
+
+      // Header remains stable at frame 0
+      expect(screen.getByRole('heading', { level: 1 })).toBeDefined();
+      expect(screen.getByRole('link', { name: /studio/i })).toBeDefined();
+
+      // Dropzone skeleton has fixed min-h-[320px] dimension
+      const dropzoneSkeleton = screen.getByTestId('upload-dropzone-skeleton');
+      expect(dropzoneSkeleton).toBeDefined();
+      expect(dropzoneSkeleton.className).toContain('min-h-[320px]');
+    });
+
+    it('renders interactive upload dropzone inside min-h-[320px] without layout shift when auth resolves', () => {
+      mockIsAuthLoading = false;
+      mockIsAuthenticated = true;
+
+      renderWithProviders(<UploadPage />);
+
+      // Header remains stable
+      expect(screen.getByRole('heading', { level: 1 })).toBeDefined();
+
+      // Mode tabs are interactive
+      expect(screen.getByTestId('upload-tab-single')).toBeDefined();
+      expect(screen.getByTestId('upload-tab-package')).toBeDefined();
+
+      // Dropzone container preserves min-h-[320px]
+      const dropzoneContainer = screen
+        .getByText(/MP4, MOV, WebM, MKV/i)
+        .closest('.min-h-\\[320px\\]');
+      expect(dropzoneContainer).toBeDefined();
     });
   });
 });
