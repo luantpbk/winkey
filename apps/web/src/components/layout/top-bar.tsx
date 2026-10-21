@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
@@ -31,11 +31,13 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
   const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      // In Task U1, search query UI state
+    if (!searchQuery.trim()) {
+      searchInputRef.current?.focus();
+      return;
     }
   };
 
@@ -65,6 +67,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
         <div className="flex w-full items-center">
           <div className="relative w-full">
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -75,7 +78,8 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
           <button
             type="submit"
             aria-label="Search"
-            className="flex h-10 items-center justify-center rounded-r-full border border-l-0 border-[#383838] dark:border-[#383838] border-gray-300 bg-[#222222] dark:bg-[#222222] bg-gray-200 px-6 text-gray-400 hover:bg-[#2c2c2c] dark:hover:bg-[#2c2c2c] hover:bg-gray-300 transition"
+            data-testid="search-submit-btn"
+            className="flex h-10 min-w-11 min-h-11 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-[#383838] dark:border-[#383838] border-gray-300 bg-[#222222] dark:bg-[#222222] bg-gray-200 px-6 text-gray-400 hover:bg-[#2c2c2c] dark:hover:bg-[#2c2c2c] hover:bg-gray-300 transition"
           >
             <Search className="h-4 w-4" />
           </button>
@@ -88,7 +92,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
         <button
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
-          className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+          className="rounded-full min-w-11 min-h-11 shrink-0 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
         >
           {theme === 'dark' ? (
             <Sun className="h-5 w-5 text-yellow-400" />
@@ -102,16 +106,17 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             {/* Upload Button */}
             <Link
               href="/upload"
-              className="flex min-h-11 items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
+              data-testid="topbar-upload-btn"
+              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
             >
-              <VideoIcon className="h-4 w-4 text-red-500" />
+              <VideoIcon className="h-4 w-4 text-red-500 shrink-0" />
               <span className="hidden md:inline">{t('upload')}</span>
             </Link>
 
             {/* Studio Link */}
             <Link
               href="/studio"
-              className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+              className="rounded-full min-w-11 min-h-11 shrink-0 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
               title={t('studio')}
             >
               <LayoutDashboard className="h-5 w-5" />
@@ -124,7 +129,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex min-w-11 min-h-11 items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-600 rounded-full"
+                className="flex min-w-11 min-h-11 shrink-0 items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-600 rounded-full"
                 aria-label="User profile menu"
               >
                 {user?.avatar_url ? (

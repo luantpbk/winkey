@@ -41,12 +41,12 @@ export function Footer({
         {/* Thể loại */}
         <div className="flex flex-col gap-2">
           <h3 className="font-bold text-base text-gray-900 dark:text-white">Thể loại giải trí</h3>
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-0 text-xs">
             {categories.map((cat) => (
               <Link
                 key={cat.slug}
                 href={`/the-loai/${cat.slug}`}
-                className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                className="inline-flex items-center min-h-11 min-w-11 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
               >
                 {cat.name}
               </Link>
@@ -59,22 +59,22 @@ export function Footer({
           <h3 className="font-bold text-base text-gray-900 dark:text-white">
             Điều khoản & Chính sách
           </h3>
-          <nav aria-label={tLegal('legalNav')} className="flex flex-col gap-2 text-xs">
+          <nav aria-label={tLegal('legalNav')} className="flex flex-col gap-0 text-xs">
             <Link
               href="/dieu-khoan"
-              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
+              className="inline-flex items-center min-h-11 min-w-11 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
             >
               {tCin('terms')}
             </Link>
             <Link
               href="/quyen-rieng-tu"
-              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
+              className="inline-flex items-center min-h-11 min-w-11 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
             >
               {tCin('privacy')}
             </Link>
             <Link
               href="/quy-tac-cong-dong"
-              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
+              className="inline-flex items-center min-h-11 min-w-11 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
             >
               {tCin('communityRules')}
             </Link>
@@ -83,7 +83,7 @@ export function Footer({
                 href={feedbackUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                className="inline-flex items-center min-h-11 min-w-11 py-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition hover:underline"
               >
                 {tCin('betaFeedback')}
               </a>
