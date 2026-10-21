@@ -11,12 +11,14 @@ import {
   VolumeX,
   Maximize,
   Minimize,
+  Settings,
 } from 'lucide-react';
 import type { Rendition, SubtitleTrack, PlaybackAudioTrack } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { QualityMenu, type QualityLevel } from './quality-menu';
 import { CcMenu } from './cc-menu';
 import { AudioMenu, type AudioTrackOption } from './audio-menu';
+import { PlayerSettingsSheet } from './player-settings-sheet';
 import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
 import { PlaybackTracker } from '../../lib/video/playback-tracker';
@@ -175,6 +177,9 @@ export function VideoPlayer({
 
   // Subtitle state
   const [selectedSubtitleLang, setSelectedSubtitleLang] = useState<string | null>(null);
+
+  // Settings sheet state (Mobile < 640px)
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   // Audio track state: prefill from activeAudioTracks before manifest loads
   const initialAudioOptions = useMemo<AudioTrackOption[]>(() => {
@@ -994,15 +999,15 @@ export function VideoPlayer({
           </div>
 
           {/* Action Buttons Row */}
-          <div className="flex items-center justify-between gap-3 text-white">
+          <div className="flex items-center justify-between gap-1 sm:gap-3 text-white">
             {/* Left Controls: Play/Pause, Volume, Time */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 sm:gap-2">
               <button
                 type="button"
                 onClick={togglePlayPause}
                 aria-label={isPlaying ? 'Tạm dừng (k)' : 'Phát (k)'}
                 data-testid="play-pause-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
               </button>
@@ -1012,14 +1017,14 @@ export function VideoPlayer({
                 onClick={toggleMute}
                 aria-label={isMuted ? 'Bật âm thanh (m)' : 'Tắt tiếng (m)'}
                 data-testid="volume-mute-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
               </button>
 
               <div
                 data-testid="time-display"
-                className="text-xs font-mono font-medium text-gray-200"
+                className="text-[11px] sm:text-xs font-mono font-medium text-gray-200 select-none whitespace-nowrap shrink-0"
               >
                 <span>{formatTime(currentTime)}</span>
                 <span className="mx-1 text-gray-500">/</span>
@@ -1027,35 +1032,52 @@ export function VideoPlayer({
               </div>
             </div>
 
-            {/* Right Controls: CC Menu, Quality Menu, Fullscreen */}
-            <div className="flex items-center gap-2">
-              {/* CC Menu */}
+            {/* Right Controls: CC Menu, Audio Menu, Quality Menu, Mobile Settings Button, Fullscreen */}
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* CC Menu (Desktop >= sm) */}
               {activeSubtitles.length > 0 && (
-                <CcMenu
-                  tracks={activeSubtitles}
-                  selectedLang={selectedSubtitleLang}
-                  onSelectTrack={handleSelectSubtitle}
-                />
+                <div className="hidden sm:inline-block">
+                  <CcMenu
+                    tracks={activeSubtitles}
+                    selectedLang={selectedSubtitleLang}
+                    onSelectTrack={handleSelectSubtitle}
+                  />
+                </div>
               )}
 
-              {/* Audio Menu (only shown when there are 2 or more audio tracks) */}
+              {/* Audio Menu (only shown when there are 2 or more audio tracks) (Desktop >= sm) */}
               {audioTracksList.length >= 2 && (
-                <AudioMenu
-                  tracks={audioTracksList}
-                  selectedIndex={currentAudioIndex}
-                  onSelectTrack={handleSelectAudioTrack}
-                />
+                <div className="hidden sm:inline-block">
+                  <AudioMenu
+                    tracks={audioTracksList}
+                    selectedIndex={currentAudioIndex}
+                    onSelectTrack={handleSelectAudioTrack}
+                  />
+                </div>
               )}
 
-              {/* Quality Menu */}
+              {/* Quality Menu (Desktop >= sm) */}
               {isUsingHls && qualityLevels.length > 1 && (
-                <QualityMenu
-                  levels={qualityLevels}
-                  currentLevel={currentLevel}
-                  currentHeight={currentHeight}
-                  onSelectLevel={handleSelectLevel}
-                />
+                <div className="hidden sm:inline-block">
+                  <QualityMenu
+                    levels={qualityLevels}
+                    currentLevel={currentLevel}
+                    currentHeight={currentHeight}
+                    onSelectLevel={handleSelectLevel}
+                  />
+                </div>
               )}
+
+              {/* Mobile Settings Button (opens sheet with Subtitles, Audio, Quality on < sm) */}
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                aria-label="Cài đặt phát lại"
+                data-testid="player-settings-button"
+                className="relative inline-flex sm:hidden items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
 
               {/* Fullscreen Button */}
               <button
@@ -1063,7 +1085,7 @@ export function VideoPlayer({
                 onClick={toggleFullscreen}
                 aria-label={isFullscreen ? 'Thoát toàn màn hình (f)' : 'Toàn màn hình (f)'}
                 data-testid="fullscreen-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
               </button>
@@ -1071,6 +1093,22 @@ export function VideoPlayer({
           </div>
         </div>
       )}
+
+      {/* Player Settings Sheet for mobile (< 640px) */}
+      <PlayerSettingsSheet
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        subtitles={activeSubtitles}
+        selectedSubtitleLang={selectedSubtitleLang}
+        onSelectSubtitle={handleSelectSubtitle}
+        audioTracks={audioTracksList}
+        selectedAudioIndex={currentAudioIndex}
+        onSelectAudio={handleSelectAudioTrack}
+        qualityLevels={qualityLevels}
+        currentLevel={currentLevel}
+        currentHeight={currentHeight}
+        onSelectQuality={handleSelectLevel}
+      />
 
       {/* Error Overlay with Retry Button */}
       {hasError && (

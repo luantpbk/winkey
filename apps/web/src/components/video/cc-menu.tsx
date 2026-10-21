@@ -46,12 +46,20 @@ export function CcMenu({ tracks, selectedLang, onSelectTrack }: CcMenuProps) {
         data-testid="cc-menu-button"
         className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition border focus:outline-none focus:ring-2 focus:ring-red-500 ${
           isCaptionsActive
-            ? 'bg-red-600 text-white border-red-500'
+            ? 'bg-black/60 hover:bg-black/80 text-[#FF4D6D] border-red-500/50'
             : 'bg-black/60 hover:bg-black/80 text-white border-white/10'
         }`}
       >
-        <Subtitles className="h-4 w-4" />
-        <span className="hidden sm:inline">{buttonLabel}</span>
+        <Subtitles className={`h-4 w-4 ${isCaptionsActive ? 'text-[#FF4D6D]' : 'text-white'}`} />
+        <span
+          className={`hidden sm:inline ${
+            isCaptionsActive
+              ? 'underline underline-offset-4 decoration-[#FF4D6D] decoration-2 font-semibold'
+              : ''
+          }`}
+        >
+          {buttonLabel}
+        </span>
       </button>
 
       {isOpen && (
