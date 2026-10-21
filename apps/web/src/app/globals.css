@@ -7,6 +7,23 @@
   --color-brand-hover: #cc0029;
 }
 
+@layer base {
+  /* TV & Keyboard Focus Indicators (WCAG 2.4.7 & UX1 Issue #401) */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role='button']:focus-visible,
+  [role='slider']:focus-visible,
+  [role='tab']:focus-visible,
+  [tabindex='0']:focus-visible {
+    outline: 2px solid #d9002b !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 0 3px rgba(217, 0, 43, 0.4) !important;
+  }
+}
+
 :root {
   --bg-primary: #0f0f0f;
   --bg-secondary: #1f1f1f;

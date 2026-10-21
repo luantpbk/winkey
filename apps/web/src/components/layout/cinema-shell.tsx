@@ -8,6 +8,7 @@ import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { beVietnamPro } from '../../lib/fonts';
 import { Footer } from './footer';
+import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
 import {
   Search,
   Upload,
@@ -57,6 +58,21 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
     if (searchOverlayOpen) {
       setTimeout(() => searchInputRef.current?.focus(), 50);
     }
+  }, [searchOverlayOpen]);
+
+  useSpatialNavigation();
+
+  // Escape key handler for search overlay (UX1 Issue #401 TV dialog trap)
+  useEffect(() => {
+    if (!searchOverlayOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSearchOverlayOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [searchOverlayOpen]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -364,7 +380,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Tìm phim, video, kênh..."
-                className="w-full h-14 pl-5 pr-14 rounded-xl bg-[#14141A] border border-white/20 text-white placeholder-[#A3A3AD] text-lg focus:outline-none focus:border-[#FF0033]"
+                className="w-full h-14 pl-5 pr-14 rounded-xl bg-[#14141A] border border-white/20 text-white placeholder-[#A3A3AD] text-lg focus:outline-2 focus:outline-[#d9002b] focus:ring-2 focus:ring-[#d9002b]"
               />
               <button
                 type="submit"

@@ -7,6 +7,7 @@ import { Sidebar } from './sidebar';
 import { CinemaShell } from './cinema-shell';
 import { Footer } from './footer';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
+import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
 
 export function Shell({
   children,
@@ -18,6 +19,8 @@ export function Shell({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+
+  useSpatialNavigation();
 
   const isCinemaHome = pathname === '/' || pathname === '';
 
