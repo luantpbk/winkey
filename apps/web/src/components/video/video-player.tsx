@@ -37,6 +37,7 @@ export interface VideoPlayerProps {
   expiresAt?: string | null;
   surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
+  onEnded?: () => void;
   className?: string;
 }
 
@@ -96,6 +97,7 @@ export function VideoPlayer({
   expiresAt,
   surface,
   onRecordView,
+  onEnded: onEndedProp,
   className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -880,6 +882,7 @@ export function VideoPlayer({
     onEnded();
     const video = videoRef.current;
     trackerRef.current?.recordEnded(video?.currentTime);
+    onEndedProp?.();
   };
 
   const handleVideoError = () => {

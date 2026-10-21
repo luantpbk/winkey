@@ -5238,6 +5238,66 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     });
   }),
 
+  http.get('*/v1/series', async ({ request }) => {
+    const url = new URL(request.url);
+    const videoId = url.searchParams.get('video_id');
+
+    if (!videoId) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+        },
+        { status: 400 },
+      );
+    }
+
+    const currentPlaylists = getDynamicPlaylists();
+    const currentPlaylistItems = getDynamicPlaylistItems();
+    const matchingSeries: SeriesSummary[] = [];
+
+    for (const pl of currentPlaylists) {
+      if (pl.is_series && pl.visibility === 'PUBLIC') {
+        const items = currentPlaylistItems.filter((x) => x.playlist_id === pl.id);
+        const containsVideo =
+          items.some((it) => it.item.video_id === videoId) ||
+          (pl.id === mockSeriesPlaylist.id &&
+            mockSeriesEpisodes.some((ep) => ep.video_id === videoId));
+
+        if (containsVideo) {
+          const episodeCount =
+            pl.id === mockSeriesPlaylist.id
+              ? mockSeriesEpisodes.length
+              : items.length || pl.item_count;
+          const firstVideoId =
+            pl.id === mockSeriesPlaylist.id
+              ? mockSeriesEpisodes[0].video_id
+              : items[0]?.item.video_id || videoId;
+
+          matchingSeries.push({
+            playlist_id: pl.id,
+            title: pl.title,
+            description: pl.description || '',
+            owner: pl.owner,
+            episode_count: episodeCount,
+            first_video_id: firstVideoId,
+            updated_at: pl.updated_at,
+          });
+        }
+      }
+    }
+
+    if (matchingSeries.length === 0 && mockSeriesEpisodes.some((ep) => ep.video_id === videoId)) {
+      matchingSeries.push(mockSeriesSummary);
+    }
+
+    return HttpResponse.json({
+      items: matchingSeries.slice(0, 5),
+    });
+  }),
+
   http.get('*/v1/series/:playlist_id/episodes', async ({ params, request }) => {
     const playlistId = params.playlist_id as string;
     const url = new URL(request.url);
