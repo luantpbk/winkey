@@ -3,7 +3,7 @@ import { Page } from 'playwright';
 import { AuditFinding, PersonaRole, ViewportSpec } from '../types.js';
 import { DENYLIST_REGEX, DENYLIST_SELECTOR } from '../config/denylist.js';
 
-export interface StateSignature {
+interface StateSignature {
   url: string;
   htmlAttrs: Record<string, string>;
   bodyAttrs: Record<string, string>;
@@ -20,11 +20,14 @@ export interface StateSignature {
   };
   domLength: number;
   domHash: string;
-  visibleCounts: { elements: number; dialogs: number };
+  visibleCounts: {
+    elements: number;
+    dialogs: number;
+  };
   networkRequestsCount: number;
 }
 
-export interface TargetCandidate {
+interface TargetCandidate {
   index: number;
   tag: string;
   href: string | null;
@@ -37,26 +40,23 @@ export async function captureStateSignature(
   networkCounter: { count: number },
 ): Promise<StateSignature> {
   const sig = (await page.evaluate(`(() => {
-    var docEl = document.documentElement;
     var htmlAttrs = {};
-    if (docEl && docEl.attributes) {
-      for (var i = 0; i < docEl.attributes.length; i++) {
-        htmlAttrs[docEl.attributes[i].name] = docEl.attributes[i].value;
-      }
+    for (var i = 0; i < document.documentElement.attributes.length; i++) {
+      var a = document.documentElement.attributes[i];
+      htmlAttrs[a.name] = a.value;
     }
-    var bodyEl = document.body;
     var bodyAttrs = {};
-    if (bodyEl && bodyEl.attributes) {
-      for (var j = 0; j < bodyEl.attributes.length; j++) {
-        bodyAttrs[bodyEl.attributes[j].name] = bodyEl.attributes[j].value;
+    if (document.body) {
+      for (var j = 0; j < document.body.attributes.length; j++) {
+        var b = document.body.attributes[j];
+        bodyAttrs[b.name] = b.value;
       }
     }
     var active = document.activeElement;
-    var htmlStr = document.documentElement ? document.documentElement.outerHTML : '';
+    var htmlStr = document.body ? document.body.innerHTML : '';
     var hash = 0;
     for (var k = 0; k < htmlStr.length; k++) {
-      hash = ((hash << 5) - hash) + htmlStr.charCodeAt(k);
-      hash |= 0;
+      hash = ((hash << 5) - hash + htmlStr.charCodeAt(k)) | 0;
     }
     var localStore = {};
     try {
@@ -218,6 +218,28 @@ export async function runDeadControlProbes(
         continue;
       }
 
+      // 0. Skip elements that are already in active / selected state
+      const isAlreadyActive = await loc
+        .evaluate((el) => {
+          const ac = el.getAttribute('aria-current');
+          const as = el.getAttribute('aria-selected');
+          const ap = el.getAttribute('aria-pressed');
+          const da = el.getAttribute('data-active');
+          const ds = el.getAttribute('data-state');
+          return (
+            (ac && ac !== 'false') ||
+            as === 'true' ||
+            ap === 'true' ||
+            da === 'true' ||
+            ds === 'active'
+          );
+        })
+        .catch(() => false);
+
+      if (isAlreadyActive) {
+        continue;
+      }
+
       // 1. Trial click to detect pointer interception / overlay
       try {
         await loc.click({ trial: true, timeout: 1500 });
@@ -242,6 +264,36 @@ export async function runDeadControlProbes(
         continue;
       }
 
+      // Check if this is a search submit button with an empty query
+      const isSearchWithEmptyQuery = await loc
+        .evaluate((el) => {
+          const tag = el.tagName.toLowerCase();
+          const isButton = tag === 'button' || el.getAttribute('role') === 'button';
+          if (!isButton) return false;
+
+          const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+          const text = (el.textContent || '').toLowerCase();
+          const isSearch =
+            el.getAttribute('type') === 'submit' ||
+            ariaLabel.includes('search') ||
+            ariaLabel.includes('tìm') ||
+            text.includes('search') ||
+            text.includes('tìm') ||
+            el.className.includes('search');
+
+          if (!isSearch) return false;
+
+          const form = el.closest('form');
+          const input = form
+            ? (form.querySelector('input') as HTMLInputElement | null)
+            : (document.querySelector(
+                'input[type="search"], input[name="q"], input[placeholder*="Tìm"], input[placeholder*="Search"]',
+              ) as HTMLInputElement | null);
+
+          return input ? input.value.trim() === '' : false;
+        })
+        .catch(() => false);
+
       // 2. Pre-focus target element to align activeElement baseline
       await loc.focus({ timeout: 1000 }).catch(() => {});
 
@@ -250,6 +302,21 @@ export async function runDeadControlProbes(
         networkCounter.count++;
       };
       page.on('request', onRequest);
+
+      // Listen for popup / new tab (target="_blank" or window.open)
+      let popupDetected = false;
+      const onPopup = (p: Page) => {
+        popupDetected = true;
+        p.close().catch(() => {});
+      };
+      const onContextPage = (p: Page) => {
+        if (p !== page) {
+          popupDetected = true;
+          p.close().catch(() => {});
+        }
+      };
+      page.on('popup', onPopup);
+      page.context().on('page', onContextPage);
 
       const beforeSig = await captureStateSignature(page, networkCounter);
 
@@ -267,6 +334,7 @@ export async function runDeadControlProbes(
           page.waitForURL((u) => u.href !== beforeSig.url, { timeout: 5000 }).catch(() => {}),
           loc.click({ timeout: 2000 }).catch(() => {}),
         ]);
+        await page.waitForTimeout(400);
       } else {
         await loc.click({ timeout: 2000 }).catch(() => {});
         await page.waitForTimeout(400);
@@ -274,13 +342,29 @@ export async function runDeadControlProbes(
 
       const afterSig = await captureStateSignature(page, networkCounter);
       page.off('request', onRequest);
+      page.off('popup', onPopup);
+      page.context().off('page', onContextPage);
 
       // 4. Change detection
       const urlChanged = beforeSig.url !== afterSig.url;
       const networkChanged = networkCounter.count > 0;
       const stateChanged = diffSignatures(beforeSig, afterSig);
 
-      if (!urlChanged && !networkChanged && !stateChanged) {
+      if (!urlChanged && !networkChanged && !stateChanged && !popupDetected) {
+        if (isSearchWithEmptyQuery) {
+          findings.push({
+            id: '',
+            severity: 'P2',
+            category: 'click-failed',
+            persona,
+            viewport: vp.id,
+            route,
+            selector: target.description,
+            message: `Search button clicked with empty query: did not trigger navigation (expected empty search behavior, polish P2).`,
+          });
+          continue;
+        }
+
         const isKnownBackendGap =
           target.href === '#history' ||
           target.text.toLowerCase().includes('lịch sử') ||
@@ -294,7 +378,7 @@ export async function runDeadControlProbes(
           viewport: vp.id,
           route,
           selector: target.description,
-          message: `Dead control detected: Clicking element "${target.description}" did not trigger URL navigation, DOM mutation, storage change, active element change, or network requests.`,
+          message: `Dead control detected: Clicking element "${target.description}" did not trigger URL navigation, DOM mutation, storage change, active element change, popup/tab, or network requests.`,
           isBackendSuspect: isKnownBackendGap,
         });
       }

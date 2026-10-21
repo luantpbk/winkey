@@ -77,6 +77,8 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
     if (searchQuery.trim()) {
       setSearchOverlayOpen(false);
       router.push(`/kham-pha?tab=trending`);
+    } else {
+      searchInputRef.current?.focus();
     }
   };
 
@@ -123,7 +125,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
           <Link
             href="/"
             aria-current={isHomeActive ? 'page' : undefined}
-            className={`text-[15px] transition-colors py-2 border-b-2 ${
+            className={`text-[15px] transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 shrink-0 ${
               isHomeActive
                 ? 'text-white font-bold border-[#FF0033]'
                 : 'text-[#B9B9C2] hover:text-white font-medium border-transparent'
@@ -133,13 +135,13 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
           </Link>
           <Link
             href="/trending"
-            className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors py-2 border-b-2 border-transparent"
+            className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 border-transparent shrink-0"
           >
             {tCin('trending')}
           </Link>
           <Link
             href="/kham-pha"
-            className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors py-2 border-b-2 border-transparent"
+            className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 border-transparent shrink-0"
           >
             {tCin('explore')}
           </Link>
@@ -147,13 +149,13 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
             <>
               <Link
                 href="/feed/subscriptions"
-                className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors py-2 border-b-2 border-transparent"
+                className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 border-transparent shrink-0"
               >
                 {tCin('subscriptions')}
               </Link>
               <Link
                 href="/thu-vien"
-                className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors py-2 border-b-2 border-transparent"
+                className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 border-transparent shrink-0"
               >
                 {tCin('myList')}
               </Link>
@@ -162,14 +164,14 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
         </nav>
 
         {/* Right Actions: Search, Upload, Bell, Account */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           {/* Search trigger button */}
           <button
             type="button"
             onClick={() => setSearchOverlayOpen(true)}
             aria-label="Tìm kiếm"
             data-testid="cinema-search-btn"
-            className="w-11 h-11 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
+            className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
           >
             <Search className="w-5 h-5" />
           </button>
@@ -179,7 +181,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
             href="/upload"
             aria-label="Tải video lên"
             data-testid="cinema-upload-btn"
-            className="w-11 h-11 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
+            className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
           >
             <Upload className="w-5 h-5" />
           </Link>
@@ -384,7 +386,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
               <button
                 type="submit"
                 aria-label="Thực hiện tìm kiếm"
-                className="absolute right-3 w-11 h-11 rounded-lg bg-white text-[#0A0A0D] flex items-center justify-center hover:bg-[#E4E4E8]"
+                className="absolute right-3 w-11 h-11 shrink-0 rounded-lg bg-white text-[#0A0A0D] flex items-center justify-center hover:bg-[#E4E4E8]"
               >
                 <Search className="w-5 h-5" />
               </button>
