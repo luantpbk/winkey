@@ -7,6 +7,7 @@ import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import type { RegisterRequest } from '@winkey/api-client';
 import { PlaySquare, AlertCircle } from 'lucide-react';
+import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 
 function RegisterFormSkeleton() {
   return (
@@ -126,13 +127,13 @@ function RegisterForm() {
   return (
     <div className="w-full max-w-md rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-8 shadow-2xl">
       <div className="flex flex-col items-center gap-2 text-center mb-6">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white shadow-lg">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#D9002B] text-white shadow-lg">
           <PlaySquare className="h-7 w-7 fill-current" />
         </div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
           {t('registerTitle')}
         </h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className={`text-xs ${A11Y_COLORS.textMuted}`}>
           Tạo kênh và bắt đầu đăng tải video của bạn
         </p>
       </div>
@@ -300,7 +301,7 @@ function RegisterForm() {
               href="/dieu-khoan"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-red-500 hover:underline font-medium"
+              className={`hover:underline font-medium ${A11Y_COLORS.brandText}`}
             >
               {t('agreeTermsOfService')}
             </Link>
@@ -309,7 +310,7 @@ function RegisterForm() {
               href="/quyen-rieng-tu"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-red-500 hover:underline font-medium"
+              className={`hover:underline font-medium ${A11Y_COLORS.brandText}`}
             >
               {t('agreePrivacyPolicy')}
             </Link>
@@ -321,7 +322,7 @@ function RegisterForm() {
           type="submit"
           disabled={isSubmitting || !agreed}
           data-testid="register-submit-btn"
-          className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-red-600 font-semibold text-sm text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`mt-2 flex h-11 w-full items-center justify-center rounded-xl ${A11Y_COLORS.brandSolidBg} font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {isSubmitting ? 'Đang tạo tài khoản...' : t('submitRegister')}
         </button>
@@ -332,7 +333,9 @@ function RegisterForm() {
           <div className="w-full border-t border-[#2e2e2e] dark:border-[#2e2e2e] border-gray-200" />
         </div>
         <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-[#141414] dark:bg-[#141414] bg-white px-2 text-gray-500">Hoặc</span>
+          <span className={`bg-[#141414] dark:bg-[#141414] bg-white px-2 ${A11Y_COLORS.textMuted}`}>
+            Hoặc
+          </span>
         </div>
       </div>
 
@@ -373,9 +376,9 @@ function RegisterForm() {
         <span>{t('continueGoogle')}</span>
       </a>
 
-      <p className="mt-5 text-center text-xs text-gray-500 dark:text-gray-400">
+      <p className={`mt-5 text-center text-xs ${A11Y_COLORS.textMuted}`}>
         {t('haveAccount')}{' '}
-        <Link href="/login" className="font-semibold text-red-500 hover:underline">
+        <Link href="/login" className={`font-semibold ${A11Y_COLORS.brandText} hover:underline`}>
           {t('submitLogin')}
         </Link>
       </p>

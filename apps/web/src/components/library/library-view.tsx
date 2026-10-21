@@ -10,6 +10,7 @@ import { useTranslations } from 'next-intl';
 import { formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
 import { CreatePlaylistDialog } from '../playlist/create-playlist-dialog';
+import { A11Y_COLORS } from '../../lib/a11y-tokens';
 import {
   ListVideo,
   Plus,
@@ -208,7 +209,7 @@ export function LibraryView() {
           type="button"
           onClick={() => setShowCreateDialog(true)}
           data-testid="create-playlist-btn"
-          className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs sm:text-sm shadow-lg hover:shadow-red-600/20 transition active:scale-95 self-start sm:self-auto cursor-pointer"
+          className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-full ${A11Y_COLORS.brandSolidBg} font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95 self-start sm:self-auto cursor-pointer`}
         >
           <Plus className="h-4 w-4" />
           <span>{t('createPlaylist')}</span>
@@ -242,7 +243,7 @@ export function LibraryView() {
             type="button"
             onClick={() => setShowCreateDialog(true)}
             data-testid="empty-create-playlist-btn"
-            className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95"
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full ${A11Y_COLORS.brandSolidBg} font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95`}
           >
             <Plus className="h-4 w-4" />
             <span>{t('createPlaylist')}</span>
@@ -344,7 +345,9 @@ export function LibraryView() {
                   </h3>
 
                   {/* Updated time */}
-                  <span className="text-[11px] text-zinc-500 h-4 leading-4 block truncate">
+                  <span
+                    className={`text-[11px] ${A11Y_COLORS.textMuted} h-4 leading-4 block truncate`}
+                  >
                     Cập nhật {formatRelativeTime(pl.updated_at)}
                   </span>
                 </div>

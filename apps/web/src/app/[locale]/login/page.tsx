@@ -7,6 +7,7 @@ import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { getSafeReturnTo } from '../../../lib/auth/return-to';
 import { PlaySquare, AlertCircle } from 'lucide-react';
+import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 
 function LoginForm() {
   const t = useTranslations('auth');
@@ -51,13 +52,13 @@ function LoginForm() {
     <div className="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-8 shadow-2xl">
         <div className="flex flex-col items-center gap-2 text-center mb-6">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600 text-white shadow-lg">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#D9002B] text-white shadow-lg">
             <PlaySquare className="h-7 w-7 fill-current" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
             {t('loginTitle')}
           </h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className={`text-xs ${A11Y_COLORS.textMuted}`}>
             Tiếp tục để trải nghiệm nội dung video độc quyền
           </p>
         </div>
@@ -132,11 +133,16 @@ function LoginForm() {
             />
             <div className="flex items-center justify-between mt-1">
               {fieldErrors.password ? (
-                <p className="text-xs text-red-500 font-medium">{fieldErrors.password}</p>
+                <p className={`text-xs ${A11Y_COLORS.brandText} font-medium`}>
+                  {fieldErrors.password}
+                </p>
               ) : (
                 <span />
               )}
-              <Link href="/forgot-password" className="text-xs text-red-500 hover:underline">
+              <Link
+                href="/forgot-password"
+                className={`text-xs ${A11Y_COLORS.brandText} hover:underline`}
+              >
                 {t('forgotPasswordLink')}
               </Link>
             </div>
@@ -145,7 +151,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-red-600 font-semibold text-sm text-white hover:bg-red-700 transition disabled:opacity-50"
+            className={`mt-2 flex h-11 w-full items-center justify-center rounded-xl ${A11Y_COLORS.brandSolidBg} font-semibold text-sm transition disabled:opacity-50`}
           >
             {isSubmitting ? 'Đang xử lý...' : t('submitLogin')}
           </button>
@@ -156,7 +162,11 @@ function LoginForm() {
             <div className="w-full border-t border-[#2e2e2e] dark:border-[#2e2e2e] border-gray-200" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-[#141414] dark:bg-[#141414] bg-white px-2 text-gray-500">Hoặc</span>
+            <span
+              className={`bg-[#141414] dark:bg-[#141414] bg-white px-2 ${A11Y_COLORS.textMuted}`}
+            >
+              Hoặc
+            </span>
           </div>
         </div>
 
@@ -186,9 +196,12 @@ function LoginForm() {
           <span>{t('continueGoogle')}</span>
         </a>
 
-        <p className="mt-6 text-center text-xs text-gray-500 dark:text-gray-400">
+        <p className={`mt-6 text-center text-xs ${A11Y_COLORS.textMuted}`}>
           {t('noAccount')}{' '}
-          <Link href="/register" className="font-semibold text-red-500 hover:underline">
+          <Link
+            href="/register"
+            className={`font-semibold ${A11Y_COLORS.brandText} hover:underline`}
+          >
             {t('submitRegister')}
           </Link>
         </p>

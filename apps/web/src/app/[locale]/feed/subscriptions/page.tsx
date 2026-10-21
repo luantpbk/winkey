@@ -8,6 +8,7 @@ import { useAuth } from '../../../../lib/auth/auth-context';
 import { api } from '../../../../lib/api-client';
 import { VideoFeed } from '../../../../components/video/video-feed';
 import type { VideoPage } from '@winkey/api-client';
+import { A11Y_COLORS } from '../../../../lib/a11y-tokens';
 
 export default function SubscriptionsFeedPage() {
   const t = useTranslations('subscriptions');
@@ -85,10 +86,10 @@ export default function SubscriptionsFeedPage() {
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
               {t('emptyTitle')}
             </h2>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">{t('emptyDescription')}</p>
+            <p className={`${A11Y_COLORS.textMuted} text-sm mb-6`}>{t('emptyDescription')}</p>
             <Link
               href="/trending"
-              className="inline-flex items-center gap-2 rounded-full bg-red-600 px-6 py-2.5 text-sm font-semibold text-white shadow hover:bg-red-700 transition"
+              className={`inline-flex items-center gap-2 rounded-full ${A11Y_COLORS.brandSolidBg} px-6 py-2.5 text-sm font-semibold shadow transition`}
             >
               <Flame className="h-4 w-4" />
               <span>{t('exploreTrending')}</span>
