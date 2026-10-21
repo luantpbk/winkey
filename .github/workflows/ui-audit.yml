@@ -1,0 +1,78 @@
+---
+# Nightly UX1 UI audit in CI (ADR-044).
+# Owned by Antigravity 2. Runs nightly at 20:15 UTC and on manual dispatch.
+# Uploads audit report and screenshots as artifact (14 days retention).
+# Publishes matrix summary to $GITHUB_STEP_SUMMARY.
+# Fails only when P0 count > 0 (controlled by ./systest/run.sh --reset --ui-audit).
+name: ui-audit
+
+'on':
+  schedule:
+    - cron: '15 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ui-audit:
+    name: UX1 UI audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.6.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          # Standalone package with its own lockfile; its pnpm-workspace.yaml allows only esbuild's build script.
+          pnpm --dir systest/ui-audit install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --dir systest/ui-audit exec playwright install --with-deps chromium
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+
+      - name: Compose env
+        run: cp deploy/compose/.env.example deploy/compose/.env
+
+      - name: Run UI audit
+        run: ./systest/run.sh --reset --ui-audit
+
+      - name: Write summary to job summary
+        if: always()
+        run: |
+          LATEST_REPORT=$(find systest/ui-audit/report -name "report.md" -type f | sort -r | head -n 1)
+          if [ -n "$LATEST_REPORT" ] && [ -f "$LATEST_REPORT" ]; then
+            echo "### UX1 Automated UI Audit Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            sed -n '/## 📊 Matrix Summary/,/## 🔍 Detailed Findings/p' "$LATEST_REPORT" | sed '$d' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No UI audit report found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload audit report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-audit-report
+          path: systest/ui-audit/report/
+          retention-days: 14
