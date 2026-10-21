@@ -319,3 +319,7 @@ export interface SeriesEpisodeContextDto {
   next_video_id: string | null;
   page_cursor: string | null;
 }
+
+export interface SeriesForVideoDto {
+  items: SeriesSummaryDto[];
+}
