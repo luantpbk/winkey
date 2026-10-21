@@ -26,8 +26,10 @@ export async function runA11yProbes(
             const selector = node.target?.join(' ') || 'document';
             const fg = data.fgColor || 'unknown';
             const bg = data.bgColor || 'unknown';
-            const ratio = data.contrastRatio != null ? Number(data.contrastRatio).toFixed(2) : 'unknown';
-            const expected = data.expectedContrastRatio != null ? `${data.expectedContrastRatio}:1` : '4.5:1';
+            const ratio =
+              data.contrastRatio != null ? Number(data.contrastRatio).toFixed(2) : 'unknown';
+            const expected =
+              data.expectedContrastRatio != null ? `${data.expectedContrastRatio}:1` : '4.5:1';
 
             findings.push({
               id: '',

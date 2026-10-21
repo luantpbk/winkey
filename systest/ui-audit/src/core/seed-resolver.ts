@@ -22,9 +22,7 @@ export function loadSeedManifest(): SeedContext {
         const data = JSON.parse(content);
         return {
           categorySlug:
-            data.categorySlug ||
-            (data.categories && data.categories[0]?.slug) ||
-            'phim',
+            data.categorySlug || (data.categories && data.categories[0]?.slug) || 'phim',
           tagSlug:
             data.tagSlug ||
             (data.videos && data.videos[0]?.tags && data.videos[0].tags[0]) ||
