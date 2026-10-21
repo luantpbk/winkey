@@ -1,6 +1,7 @@
 // systest/ui-audit/src/index.ts
 import { chromium } from 'playwright';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { VIEWPORTS } from './config/viewports.js';
 import { PERSONA_ROUTES } from './config/personas.js';
 import { loadSeedManifest, resolveRoute } from './core/seed-resolver.js';
@@ -15,11 +16,14 @@ import { generateMarkdownReport } from './reporting/markdown.js';
 import { syncFindingsToGitHub } from './reporting/github-sync.js';
 import { AuditFinding, PersonaRole } from './types.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const outputDir = path.resolve(__dirname, '../report');
+
 export async function runUiAudit(): Promise<{ p0Count: number; reportPath: string }> {
   const startTime = Date.now();
   const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8080';
   const syncGh = process.argv.includes('--sync-gh') || process.env.SYNC_GH === 'true';
-  const outputDir = path.resolve(process.cwd(), 'systest/ui-audit/report');
 
   console.log(`[UX1 Audit] Starting automated UI audit on 8 viewports against ${baseUrl}...`);
 

@@ -30,5 +30,11 @@
       ></div>
       <button id="covered-btn" style="position: absolute; inset: 0; z-index: 1">Nút bị che</button>
     </div>
+
+    <!-- 6. Target _blank link -> opens popup/tab (reaction detected, NOT dead control) -->
+    <a id="blank-link" href="https://example.com" target="_blank">Link tab mới</a>
+
+    <!-- 7. Already selected tab (aria-selected="true") -> ignored, NOT dead control -->
+    <button id="active-tab" role="tab" aria-selected="true">Tab đang chọn</button>
   </body>
 </html>
