@@ -1,5 +1,5 @@
 // systest/ui-audit/src/probes/dead-control.probe.ts
-import { Page } from 'playwright';
+import { Page, Dialog } from 'playwright';
 import { AuditFinding, PersonaRole, ViewportSpec } from '../types.js';
 import { DENYLIST_REGEX, DENYLIST_SELECTOR } from '../config/denylist.js';
 
@@ -218,21 +218,40 @@ export async function runDeadControlProbes(
         continue;
       }
 
-      // 0. Skip elements that are already in active / selected state
+      // 0. Skip elements that are already in active / selected state (ARIA & visual active tab heuristics)
       const isAlreadyActive = await loc
         .evaluate((el) => {
           const ac = el.getAttribute('aria-current');
-          const as = el.getAttribute('aria-selected');
-          const ap = el.getAttribute('aria-pressed');
-          const da = el.getAttribute('data-active');
-          const ds = el.getAttribute('data-state');
-          return (
+          if (
             (ac && ac !== 'false') ||
-            as === 'true' ||
-            ap === 'true' ||
-            da === 'true' ||
-            ds === 'active'
-          );
+            el.getAttribute('aria-selected') === 'true' ||
+            el.getAttribute('aria-pressed') === 'true' ||
+            el.getAttribute('data-active') === 'true' ||
+            el.getAttribute('data-state') === 'active'
+          ) {
+            return true;
+          }
+
+          // Heuristic for tabs using active class (e.g. channel-tabs.tsx with border-b-2)
+          const cls = typeof el.className === 'string' ? el.className : '';
+          const hasActiveClass = cls.includes('border-b-2') || /\bactive\b/i.test(cls);
+          if (hasActiveClass && el.parentElement) {
+            const siblings = Array.from(el.parentElement.children).filter(
+              (c) => c !== el && c.tagName === el.tagName,
+            );
+            if (
+              siblings.some(
+                (s) =>
+                  !(
+                    typeof s.className === 'string' &&
+                    (s.className.includes('border-b-2') || /\bactive\b/i.test(s.className))
+                  ),
+              )
+            ) {
+              return true;
+            }
+          }
+          return false;
         })
         .catch(() => false);
 
@@ -303,8 +322,10 @@ export async function runDeadControlProbes(
       };
       page.on('request', onRequest);
 
-      // Listen for popup / new tab (target="_blank" or window.open)
+      // Listen for popup / new tab (target="_blank" or window.open) and native dialogs (alert/confirm/prompt)
       let popupDetected = false;
+      let dialogDetected = false;
+
       const onPopup = (p: Page) => {
         popupDetected = true;
         p.close().catch(() => {});
@@ -315,8 +336,14 @@ export async function runDeadControlProbes(
           p.close().catch(() => {});
         }
       };
+      const onDialog = (d: Dialog) => {
+        dialogDetected = true;
+        d.dismiss().catch(() => {});
+      };
+
       page.on('popup', onPopup);
       page.context().on('page', onContextPage);
+      page.on('dialog', onDialog);
 
       const beforeSig = await captureStateSignature(page, networkCounter);
 
@@ -344,13 +371,14 @@ export async function runDeadControlProbes(
       page.off('request', onRequest);
       page.off('popup', onPopup);
       page.context().off('page', onContextPage);
+      page.off('dialog', onDialog);
 
       // 4. Change detection
       const urlChanged = beforeSig.url !== afterSig.url;
       const networkChanged = networkCounter.count > 0;
       const stateChanged = diffSignatures(beforeSig, afterSig);
 
-      if (!urlChanged && !networkChanged && !stateChanged && !popupDetected) {
+      if (!urlChanged && !networkChanged && !stateChanged && !popupDetected && !dialogDetected) {
         if (isSearchWithEmptyQuery) {
           findings.push({
             id: '',
@@ -378,7 +406,7 @@ export async function runDeadControlProbes(
           viewport: vp.id,
           route,
           selector: target.description,
-          message: `Dead control detected: Clicking element "${target.description}" did not trigger URL navigation, DOM mutation, storage change, active element change, popup/tab, or network requests.`,
+          message: `Dead control detected: Clicking element "${target.description}" did not trigger URL navigation, DOM mutation, storage change, active element change, popup/tab, native dialog, or network requests.`,
           isBackendSuspect: isKnownBackendGap,
         });
       }
