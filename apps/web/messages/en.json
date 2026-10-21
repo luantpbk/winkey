@@ -54,6 +54,11 @@
     "episodesList": "Episode list",
     "episodeNumber": "Episode {number}",
     "currentEpisode": "Now playing",
+    "nextEpisodeIn": "Next episode in",
+    "cancel": "Cancel",
+    "playNow": "Play now",
+    "collapse": "Collapse",
+    "expand": "Expand",
     "editVideo": "Edit"
   },
   "channel": {

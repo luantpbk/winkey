@@ -54,6 +54,11 @@
     "episodesList": "Danh sách tập",
     "episodeNumber": "Tập {number}",
     "currentEpisode": "Đang phát",
+    "nextEpisodeIn": "Tập tiếp theo sau",
+    "cancel": "Huỷ",
+    "playNow": "Phát ngay",
+    "collapse": "Thu gọn",
+    "expand": "Mở rộng",
     "editVideo": "Chỉnh sửa"
   },
   "channel": {

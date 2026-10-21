@@ -14,7 +14,13 @@ import { addToWatchLater } from '../../../../lib/playlist/playlist-utils';
 import { useToast } from '../../../../components/ui/toast';
 import { useAuth } from '../../../../lib/auth/auth-context';
 
-export function WatchClientSection({ video }: { video: Video }) {
+export function WatchClientSection({
+  video,
+  mobileEpisodesSlot,
+}: {
+  video: Video;
+  mobileEpisodesSlot?: React.ReactNode;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -179,6 +185,9 @@ export function WatchClientSection({ video }: { video: Video }) {
           />
         </div>
       </div>
+
+      {/* Mobile Episode List Slot (under action row on screens < lg) */}
+      {mobileEpisodesSlot}
 
       {/* Description Box */}
       <div className="rounded-2xl bg-[#1f1f1f] dark:bg-[#1f1f1f] bg-gray-100 p-4 text-sm text-gray-800 dark:text-gray-200">
