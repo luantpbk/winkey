@@ -6,7 +6,6 @@ import { CinemaHero } from '../src/components/cinema/cinema-hero';
 import { CinemaCard } from '../src/components/cinema/cinema-card';
 import { CinemaSeriesCard } from '../src/components/cinema/cinema-series-card';
 import { CinemaShell } from '../src/components/layout/cinema-shell';
-import type { VideoSummary, Playlist } from '@winkey/api-client';
 
 beforeAll(() => {
   global.IntersectionObserver = vi.fn().mockImplementation(() => ({
