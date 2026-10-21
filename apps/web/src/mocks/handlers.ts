@@ -71,6 +71,7 @@ import {
   mockAuditEntries,
   mockSeriesPlaylist,
   mockSeriesEpisodes,
+  mockSeriesSummary,
   mockCinemaCatalogItems,
 } from './fixtures';
 
