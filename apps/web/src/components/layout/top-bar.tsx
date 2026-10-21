@@ -42,20 +42,19 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
   return (
     <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-[#272727] dark:border-[#272727] border-gray-200 bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white px-4 transition-colors">
       {/* Left: Menu + Logo */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         <button
           onClick={onToggleSidebar}
           aria-label="Toggle navigation menu"
           data-testid="sidebar-toggle-btn"
-          className="rounded-full p-2 text-gray-400 hover:bg-[#272727] hover:text-white dark:hover:bg-[#272727] hover:bg-gray-100 transition"
+          className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] hover:text-white dark:hover:bg-[#272727] hover:bg-gray-100 transition"
         >
           <Menu className="h-5 w-5" />
         </button>
 
         <Link
           href="/"
-          aria-label="Winkey – Trang chủ"
-          className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-600 rounded"
+          className="flex items-center gap-1.5 min-h-11 min-w-11 px-1 focus:outline-none focus:ring-2 focus:ring-red-600 rounded"
         >
           <BrandLogo />
         </Link>
@@ -84,12 +83,12 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
       </form>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         {/* Light/Dark Toggle */}
         <button
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
-          className="rounded-full p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+          className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
         >
           {theme === 'dark' ? (
             <Sun className="h-5 w-5 text-yellow-400" />
@@ -103,7 +102,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             {/* Upload Button */}
             <Link
               href="/upload"
-              className="flex items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
+              className="flex min-h-11 items-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
             >
               <VideoIcon className="h-4 w-4 text-red-500" />
               <span className="hidden md:inline">{t('upload')}</span>
@@ -112,7 +111,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             {/* Studio Link */}
             <Link
               href="/studio"
-              className="rounded-full p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+              className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
               title={t('studio')}
             >
               <LayoutDashboard className="h-5 w-5" />
@@ -125,7 +124,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
             <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center focus:outline-none focus:ring-2 focus:ring-red-600 rounded-full"
+                className="flex min-w-11 min-h-11 items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-600 rounded-full"
                 aria-label="User profile menu"
               >
                 {user?.avatar_url ? (
@@ -220,13 +219,13 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="rounded-full border border-blue-500/50 px-3.5 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-500/10 transition"
+              className="inline-flex items-center justify-center min-h-11 min-w-11 rounded-full border border-blue-500/50 px-3.5 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-500/10 transition"
             >
               {t('signIn')}
             </Link>
             <Link
               href="/register"
-              className="hidden sm:inline-block rounded-full bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition"
+              className="hidden sm:inline-flex items-center justify-center min-h-11 min-w-11 rounded-full bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 transition"
             >
               {t('register')}
             </Link>

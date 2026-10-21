@@ -23,7 +23,7 @@ export function VideoStudioHeader({ videoId, video, isLoading }: VideoStudioHead
       <div>
         <Link
           href="/studio"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-white transition"
+          className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Quay lại Studio</span>
@@ -62,7 +62,7 @@ export function VideoStudioHeader({ videoId, video, isLoading }: VideoStudioHead
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
             isDetails
               ? 'border-red-600 text-red-500 dark:text-white'
-              : 'border-transparent text-gray-500 hover:text-gray-300'
+              : 'border-transparent text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-200'
           }`}
         >
           <FileText className="h-4 w-4" />
@@ -75,7 +75,7 @@ export function VideoStudioHeader({ videoId, video, isLoading }: VideoStudioHead
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
             isAnalytics
               ? 'border-red-600 text-red-500 dark:text-white'
-              : 'border-transparent text-gray-500 hover:text-gray-300'
+              : 'border-transparent text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-200'
           }`}
         >
           <BarChart2 className="h-4 w-4" />

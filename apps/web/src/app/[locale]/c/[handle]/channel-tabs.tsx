@@ -57,7 +57,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           className={`px-4 py-3 transition ${
             activeTab === 'videos'
               ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
           }`}
         >
           Video
@@ -70,7 +70,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           className={`px-4 py-3 transition ${
             activeTab === 'playlists'
               ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
           }`}
         >
           Danh sách phát
@@ -83,7 +83,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           className={`px-4 py-3 transition ${
             activeTab === 'about'
               ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
           }`}
         >
           Giới thiệu

@@ -93,7 +93,7 @@ export function VideoFeed({
           data-testid="feed-loading-skeletons"
           className={
             gridClassName ||
-            'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8'
+            'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6 gap-x-4 gap-y-8'
           }
         >
           {Array.from({ length: 8 }).map((_, i) => (
@@ -126,7 +126,7 @@ export function VideoFeed({
           data-testid="video-feed-grid"
           className={
             gridClassName ||
-            'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8'
+            'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6 gap-x-4 gap-y-8'
           }
         >
           {allVideos.map((video, index) =>

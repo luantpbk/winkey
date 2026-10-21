@@ -189,7 +189,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'for-you'}
           data-testid="tab-for-you"
           onClick={() => handleTabChange('for-you')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'for-you'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -203,7 +203,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'latest'}
           data-testid="tab-latest"
           onClick={() => handleTabChange('latest')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'latest'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -217,7 +217,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'trending'}
           data-testid="tab-trending"
           onClick={() => handleTabChange('trending')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'trending'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -242,7 +242,7 @@ function KhamPhaContent() {
               aria-pressed={isSelected}
               data-testid={`category-chip-${chip.id}`}
               onClick={() => handleCatChange(chip.id)}
-              className={`rounded-lg px-3 py-1.5 whitespace-nowrap transition cursor-pointer ${
+              className={`rounded-lg px-3.5 min-h-11 inline-flex items-center justify-center whitespace-nowrap transition cursor-pointer ${
                 isSelected
                   ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                   : 'bg-gray-100 dark:bg-[#272727] text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-[#383838]'
@@ -356,7 +356,7 @@ function KhamPhaContent() {
       {activeTab === null && (
         <div
           data-testid="feed-skeleton"
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 mt-2"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6 gap-x-4 gap-y-8 mt-2"
         >
           {Array.from({ length: 8 }).map((_, i) => (
             <VideoSkeleton key={i} />
