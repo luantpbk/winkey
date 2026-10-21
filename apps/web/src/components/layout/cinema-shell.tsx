@@ -97,7 +97,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
         {/* Brand Logo */}
         <Link
           href="/"
-          className="flex items-center gap-2.5 shrink-0 focus:outline-none focus:ring-2 focus:ring-[#FF0033] rounded-lg"
+          className="flex items-center gap-2.5 shrink-0 focus:outline-none focus:ring-2 focus:ring-[#FF0033] rounded-lg min-h-11 min-w-11 px-1"
         >
           <span className="w-8 h-8 rounded-lg bg-[#FF0033] flex items-center justify-center text-white shadow-md">
             <Play className="w-4 h-4 fill-current ml-0.5" />
@@ -182,7 +182,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 aria-label="Tài khoản"
                 data-testid="cinema-account-btn"
-                className="w-9 h-9 rounded-lg bg-[#3D5AFE] text-white font-bold text-sm flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#FF0033] overflow-hidden"
+                className="w-11 h-11 rounded-lg bg-[#3D5AFE] text-white font-bold text-sm flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#FF0033] overflow-hidden"
               >
                 {user?.avatar_url ? (
                   <img
@@ -270,13 +270,13 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
             <div className="flex items-center gap-2 ml-2">
               <Link
                 href="/login"
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-white/10 hover:bg-white/20 text-white transition"
+                className="min-h-11 min-w-11 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-lg bg-white/10 hover:bg-white/20 text-white transition"
               >
                 {tNav('signIn')}
               </Link>
               <Link
                 href="/register"
-                className="px-4 py-2 text-sm font-semibold rounded-lg bg-white text-[#0A0A0D] hover:bg-[#E4E4E8] transition"
+                className="min-h-11 min-w-11 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-lg bg-white text-[#0A0A0D] hover:bg-[#E4E4E8] transition"
               >
                 {tNav('register')}
               </Link>
@@ -295,7 +295,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
               : 'bg-gradient-to-b from-[#0A0A0D]/90 to-transparent'
           }`}
         >
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="inline-flex items-center gap-2 min-h-11 min-w-11 px-1">
             <span className="w-7 h-7 rounded-lg bg-[#FF0033] flex items-center justify-center text-white">
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </span>
@@ -312,22 +312,25 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
         </header>
 
         {/* Quick Chips Nav */}
-        <nav aria-label="Lọc nhanh" className="px-4 pb-2 flex gap-2 overflow-x-auto scrollbar-none">
+        <nav
+          aria-label="Lọc nhanh"
+          className="px-4 pb-2 flex items-center gap-2 overflow-x-auto scrollbar-none"
+        >
           <Link
             href="/trending"
-            className="h-8 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
+            className="min-h-11 min-w-11 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center justify-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
           >
             {tCin('trending')}
           </Link>
           <Link
             href="/kham-pha"
-            className="h-8 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
+            className="min-h-11 min-w-11 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center justify-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
           >
             {tCin('explore')}
           </Link>
           <Link
             href={isAuthenticated ? '/thu-vien' : '/login?return_to=/thu-vien'}
-            className="h-8 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
+            className="min-h-11 min-w-11 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center justify-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
           >
             {tCin('my')}
           </Link>
@@ -349,7 +352,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
               type="button"
               onClick={() => setSearchOverlayOpen(false)}
               aria-label="Đóng tìm kiếm"
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/10"
+              className="w-11 h-11 rounded-full flex items-center justify-center text-white hover:bg-white/10"
             >
               <X className="w-6 h-6" />
             </button>
@@ -368,7 +371,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
               <button
                 type="submit"
                 aria-label="Thực hiện tìm kiếm"
-                className="absolute right-3 w-10 h-10 rounded-lg bg-white text-[#0A0A0D] flex items-center justify-center hover:bg-[#E4E4E8]"
+                className="absolute right-3 w-11 h-11 rounded-lg bg-white text-[#0A0A0D] flex items-center justify-center hover:bg-[#E4E4E8]"
               >
                 <Search className="w-5 h-5" />
               </button>

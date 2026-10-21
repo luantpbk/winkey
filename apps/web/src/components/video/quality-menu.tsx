@@ -55,7 +55,7 @@ export function QualityMenu({
         onClick={() => setIsOpen(!isOpen)}
         aria-label="Chọn chất lượng video"
         aria-expanded={isOpen}
-        className="flex items-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/80 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md transition border border-white/10 focus:outline-none focus:ring-2 focus:ring-red-500"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-black/60 hover:bg-black/80 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur-md transition border border-white/10 focus:outline-none focus:ring-2 focus:ring-red-500"
       >
         <Settings className="h-4 w-4" />
         <span className="hidden sm:inline">{activeLabel}</span>

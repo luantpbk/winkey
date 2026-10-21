@@ -204,15 +204,17 @@ export function CinemaCard({
           >
             {/* Quick Action Buttons */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 {/* Watch button: White circle with dark text */}
                 <Link
                   href={watchHref}
                   data-testid="cinema-card-quick-watch"
                   aria-label={t('watchNow')}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] shadow transition-transform active:scale-95"
+                  className="inline-flex min-w-11 min-h-11 items-center justify-center p-0 focus:outline-none"
                 >
-                  <Play className="h-4 w-4 fill-current ml-0.5" />
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white hover:bg-[#E4E4E8] text-[#0A0A0D] shadow transition-transform active:scale-95 pointer-events-none">
+                    <Play className="h-4 w-4 fill-current ml-0.5" />
+                  </span>
                 </Link>
 
                 {/* Watch later button: bordered ghost circle */}
@@ -221,9 +223,11 @@ export function CinemaCard({
                   onClick={handleWatchLaterClick}
                   data-testid="cinema-card-quick-watch-later"
                   aria-label={t('watchLater')}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors"
+                  className="inline-flex min-w-11 min-h-11 items-center justify-center p-0 focus:outline-none"
                 >
-                  <Plus className="h-4 w-4" />
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors pointer-events-none">
+                    <Plus className="h-4 w-4" />
+                  </span>
                 </button>
               </div>
 
@@ -233,9 +237,11 @@ export function CinemaCard({
                 onClick={handleDetailsClick}
                 data-testid="cinema-card-quick-details"
                 aria-label={t('details')}
-                className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors"
+                className="inline-flex min-w-11 min-h-11 items-center justify-center p-0 focus:outline-none"
               >
-                <Info className="h-4 w-4" />
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border-[1.5px] border-white/55 bg-transparent hover:bg-white/10 text-white transition-colors pointer-events-none">
+                  <Info className="h-4 w-4" />
+                </span>
               </button>
             </div>
 

@@ -1,0 +1,5 @@
+# Standalone package (not in the root workspace): only esbuild may run install scripts.
+packages: []
+
+allowBuilds:
+  esbuild: true
