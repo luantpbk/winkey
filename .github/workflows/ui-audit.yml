@@ -42,10 +42,8 @@ jobs:
       - name: Install dependencies
         run: |
           pnpm install --frozen-lockfile
-          pnpm --dir systest/ui-audit install --config.dangerously-allow-all-builds=true || (
-            pnpm --dir systest/ui-audit approve-builds --all &&
-            pnpm --dir systest/ui-audit rebuild esbuild
-          )
+          # Standalone package with its own lockfile; its pnpm-workspace.yaml allows only esbuild's build script.
+          pnpm --dir systest/ui-audit install --frozen-lockfile
 
       - name: Install Playwright browsers
         run: pnpm --dir systest/ui-audit exec playwright install --with-deps chromium
