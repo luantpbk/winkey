@@ -8,6 +8,7 @@ import { CinemaShell } from './cinema-shell';
 import { Footer } from './footer';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
+import { useTvMode } from '../../lib/tv-mode';
 
 export function Shell({
   children,
@@ -20,7 +21,8 @@ export function Shell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
 
-  useSpatialNavigation();
+  const { isTvMode } = useTvMode();
+  useSpatialNavigation(isTvMode);
 
   const isCinemaHome = pathname === '/' || pathname === '';
 

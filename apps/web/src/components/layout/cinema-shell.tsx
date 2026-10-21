@@ -8,7 +8,6 @@ import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { beVietnamPro } from '../../lib/fonts';
 import { Footer } from './footer';
-import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
 import {
   Search,
   Upload,
@@ -59,8 +58,6 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
       setTimeout(() => searchInputRef.current?.focus(), 50);
     }
   }, [searchOverlayOpen]);
-
-  useSpatialNavigation();
 
   // Escape key handler for search overlay (UX1 Issue #401 TV dialog trap)
   useEffect(() => {

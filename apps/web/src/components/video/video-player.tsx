@@ -927,6 +927,7 @@ export function VideoPlayer({
   return (
     <div
       ref={containerRef}
+      data-spatial-nav="off"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       className={`group relative overflow-hidden bg-black flex items-center justify-center select-none ${
