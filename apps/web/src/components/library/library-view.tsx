@@ -22,6 +22,24 @@ import {
   FolderHeart,
 } from 'lucide-react';
 
+function PlaylistCardSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col gap-3 rounded-2xl p-3 bg-zinc-900/60 border border-zinc-800/80 shadow-md"
+    >
+      <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 animate-pulse" />
+      <div className="flex flex-col gap-1.5 px-0.5">
+        <div className="min-h-[20px] flex items-center gap-1.5">
+          <div className="h-5 w-16 rounded-md bg-zinc-800 animate-pulse" />
+        </div>
+        <div className="h-5 w-3/4 rounded bg-zinc-800 animate-pulse mt-0.5" />
+        <div className="h-4 w-1/3 rounded bg-zinc-800/70 animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
 export function LibraryView() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -163,22 +181,13 @@ export function LibraryView() {
     }
   };
 
-  if (authLoading || (isAuthenticated && loading && playlists.length === 0)) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-zinc-400 gap-3">
-        <Loader2 className="h-8 w-8 animate-spin text-red-500" />
-        <span className="text-sm font-medium">Đang tải Thư viện...</span>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
+  if (!authLoading && !isAuthenticated) {
     return null; // redirecting to login in useEffect
   }
 
   return (
     <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-      {/* Page Header */}
+      {/* Page Header (Static Shell - Zero Shift) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-zinc-800">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600/10 text-red-500 border border-red-500/20">
@@ -206,8 +215,17 @@ export function LibraryView() {
         </button>
       </div>
 
-      {/* Grid of Playlists */}
-      {playlists.length === 0 ? (
+      {/* Content Area: Skeleton Grid while loading, Empty State if 0, else Playlists Grid */}
+      {loading && playlists.length === 0 ? (
+        <div
+          data-testid="library-playlists-skeleton"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <PlaylistCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : playlists.length === 0 ? (
         /* Empty State */
         <div
           data-testid="library-empty-state"
@@ -247,44 +265,44 @@ export function LibraryView() {
                 data-testid={`library-playlist-card-${pl.id}`}
                 className="group flex flex-col gap-3 rounded-2xl p-3 bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800/80 hover:border-zinc-700/90 shadow-md hover:shadow-xl transition duration-200"
               >
-                {/* Thumbnail Cover 16:9 */}
-                <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 shadow-sm">
-                  {coverUrl ? (
+                {/* Thumbnail Cover 16:9 with Intrinsic Aspect Ratio Container */}
+                <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 shadow-sm shrink-0">
+                  <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-black flex items-center justify-center">
+                    {isWatchLater ? (
+                      <Clock className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
+                    ) : (
+                      <ListVideo className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
+                    )}
+                  </div>
+                  {coverUrl && (
                     <img
                       src={coverUrl}
                       alt={pl.title}
                       loading="lazy"
-                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                      decoding="async"
+                      className="absolute inset-0 h-full w-full object-cover transition duration-300 group-hover:scale-105"
                     />
-                  ) : (
-                    <div className="h-full w-full bg-gradient-to-br from-zinc-800 via-zinc-900 to-black flex items-center justify-center">
-                      {isWatchLater ? (
-                        <Clock className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
-                      ) : (
-                        <ListVideo className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
-                      )}
-                    </div>
                   )}
 
                   {/* Item count overlay badge (bottom right) */}
-                  <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-[11px] font-semibold text-white">
+                  <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-[11px] font-semibold text-white pointer-events-none">
                     <ListVideo className="h-3.5 w-3.5" />
                     <span>{pl.item_count} video</span>
                   </div>
 
                   {/* Watch Later badge (bottom left) */}
                   {isWatchLater && (
-                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/90 backdrop-blur-xs text-[11px] font-bold text-white shadow-sm">
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/90 backdrop-blur-xs text-[11px] font-bold text-white shadow-sm pointer-events-none">
                       <Clock className="h-3.5 w-3.5" />
                       <span>{tPl('watchLater')}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Card Info */}
+                {/* Card Info (Fixed heights to prevent CLS) */}
                 <div className="flex flex-col gap-1.5 px-0.5">
                   {/* Badges: Visibility & Series */}
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="min-h-[20px] flex flex-wrap items-center gap-1.5">
                     {/* Visibility badge */}
                     <span
                       data-testid="playlist-visibility-badge"
@@ -321,12 +339,12 @@ export function LibraryView() {
                   </div>
 
                   {/* Title */}
-                  <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-red-500 transition mt-0.5">
+                  <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-red-500 transition mt-0.5 h-5 leading-5">
                     {isWatchLater ? tPl('watchLater') : pl.title}
                   </h3>
 
                   {/* Updated time */}
-                  <span className="text-[11px] text-zinc-500">
+                  <span className="text-[11px] text-zinc-500 h-4 leading-4 block truncate">
                     Cập nhật {formatRelativeTime(pl.updated_at)}
                   </span>
                 </div>
