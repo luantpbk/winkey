@@ -409,7 +409,7 @@ export function CinemaHero({
       <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 sm:p-10 md:p-14 max-w-4xl pb-16 sm:pb-20">
         {/* TOP Badge & Trending label */}
         <div className="flex items-center gap-2.5 mb-2">
-          <span className="inline-flex items-center justify-center h-[26px] px-2 rounded bg-[#FF0033] text-white text-[13px] font-extrabold tracking-wide">
+          <span className="inline-flex items-center justify-center h-[26px] px-2 rounded bg-[#D9002B] text-white text-[13px] font-extrabold tracking-wide">
             TOP {activeIndex + 1}
           </span>
           <span className="text-[15px] font-semibold text-[#F4F4F6]">

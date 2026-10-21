@@ -97,7 +97,6 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
         {/* Brand Logo */}
         <Link
           href="/"
-          aria-label="Winkey, trang chủ"
           className="flex items-center gap-2.5 shrink-0 focus:outline-none focus:ring-2 focus:ring-[#FF0033] rounded-lg"
         >
           <span className="w-8 h-8 rounded-lg bg-[#FF0033] flex items-center justify-center text-white shadow-md">
@@ -296,7 +295,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
               : 'bg-gradient-to-b from-[#0A0A0D]/90 to-transparent'
           }`}
         >
-          <Link href="/" aria-label="Winkey, trang chủ" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <span className="w-7 h-7 rounded-lg bg-[#FF0033] flex items-center justify-center text-white">
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </span>

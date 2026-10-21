@@ -54,7 +54,6 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
 
         <Link
           href="/"
-          aria-label="Winkey – Trang chủ"
           className="flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-red-600 rounded"
         >
           <BrandLogo />
