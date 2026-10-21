@@ -506,6 +506,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public series that contain a video as a playable episode (task CIN3, ADR-045). Optional auth.
+         * @description Lets the watch page show the episode list when the link has no `?playlist=` (search, history, Google, a
+         *     shared link). Returns at most 5 series, newest `updated_at` first; clients use the first one and then call
+         *     `getSeriesEpisode`. Same rules as `listSeriesEpisodes`: only `PUBLIC` playlists with `is_series` whose
+         *     episode list contains `video_id` as a **playable** episode. An unknown, non-playable or non-episode video
+         *     is an empty list (never 404). `Cache-Control: public, max-age=60`.
+         *     Gateway: `/v1/series` already goes to social-svc.
+         */
+        get: operations["listSeriesForVideo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/series/{playlist_id}/episodes": {
         parameters: {
             query?: never;
@@ -798,6 +823,9 @@ export interface components {
             first_video_id: components["schemas"]["Uuid"];
             /** Format: date-time */
             updated_at: string;
+        };
+        SeriesForVideo: {
+            items: components["schemas"]["SeriesSummary"][];
         };
         CinemaCatalogItem: components["schemas"]["CinemaCatalogSeries"] | components["schemas"]["CinemaCatalogVideo"];
         CinemaCatalogSeries: {
@@ -1811,6 +1839,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CinemaCatalogPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    listSeriesForVideo: {
+        parameters: {
+            query: {
+                video_id: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series containing the video (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesForVideo"];
                 };
             };
             400: components["responses"]["BadRequest"];
