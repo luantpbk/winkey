@@ -44,7 +44,7 @@ export function CcMenu({ tracks, selectedLang, onSelectTrack }: CcMenuProps) {
         aria-label="Chọn phụ đề"
         aria-expanded={isOpen}
         data-testid="cc-menu-button"
-        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition border focus:outline-none focus:ring-2 focus:ring-red-500 ${
+        className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition border focus:outline-none focus:ring-2 focus:ring-red-500 ${
           isCaptionsActive
             ? 'bg-red-600 text-white border-red-500'
             : 'bg-black/60 hover:bg-black/80 text-white border-white/10'

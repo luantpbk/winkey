@@ -141,7 +141,7 @@ export function SubscribeButton({
       onClick={handleToggleSubscribe}
       aria-label={subscribed ? t('subscribed') : t('subscribe')}
       aria-pressed={subscribed}
-      className={`rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-600 ${
+      className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-600 ${
         subscribed
           ? 'bg-[#272727] dark:bg-[#272727] bg-gray-200 text-gray-800 dark:text-gray-300 hover:bg-[#383838]'
           : 'bg-red-600 text-white hover:bg-red-700'

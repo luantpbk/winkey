@@ -512,14 +512,21 @@ export function CinemaHero({
           {videos.map((vid, idx) => (
             <button
               key={vid.id}
+              type="button"
               onClick={() => setActiveIndex(idx)}
               aria-label={`Video nổi bật ${idx + 1} trên ${videos.length}`}
               aria-pressed={idx === activeIndex}
               data-testid={`cinema-hero-dot-${idx}`}
-              className={`h-1 rounded-sm transition-all duration-300 ${
-                idx === activeIndex ? 'w-10 bg-[#FF0033]' : 'w-4 bg-white/30 hover:bg-white/60'
-              }`}
-            />
+              className="group inline-flex items-center justify-center min-w-11 min-h-11 p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
+            >
+              <span
+                className={`h-1 rounded-sm transition-all duration-300 block pointer-events-none ${
+                  idx === activeIndex
+                    ? 'w-10 bg-[#FF0033]'
+                    : 'w-4 bg-white/30 group-hover:bg-white/60'
+                }`}
+              />
+            </button>
           ))}
         </div>
       )}

@@ -1,8 +1,6 @@
 # Dependencies & Build artifacts
 node_modules/
 .pnpm-store/
-pnpm-lock.yaml
-pnpm-workspace.yaml
 
 # Auth & Runtime cache
 .auth-cache/
