@@ -120,7 +120,7 @@ export function LikeButton({ videoId, initialLikeCount = 0 }: LikeButtonProps) {
       onClick={handleToggleLike}
       aria-label={liked ? t('liked') : t('like')}
       aria-pressed={liked}
-      className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-600 ${
+      className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-600 ${
         liked
           ? 'bg-red-600/20 text-red-500 border border-red-500/40'
           : 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-gray-800 dark:text-gray-200 hover:bg-[#383838]'

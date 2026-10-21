@@ -260,7 +260,7 @@ export function CinemaDetailDialog({
           onClick={onClose}
           aria-label={t('close')}
           data-testid="cinema-detail-close-btn"
-          className="absolute top-4 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-[#0A0A0D] hover:bg-white/20 text-white transition-colors"
+          className="absolute top-4 right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-[#0A0A0D] hover:bg-white/20 text-white transition-colors"
         >
           <X className="h-5 w-5" />
         </button>
