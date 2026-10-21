@@ -69,7 +69,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="w-full h-10 rounded-l-full border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#121212] dark:bg-[#121212] bg-gray-50 px-4 text-sm text-gray-900 dark:text-white focus:border-blue-500 focus:outline-none placeholder-gray-500"
+              className="w-full h-10 rounded-l-full border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#121212] dark:bg-[#121212] bg-gray-50 px-4 text-sm text-gray-900 dark:text-white focus:outline-2 focus:outline-[#D9002B] focus:ring-2 focus:ring-[#D9002B] focus:border-transparent placeholder-gray-500"
             />
           </div>
           <button

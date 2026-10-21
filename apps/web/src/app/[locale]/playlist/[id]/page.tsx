@@ -73,6 +73,19 @@ export default function PlaylistPage() {
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
+  // Handle Escape key for modals (UX1 Issue #401 TV dialog trap)
+  useEffect(() => {
+    if (!showEditModal && !showDeleteConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showEditModal && !savingEdit) setShowEditModal(false);
+        if (showDeleteConfirm && !deleting) setShowDeleteConfirm(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showEditModal, showDeleteConfirm, savingEdit, deleting]);
+
   const isOwner = Boolean(isAuthenticated && user && playlist && user.id === playlist.owner.id);
 
   // Load playlist metadata
