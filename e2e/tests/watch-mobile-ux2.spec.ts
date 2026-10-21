@@ -19,7 +19,6 @@ test.describe('UX2: Mobile Watch Page and Player Controls (ADR-045)', () => {
       await page.waitForLoadState('domcontentloaded');
 
       // Wait for player and action bar
-      const playerControls = page.locator('[data-testid="player-controls"]');
       const actionBar = page.locator('[data-testid="watch-action-bar"]');
       await expect(actionBar).toBeVisible();
 
