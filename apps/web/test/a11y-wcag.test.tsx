@@ -5,7 +5,6 @@ import { TopBar } from '../src/components/layout/top-bar';
 import { CinemaHero } from '../src/components/cinema/cinema-hero';
 import { StudioNav } from '../src/components/studio/studio-nav';
 import { Sidebar } from '../src/components/layout/sidebar';
-import type { VideoSummary } from '@winkey/api-client';
 
 beforeAll(() => {
   global.IntersectionObserver = vi.fn().mockImplementation(() => ({
