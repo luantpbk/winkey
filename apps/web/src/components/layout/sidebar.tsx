@@ -256,7 +256,7 @@ export function Sidebar({
                   </a>
                 )}
               </nav>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500">{tCin('copyright')}</p>
+              <p className="text-[11px] text-gray-500 dark:text-zinc-400">{tCin('copyright')}</p>
             </div>
           </>
         )}

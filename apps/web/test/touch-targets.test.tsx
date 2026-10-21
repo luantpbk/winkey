@@ -71,7 +71,8 @@ describe('UX1 Issue #397: Touch Targets >= 44x44px (ADR-044)', () => {
     expect(sidebarBtn.className).toMatch(/min-h-11|min-h-\[44px\]/);
 
     // Brand logo link
-    const logoLink = screen.getByLabelText('Winkey – Trang chủ');
+    // No aria-label (#398: the accessible name is the visible brand text), so find it by its target.
+    const logoLink = screen.getAllByRole('link').find((l) => l.getAttribute('href') === '/')!;
     expect(logoLink.className).toMatch(/min-h-11|min-h-\[44px\]/);
     expect(logoLink.className).toMatch(/min-w-11|min-w-\[44px\]/);
 

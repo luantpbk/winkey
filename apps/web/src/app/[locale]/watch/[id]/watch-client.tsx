@@ -178,7 +178,7 @@ export function WatchClientSection({ video }: { video: Video }) {
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className="mt-2 text-xs font-bold text-gray-500 hover:text-white transition"
+          className="mt-2 text-xs font-bold text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition"
         >
           {isExpanded ? 'Thu gọn' : 'Xem thêm'}
         </button>

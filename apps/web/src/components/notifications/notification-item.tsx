@@ -143,7 +143,7 @@ export function NotificationItem({
         )}
 
         {/* Timestamp */}
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+        <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1">
           {formatRelativeTime(notification.created_at)}
         </p>
       </div>
