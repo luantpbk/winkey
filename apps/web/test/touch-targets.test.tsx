@@ -1,11 +1,13 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { TopBar } from '../src/components/layout/top-bar';
 import { CinemaHero } from '../src/components/cinema/cinema-hero';
 import { CinemaCard } from '../src/components/cinema/cinema-card';
 import { CinemaSeriesCard } from '../src/components/cinema/cinema-series-card';
 import { CinemaShell } from '../src/components/layout/cinema-shell';
+import { Footer } from '../src/components/layout/footer';
+import { Sidebar } from '../src/components/layout/sidebar';
 
 beforeAll(() => {
   global.IntersectionObserver = vi.fn().mockImplementation(() => ({
@@ -21,6 +23,7 @@ vi.mock('next-intl', () => ({
 }));
 
 // Mock routing Link
+const mockPush = vi.fn();
 vi.mock('../src/i18n/routing', () => ({
   Link: ({ children, href, className, ...props }: any) => (
     <a href={href} className={className} {...props}>
@@ -28,7 +31,7 @@ vi.mock('../src/i18n/routing', () => ({
     </a>
   ),
   usePathname: () => '/',
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
 }));
 
 vi.mock('next/link', () => ({
@@ -40,10 +43,13 @@ vi.mock('next/link', () => ({
 }));
 
 // Mock auth context
+let mockUser: any = null;
+let mockIsAuthenticated = false;
+
 vi.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => ({
-    user: null,
-    isAuthenticated: false,
+    user: mockUser,
+    isAuthenticated: mockIsAuthenticated,
     logout: vi.fn(),
     canAccessAdmin: false,
   }),
@@ -223,6 +229,93 @@ describe('UX1 Issue #397: Touch Targets >= 44x44px (ADR-044)', () => {
     chipLinks.forEach((link) => {
       expect(link.className).toMatch(/min-h-11|min-h-\[44px\]/);
       expect(link.className).toMatch(/min-w-11|min-w-\[44px\]/);
+    });
+  });
+
+  describe('UX1 Issue #429: Touch Targets >= 44px, Tablet shrink-0 & Empty Search Focus', () => {
+    beforeEach(() => {
+      mockPush.mockClear();
+      mockIsAuthenticated = false;
+      mockUser = null;
+    });
+
+    it('1. Footer links (categories & policies) have >= 44px min-height', () => {
+      const { container } = render(<Footer />);
+      const footerLinks = container.querySelectorAll('a');
+      expect(footerLinks.length).toBeGreaterThan(0);
+      footerLinks.forEach((link) => {
+        expect(link.className).toMatch(/min-h-11|min-h-\[44px\]/);
+        expect(link.className).toMatch(/min-w-11|min-w-\[44px\]/);
+      });
+    });
+
+    it('2. Sidebar footer legal links have >= 44px min-height', () => {
+      const { getByTestId } = render(
+        <Sidebar collapsed={false} mobileOpen={false} onCloseMobile={vi.fn()} />,
+      );
+      const sidebarFooter = getByTestId('sidebar-footer');
+      const legalLinks = sidebarFooter.querySelectorAll('a');
+      expect(legalLinks.length).toBeGreaterThan(0);
+      legalLinks.forEach((link) => {
+        expect(link.className).toMatch(/min-h-11|min-h-\[44px\]/);
+        expect(link.className).toMatch(/min-w-11|min-w-\[44px\]/);
+      });
+    });
+
+    it('3. TopBar search submit button and upload button have shrink-0 to prevent 35px squeeze on tablet', () => {
+      mockIsAuthenticated = true;
+      mockUser = { id: 'u1', display_name: 'Tester', handle: 'tester' };
+
+      render(<TopBar onToggleSidebar={vi.fn()} />);
+
+      const searchBtn = screen.getByTestId('search-submit-btn');
+      expect(searchBtn.className).toContain('shrink-0');
+      expect(searchBtn.className).toMatch(/min-w-11|min-w-\[44px\]/);
+      expect(searchBtn.className).toMatch(/min-h-11|min-h-\[44px\]/);
+
+      const uploadBtn = screen.getByTestId('topbar-upload-btn');
+      expect(uploadBtn.className).toContain('shrink-0');
+      expect(uploadBtn.className).toMatch(/min-w-11|min-w-\[44px\]/);
+      expect(uploadBtn.className).toMatch(/min-h-11|min-h-\[44px\]/);
+    });
+
+    it('4. CinemaShell search button and upload button have shrink-0, and nav links meet >= 44px height (py-2.5 min-h-11)', () => {
+      render(
+        <CinemaShell>
+          <div>Content</div>
+        </CinemaShell>,
+      );
+
+      // Search & Upload buttons on topbar have shrink-0
+      const searchBtn = screen.getByTestId('cinema-search-btn');
+      const uploadBtn = screen.getByTestId('cinema-upload-btn');
+      expect(searchBtn.className).toContain('shrink-0');
+      expect(uploadBtn.className).toContain('shrink-0');
+
+      // Primary nav links are >= 44px (py-2.5 min-h-11 shrink-0)
+      const primaryNav = screen.getByRole('navigation', { name: 'Chính' });
+      const navLinks = primaryNav.querySelectorAll('a');
+      expect(navLinks.length).toBeGreaterThan(0);
+      navLinks.forEach((link) => {
+        expect(link.className).toMatch(/min-h-11|min-h-\[44px\]/);
+        expect(link.className).toContain('py-2.5');
+        expect(link.className).toContain('shrink-0');
+      });
+    });
+
+    it('5. (P2) Clicking search button when query is empty focuses the search input', () => {
+      render(<TopBar onToggleSidebar={vi.fn()} />);
+
+      const searchInput = screen.getByPlaceholderText('searchPlaceholder');
+      const searchBtn = screen.getByTestId('search-submit-btn');
+
+      const focusSpy = vi.spyOn(searchInput, 'focus');
+
+      fireEvent.change(searchInput, { target: { value: '   ' } });
+      fireEvent.click(searchBtn);
+
+      expect(focusSpy).toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
     });
   });
 });

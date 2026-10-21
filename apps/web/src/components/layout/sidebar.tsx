@@ -222,26 +222,26 @@ export function Sidebar({
             >
               <nav
                 aria-label={tLegal('legalNav')}
-                className="flex flex-wrap gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400"
+                className="flex flex-wrap gap-x-3 gap-y-0 text-gray-500 dark:text-gray-400"
               >
                 <Link
                   href="/dieu-khoan"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('terms')}
                 </Link>
                 <Link
                   href="/quyen-rieng-tu"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('privacy')}
                 </Link>
                 <Link
                   href="/quy-tac-cong-dong"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('communityRules')}
                 </Link>
@@ -250,7 +250,7 @@ export function Sidebar({
                     href={feedbackUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                    className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                   >
                     {tCin('betaFeedback')}
                   </a>
