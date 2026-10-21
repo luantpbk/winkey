@@ -1264,3 +1264,25 @@ Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa ch
 - TV đi được hết các luồng chính bằng bàn phím;
 - CLS < 0,1 trên mọi trang;
 - người dùng tự kiểm tra trên điện thoại, máy tính bảng và TV thật.
+
+### ADR-045 — Danh sách tập khi xem phim bộ và giao diện xem trên điện thoại (CIN3, UX2)
+
+*Bối cảnh (2026-10-21).* Người dùng thử trên điện thoại (ảnh chụp trang xem Thiên Cơ Biến tập 3):
+1. **Thanh điều khiển của player tràn ra ngoài.** Nút cài đặt và toàn màn hình bị cắt, nút phụ đề to bất thường. Nguyên nhân: sau UX1 (#423, vùng chạm 44 px), mọi nút có `min-w-11` nhưng thanh điều khiển vẫn xếp một hàng không co.
+2. **Hàng nút Thích, Chia sẻ, Xem sau, Lưu, Báo cáo không đều và bị che.** Nút cao thấp khác nhau, chữ "Chia sẻ" và "Xem sau" xuống hai dòng, nút Báo cáo bị cắt mép phải.
+3. **Xem một tập phim bộ chỉ thấy "Xem tiếp", không thấy danh sách tập.** Web đã có cột danh sách tập (`watch-series-column`), nhưng chỉ hiện khi link có `?playlist=<id>` (vào từ trang Phim). Vào từ tìm kiếm, Lịch sử, Google hay link chia sẻ thì không có tham số này nên không có ngữ cảnh phim bộ.
+
+*Quyết định.*
+- **CIN3, API (contract của kiến trúc sư, Antigravity 3 làm trong social-svc):** `GET /v1/series?video_id=` (`listSeriesForVideo`) trả về tối đa 5 series `PUBLIC` có video là tập **phát được**, `updated_at` mới nhất trước; không có thì trả về danh sách rỗng, không 404. Gateway: `/v1/series` đã sang social-svc.
+- **CIN3, web (Antigravity 1):**
+  - Trang xem không có `?playlist=` thì gọi `listSeriesForVideo`. Có series thì dùng series đầu tiên: gọi `getSeriesEpisode`, hiện danh sách tập (cột phải trên desktop, khối dưới player trên mobile, có Tập trước/Tập sau), và thêm `?playlist=` vào URL bằng `replaceState`, không tạo bước lịch sử mới.
+  - Danh sách tập: tập đang xem được làm nổi và tự cuộn tới; có số tập, thumbnail, tiêu đề, thời lượng; tải thêm theo cursor.
+  - Hết tập thì tự phát tập sau, có đếm ngược 5 giây và nút huỷ.
+- **UX2, giao diện xem trên mobile (Antigravity 1):**
+  - *Thanh điều khiển player dưới 640 px:* chỉ giữ Phát/Dừng, thời gian dạng gọn, Cài đặt và Toàn màn hình. Âm lượng chỉ còn nút tắt/bật tiếng (bỏ thanh trượt). Phụ đề, âm thanh và chất lượng chuyển vào menu Cài đặt.
+    - Nút hiển thị 36 px, vùng chạm vẫn 44 px (dùng padding hoặc `::before`).
+    - Không nút nào bị cắt ở 360 px.
+    - Nút phụ đề không dùng nền đỏ đặc; đang bật thì đổi màu icon hoặc thêm gạch dưới.
+  - *Hàng hành động dưới tiêu đề:* các chip có cùng chiều cao, icon và chữ trên một dòng (`whitespace-nowrap`), cuộn ngang được (`overflow-x-auto`, ẩn thanh cuộn, có gradient mờ ở mép phải). Không chip nào bị che.
+  - *Hàng kênh:* nút Đăng ký kích thước bình thường, không phình to.
+  - Thêm ảnh chụp e2e ở 360, 390 và 768 px cho trang xem; kiểm toán UX1 không được báo tràn hay cắt ở trang xem.
