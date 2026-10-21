@@ -9,6 +9,7 @@ import { formatRelativeTime } from '../../../../lib/format';
 import { ListVideo, Lock, EyeOff, Globe, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { CreatePlaylistDialog } from '../../../../components/playlist/create-playlist-dialog';
+import { A11Y_COLORS } from '../../../../lib/a11y-tokens';
 
 export interface ChannelTabsProps {
   profile: PublicProfile;
@@ -56,8 +57,8 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-videos"
           className={`px-4 py-3 transition ${
             activeTab === 'videos'
-              ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
+              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >
           Video
@@ -69,8 +70,8 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-playlists"
           className={`px-4 py-3 transition ${
             activeTab === 'playlists'
-              ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
+              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >
           Danh sách phát
@@ -82,8 +83,8 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-about"
           className={`px-4 py-3 transition ${
             activeTab === 'about'
-              ? 'border-b-2 border-red-600 text-red-600 font-bold'
-              : 'text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white'
+              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >
           Giới thiệu
@@ -100,7 +101,9 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-center text-gray-500 dark:text-gray-400">
+            <div
+              className={`flex flex-col items-center justify-center py-20 text-center ${A11Y_COLORS.textMuted}`}
+            >
               <p className="text-base">Kênh này chưa có video nào.</p>
             </div>
           )}
@@ -117,7 +120,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
                 type="button"
                 onClick={() => setShowCreateDialog(true)}
                 data-testid="channel-create-playlist-btn"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-md transition"
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full ${A11Y_COLORS.brandSolidBg} text-xs font-semibold shadow-md transition`}
               >
                 <Plus className="h-4 w-4" />
                 <span>+ Tạo danh sách</span>
@@ -166,7 +169,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-zinc-500">
+                    <span className={`text-xs ${A11Y_COLORS.textMuted}`}>
                       Cập nhật {formatRelativeTime(pl.updated_at)}
                     </span>
                   </div>
@@ -174,7 +177,9 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-center text-gray-500 dark:text-gray-400">
+            <div
+              className={`flex flex-col items-center justify-center py-20 text-center ${A11Y_COLORS.textMuted}`}
+            >
               <p className="text-base">Kênh này chưa có danh sách phát nào.</p>
             </div>
           )}
@@ -188,7 +193,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           <p className="whitespace-pre-line leading-relaxed text-zinc-400">
             Kênh chính thức của {profile.display_name} (@{profile.handle}) trên Winkey VN.
           </p>
-          <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-500">
+          <div className={`pt-4 border-t border-zinc-800 text-xs ${A11Y_COLORS.textMuted}`}>
             <span>Kênh chính thức trên Winkey VN</span>
           </div>
         </div>

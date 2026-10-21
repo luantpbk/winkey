@@ -1,10 +1,14 @@
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TopBar } from '../src/components/layout/top-bar';
 import { CinemaHero } from '../src/components/cinema/cinema-hero';
 import { StudioNav } from '../src/components/studio/studio-nav';
 import { Sidebar } from '../src/components/layout/sidebar';
+import { A11Y_COLORS } from '../src/lib/a11y-tokens';
+import LocaleNotFound from '../src/app/[locale]/not-found';
+import RootNotFound from '../src/app/not-found';
 
 beforeAll(() => {
   global.IntersectionObserver = vi.fn().mockImplementation(() => ({
@@ -102,5 +106,38 @@ describe('UX1 Issue #398: WCAG 2.1 AA Accessibility Fixes (ADR-044)', () => {
     const copyright = footer.querySelector('p');
     expect(copyright?.className).toContain('dark:text-zinc-400');
     expect(copyright?.className).not.toContain('dark:text-gray-500');
+  });
+});
+
+describe('UX1 Issue #428: WCAG 2.1 AA Contrast and 404 Localized Documents', () => {
+  it('A11Y_COLORS tokens enforce WCAG 2.1 AA compliant colors', () => {
+    expect(A11Y_COLORS.brandSolidBg).toContain('#D9002B');
+    expect(A11Y_COLORS.brandText).toContain('text-[#C80026]');
+    expect(A11Y_COLORS.brandText).toContain('dark:text-[#FF4D6D]');
+    expect(A11Y_COLORS.textMuted).toContain('dark:text-zinc-400');
+    expect(A11Y_COLORS.textSecondary).toContain('dark:text-zinc-300');
+  });
+
+  it('LocaleNotFound renders localized 404 document with A11Y_COLORS and >=44px touch target', () => {
+    render(<LocaleNotFound />);
+    const main = screen.getByTestId('locale-not-found');
+    expect(main).toBeDefined();
+    expect(screen.getByText('Lỗi 404')).toBeDefined();
+    expect(screen.getByText('Không tìm thấy trang')).toBeDefined();
+
+    const homeLink = screen.getByRole('link', { name: /Về trang chủ/i });
+    expect(homeLink.className).toContain('min-h-11');
+    expect(homeLink.className).toContain('min-w-11');
+    expect(homeLink.className).toContain('bg-[#D9002B]');
+  });
+
+  it('RootNotFound renders root 404 document with lang="vi" and accessible home link', () => {
+    const htmlString = renderToStaticMarkup(<RootNotFound />);
+    expect(htmlString).toContain('<html lang="vi"');
+    expect(htmlString).toContain('class="dark"');
+    expect(htmlString).toContain('Lỗi 404');
+    expect(htmlString).toContain('Không tìm thấy trang');
+    expect(htmlString).toContain('min-h-11');
+    expect(htmlString).toContain('bg-[#D9002B]');
   });
 });

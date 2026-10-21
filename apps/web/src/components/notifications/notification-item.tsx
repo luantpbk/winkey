@@ -8,6 +8,7 @@ import { api } from '../../lib/api-client';
 import { formatRelativeTime } from '../../lib/format';
 import { Link } from '../../i18n/routing';
 import { buildWatchUrl } from '../../lib/video/watch-url';
+import { A11Y_COLORS } from '../../lib/a11y-tokens';
 
 export interface NotificationItemProps {
   notification: Notification;
@@ -135,7 +136,7 @@ export function NotificationItem({
         {/* Video title snippet if available */}
         {videoData?.title && (
           <p
-            className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 font-medium"
+            className={`text-xs ${A11Y_COLORS.textMuted} truncate mt-0.5 font-medium`}
             title={videoData.title}
           >
             &quot;{videoData.title}&quot;
@@ -143,7 +144,7 @@ export function NotificationItem({
         )}
 
         {/* Timestamp */}
-        <p className="text-[11px] text-gray-500 dark:text-zinc-400 mt-1">
+        <p className={`text-[11px] ${A11Y_COLORS.textMuted} mt-1`}>
           {formatRelativeTime(notification.created_at)}
         </p>
       </div>

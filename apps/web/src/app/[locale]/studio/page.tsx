@@ -27,6 +27,7 @@ import { useRealtime } from '../../../lib/realtime/realtime-context';
 import { VideoSubtitlesDialog } from '../../../components/studio/video-subtitles-dialog';
 import { SavePlaylistDialog } from '../../../components/playlist/save-playlist-dialog';
 import { StudioNav } from '../../../components/studio/studio-nav';
+import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 
 export default function StudioPage() {
   const [selectedSubtitlesVideoId, setSelectedSubtitlesVideoId] = React.useState<string | null>(
@@ -283,7 +284,7 @@ export default function StudioPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className={`text-xs ${A11Y_COLORS.textMuted} mt-1`}>
             Theo dõi trạng thái tải lên, xử lý transcoding và hiển thị video
           </p>
         </div>
@@ -298,7 +299,7 @@ export default function StudioPage() {
           </button>
           <Link
             href="/upload"
-            className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-red-700 transition"
+            className={`flex items-center gap-2 rounded-xl ${A11Y_COLORS.brandSolidBg} px-4 py-2.5 text-xs font-semibold shadow-md transition`}
           >
             <UploadCloud className="h-4 w-4" />
             <span>{t('uploadNew')}</span>
@@ -312,7 +313,9 @@ export default function StudioPage() {
       {/* Videos Table */}
       <div className="overflow-x-auto rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white shadow-xl">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-[#272727] dark:border-[#272727] border-gray-200 bg-[#1c1c1c] dark:bg-[#1c1c1c] bg-gray-50 text-xs font-semibold text-gray-500 uppercase">
+          <thead
+            className={`border-b border-[#272727] dark:border-[#272727] border-gray-200 bg-[#1c1c1c] dark:bg-[#1c1c1c] bg-gray-50 text-xs font-semibold ${A11Y_COLORS.textMuted} uppercase`}
+          >
             <tr>
               <th className="py-3.5 px-4">{t('tableTitle')}</th>
               <th className="py-3.5 px-4">{t('tableVisibility')}</th>
@@ -324,7 +327,7 @@ export default function StudioPage() {
           <tbody className="divide-y divide-[#242424] dark:divide-[#242424] divide-gray-100">
             {isLoading && (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-gray-500">
+                <td colSpan={5} className={`py-12 text-center ${A11Y_COLORS.textMuted}`}>
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
                     <span>Đang tải video Studio...</span>
@@ -335,11 +338,11 @@ export default function StudioPage() {
 
             {!isLoading && videos.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-16 text-center text-gray-500">
+                <td colSpan={5} className={`py-16 text-center ${A11Y_COLORS.textMuted}`}>
                   <p className="text-base">{t('noVideos')}</p>
                   <Link
                     href="/upload"
-                    className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-red-500 hover:underline"
+                    className={`inline-flex items-center gap-1.5 mt-3 text-xs font-semibold ${A11Y_COLORS.brandText} hover:underline`}
                   >
                     <span>Tải video đầu tiên ngay</span>
                   </Link>
@@ -379,7 +382,7 @@ export default function StudioPage() {
                         <span className="font-semibold text-gray-900 dark:text-white line-clamp-1">
                           {video.title}
                         </span>
-                        <span className="text-[11px] text-gray-500 truncate font-mono">
+                        <span className="text-[11px] text-zinc-600 dark:text-zinc-400 truncate font-mono">
                           {video.id}
                         </span>
                       </div>
@@ -393,7 +396,7 @@ export default function StudioPage() {
                   <td className="py-3 px-4">{renderStatusBadge(video)}</td>
 
                   {/* Date */}
-                  <td className="py-3 px-4 text-xs text-gray-500">
+                  <td className="py-3 px-4 text-xs text-zinc-600 dark:text-zinc-400">
                     {formatRelativeTime(video.created_at)}
                   </td>
 
@@ -403,7 +406,7 @@ export default function StudioPage() {
                       {video.status === 'READY' && video.moderation?.state !== 'HIDDEN' && (
                         <Link
                           href={buildWatchUrl(video.id, 'other')}
-                          className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                          className="rounded-lg p-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-gray-800 transition"
                           title="Xem video"
                         >
                           <ExternalLink className="h-4 w-4" />
@@ -412,7 +415,7 @@ export default function StudioPage() {
                       <Link
                         href={`/studio/videos/${video.id}/edit`}
                         data-testid={`edit-video-${video.id}`}
-                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        className="rounded-lg p-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-gray-800 transition"
                         title={t('editAction')}
                       >
                         <Pencil className="h-4 w-4" />
@@ -421,7 +424,7 @@ export default function StudioPage() {
                         type="button"
                         onClick={() => setSelectedSavePlaylistVideoId(video.id)}
                         data-testid={`save-playlist-${video.id}`}
-                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        className="rounded-lg p-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-gray-800 transition"
                         title={t('saveToPlaylist')}
                       >
                         <BookmarkPlus className="h-4 w-4" />
@@ -430,14 +433,14 @@ export default function StudioPage() {
                         type="button"
                         onClick={() => setSelectedSubtitlesVideoId(video.id)}
                         data-testid={`manage-subtitles-${video.id}`}
-                        className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-gray-800 transition"
+                        className="rounded-lg p-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-gray-800 transition"
                         title="Phụ đề"
                       >
                         <Subtitles className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(video.id)}
-                        className="rounded-lg p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition"
+                        className="rounded-lg p-2 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition"
                         title="Xóa video"
                       >
                         <Trash2 className="h-4 w-4" />
