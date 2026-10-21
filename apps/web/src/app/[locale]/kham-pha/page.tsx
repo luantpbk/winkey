@@ -356,7 +356,7 @@ function KhamPhaContent() {
       {activeTab === null && (
         <div
           data-testid="feed-skeleton"
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 mt-2"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6 gap-x-4 gap-y-8 mt-2"
         >
           {Array.from({ length: 8 }).map((_, i) => (
             <VideoSkeleton key={i} />

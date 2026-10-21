@@ -5,6 +5,8 @@
 @theme {
   --color-brand: #ff0033;
   --color-brand-hover: #cc0029;
+  --breakpoint-3xl: 1920px;
+  --breakpoint-4xl: 2560px;
 }
 
 :root {
