@@ -79,6 +79,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateCinemaCatalogPage: any;
   let validateSeriesEpisodePage: any;
   let validateSeriesEpisodeContext: any;
+  let validateSeriesForVideo: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -159,6 +160,9 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     )!;
     validateSeriesEpisodeContext = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesEpisodeContext',
+    )!;
+    validateSeriesForVideo = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesForVideo',
     )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
@@ -3452,5 +3456,196 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     `);
     const planVideos = explainVideos.rows.map((r: any) => r['QUERY PLAN']).join('\n');
     expect(planVideos).toBeDefined();
+  }, 120_000);
+
+  it('Series For Video Integration Tests (Task CIN3 / ADR-045)', async () => {
+    expect(isReady).toBe(true);
+    expect(pool).not.toBeNull();
+    expect(app).not.toBeNull();
+    if (!pool || !app) return;
+
+    const cin3UserA = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bb001';
+    const cin3UserB = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8bb002';
+
+    // 1. Setup owners in auth.users
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, avatar_key, status)
+      VALUES
+        ('${cin3UserA}', 'cin3_owner_a@winkey.vn', 'cin3_owner_a', 'Cinema 3 Owner A', 'avatars/cin3_a.jpg', 'ACTIVE'),
+        ('${cin3UserB}', 'cin3_owner_b@winkey.vn', 'cin3_owner_b', 'Cinema 3 Owner B', NULL, 'ACTIVE')
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    await pool.query(`
+      INSERT INTO social.channels (id, subscriber_count)
+      VALUES
+        ('${cin3UserA}', 0),
+        ('${cin3UserB}', 0)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // 2. Setup videos
+    const vidPlayable1 = uuidv7();
+    const vidPlayable2 = uuidv7();
+    const vidHidden = uuidv7();
+    const vidPrivate = uuidv7();
+
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, hidden, visibility, created_at)
+      VALUES
+        ('${vidPlayable1}', '${cin3UserA}', false, 'PUBLIC', '2026-10-01 09:00:00+00'),
+        ('${vidPlayable2}', '${cin3UserA}', false, 'PUBLIC', '2026-10-01 09:30:00+00'),
+        ('${vidHidden}', '${cin3UserA}', true, 'PUBLIC', '2026-10-01 09:45:00+00'),
+        ('${vidPrivate}', '${cin3UserA}', false, 'PRIVATE', '2026-10-01 09:50:00+00');
+    `);
+
+    // 3. Setup playlists and series
+    const seriesA = uuidv7();
+    const seriesB = uuidv7();
+    const seriesPrivate = uuidv7();
+    const playlistNormal = uuidv7();
+
+    await pool.query(`
+      INSERT INTO social.playlists (id, owner_id, title, description, visibility, is_series, created_at, updated_at)
+      VALUES
+        ('${seriesA}', '${cin3UserA}', 'Series A', 'Description A', 'PUBLIC', true, '2026-10-01 10:00:00+00', '2026-10-01 12:00:00+00'),
+        ('${seriesB}', '${cin3UserA}', 'Series B', 'Description B', 'PUBLIC', true, '2026-10-01 10:30:00+00', '2026-10-01 14:00:00+00'),
+        ('${seriesPrivate}', '${cin3UserA}', 'Series Private', 'Desc Private', 'PRIVATE', true, '2026-10-01 11:00:00+00', '2026-10-01 15:00:00+00'),
+        ('${playlistNormal}', '${cin3UserA}', 'Playlist Normal', 'Desc Normal', 'PUBLIC', false, '2026-10-01 11:30:00+00', '2026-10-01 16:00:00+00');
+    `);
+
+    // 4. Setup playlist items
+    // seriesA has vidPlayable1 (added at 10:00) and vidPlayable2 (added at 12:00) -> max added_at is 12:00
+    // seriesB has vidPlayable1 (added at 14:00) -> max added_at is 14:00
+    // seriesPrivate has vidPlayable1
+    // playlistNormal has vidPlayable1
+    await pool.query(`
+      INSERT INTO social.playlist_items (playlist_id, video_id, position, added_at)
+      VALUES
+        ('${seriesA}', '${vidPlayable1}', 1000, '2026-10-01 10:00:00+00'),
+        ('${seriesA}', '${vidPlayable2}', 2000, '2026-10-01 12:00:00+00'),
+        ('${seriesB}', '${vidPlayable1}', 1000, '2026-10-01 14:00:00+00'),
+        ('${seriesPrivate}', '${vidPlayable1}', 1000, '2026-10-01 15:00:00+00'),
+        ('${playlistNormal}', '${vidPlayable1}', 1000, '2026-10-01 16:00:00+00');
+    `);
+
+    // --- TEST SCENARIOS ---
+
+    // A. Validation error on missing query or malformed UUID (400 Problem)
+    const missingRes = await app.inject({
+      method: 'GET',
+      url: '/v1/series',
+    });
+    expect(missingRes.statusCode).toBe(400);
+    expect(missingRes.json().code).toBe('VALIDATION_ERROR');
+    expect(validateProblem(missingRes.json())).toBe(true);
+
+    const malformedRes = await app.inject({
+      method: 'GET',
+      url: '/v1/series?video_id=not-a-valid-uuid',
+    });
+    expect(malformedRes.statusCode).toBe(400);
+    expect(malformedRes.json().code).toBe('VALIDATION_ERROR');
+    expect(validateProblem(malformedRes.json())).toBe(true);
+
+    // B. Unknown video ID returns 200 with empty items (never 404)
+    const unknownRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${uuidv7()}`,
+    });
+    expect(unknownRes.statusCode).toBe(200);
+    expect(unknownRes.headers['cache-control']).toBe('public, max-age=60');
+    expect(validateSeriesForVideo(unknownRes.json())).toBe(true);
+    expect(unknownRes.json()).toEqual({ items: [] });
+
+    // C. Non-playable video (hidden or PRIVATE) returns 200 with empty items
+    const hiddenRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${vidHidden}`,
+    });
+    expect(hiddenRes.statusCode).toBe(200);
+    expect(hiddenRes.json()).toEqual({ items: [] });
+
+    const privateRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${vidPrivate}`,
+    });
+    expect(privateRes.statusCode).toBe(200);
+    expect(privateRes.json()).toEqual({ items: [] });
+
+    // D. Video in one series (vidPlayable2 is only in seriesA)
+    const oneSeriesRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${vidPlayable2}`,
+    });
+    expect(oneSeriesRes.statusCode).toBe(200);
+    expect(oneSeriesRes.headers['cache-control']).toBe('public, max-age=60');
+    expect(validateSeriesForVideo(oneSeriesRes.json())).toBe(true);
+    const oneBody = oneSeriesRes.json();
+    expect(oneBody.items).toHaveLength(1);
+    expect(oneBody.items[0]).toMatchObject({
+      playlist_id: seriesA,
+      title: 'Series A',
+      description: 'Description A',
+      episode_count: 2,
+      first_video_id: vidPlayable1,
+      owner: {
+        id: cin3UserA,
+        handle: 'cin3_owner_a',
+        display_name: 'Cinema 3 Owner A',
+      },
+    });
+    expect(oneBody.items[0].updated_at).toBe('2026-10-01T12:00:00.000Z');
+
+    // E. Video in two public series + private series + normal playlist
+    // vidPlayable1 is in seriesA, seriesB, seriesPrivate, and playlistNormal
+    // Only seriesA and seriesB should be returned.
+    // seriesB (updated_at = 14:00) must precede seriesA (updated_at = 12:00)
+    const twoSeriesRes = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${vidPlayable1}`,
+    });
+    expect(twoSeriesRes.statusCode).toBe(200);
+    expect(validateSeriesForVideo(twoSeriesRes.json())).toBe(true);
+    const twoBody = twoSeriesRes.json();
+    expect(twoBody.items).toHaveLength(2);
+    expect(twoBody.items[0].playlist_id).toBe(seriesB);
+    expect(twoBody.items[0].updated_at).toBe('2026-10-01T14:00:00.000Z');
+    expect(twoBody.items[1].playlist_id).toBe(seriesA);
+    expect(twoBody.items[1].updated_at).toBe('2026-10-01T12:00:00.000Z');
+
+    // F. EXPLAIN plan verifying the lookup can use playlist_items (video_id). The test tables hold a handful of
+    // rows, where a sequential scan is always cheapest, so sequential scans are disabled for this one statement
+    // (inside a rolled-back transaction) to ask whether the index serves the predicate at all.
+    const explainClient = await pool.connect();
+    let planText: string;
+    try {
+      await explainClient.query('BEGIN');
+      await explainClient.query('SET LOCAL enable_seqscan = off');
+      const explainPlan = await explainClient.query(`
+        EXPLAIN
+        SELECT DISTINCT p.id
+        FROM social.playlist_items pi_target
+        JOIN social.playlists p ON p.id = pi_target.playlist_id
+        JOIN social.videos v_target ON v_target.id = pi_target.video_id
+        WHERE pi_target.video_id = '${vidPlayable1}'::uuid
+          AND p.is_series = true
+          AND p.visibility = 'PUBLIC'
+          AND v_target.visibility = 'PUBLIC'
+          AND NOT v_target.hidden
+          AND v_target.owner_id = p.owner_id
+      `);
+      planText = explainPlan.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    } finally {
+      await explainClient.query('ROLLBACK');
+      explainClient.release();
+    }
+    // With so few rows the planner may drive from playlists_public_series and probe playlist_items_pkey instead of
+    // playlist_items_video; either way playlist_items must be reached through an index, never a full scan
+    // (enable_seqscan = off only adds a cost penalty, so a Seq Scan would still appear if no index served it).
+    expect(planText).not.toMatch(/Seq Scan on playlist_items/);
+    expect(planText).toMatch(
+      /Index (Only )?Scan using playlist_items_(video|pkey) on playlist_items/,
+    );
   }, 120_000);
 });
