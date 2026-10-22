@@ -3,16 +3,13 @@
  * Media Cache Warmer (Winkey Edge Cache Pre-warming Job)
  *
  * Runs as a Kubernetes CronJob every 15 minutes to pre-populate Nginx proxy_cache:
- * - Start of video: master + variant playlists + init segments + first 15 segments (~60s)
- * - Hot videos (top 20 trending over 7 days): full 720p + default audio
- * - Idempotency: HTTP HEAD seg_00000.m4s -> X-Cache-Status: HIT => skip
- * - QoS: concurrency <= 4, rate limit <= 5 MB/s
- * - Disk Guard: Aborts if cache disk usage exceeds 80% of max_size (32GB / 40GB)
+ * - Start-of-video: H.264/AV1 master + variant playlists + init + first 15 segments (~60s)
+ * - Hot trending videos (top 5 by views): full 720p + default audio (H.264 master only)
+ * - Idempotency: Parse H.264 master -> first variant -> first segment -> GET check -> X-Cache-Status: HIT => skip
+ * - Global rate limiter: Shared token bucket across all concurrent workers (<= 5 MB/s)
+ * - Run budget: WARM_MAX_BYTES_PER_RUN (3 GiB)
+ * - Hardened container: read-only filesystem, non-root user (1000), unprivileged
  */
-
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
 
 // Configuration
 const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn').replace(
@@ -20,14 +17,13 @@ const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn')
   '',
 );
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://winkey.vn').replace(/\/+$/, '');
-const CACHE_DIR = process.env.CACHE_DIR || '/nginx-cache';
-const MAX_CACHE_BYTES = Number(process.env.MAX_CACHE_BYTES) || 40 * 1024 * 1024 * 1024; // 40GB
 const MAX_CONCURRENCY = Math.min(Number(process.env.MAX_CONCURRENCY) || 4, 8);
 const RATE_LIMIT_BPS = Number(process.env.RATE_LIMIT_BPS) || 5 * 1024 * 1024; // 5 MB/s
 const WARM_SEGMENTS_COUNT = Number(process.env.WARM_SEGMENTS_COUNT) || 15; // ~60s
+const WARM_MAX_BYTES_PER_RUN = Number(process.env.WARM_MAX_BYTES_PER_RUN) || 3 * 1024 * 1024 * 1024; // 3 GiB
 const HOT_VIDEOS_LIMIT = Number(process.env.HOT_VIDEOS_LIMIT) || 20;
+const HOT_FULL_LIMIT = Number(process.env.HOT_FULL_LIMIT) || 5; // top 5 trending get full 720p
 const NEW_VIDEOS_HOURS = Number(process.env.NEW_VIDEOS_HOURS) || 24;
-const MEDIA_LINK_SECRET = process.env.MEDIA_LINK_SECRET || '';
 
 const USER_AGENT = 'WinkeyCacheWarmer/1.0 (+https://winkey.vn)';
 
@@ -52,78 +48,46 @@ function formatBytes(bytes) {
 }
 
 /**
- * Check cache disk usage to prevent exhausting edge SSD.
- * Aborts if usage > 80% of max_size.
+ * Shared Token Bucket Rate Limiter
+ * Enforces a global bytes/second budget across all concurrent workers.
  */
-function checkDiskGuard() {
-  let usedBytes = 0;
-  let totalBytes = MAX_CACHE_BYTES;
+class GlobalRateLimiter {
+  constructor(rateBytesPerSec) {
+    this.rateBps = rateBytesPerSec;
+    this.maxTokens = rateBytesPerSec; // burst budget: 1 second
+    this.tokens = rateBytesPerSec;
+    this.lastRefill = Date.now();
+  }
 
-  if (fs.existsSync(CACHE_DIR)) {
-    try {
-      // 1. Check filesystem statfs
-      const statFs = fs.statfsSync(CACHE_DIR);
-      const fsTotal = statFs.blocks * statFs.bsize;
-      const fsFree = statFs.bavail * statFs.bsize;
-      const fsUsed = fsTotal - fsFree;
-      const fsPercent = (fsUsed / fsTotal) * 100;
-      if (fsPercent >= 85) {
-        console.warn(
-          `[DISK GUARD] Filesystem usage at ${fsPercent.toFixed(1)}% (>=85%). Aborting warm.`,
-        );
-        return false;
-      }
-    } catch (_) {}
-
-    try {
-      // 2. Measure actual cache directory bytes
-      function scanDir(current) {
-        const entries = fs.readdirSync(current, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(current, entry.name);
-          if (entry.isDirectory()) {
-            scanDir(fullPath);
-          } else if (entry.isFile()) {
-            usedBytes += fs.statSync(fullPath).size;
-          }
-        }
-      }
-      scanDir(CACHE_DIR);
-    } catch (err) {
-      console.warn(`[DISK GUARD] Could not scan directory ${CACHE_DIR}: ${err.message}`);
+  refill() {
+    const now = Date.now();
+    const elapsedMs = now - this.lastRefill;
+    if (elapsedMs > 0) {
+      const addedTokens = (elapsedMs * this.rateBps) / 1000;
+      this.tokens = Math.min(this.maxTokens, this.tokens + addedTokens);
+      this.lastRefill = now;
     }
   }
 
-  const thresholdBytes = MAX_CACHE_BYTES * 0.8; // 80% (32GB)
-  const percentOfMax = (usedBytes / MAX_CACHE_BYTES) * 100;
-
-  console.log(
-    `[DISK GUARD] Current cache usage: ${formatBytes(usedBytes)} / ${formatBytes(MAX_CACHE_BYTES)} (${percentOfMax.toFixed(1)}%, limit: 80.0%)`,
-  );
-
-  if (usedBytes >= thresholdBytes) {
-    console.warn(
-      `[DISK GUARD] Cache directory usage ${formatBytes(usedBytes)} exceeds 80% threshold. Aborting warm.`,
-    );
-    return false;
+  async acquire(bytes) {
+    while (true) {
+      this.refill();
+      if (this.tokens >= bytes) {
+        this.tokens -= bytes;
+        return;
+      }
+      const needed = bytes - this.tokens;
+      const waitMs = Math.ceil((needed / this.rateBps) * 1000);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(10, Math.min(waitMs, 500))));
+    }
   }
-  return true;
 }
 
-/**
- * Sign URL if secret is provided (SEC1-b / ADR-017)
- */
-function signMediaUrl(vid, targetPath, secret, expireSeconds = 86400) {
-  if (!secret) return targetPath;
-  const exp = Math.floor(Date.now() / 1000) + expireSeconds;
-  // Format: $exp/v/$vid/ $media_link_secret
-  const hash = crypto.createHash('md5').update(`${exp}/v/${vid}/ ${secret}`).digest('base64url');
-  return `/s/${exp}/${hash}/${targetPath.replace(/^\/+/, '')}`;
-}
+const rateLimiter = new GlobalRateLimiter(RATE_LIMIT_BPS);
 
 /**
  * Rate-limited fetch of a media resource.
- * Streams body to dev/null and enforces maximum bytes/sec.
+ * Streams body to dev/null and meters through global token bucket.
  */
 async function fetchMediaWithRateLimit(url) {
   const start = Date.now();
@@ -151,58 +115,56 @@ async function fetchMediaWithRateLimit(url) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      bytes += value.byteLength;
+      const chunkSize = value.byteLength;
+      bytes += chunkSize;
+      stats.bytesTransferred += chunkSize;
 
-      // Rate limit enforcement (leaky-bucket pacing)
-      const elapsedSec = (Date.now() - start) / 1000;
-      const expectedSec = bytes / RATE_LIMIT_BPS;
-      if (expectedSec > elapsedSec) {
-        const delayMs = (expectedSec - elapsedSec) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
+      // Meter chunk through shared rate limiter
+      await rateLimiter.acquire(chunkSize);
     }
   }
 
   stats.filesDownloaded++;
-  stats.bytesTransferred += bytes;
   return { bytes, cacheStatus, durationMs: Date.now() - start };
 }
 
 /**
- * Idempotency check: send HEAD request to check if segment 0 is cached.
+ * Parse an HLS master playlist.
+ * Distinguishes video variant playlists from audio rendition playlists.
  */
-async function isVideoStartCached(testUrl) {
-  try {
-    const res = await fetch(testUrl, {
-      method: 'HEAD',
-      headers: { 'User-Agent': USER_AGENT },
-    });
-    return res.headers.get('x-cache-status') === 'HIT';
-  } catch (_) {
-    return false;
+function parseMasterM3u8(content, baseUrl) {
+  const lines = content.split('\n').map((l) => l.trim());
+  const videoVariants = [];
+  const audioVariants = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      if (i + 1 < lines.length && !lines[i + 1].startsWith('#')) {
+        videoVariants.push(new URL(lines[i + 1], baseUrl).href);
+      }
+    } else if (line.startsWith('#EXT-X-MEDIA:') && line.includes('TYPE=AUDIO')) {
+      const uriMatch = line.match(/URI="([^"]+)"/);
+      if (uriMatch) {
+        audioVariants.push(new URL(uriMatch[1], baseUrl).href);
+      }
+    }
   }
+
+  return { videoVariants, audioVariants };
 }
 
 /**
- * Parse an HLS playlist (master or rendition index) and extract child URLs.
+ * Parse an HLS rendition playlist (video or audio) and extract init segment and media segments.
  */
-function parseM3u8(content, baseUrl) {
+function parseRenditionM3u8(content, baseUrl) {
   const lines = content.split('\n').map((l) => l.trim());
-  const variants = [];
   const segments = [];
   let initUri = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line.startsWith('#EXT-X-STREAM-INF:') || line.startsWith('#EXT-X-MEDIA:TYPE=AUDIO')) {
-      // Audio or video rendition
-      const uriMatch = line.match(/URI="([^"]+)"/);
-      if (uriMatch) {
-        variants.push(new URL(uriMatch[1], baseUrl).href);
-      } else if (i + 1 < lines.length && !lines[i + 1].startsWith('#')) {
-        variants.push(new URL(lines[i + 1], baseUrl).href);
-      }
-    } else if (line.startsWith('#EXT-X-MAP:')) {
+    if (line.startsWith('#EXT-X-MAP:')) {
       const mapMatch = line.match(/URI="([^"]+)"/);
       if (mapMatch) {
         initUri = new URL(mapMatch[1], baseUrl).href;
@@ -214,7 +176,7 @@ function parseM3u8(content, baseUrl) {
     }
   }
 
-  return { variants, segments, initUri };
+  return { segments, initUri };
 }
 
 /**
@@ -224,6 +186,9 @@ async function runConcurrent(items, concurrency, taskFn) {
   let index = 0;
   const workers = Array.from({ length: Math.min(items.length, concurrency) }, async () => {
     while (index < items.length) {
+      if (stats.bytesTransferred >= WARM_MAX_BYTES_PER_RUN) {
+        break;
+      }
       const current = items[index++];
       try {
         await taskFn(current);
@@ -237,10 +202,65 @@ async function runConcurrent(items, concurrency, taskFn) {
 }
 
 /**
+ * Check idempotency:
+ * 1. Fetch H.264 master playlist
+ * 2. Fetch first video variant
+ * 3. Extract first media segment URL
+ * 4. Perform plain GET request with User-Agent
+ * 5. If X-Cache-Status is HIT -> return true (already cached)
+ */
+async function checkVideoCachedWithFirstSegment(hlsUrl) {
+  try {
+    const masterRes = await fetch(hlsUrl, { headers: { 'User-Agent': USER_AGENT } });
+    if (!masterRes.ok) return { cached: false };
+    const masterContent = await masterRes.text();
+    const { videoVariants } = parseMasterM3u8(masterContent, hlsUrl);
+    if (videoVariants.length === 0) return { cached: false };
+
+    const varRes = await fetch(videoVariants[0], { headers: { 'User-Agent': USER_AGENT } });
+    if (!varRes.ok) return { cached: false };
+    const varContent = await varRes.text();
+    const { segments } = parseRenditionM3u8(varContent, videoVariants[0]);
+    if (segments.length === 0) return { cached: false };
+
+    const firstSegmentUrl = segments[0];
+
+    // Plain GET request matching Nginx proxy_cache key "$scheme$request_method$host$uri"
+    const segRes = await fetch(firstSegmentUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: '*/*',
+      },
+    });
+
+    const cacheStatus = segRes.headers.get('x-cache-status') || 'MISS';
+
+    // Consume body to free socket and allow Nginx to complete caching if MISS
+    if (segRes.body) {
+      const reader = segRes.body.getReader();
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    }
+
+    return {
+      cached: cacheStatus === 'HIT',
+      firstSegmentUrl,
+      cacheStatus,
+    };
+  } catch (err) {
+    console.warn(`[IDEMPOTENT] Failed checking cache status: ${err.message}`);
+    return { cached: false };
+  }
+}
+
+/**
  * Warm a single video.
  */
-async function warmVideo(video, isHot) {
-  console.log(`\n--> [VIDEO ${video.id}] "${video.title}" (Hot: ${isHot})`);
+async function warmVideo(video, isHotFull) {
+  console.log(`\n--> [VIDEO ${video.id}] "${video.title}" (Hot Full 720p: ${isHotFull})`);
 
   // 1. Fetch playback details from video API
   let playback;
@@ -262,71 +282,101 @@ async function warmVideo(video, isHot) {
     return;
   }
 
-  // 2. Determine master playlist URLs (H.264 + AV1 if available)
-  const masterUrls = [playback.hls_url];
-  if (playback.hls_av1_url) {
-    masterUrls.push(playback.hls_av1_url);
-  }
-
-  // 3. Idempotency Check: check if first segment is already in cache
-  // Master playlist URL structure: .../v/{vid}/.../master.m3u8
-  const testSegmentUrl = `${MEDIA_BASE_URL}/v/${video.id}/a2/hls/720p/seg_00000.m4s`;
-  if (await isVideoStartCached(testSegmentUrl)) {
-    console.log(`[IDEMPOTENT] Video ${video.id} start is already cached (HIT). Skipping.`);
+  // 2. Idempotency Check: derive first segment from H.264 master and check via GET
+  const cacheCheck = await checkVideoCachedWithFirstSegment(playback.hls_url);
+  if (cacheCheck.cached) {
+    console.log(`[IDEMPOTENT] Video ${video.id} first segment is already cached (HIT). Skipping.`);
     stats.videosSkipped++;
+    stats.cacheHits++;
     return;
   }
 
-  // 4. Check Disk Guard before processing
-  if (!checkDiskGuard()) {
-    console.warn(`[WARMER] Disk guard tripped. Halting warm operations.`);
-    return 'STOP';
+  if (cacheCheck.cacheStatus === 'MISS') {
+    stats.cacheMisses++;
+    stats.filesDownloaded++;
   }
 
-  // 5. Download Master Playlists & parse variants
+  // 3. Queue assets for warming
   const urlsToWarm = new Set();
 
-  for (const masterUrl of masterUrls) {
-    try {
-      console.log(`  Downloading master: ${masterUrl}`);
-      const masterRes = await fetch(masterUrl, { headers: { 'User-Agent': USER_AGENT } });
-      if (!masterRes.ok) continue;
+  // A. H.264 Master and renditions
+  try {
+    console.log(`  Downloading H.264 master: ${playback.hls_url}`);
+    const masterRes = await fetch(playback.hls_url, { headers: { 'User-Agent': USER_AGENT } });
+    if (masterRes.ok) {
+      urlsToWarm.add(playback.hls_url);
       const masterContent = await masterRes.text();
-      const { variants } = parseM3u8(masterContent, masterUrl);
+      const { videoVariants, audioVariants } = parseMasterM3u8(masterContent, playback.hls_url);
 
-      // Add variant playlists
-      for (const variantUrl of variants) {
+      const allVariants = [...videoVariants, ...audioVariants];
+      for (const variantUrl of allVariants) {
         urlsToWarm.add(variantUrl);
 
         try {
           const varRes = await fetch(variantUrl, { headers: { 'User-Agent': USER_AGENT } });
           if (!varRes.ok) continue;
           const varContent = await varRes.text();
-          const { segments, initUri } = parseM3u8(varContent, variantUrl);
+          const { segments, initUri } = parseRenditionM3u8(varContent, variantUrl);
 
           if (initUri) urlsToWarm.add(initUri);
 
           const is720pOrAudio = variantUrl.includes('720p') || variantUrl.includes('audio');
-          if (isHot && is720pOrAudio) {
-            // Full rendition for hot video
+          if (isHotFull && is720pOrAudio) {
+            // Full 720p + audio for top 5 hot videos
             segments.forEach((s) => urlsToWarm.add(s));
           } else {
-            // First 15 segments (~60s) for start warming
+            // Start-only: first 15 segments (~60s)
             segments.slice(0, WARM_SEGMENTS_COUNT).forEach((s) => urlsToWarm.add(s));
           }
         } catch (e) {
           console.warn(`  Failed parsing variant ${variantUrl}: ${e.message}`);
         }
       }
-    } catch (e) {
-      console.warn(`  Failed fetching master ${masterUrl}: ${e.message}`);
     }
+  } catch (e) {
+    console.warn(`  Failed fetching H.264 master ${playback.hls_url}: ${e.message}`);
+  }
+
+  // B. AV1 Master and renditions (start-only, never full)
+  if (playback.hls_av1_url) {
+    try {
+      console.log(`  Downloading AV1 master: ${playback.hls_av1_url}`);
+      const av1Res = await fetch(playback.hls_av1_url, { headers: { 'User-Agent': USER_AGENT } });
+      if (av1Res.ok) {
+        urlsToWarm.add(playback.hls_av1_url);
+        const av1Content = await av1Res.text();
+        const { videoVariants, audioVariants } = parseMasterM3u8(av1Content, playback.hls_av1_url);
+
+        const allVariants = [...videoVariants, ...audioVariants];
+        for (const variantUrl of allVariants) {
+          urlsToWarm.add(variantUrl);
+          try {
+            const varRes = await fetch(variantUrl, { headers: { 'User-Agent': USER_AGENT } });
+            if (!varRes.ok) continue;
+            const varContent = await varRes.text();
+            const { segments, initUri } = parseRenditionM3u8(varContent, variantUrl);
+            if (initUri) urlsToWarm.add(initUri);
+            // AV1 is always start-only
+            segments.slice(0, WARM_SEGMENTS_COUNT).forEach((s) => urlsToWarm.add(s));
+          } catch (e) {
+            console.warn(`  Failed parsing AV1 variant ${variantUrl}: ${e.message}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`  Failed fetching AV1 master ${playback.hls_av1_url}: ${e.message}`);
+    }
+  }
+
+  // Remove first segment if already downloaded during idempotency check
+  if (cacheCheck.firstSegmentUrl) {
+    urlsToWarm.delete(cacheCheck.firstSegmentUrl);
   }
 
   const urlList = Array.from(urlsToWarm);
   console.log(`  Queueing ${urlList.length} media assets for video ${video.id}...`);
 
-  // 6. Download all queued assets with concurrency <= MAX_CONCURRENCY and rate limit
+  // 4. Download queued assets with concurrency <= MAX_CONCURRENCY and global rate limiter
   await runConcurrent(urlList, MAX_CONCURRENCY, async (targetUrl) => {
     await fetchMediaWithRateLimit(targetUrl);
   });
@@ -342,18 +392,16 @@ async function main() {
   console.log(`=======================================================`);
   console.log(`Winkey Media Cache Warmer starting at ${new Date().toISOString()}`);
   console.log(
-    `Media URL: ${MEDIA_BASE_URL} | Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`,
+    `Media URL: ${MEDIA_BASE_URL} | Global Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`,
+  );
+  console.log(
+    `Run Budget: ${formatBytes(WARM_MAX_BYTES_PER_RUN)} | Hot Full Limit: ${HOT_FULL_LIMIT} videos`,
   );
   console.log(`=======================================================`);
 
-  // Check initial disk usage
-  if (!checkDiskGuard()) {
-    console.error(`[WARMER] Cache disk full prior to start. Exiting.`);
-    process.exit(0);
-  }
-
-  // 1. Fetch Top 20 Hot / Trending Videos
-  const hotVideoIds = new Set();
+  // 1. Fetch Top Trending Videos
+  const hotFullVideoIds = new Set();
+  const allHotVideoIds = new Set();
   try {
     const res = await fetch(`${API_BASE_URL}/v1/videos?limit=${HOT_VIDEOS_LIMIT}&sort=trending`, {
       headers: { 'User-Agent': USER_AGENT },
@@ -361,15 +409,18 @@ async function main() {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.items)) {
-        data.items.forEach((item) => hotVideoIds.add(item.id));
+        data.items.slice(0, HOT_FULL_LIMIT).forEach((item) => hotFullVideoIds.add(item.id));
+        data.items.forEach((item) => allHotVideoIds.add(item.id));
       }
     }
   } catch (err) {
     console.warn(`[WARMER] Warning: Could not fetch trending videos: ${err.message}`);
   }
-  console.log(`[WARMER] Loaded ${hotVideoIds.size} hot/trending video candidates.`);
+  console.log(
+    `[WARMER] Loaded ${allHotVideoIds.size} trending videos (Top ${hotFullVideoIds.size} eligible for full 720p).`,
+  );
 
-  // 2. Fetch New Videos (published in last 24h)
+  // 2. Fetch Newest Videos (published in last 24h)
   const candidateVideos = new Map();
   try {
     const res = await fetch(`${API_BASE_URL}/v1/videos?limit=50&sort=newest`, {
@@ -381,7 +432,7 @@ async function main() {
       if (Array.isArray(data.items)) {
         for (const item of data.items) {
           const pubTime = new Date(item.published_at).getTime();
-          if (pubTime >= cutoff || hotVideoIds.has(item.id)) {
+          if (pubTime >= cutoff || allHotVideoIds.has(item.id)) {
             candidateVideos.set(item.id, item);
           }
         }
@@ -396,12 +447,15 @@ async function main() {
 
   // 3. Process candidate videos sequentially
   for (const [vid, video] of candidateVideos.entries()) {
-    const isHot = hotVideoIds.has(vid);
-    const result = await warmVideo(video, isHot);
-    if (result === 'STOP') {
-      console.warn(`[WARMER] Stopped by disk guard.`);
+    if (stats.bytesTransferred >= WARM_MAX_BYTES_PER_RUN) {
+      console.warn(
+        `[WARMER] Run budget ${formatBytes(WARM_MAX_BYTES_PER_RUN)} reached (${formatBytes(stats.bytesTransferred)} transferred). Halting.`,
+      );
       break;
     }
+
+    const isHotFull = hotFullVideoIds.has(vid);
+    await warmVideo(video, isHotFull);
   }
 
   // 4. Summary Report
@@ -417,14 +471,13 @@ async function main() {
   console.log(`Videos skipped (HIT):    ${stats.videosSkipped}`);
   console.log(`Videos warmed:           ${stats.videosWarmed}`);
   console.log(`Files downloaded:        ${stats.filesDownloaded}`);
-  console.log(`Total transferred:       ${formatBytes(stats.bytesTransferred)}`);
+  console.log(
+    `Total transferred:       ${formatBytes(stats.bytesTransferred)} / budget ${formatBytes(WARM_MAX_BYTES_PER_RUN)}`,
+  );
   console.log(`Average throughput:      ${avgSpeed}`);
   console.log(`Cache MISS / HIT ratio:  ${stats.cacheMisses} MISS / ${stats.cacheHits} HIT`);
   console.log(`Errors encountered:      ${stats.errors}`);
   console.log(`=========================================================`);
-
-  // Final disk check log
-  checkDiskGuard();
 }
 
 main().catch((err) => {

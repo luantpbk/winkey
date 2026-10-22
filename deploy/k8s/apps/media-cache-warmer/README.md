@@ -16,15 +16,18 @@ This results in an average TTFB of $\sim$1.09s–1.28s, leaving less than 1s of 
    - Master playlist (`master.m3u8`) and all variant playlists (`1080p`, `720p`, `480p`, `audio`, and AV1 if present).
    - Init segments (`init_0.mp4`) for all video and audio renditions.
    - **First 15 segments** (`seg_00000.m4s` to `seg_00014.m4s`, $\sim$60s of playback) for every rendition.
-2. **Full coverage for HOT videos (Top 20 trending / most viewed over 7 days)**:
-   - Full rendition of **`720p`** + default audio stream.
+2. **Full coverage for Top Trending videos**:
+   - Full rendition of **`720p`** + default audio stream for the top `HOT_FULL_LIMIT=5` trending videos, sourced exclusively from the **H.264** master.
+   - Other trending videos get start-only warming.
 3. **Stateless Idempotency (ConfigMap-free)**:
-   - Before warming, the job sends an HTTP `HEAD` request to `seg_00000.m4s` of the video.
+   - Derives the test segment URL from the parsed H.264 master playlist (first segment of the first video variant).
+   - Sends an HTTP `GET` request (matching the edge cache key `"$scheme$request_method$host$uri"`).
    - If the response header carries `X-Cache-Status: HIT`, the video start is already cached $\rightarrow$ **SKIPPED immediately**.
 4. **QoS and Resource Protections**:
    - **Concurrency**: $\le 4$ simultaneous stream downloads.
-   - **Rate Limiting**: $\le 5\text{ MB/s}$ (`--limit-rate 5M`) to never compete with real user streaming traffic.
-   - **Disk Guard**: Checks `/nginx-cache` volume before warming each video. If cache disk usage exceeds **80% of max_size (32 GB / 40 GB)**, the job halts immediately to protect production disk space.
+   - **Global Rate Limiting**: Shared token bucket across all workers capping total throughput at $\le 5\text{ MB/s}$ (`RATE_LIMIT_BPS=5242880`), preventing edge network saturation.
+   - **Run Budget**: `WARM_MAX_BYTES_PER_RUN` (default 3 GiB). Halts downloading once reached to avoid runaway consumption.
+   - **Pod Hardening**: `runAsNonRoot: true`, `runAsUser: 1000`, `readOnlyRootFilesystem: true`, `seccompProfile: RuntimeDefault`, `restartPolicy: Never`, `backoffLimit: 0`, exact image `node:22.14.0-alpine`.
 
 ---
 
@@ -34,14 +37,13 @@ This results in an average TTFB of $\sim$1.09s–1.28s, leaving less than 1s of 
 | :--- | :--- | :--- |
 | `MEDIA_BASE_URL` | `https://media.winkey.vn` | Media gateway URL through Nginx host |
 | `API_BASE_URL` | `https://winkey.vn` | Video metadata and playback API |
-| `CACHE_DIR` | `/nginx-cache` | Mount path of Nginx host media cache |
-| `MAX_CACHE_BYTES` | `42949672960` (40GB) | Maximum cache size configured in Nginx (`max_size=40g`) |
 | `MAX_CONCURRENCY` | `4` | Maximum parallel downloads ($\le 4$) |
-| `RATE_LIMIT_BPS` | `5242880` (5 MB/s) | Bandwidth ceiling for warmer transfers |
+| `RATE_LIMIT_BPS` | `5242880` (5 MB/s) | Global token bucket bandwidth ceiling across all workers |
 | `WARM_SEGMENTS_COUNT` | `15` | Number of initial segments to warm ($\sim$60s) |
-| `HOT_VIDEOS_LIMIT` | `20` | Maximum number of top trending videos to fully warm |
+| `WARM_MAX_BYTES_PER_RUN` | `3221225472` (3 GiB) | Maximum bytes transferred per cronjob execution |
+| `HOT_FULL_LIMIT` | `5` | Top trending videos eligible for full 720p H.264 warming |
+| `HOT_VIDEOS_LIMIT` | `20` | Trending candidate videos evaluated |
 | `NEW_VIDEOS_HOURS` | `24` | Cutoff age in hours for candidate new videos |
-| `MEDIA_LINK_SECRET` | *(empty)* | Optional HMAC secret for signed media paths (ADR-017) |
 
 ---
 
@@ -50,7 +52,6 @@ This results in an average TTFB of $\sim$1.09s–1.28s, leaving less than 1s of 
 The CronJob is managed via Kustomize in `deploy/k8s/apps/media-cache-warmer/`:
 - `cronjob.yaml`: Defines the batch/v1 CronJob (`schedule: "*/15 * * * *"`).
 - `kustomization.yaml`: Embeds `warmer.mjs` into a ConfigMap via `configMapGenerator`.
-- Volume `nginx-cache`: Mounts hostPath `/var/lib/rancher/k3s/storage/nginx-cache/winkey-media` (read-only) for disk usage tracking.
 
 ### Manual / One-Shot Trigger
 To trigger an immediate warm job on production:
