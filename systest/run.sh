@@ -154,6 +154,8 @@ fi
 SUITE_EXIT=0
 
 # 5. Execute 12-scenario API test suite (runs in both default and --sim mode)
+echo "[systest] Resetting auth rate limits before API test suite..."
+"${SCRIPT_DIR}/reset-ratelimits.sh" || true
 echo "[systest] Running 12-scenario API test suite..."
 export CLIP_PATH="${CLIP_PATH}"
 set +e
