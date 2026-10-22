@@ -25,6 +25,13 @@ info:
     before it passes.
     Task V5b (ADR-018) — subtitles: WebVTT tracks, one per language, uploaded by the owner. Objects live
     under `v/{video_id}/subtitles/`, so SEC1 signing and the delete path apply to them unchanged.
+    Task ROLE1 (ADR-046) — creator role: managing videos needs `creator` in `X-User-Roles` on top of the
+    ownership rules each operation states. `updateVideo`, `putSubtitle`, `updateSubtitle`, `deleteSubtitle`,
+    `listAudioTracks`, `updateAudioTrack`, `deleteAudioTrack`, `listStudioVideos`, `getChannelStats` and
+    `getVideoStats` answer `403` with code `CREATOR_ROLE_REQUIRED` to an authenticated caller who has neither
+    `creator` nor a role the operation already accepts on its own (`admin` for the stats). The check comes from
+    the roles header only, before anything is read, so it reveals nothing about the video. `deleteVideo` is
+    unchanged: an owner without `creator` can still delete their own videos.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -394,6 +401,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
 
   /v1/studio/videos/{video_id}/stats:
     parameters:
@@ -426,6 +435,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
         '429':
@@ -457,6 +468,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
