@@ -675,6 +675,7 @@ describe('Winkey System Integration Test Suite', () => {
     try {
       execSync(
         `docker exec winkey-postgres psql -U winkey_migrator -d winkey -c "UPDATE auth.users SET roles = '{viewer,creator,moderator,admin}' WHERE id = '${moderatorUser.id}';"`,
+        { stdio: ['ignore', 'pipe', 'ignore'] },
       );
     } catch (e) {
       assert.fail(`Failed to elevate moderator user in DB: ${e.message}`);
@@ -1957,7 +1958,10 @@ describe('Winkey System Integration Test Suite', () => {
     );
 
     // e. auth-svc logs check: assert 0 hits for test emails and 43-char token-like strings
-    const authLogs = execSync('docker logs auth-svc', { encoding: 'utf8' });
+    const authLogs = execSync('docker logs auth-svc', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     const targetEmails = [unknownEmail, activeUserData.user.email, freshVerifData.user.email];
     for (const email of targetEmails) {
       assert.ok(!authLogs.includes(email), `auth-svc log must not contain email: ${email}`);

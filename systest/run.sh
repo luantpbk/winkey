@@ -159,7 +159,14 @@ echo "[systest] Resetting auth rate limits before API test suite..."
 echo "[systest] Running 12-scenario API test suite..."
 export CLIP_PATH="${CLIP_PATH}"
 set +e
-node --test "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
+unset -f module scl ml _module_raw which 2>/dev/null || true
+unset BASH_FUNC_module%% BASH_FUNC_scl%% BASH_FUNC_ml%% BASH_FUNC__module_raw%% BASH_FUNC_which%% 2>/dev/null || true
+env -u BASH_FUNC_module%% \
+    -u BASH_FUNC_scl%% \
+    -u BASH_FUNC_ml%% \
+    -u BASH_FUNC__module_raw%% \
+    -u BASH_FUNC_which%% \
+    node --test "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
 SUITE_EXIT=${PIPESTATUS[0]}
 set -e
 
