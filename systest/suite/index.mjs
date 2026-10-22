@@ -2011,8 +2011,8 @@ describe('Winkey System Integration Test Suite', () => {
     const initialPassword = 'Password123!';
     const newPassword = 'NewPassword456!';
 
-    // 1. Register fresh user via GATEWAY_URL (capturing response cookies & access token)
-    const regRes = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    // 1. Register fresh user via AUTH_URL (capturing response cookies & access token, preserving XFF)
+    const regRes = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
