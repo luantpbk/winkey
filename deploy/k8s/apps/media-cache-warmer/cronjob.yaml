@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: media-cache-warmer
+  namespace: default
+  labels:
+    app.kubernetes.io/name: media-cache-warmer
+    app.kubernetes.io/part-of: winkey
+spec:
+  schedule: '*/15 * * * *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: media-cache-warmer
+            app.kubernetes.io/part-of: winkey
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: warmer
+              image: node:22.14.0-alpine
+              command: ['node', '/app/warmer.mjs']
+              env:
+                - name: MEDIA_BASE_URL
+                  value: 'https://media.winkey.vn'
+                - name: API_BASE_URL
+                  value: 'https://winkey.vn'
+                - name: MAX_CONCURRENCY
+                  value: '4'
+                - name: RATE_LIMIT_BPS
+                  value: '5242880' # 5 MB/s
+                - name: WARM_SEGMENTS_COUNT
+                  value: '15' # ~60s
+                - name: WARM_MAX_BYTES_PER_RUN
+                  value: '3221225472' # 3 GiB
+                - name: HOT_FULL_LIMIT
+                  value: '5'
+                - name: HOT_VIDEOS_LIMIT
+                  value: '20'
+                - name: NEW_VIDEOS_HOURS
+                  value: '24'
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: media-cache-warmer-script
