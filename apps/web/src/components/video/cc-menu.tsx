@@ -8,11 +8,16 @@ export interface CcMenuProps {
   tracks: SubtitleTrack[];
   selectedLang: string | null;
   onSelectTrack: (lang: string | null) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function CcMenu({ tracks, selectedLang, onSelectTrack }: CcMenuProps) {
+export function CcMenu({ tracks, selectedLang, onSelectTrack, onOpenChange }: CcMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
