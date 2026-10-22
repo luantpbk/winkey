@@ -11,7 +11,11 @@ The table is `auth.creator_requests` (migration `000027`, already merged; do not
 Branch: `agent/ag3/role1-creator-requests` from `origin/main`. One PR; the description is the Handoff Report.
 
 ## Task
-1. **Default roles.** `register.ts` and the Google sign-up in `oauth.ts` create new accounts with `['viewer']` (today `['viewer','creator']`). Existing accounts are untouched.
+1. **Default roles.** `register.ts` and the Google sign-up in `oauth.ts` create new accounts with the roles from config `SIGNUP_ROLES`:
+   - only `viewer` (the default) or `viewer,creator` are accepted; any other value makes the service fail to start;
+   - log the value once at boot;
+   - document it in the README env table and in `.env.example`.
+   Today's code always uses `['viewer','creator']`. Existing accounts are untouched. The architect already sets `SIGNUP_ROLES=viewer,creator` for the compose and systest stacks, so the seeds keep uploading.
 2. **`GET /v1/auth/me/creator-request`.** The latest request of the caller (`created_at DESC, id DESC`); none → `404`.
 3. **`POST /v1/auth/me/creator-request`.** `message` is trimmed, then 10–1000 chars (zod; `400 VALIDATION_ERROR`).
    - Return `409` in this order:

@@ -57,6 +57,8 @@ paths:
         Roles (task ROLE1, ADR-046): a new account — password or Google — gets `roles = [viewer]` only. Uploading and
         managing videos need `creator`, granted by an admin through `createCreatorRequest` /
         `adminDecideCreatorRequest` or `adminSetUserRoles`.
+        Local dev and test stacks (compose, systest, CI simulation) may run auth-svc with
+        `SIGNUP_ROLES=viewer,creator` so their seed accounts can upload; production never sets it (default `viewer`).
       security: []
       requestBody:
         required: true

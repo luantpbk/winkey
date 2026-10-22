@@ -1309,6 +1309,7 @@ Hiện trạng code:
   - Theo ADR-034, LEGAL chặn việc mở công khai. User đã quyết định mở đăng ký ngày 2026-10-22; LEGAL vẫn mở và cần làm sớm.
 - **Role mặc định là `viewer`.**
   - Contract `register` và Google sign-up đặt `roles = [viewer]`. Migration 000027 đổi default của cột thành `{viewer}`.
+  - Biến cấu hình `SIGNUP_ROLES` của auth-svc chỉ nhận `viewer` (mặc định, production) hoặc `viewer,creator`; giá trị khác thì service không khởi động. Giá trị được ghi log lúc khởi động. Stack dev/test (compose, systest, mô phỏng CI) đặt `viewer,creator`, vì seed và loadtest đăng ký tài khoản qua API rồi upload. Manifest production không bao giờ đặt biến này.
   - **Tài khoản đã có giữ nguyên role.** Admin thu hồi `creator` ở tab Người dùng nếu cần.
   - Không chạy migration dữ liệu: không đoán được ai "đáng" giữ `creator`, và migration đó không đảo ngược được.
 - **Yêu cầu nâng cấp (contract của kiến trúc sư, Antigravity 3 làm trong auth-svc).**
