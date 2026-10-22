@@ -53,6 +53,10 @@ paths:
         `403` code `INVITE_INVALID`. Both are checked before any other conflict, so the response never reveals
         whether an email or handle exists. With `REGISTRATION_MODE=open` (default) `invite_code` is accepted
         and ignored. Existing accounts sign in normally in both modes.
+
+        Roles (task ROLE1, ADR-046): a new account — password or Google — gets `roles = [viewer]` only. Uploading and
+        managing videos need `creator`, granted by an admin through `createCreatorRequest` /
+        `adminDecideCreatorRequest` or `adminSetUserRoles`.
       security: []
       requestBody:
         required: true
@@ -236,6 +240,63 @@ paths:
           $ref: './common.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/auth/me/creator-request:
+    get:
+      tags: [auth]
+      operationId: getMyCreatorRequest
+      summary: Your latest creator-upgrade request (task ROLE1, ADR-046).
+      description: |
+        The most recent request of the signed-in user, whatever its status. None yet → `404`. The web client
+        polls this on the upgrade page; when it turns `APPROVED` while the access token still lacks `creator`,
+        it calls `refresh` once to get a token with the new role (approval never revokes sessions).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The latest request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    post:
+      tags: [auth]
+      operationId: createCreatorRequest
+      summary: Ask an admin to grant the `creator` role (task ROLE1, ADR-046).
+      description: |
+        Creates a `PENDING` request. Conflicts (`409`), checked in this order:
+        - the user already has `creator` → `ALREADY_CREATOR`;
+        - the user already has a `PENDING` request → `REQUEST_PENDING`;
+        - the latest request was `REJECTED` less than 24 h ago → `REQUEST_COOLDOWN` (the problem `detail`
+          says when a new request is possible).
+        Rate limited per user: 5 requests / day → `429`. Logs carry the request id and user id, never `message`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCreatorRequestRequest'
+      responses:
+        '201':
+          description: The new request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatorRequest'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
         '409':
           $ref: './common.yaml#/components/responses/Conflict'
         '429':
@@ -691,6 +752,89 @@ paths:
         '409':
           $ref: './common.yaml#/components/responses/Conflict'
 
+  /v1/admin/creator-requests:
+    get:
+      tags: [admin]
+      operationId: adminListCreatorRequests
+      summary: Creator-upgrade requests (admin only, task ROLE1, ADR-046).
+      description: |
+        `status=PENDING` (default) is the review queue, oldest first. `APPROVED` / `REJECTED` list decided
+        requests, most recently decided first. `pending_count` is the total number of `PENDING` requests
+        whatever `status` is asked for (the admin tab badge). Moderators get `403`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CreatorRequestStatus'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreatorRequestPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/admin/creator-requests/{request_id}/decision:
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          $ref: './common.yaml#/components/schemas/Uuid'
+    post:
+      tags: [admin]
+      operationId: adminDecideCreatorRequest
+      summary: Approve or reject a creator-upgrade request (admin only, task ROLE1, ADR-046).
+      description: |
+        Only a `PENDING` request can be decided; otherwise `409` `REQUEST_ALREADY_DECIDED` (two admins racing:
+        exactly one wins). `REJECT` needs a `note` (shown to the user); `APPROVE` may have one.
+
+        `APPROVE`, in one transaction: the request becomes `APPROVED`; `creator` is added to the user's roles
+        (kept if already there); one `auth.audit_log` row `USER_ROLES_CHANGED` with details
+        `{from, to, creator_request_id}` is written when the roles actually change. Approval does **not**
+        revoke sessions: adding a role is safe to reach other services on the next refresh (≤ 15 min), and the
+        web client refreshes at once when it sees the approval. The user is not `ACTIVE` (suspended or
+        deleted) → `409` `USER_NOT_ACTIVE`, nothing changes.
+
+        `REJECT`: the request becomes `REJECTED` with the note; roles are untouched; no audit row (the request
+        row itself records who decided and when). Deciding your own request → `403` `CANNOT_MODERATE_TARGET`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatorRequestDecision'
+      responses:
+        '200':
+          description: The request after the decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreatorRequest'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
   /v1/admin/audit-log:
     get:
       tags: [admin]
@@ -1002,6 +1146,82 @@ components:
         created_at:
           type: string
           format: date-time
+
+    CreatorRequestStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED]
+
+    CreateCreatorRequestRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: What the user wants to publish (shown to admins only). Trimmed before the length check.
+
+    CreatorRequest:
+      type: object
+      required: [id, status, message, decision_note, created_at, decided_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/CreatorRequestStatus'
+        message:
+          type: string
+        decision_note:
+          type: [string, 'null']
+          description: The admin's note; always present on `REJECTED`.
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, 'null']
+          format: date-time
+
+    AdminCreatorRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreatorRequest'
+        - type: object
+          required: [user, decided_by]
+          properties:
+            user:
+              $ref: '#/components/schemas/AdminUser'
+            decided_by:
+              oneOf:
+                - $ref: './common.yaml#/components/schemas/PublicProfile'
+                - type: 'null'
+
+    AdminCreatorRequestPage:
+      type: object
+      required: [items, next_cursor, pending_count]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCreatorRequest'
+        next_cursor:
+          type: [string, 'null']
+        pending_count:
+          type: integer
+          minimum: 0
+
+    CreatorRequestDecision:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Required for `REJECT`; trimmed.
 
     AuditEntryPage:
       type: object

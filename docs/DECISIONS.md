@@ -1286,3 +1286,71 @@ Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa ch
   - *Hàng hành động dưới tiêu đề:* các chip có cùng chiều cao, icon và chữ trên một dòng (`whitespace-nowrap`), cuộn ngang được (`overflow-x-auto`, ẩn thanh cuộn, có gradient mờ ở mép phải). Không chip nào bị che.
   - *Hàng kênh:* nút Đăng ký kích thước bình thường, không phình to.
   - Thêm ảnh chụp e2e ở 360, 390 và 768 px cho trang xem; kiểm toán UX1 không được báo tràn hay cắt ở trang xem.
+
+### ADR-046 — Đăng ký mở, tài khoản thường chỉ xem; quyền sáng tạo do Admin duyệt (ROLE1)
+
+*Bối cảnh (2026-10-22).* User quyết định:
+- mở đăng ký, không cần mã mời nữa;
+- tài khoản thường chỉ được xem;
+- muốn upload và quản lý video thì phải gửi yêu cầu nâng cấp và chờ Admin duyệt;
+- tài khoản của user là Admin;
+- giao diện ẩn/hiện chức năng theo quyền: thường thì chỉ xem, sáng tạo có thêm upload và Studio, admin có thêm trang Admin.
+
+Hiện trạng code:
+- Đã có role `viewer`, `creator`, `moderator`, `admin`.
+- Đã có `adminSetUserRoles`, đình chỉ tài khoản, audit log, tab Admin "Người dùng" và "Nhật ký".
+- upload-svc đã đòi `creator`.
+- Nhưng tài khoản mới mặc định có `{viewer,creator}`. Video-svc chỉ kiểm tra chủ sở hữu, không kiểm tra `creator`. Web hiện nút Tải lên và Studio cho mọi người.
+
+*Quyết định.*
+- **Đăng ký mở (Antigravity 2, Antigravity 1).**
+  - Production đặt `REGISTRATION_MODE=open`. Code BETA1 giữ nguyên để có thể đóng lại khi cần.
+  - Form đăng ký chỉ hiện ô mã mời khi link có `?invite=`. Bỏ chữ "beta kín" khỏi giao diện.
+  - Theo ADR-034, LEGAL chặn việc mở công khai. User đã quyết định mở đăng ký ngày 2026-10-22; LEGAL vẫn mở và cần làm sớm.
+- **Role mặc định là `viewer`.**
+  - Contract `register` và Google sign-up đặt `roles = [viewer]`. Migration 000027 đổi default của cột thành `{viewer}`.
+  - **Tài khoản đã có giữ nguyên role.** Admin thu hồi `creator` ở tab Người dùng nếu cần.
+  - Không chạy migration dữ liệu: không đoán được ai "đáng" giữ `creator`, và migration đó không đảo ngược được.
+- **Yêu cầu nâng cấp (contract của kiến trúc sư, Antigravity 3 làm trong auth-svc).**
+  - Bảng `auth.creator_requests`. Mỗi user có tối đa một yêu cầu `PENDING`.
+  - Endpoint:
+    - `GET/POST /v1/auth/me/creator-request`;
+    - `GET /v1/admin/creator-requests?status=` (chỉ admin; có `pending_count` cho badge);
+    - `POST /v1/admin/creator-requests/{id}/decision` với `APPROVE | REJECT` và `note` (bắt buộc khi từ chối).
+  - Duyệt thì trong cùng transaction: thêm `creator` vào roles và ghi audit `USER_ROLES_CHANGED` kèm `creator_request_id`.
+    - **Không thu hồi phiên đăng nhập**, vì thêm quyền thì chậm tối đa 15 phút cũng an toàn. Web gọi `refresh` ngay khi thấy yêu cầu được duyệt.
+    - Thu hồi quyền vẫn đi qua `adminSetUserRoles`, giữ hành vi thu hồi phiên như cũ.
+  - Bị từ chối thì 24 giờ sau mới gửi lại được (`REQUEST_COOLDOWN`). Rate limit 5 yêu cầu/ngày.
+  - Log không ghi nội dung `message`.
+  - Chưa gửi email báo kết quả (bản sau). Người dùng thấy trạng thái trên trang nâng cấp.
+- **Máy chủ thực thi quyền, không chỉ giao diện.**
+  - upload-svc đã đòi `creator`.
+  - video-svc (kiến trúc sư làm) đòi `creator` cho sửa video, phụ đề, track âm thanh, danh sách Studio và thống kê. Thiếu quyền thì trả `403 CREATOR_ROLE_REQUIRED`, kiểm từ header trước khi đọc dữ liệu.
+  - **Xoá video của mình** vẫn được làm khi không có `creator`.
+  - Phần xem (like, bình luận, playlist, xem sau, lịch sử, đăng ký kênh) vẫn dành cho mọi tài khoản.
+- **Tài khoản Admin của user (Antigravity 2).**
+  - Chạy SQL một lần trên edge-1: đặt `roles = {viewer,creator,admin}` cho tài khoản có email của user, nếu chưa có.
+  - Email nhập bằng `read -r`, không ghi vào git, issue hay log. Báo cáo chỉ ghi id tài khoản và role trước/sau.
+  - User đăng xuất rồi đăng nhập lại để nhận token mới.
+- **Giao diện theo quyền (Antigravity 1).**
+
+  | Chức năng | Khách | Thường (`viewer`) | Sáng tạo (`creator`) | Kiểm duyệt (`moderator`) | Admin |
+  |---|---|---|---|---|---|
+  | Xem, tìm kiếm, phim | ✓ | ✓ | ✓ | ✓ | ✓ |
+  | Thích, bình luận, playlist, xem sau, lịch sử, đăng ký kênh | – | ✓ | ✓ | ✓ | ✓ |
+  | "Trở thành nhà sáng tạo" (gửi yêu cầu, xem trạng thái) | – | ✓ | – | ✓ nếu chưa có `creator` | – |
+  | Tải lên, Studio, sửa video, phụ đề, track âm thanh, thống kê | – | – | ✓ | – | ✓ (admin có cả `creator`) |
+  | Admin: Hàng kiểm duyệt, Người dùng | – | – | – | ✓ | ✓ |
+  | Admin: Yêu cầu sáng tạo, Nhật ký, đổi role | – | – | – | – | ✓ |
+
+  - Thiếu quyền thì **ẩn** nút và link: thanh trên, sidebar, tab dưới mobile, menu tài khoản, nút Chỉnh sửa/Phụ đề trên trang xem.
+  - Vào thẳng `/upload` hay `/studio/*` khi thiếu quyền: khách được chuyển tới đăng nhập; tài khoản thường thấy trang "Trở thành nhà sáng tạo", không phải trang lỗi.
+  - Khi đang tải phiên đăng nhập: dùng chỗ giữ chỗ như #442, không để giao diện nhảy (CLS).
+
+*Hệ quả.*
+- Thứ tự làm:
+  1. Merge PR thiết kế này (contract và migration).
+  2. Song song: AG3 (auth-svc), kiến trúc sư (video-svc), AG1 (web, dùng mock theo contract).
+  3. AG2 áp migration 000027, deploy auth-svc, video-svc và web, đặt `REGISTRATION_MODE=open`, cấp quyền Admin.
+  4. AG4 thêm kịch bản systest cho cả luồng: đăng ký → không thấy Tải lên → gửi yêu cầu → admin duyệt → thấy Tải lên và upload được.
+- **Deploy auth-svc trước rồi mới mở đăng ký.** Bản auth-svc cũ vẫn cấp `creator` cho tài khoản mới.
