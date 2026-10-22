@@ -12,7 +12,7 @@ This results in an average TTFB of $\sim$1.09s–1.28s, leaving less than 1s of 
 
 `media-cache-warmer` runs every 15 minutes to pre-populate Nginx disk cache with the essential portions of media:
 
-1. **Start of every new video (published in the last 24h)**:
+1. **Catalogue sweep of newest 50 public videos (regardless of age)**:
    - Master playlist (`master.m3u8`) and all variant playlists (`1080p`, `720p`, `480p`, `audio`, and AV1 if present).
    - Init segments (`init_0.mp4`) for all video and audio renditions.
    - **First 15 segments** (`seg_00000.m4s` to `seg_00014.m4s`, $\sim$60s of playback) for every rendition.
@@ -20,9 +20,10 @@ This results in an average TTFB of $\sim$1.09s–1.28s, leaving less than 1s of 
    - Full rendition of **`720p`** + default audio stream for the top `HOT_FULL_LIMIT=5` trending videos, sourced exclusively from the **H.264** master.
    - Other trending videos get start-only warming.
 3. **Stateless Idempotency (ConfigMap-free)**:
-   - Derives the test segment URL from the parsed H.264 master playlist (first segment of the first video variant).
+   - For **hot-full** videos: derives the test segment from the **LAST** segment of the H.264 720p playlist (ensures full-720p warming runs even when viewers have already fetched the start).
+   - For **start-only** videos: derives the test segment from the **FIRST** segment of the first video variant.
    - Sends an HTTP `GET` request (matching the edge cache key `"$scheme$request_method$host$uri"`).
-   - If the response header carries `X-Cache-Status: HIT`, the video start is already cached $\rightarrow$ **SKIPPED immediately**.
+   - If the response header carries `X-Cache-Status: HIT`, the required assets are already cached $\rightarrow$ **SKIPPED immediately**.
 4. **QoS and Resource Protections**:
    - **Concurrency**: $\le 4$ simultaneous stream downloads.
    - **Global Rate Limiting**: Shared token bucket across all workers capping total throughput at $\le 5\text{ MB/s}$ (`RATE_LIMIT_BPS=5242880`), preventing edge network saturation.
