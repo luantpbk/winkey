@@ -129,7 +129,7 @@ describe('Login return_to validation hardening against open redirect', () => {
       // Google OAuth link contains encoded safe return_to
       const googleLink = screen.getByRole('link', { name: /Google/i });
       expect(googleLink.getAttribute('href')).toBe(
-        `/v1/auth/oauth/google?return_to=${encodeURIComponent('/watch/x?playlist=y&src=playlist')}`,
+        `/v1/auth/oauth/google?return_to=${encodeURIComponent('/watch/x?playlist=y&src=playlist&wk_oauth=1')}`,
       );
 
       // Perform login
@@ -154,7 +154,9 @@ describe('Login return_to validation hardening against open redirect', () => {
       render(<LoginPage />);
 
       const googleLink = screen.getByRole('link', { name: /Google/i });
-      expect(googleLink.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=%2F');
+      expect(googleLink.getAttribute('href')).toBe(
+        '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+      );
 
       fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
         target: { value: 'test@winkey.vn' },
@@ -177,7 +179,9 @@ describe('Login return_to validation hardening against open redirect', () => {
       render(<LoginPage />);
 
       const googleLink = screen.getByRole('link', { name: /Google/i });
-      expect(googleLink.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=%2F');
+      expect(googleLink.getAttribute('href')).toBe(
+        '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+      );
 
       fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
         target: { value: 'test@winkey.vn' },
@@ -200,7 +204,9 @@ describe('Login return_to validation hardening against open redirect', () => {
       render(<LoginPage />);
 
       const googleLink = screen.getByRole('link', { name: /Google/i });
-      expect(googleLink.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=%2F');
+      expect(googleLink.getAttribute('href')).toBe(
+        '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+      );
 
       fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
         target: { value: 'test@winkey.vn' },
@@ -223,7 +229,9 @@ describe('Login return_to validation hardening against open redirect', () => {
       render(<LoginPage />);
 
       const googleLink = screen.getByRole('link', { name: /Google/i });
-      expect(googleLink.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=%2F');
+      expect(googleLink.getAttribute('href')).toBe(
+        '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+      );
 
       fireEvent.change(screen.getByPlaceholderText('name@example.com'), {
         target: { value: 'test@winkey.vn' },

@@ -301,14 +301,16 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
     fireEvent.click(checkbox);
 
     const googleBtn = screen.getByTestId('google-oauth-btn') as HTMLAnchorElement;
-    expect(googleBtn.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=/');
+    expect(googleBtn.getAttribute('href')).toBe(
+      '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+    );
 
     // Fill invite code with special characters
     const inviteInput = screen.getByLabelText(/Mã mời/i);
     fireEvent.change(inviteInput, { target: { value: 'invite 123+alpha' } });
 
     expect(googleBtn.getAttribute('href')).toBe(
-      '/v1/auth/oauth/google?return_to=/&invite_code=invite%20123%2Balpha',
+      '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1&invite_code=invite%20123%2Balpha',
     );
   });
 

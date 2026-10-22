@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { withOAuthReturnMarker } from '../../../lib/auth/session-indicator';
 import type { RegisterRequest } from '@winkey/api-client';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 import { A11Y_COLORS } from '../../../lib/a11y-tokens';
@@ -134,7 +135,7 @@ function RegisterForm() {
 
   const trimmedInvite = inviteCode.trim();
   const googleHref =
-    '/v1/auth/oauth/google?return_to=/' +
+    `/v1/auth/oauth/google?return_to=${encodeURIComponent(withOAuthReturnMarker('/'))}` +
     (trimmedInvite ? `&invite_code=${encodeURIComponent(trimmedInvite)}` : '');
 
   return (
