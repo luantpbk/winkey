@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { getSafeReturnTo } from '../../../lib/auth/return-to';
+import { withOAuthReturnMarker } from '../../../lib/auth/session-indicator';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 
@@ -172,7 +173,7 @@ function LoginForm() {
 
         {/* Continue with Google */}
         <a
-          href={`/v1/auth/oauth/google?return_to=${encodeURIComponent(safeReturnTo)}`}
+          href={`/v1/auth/oauth/google?return_to=${encodeURIComponent(withOAuthReturnMarker(safeReturnTo))}`}
           className="flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-[#383838] dark:border-[#383838] border-gray-300 bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 px-4 text-sm font-semibold text-gray-800 dark:text-gray-200 hover:bg-[#282828] dark:hover:bg-[#282828] hover:bg-gray-100 transition"
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">

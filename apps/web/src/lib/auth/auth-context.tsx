@@ -18,6 +18,7 @@ import {
   setSessionIndicator,
   clearSessionIndicator,
   setSessionProbed,
+  consumeOAuthReturnMarker,
 } from './session-indicator';
 import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
 import { computePermissions, type UserPermissions, ANONYMOUS_PERMISSIONS } from './permissions';
@@ -86,6 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Back from Google sign-in: the callback only set the HttpOnly refresh cookie, so mark the
+    // session and refresh (a failed refresh clears the indicator again).
+    if (consumeOAuthReturnMarker()) {
+      setSessionIndicator();
+    }
     // Session restore on initial mount: only refresh if we have a session indicator or need to probe
     if (!hasSessionIndicator() && !shouldProbeSession()) {
       setIsLoading(false);
