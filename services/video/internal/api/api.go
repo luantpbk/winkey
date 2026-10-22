@@ -123,6 +123,18 @@ func viewer(r *http.Request) domain.Viewer {
 	return domain.ViewerFrom(id, ok)
 }
 
+// requireCreator enforces ROLE1 (ADR-046): managing videos needs the creator
+// role (admins have every role). It reads X-User-Roles only, before anything
+// is loaded, so the answer reveals nothing about the video.
+func requireCreator(w http.ResponseWriter, r *http.Request) bool {
+	if id, ok := httpx.IdentityFrom(r.Context()); ok && id.HasRole(httpx.RoleCreator) {
+		return true
+	}
+	httpx.WriteProblem(w, r, httpx.NewProblem(http.StatusForbidden, "CREATOR_ROLE_REQUIRED",
+		"managing videos needs the creator role"))
+	return false
+}
+
 // ---- GET /v1/videos ---------------------------------------------------------
 
 func (h *Handler) listVideos(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +270,9 @@ type updateRequest struct {
 }
 
 func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	id, ok := videoID(r)
 	if !ok {
 		notFound(w, r)
@@ -466,6 +481,9 @@ var validStatuses = map[string]bool{
 }
 
 func (h *Handler) listStudio(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	q := r.URL.Query()
 	limit, ok := h.parseLimit(w, r, q)
 	if !ok {

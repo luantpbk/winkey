@@ -71,6 +71,9 @@ func (h *Handler) subtitleTracks(v domain.Video, signedUntil *time.Time) []subti
 // ownedVideo applies the rules of updateVideo to a subtitle call: 404 when the video does not exist or the
 // caller may not see it, 403 when they see it but do not own it (moderators and admins included).
 func (h *Handler) ownedVideo(w http.ResponseWriter, r *http.Request) (domain.Video, domain.Viewer, bool) {
+	if !requireCreator(w, r) {
+		return domain.Video{}, domain.Viewer{}, false
+	}
 	id, ok := videoID(r)
 	if !ok {
 		notFound(w, r)
