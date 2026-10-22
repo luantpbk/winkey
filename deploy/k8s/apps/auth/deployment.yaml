@@ -99,7 +99,7 @@ spec:
                   key: SMTP_URL
                   optional: true
             - name: REGISTRATION_MODE
-              value: 'invite'
+              value: 'open'
             - name: INVITE_CODES
               valueFrom:
                 secretKeyRef:
