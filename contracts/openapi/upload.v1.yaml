@@ -176,8 +176,9 @@ paths:
     post:
       tags: [uploads]
       operationId: createAudioTrackUpload
-      summary: Start uploading an extra audio track for a video (owner only, task MUX1).
+      summary: Start uploading an extra audio track for a video (owner with role `creator`, task MUX1).
       description: |
+        Requires role `creator` like `createUpload` (ROLE1, ADR-046): without it `403`, before anything is read.
         The video must exist and not be `DELETED` (it may still be processing). At most 8 extra tracks per video
         and one per (`lang`, `kind`): a duplicate answers `409` `AUDIO_TRACK_EXISTS`, a ninth `409`
         `TOO_MANY_AUDIO_TRACKS`. The new track is `UPLOADING` until completed; it counts toward the upload quotas
@@ -199,6 +200,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
         '409':

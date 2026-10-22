@@ -86,8 +86,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start uploading an extra audio track for a video (owner only, task MUX1).
-         * @description The video must exist and not be `DELETED` (it may still be processing). At most 8 extra tracks per video
+         * Start uploading an extra audio track for a video (owner with role `creator`, task MUX1).
+         * @description Requires role `creator` like `createUpload` (ROLE1, ADR-046): without it `403`, before anything is read.
+         *     The video must exist and not be `DELETED` (it may still be processing). At most 8 extra tracks per video
          *     and one per (`lang`, `kind`): a duplicate answers `409` `AUDIO_TRACK_EXISTS`, a ninth `409`
          *     `TOO_MANY_AUDIO_TRACKS`. The new track is `UPLOADING` until completed; it counts toward the upload quotas
          *     like a video upload.
@@ -524,6 +525,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             /** @description Upload quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`), as for `createUpload`. */
