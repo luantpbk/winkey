@@ -12,18 +12,18 @@
  */
 
 // Configuration
-const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn').replace(
-  /\/+$/,
-  '',
-);
-const API_BASE_URL = (process.env.API_BASE_URL || 'https://winkey.vn').replace(/\/+$/, '');
+function getMediaBaseUrl() {
+  return (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn').replace(/\/+$/, '');
+}
+function getApiBaseUrl() {
+  return (process.env.API_BASE_URL || 'https://winkey.vn').replace(/\/+$/, '');
+}
 const MAX_CONCURRENCY = Math.min(Number(process.env.MAX_CONCURRENCY) || 4, 8);
 const RATE_LIMIT_BPS = Number(process.env.RATE_LIMIT_BPS) || 5 * 1024 * 1024; // 5 MB/s
 const WARM_SEGMENTS_COUNT = Number(process.env.WARM_SEGMENTS_COUNT) || 15; // ~60s
 const WARM_MAX_BYTES_PER_RUN = Number(process.env.WARM_MAX_BYTES_PER_RUN) || 3 * 1024 * 1024 * 1024; // 3 GiB
 const HOT_VIDEOS_LIMIT = Number(process.env.HOT_VIDEOS_LIMIT) || 20;
 const HOT_FULL_LIMIT = Number(process.env.HOT_FULL_LIMIT) || 5; // top 5 trending get full 720p
-const NEW_VIDEOS_HOURS = Number(process.env.NEW_VIDEOS_HOURS) || 24;
 
 const USER_AGENT = 'WinkeyCacheWarmer/1.0 (+https://winkey.vn)';
 
@@ -39,6 +39,18 @@ const stats = {
   cacheMisses: 0,
   errors: 0,
 };
+
+function resetStats() {
+  stats.startTime = Date.now();
+  stats.videosScanned = 0;
+  stats.videosSkipped = 0;
+  stats.videosWarmed = 0;
+  stats.filesDownloaded = 0;
+  stats.bytesTransferred = 0;
+  stats.cacheHits = 0;
+  stats.cacheMisses = 0;
+  stats.errors = 0;
+}
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
@@ -204,12 +216,16 @@ async function runConcurrent(items, concurrency, taskFn) {
 /**
  * Check idempotency:
  * 1. Fetch H.264 master playlist
- * 2. Fetch first video variant
- * 3. Extract first media segment URL
+ * 2. Select target variant:
+ *    - For hot-full: 720p variant (fallback to first video variant)
+ *    - For start-only: first video variant
+ * 3. Extract test media segment URL:
+ *    - For hot-full: LAST segment of 720p playlist
+ *    - For start-only: FIRST segment of video playlist
  * 4. Perform plain GET request with User-Agent
  * 5. If X-Cache-Status is HIT -> return true (already cached)
  */
-async function checkVideoCachedWithFirstSegment(hlsUrl) {
+async function checkVideoCached(hlsUrl, isHotFull) {
   try {
     const masterRes = await fetch(hlsUrl, { headers: { 'User-Agent': USER_AGENT } });
     if (!masterRes.ok) return { cached: false };
@@ -217,16 +233,23 @@ async function checkVideoCachedWithFirstSegment(hlsUrl) {
     const { videoVariants } = parseMasterM3u8(masterContent, hlsUrl);
     if (videoVariants.length === 0) return { cached: false };
 
-    const varRes = await fetch(videoVariants[0], { headers: { 'User-Agent': USER_AGENT } });
+    let targetVariant = videoVariants[0];
+    if (isHotFull) {
+      const v720 = videoVariants.find((v) => v.includes('720p'));
+      if (v720) targetVariant = v720;
+    }
+
+    const varRes = await fetch(targetVariant, { headers: { 'User-Agent': USER_AGENT } });
     if (!varRes.ok) return { cached: false };
     const varContent = await varRes.text();
-    const { segments } = parseRenditionM3u8(varContent, videoVariants[0]);
+    const { segments } = parseRenditionM3u8(varContent, targetVariant);
     if (segments.length === 0) return { cached: false };
 
-    const firstSegmentUrl = segments[0];
+    // Hot-full checks the LAST segment of 720p; start-only checks the FIRST segment
+    const testSegmentUrl = isHotFull ? segments[segments.length - 1] : segments[0];
 
     // Plain GET request matching Nginx proxy_cache key "$scheme$request_method$host$uri"
-    const segRes = await fetch(firstSegmentUrl, {
+    const segRes = await fetch(testSegmentUrl, {
       method: 'GET',
       headers: {
         'User-Agent': USER_AGENT,
@@ -247,8 +270,9 @@ async function checkVideoCachedWithFirstSegment(hlsUrl) {
 
     return {
       cached: cacheStatus === 'HIT',
-      firstSegmentUrl,
+      testSegmentUrl,
       cacheStatus,
+      isHotFull,
     };
   } catch (err) {
     console.warn(`[IDEMPOTENT] Failed checking cache status: ${err.message}`);
@@ -265,7 +289,7 @@ async function warmVideo(video, isHotFull) {
   // 1. Fetch playback details from video API
   let playback;
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/videos/${video.id}`, {
+    const res = await fetch(`${getApiBaseUrl()}/v1/videos/${video.id}`, {
       headers: { 'User-Agent': USER_AGENT },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -282,10 +306,11 @@ async function warmVideo(video, isHotFull) {
     return;
   }
 
-  // 2. Idempotency Check: derive first segment from H.264 master and check via GET
-  const cacheCheck = await checkVideoCachedWithFirstSegment(playback.hls_url);
+  // 2. Idempotency Check: derive test segment from H.264 master and check via GET
+  const cacheCheck = await checkVideoCached(playback.hls_url, isHotFull);
   if (cacheCheck.cached) {
-    console.log(`[IDEMPOTENT] Video ${video.id} first segment is already cached (HIT). Skipping.`);
+    const label = isHotFull ? '720p last segment' : 'first segment';
+    console.log(`[IDEMPOTENT] Video ${video.id} ${label} is already cached (HIT). Skipping.`);
     stats.videosSkipped++;
     stats.cacheHits++;
     return;
@@ -368,9 +393,9 @@ async function warmVideo(video, isHotFull) {
     }
   }
 
-  // Remove first segment if already downloaded during idempotency check
-  if (cacheCheck.firstSegmentUrl) {
-    urlsToWarm.delete(cacheCheck.firstSegmentUrl);
+  // Remove test segment if already downloaded during idempotency check
+  if (cacheCheck.testSegmentUrl) {
+    urlsToWarm.delete(cacheCheck.testSegmentUrl);
   }
 
   const urlList = Array.from(urlsToWarm);
@@ -392,7 +417,7 @@ async function main() {
   console.log(`=======================================================`);
   console.log(`Winkey Media Cache Warmer starting at ${new Date().toISOString()}`);
   console.log(
-    `Media URL: ${MEDIA_BASE_URL} | Global Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`,
+    `Media URL: ${getMediaBaseUrl()} | Global Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`,
   );
   console.log(
     `Run Budget: ${formatBytes(WARM_MAX_BYTES_PER_RUN)} | Hot Full Limit: ${HOT_FULL_LIMIT} videos`,
@@ -401,48 +426,48 @@ async function main() {
 
   // 1. Fetch Top Trending Videos
   const hotFullVideoIds = new Set();
-  const allHotVideoIds = new Set();
+  const candidateVideos = new Map();
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/videos?limit=${HOT_VIDEOS_LIMIT}&sort=trending`, {
-      headers: { 'User-Agent': USER_AGENT },
-    });
+    const res = await fetch(
+      `${getApiBaseUrl()}/v1/videos?limit=${HOT_VIDEOS_LIMIT}&sort=trending`,
+      {
+        headers: { 'User-Agent': USER_AGENT },
+      },
+    );
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.items)) {
         data.items.slice(0, HOT_FULL_LIMIT).forEach((item) => hotFullVideoIds.add(item.id));
-        data.items.forEach((item) => allHotVideoIds.add(item.id));
+        data.items.forEach((item) => candidateVideos.set(item.id, item));
       }
     }
   } catch (err) {
     console.warn(`[WARMER] Warning: Could not fetch trending videos: ${err.message}`);
   }
   console.log(
-    `[WARMER] Loaded ${allHotVideoIds.size} trending videos (Top ${hotFullVideoIds.size} eligible for full 720p).`,
+    `[WARMER] Loaded ${candidateVideos.size} trending videos (Top ${hotFullVideoIds.size} eligible for full 720p).`,
   );
 
-  // 2. Fetch Newest Videos (published in last 24h)
-  const candidateVideos = new Map();
+  // 2. Catalogue Sweep: Newest 50 public videos (start-only unless also top-trending)
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/videos?limit=50&sort=newest`, {
+    const res = await fetch(`${getApiBaseUrl()}/v1/videos?limit=50&sort=newest`, {
       headers: { 'User-Agent': USER_AGENT },
     });
     if (res.ok) {
       const data = await res.json();
-      const cutoff = Date.now() - NEW_VIDEOS_HOURS * 3600 * 1000;
       if (Array.isArray(data.items)) {
         for (const item of data.items) {
-          const pubTime = new Date(item.published_at).getTime();
-          if (pubTime >= cutoff || allHotVideoIds.has(item.id)) {
+          if (!candidateVideos.has(item.id)) {
             candidateVideos.set(item.id, item);
           }
         }
       }
     }
   } catch (err) {
-    console.error(`[WARMER] Error fetching newest videos: ${err.message}`);
+    console.error(`[WARMER] Error fetching catalogue sweep videos: ${err.message}`);
   }
 
-  console.log(`[WARMER] Found ${candidateVideos.size} candidate videos to evaluate.`);
+  console.log(`[WARMER] Total ${candidateVideos.size} candidate videos to evaluate.`);
   stats.videosScanned = candidateVideos.size;
 
   // 3. Process candidate videos sequentially
@@ -480,7 +505,20 @@ async function main() {
   console.log(`=========================================================`);
 }
 
-main().catch((err) => {
-  console.error(`[FATAL] Cache Warmer crashed:`, err);
-  process.exit(1);
-});
+export {
+  parseMasterM3u8,
+  parseRenditionM3u8,
+  checkVideoCached,
+  warmVideo,
+  main,
+  stats,
+  resetStats,
+  GlobalRateLimiter,
+};
+
+if (process.env.NODE_ENV !== 'test') {
+  main().catch((err) => {
+    console.error(`[FATAL] Cache Warmer crashed:`, err);
+    process.exit(1);
+  });
+}

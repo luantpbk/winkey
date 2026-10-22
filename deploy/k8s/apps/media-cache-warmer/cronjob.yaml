@@ -47,8 +47,6 @@ spec:
                   value: '5'
                 - name: HOT_VIDEOS_LIMIT
                   value: '20'
-                - name: NEW_VIDEOS_HOURS
-                  value: '24'
               resources:
                 requests:
                   cpu: 50m
