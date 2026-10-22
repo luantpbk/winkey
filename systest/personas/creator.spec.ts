@@ -171,10 +171,18 @@ test.describe.serial('Persona: creator (Upload, Studio Edit, Series & Deletion, 
     const videoId = page.url().match(/\/studio\/videos\/([^/]+)\/edit/)?.[1];
     expect(videoId).toBeTruthy();
 
+    // Hydration barrier: Wait for React Query to load video data and useEffect to initialize form
+    const titleInput = page.locator('#video-title, [data-testid="video-title-input"]');
+    const descInput = page.locator('#video-description, [data-testid="video-description-input"]');
+    await expect(titleInput).toBeVisible();
+    await expect(titleInput).not.toHaveValue('', { timeout: 15000 });
+
     const newTitle = `Video Đã Chỉnh Sửa ${Date.now()}`;
     const newDesc = 'Mô tả chi tiết với đầy đủ dấu tiếng Việt chuẩn SEO.';
-    await page.locator('#video-title, [data-testid="video-title-input"]').fill(newTitle);
-    await page.locator('#video-description, [data-testid="video-description-input"]').fill(newDesc);
+    await titleInput.fill(newTitle);
+    await expect(titleInput).toHaveValue(newTitle);
+    await descInput.fill(newDesc);
+    await expect(descInput).toHaveValue(newDesc);
 
     // Visibility: PUBLIC
     const pubRadio = page.locator('[data-testid="visibility-radio-PUBLIC"], input[value="PUBLIC"]');
