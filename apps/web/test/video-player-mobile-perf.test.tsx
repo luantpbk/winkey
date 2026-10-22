@@ -219,28 +219,59 @@ describe('VideoPlayer Mobile & Fullscreen Toolbar Auto-hide (Fake Timers)', () =
     const playSpy = vi.spyOn(video, 'play').mockImplementation(async () => {});
     const pauseSpy = vi.spyOn(video, 'pause').mockImplementation(() => {});
 
-    // Tap on video via touchEnd
     act(() => {
-      fireEvent.touchEnd(video);
-      fireEvent.click(video);
+      fireEvent.play(video);
     });
 
-    // Toggles controls from visible to hidden
+    // A real tap: touchstart (bubbles to the container) -> touchend -> synthetic click
+    const tap = () => {
+      act(() => {
+        fireEvent.touchStart(video);
+      });
+      act(() => {
+        fireEvent.touchEnd(video);
+        fireEvent.click(video);
+      });
+    };
+
+    // Visible -> hidden
+    tap();
     expect(controls.className).toContain('opacity-0');
+
+    // Hidden -> visible (the touchstart reveal must not be undone by touchend)
+    tap();
+    expect(controls.className).toContain('opacity-100');
+
+    // Shown by tap, auto-hides again after 3s while playing
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(controls.className).toContain('opacity-0');
+
     // Does NOT toggle play or pause
     expect(playSpy).not.toHaveBeenCalled();
     expect(pauseSpy).not.toHaveBeenCalled();
+  });
 
-    // Tap on video again
+  it('5b. Tapping a paused video keeps the toolbar visible', () => {
+    const { container, getByTestId } = render(
+      <VideoPlayer videoId="vid-touch-paused" src="https://cdn.winkey.vn/hls/master.m3u8" />,
+    );
+
+    const video = container.querySelector('video') as HTMLVideoElement;
+    const controls = getByTestId('player-controls');
+
+    act(() => {
+      fireEvent.touchStart(video);
+    });
     act(() => {
       fireEvent.touchEnd(video);
       fireEvent.click(video);
     });
-
-    // Toggles controls back to visible
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(controls.className).toContain('opacity-100');
-    expect(playSpy).not.toHaveBeenCalled();
-    expect(pauseSpy).not.toHaveBeenCalled();
   });
 
   it('6. Fullscreen hides mouse cursor (cursor-none) when toolbar is hidden', () => {

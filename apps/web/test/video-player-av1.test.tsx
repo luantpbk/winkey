@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import {
-  VideoPlayer,
-  isAv1Supported,
-  AV1_MEDIA_CAPABILITIES_CONFIG,
-} from '../src/components/video/video-player';
+import { VideoPlayer, isAv1Supported } from '../src/components/video/video-player';
 import { PlaybackTracker } from '../src/lib/video/playback-tracker';
 import type { Rendition } from '@winkey/api-client';
 

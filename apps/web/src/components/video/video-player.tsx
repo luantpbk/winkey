@@ -208,6 +208,7 @@ export function VideoPlayer({
   const isPlayingRef = useRef<boolean>(false);
   const isAnyMenuOpenRef = useRef<boolean>(false);
   const touchHandledRef = useRef<boolean>(false);
+  const controlsVisibleAtTouchRef = useRef<boolean>(true);
 
   // Subtitle state
   const [selectedSubtitleLang, setSelectedSubtitleLang] = useState<string | null>(null);
@@ -770,22 +771,25 @@ export function VideoPlayer({
   };
 
   const handleTouchStart = () => {
+    // Remember visibility before this touch reveals the controls, so a tap on the
+    // video can toggle them (touchstart bubbles to the container before touchend).
+    controlsVisibleAtTouchRef.current = showControls;
     setShowControls(true);
     scheduleControlsHide();
   };
 
   const handleVideoTouchEnd = () => {
     touchHandledRef.current = true;
-    setShowControls((prev) => {
-      const next = !prev;
-      if (next) {
-        scheduleControlsHide();
-      } else if (controlsTimeoutRef.current) {
+    if (controlsVisibleAtTouchRef.current && isPlayingRef.current && !isAnyMenuOpenRef.current) {
+      if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
         controlsTimeoutRef.current = null;
       }
-      return next;
-    });
+      setShowControls(false);
+    } else {
+      setShowControls(true);
+      scheduleControlsHide();
+    }
   };
 
   const handleVideoClick = () => {
