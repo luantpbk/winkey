@@ -165,8 +165,12 @@ test.describe.serial('Persona: member (The "Lưu" Refresh-Token Regression, ADR-
     await expect(page.locator('h1')).toBeVisible();
 
     // Force page reload -> tests refresh-token cookie restoration
+    const refreshPromise = page.waitForResponse(
+      (res) => res.url().includes('/v1/auth/refresh') && res.status() === 200,
+    );
     await page.reload();
     await expect(page.locator('h1')).toBeVisible();
+    await refreshPromise;
 
     // Click "Lưu" again
     const saveBtn = page.locator(
