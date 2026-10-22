@@ -25,6 +25,13 @@ import { PlaybackTracker } from '../../lib/video/playback-tracker';
 import { type WatchSurface, stripWatchSurfaceFromAddressBar } from '../../lib/video/watch-url';
 import { saveContinueWatching, removeContinueWatching } from '../../lib/video/continue-watching';
 
+type LockableOrientation = ScreenOrientation & {
+  lock?: (orientation: 'landscape') => Promise<void>;
+  unlock?: () => void;
+};
+
+type IosVideoElement = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+
 export interface VideoPlayerProps {
   videoId?: string;
   durationMs?: number | null;
@@ -1045,13 +1052,51 @@ export function VideoPlayer({
     setIsMuted(video.muted);
   };
 
+  // Keep isFullscreen in sync with the browser (Esc, Android back gesture, KeyF)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active =
+        containerRef.current !== null && document.fullscreenElement === containerRef.current;
+      setIsFullscreen(active);
+      if (active) {
+        setShowControls(true);
+        scheduleControlsHide();
+      } else {
+        try {
+          (screen.orientation as LockableOrientation | undefined)?.unlock?.();
+        } catch {
+          // unlock is unsupported outside fullscreen-capable mobile browsers
+        }
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [scheduleControlsHide]);
+
   const toggleFullscreen = () => {
+    const container = containerRef.current;
+    const video = videoRef.current as IosVideoElement | null;
     if (document.fullscreenElement) {
       void document.exitFullscreen();
-      setIsFullscreen(false);
-    } else if (containerRef.current?.requestFullscreen) {
-      void containerRef.current.requestFullscreen();
-      setIsFullscreen(true);
+    } else if (container?.requestFullscreen) {
+      Promise.resolve(container.requestFullscreen())
+        .then(() => {
+          // Phones: rotate a landscape video to landscape (Android Chrome; no-op elsewhere)
+          const orientation = screen.orientation as LockableOrientation | undefined;
+          const landscapeVideo = !video || video.videoWidth >= video.videoHeight;
+          if (
+            orientation?.lock &&
+            landscapeVideo &&
+            window.matchMedia?.('(pointer: coarse)').matches
+          ) {
+            return orientation.lock('landscape').catch(() => undefined);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    } else if (video?.webkitEnterFullscreen) {
+      // iPhone Safari cannot fullscreen a <div>; only the <video> (native controls, auto-hide)
+      video.webkitEnterFullscreen();
     }
   };
 

@@ -58,6 +58,7 @@ describe('VideoPlayer Mobile & Fullscreen Toolbar Auto-hide (Fake Timers)', () =
   });
 
   afterEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
@@ -283,8 +284,10 @@ describe('VideoPlayer Mobile & Fullscreen Toolbar Auto-hide (Fake Timers)', () =
     const playerContainer = container.firstElementChild as HTMLElement;
     const fullscreenButton = getByTestId('fullscreen-button');
 
-    // Stub requestFullscreen
-    playerContainer.requestFullscreen = vi.fn().mockImplementation(async () => {});
+    // Stub requestFullscreen like a browser: set fullscreenElement, fire fullscreenchange
+    playerContainer.requestFullscreen = vi.fn().mockImplementation(async () => {
+      setFullscreenElement(playerContainer);
+    });
 
     // Enter fullscreen
     act(() => {
@@ -316,4 +319,47 @@ describe('VideoPlayer Mobile & Fullscreen Toolbar Auto-hide (Fake Timers)', () =
     expect(playerContainer.className).not.toContain('cursor-none');
     expect(video.className).not.toContain('cursor-none');
   });
+
+  it('7. Leaving fullscreen via the browser (back gesture / Esc) resets fullscreen state', () => {
+    const { container, getByTestId } = render(
+      <VideoPlayer videoId="vid-fullscreen-exit" src="https://cdn.winkey.vn/hls/master.m3u8" />,
+    );
+    const playerContainer = container.firstElementChild as HTMLElement;
+    const fullscreenButton = getByTestId('fullscreen-button');
+
+    act(() => {
+      setFullscreenElement(playerContainer);
+    });
+    expect(fullscreenButton.getAttribute('aria-label')).toContain('Thoát');
+
+    act(() => {
+      setFullscreenElement(null);
+    });
+    expect(fullscreenButton.getAttribute('aria-label')).not.toContain('Thoát');
+  });
+
+  it('8. iPhone Safari (no element fullscreen) falls back to native video fullscreen', () => {
+    const { container, getByTestId } = render(
+      <VideoPlayer videoId="vid-fullscreen-ios" src="https://cdn.winkey.vn/hls/master.m3u8" />,
+    );
+    const video = container.querySelector('video') as HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    };
+    const playerContainer = container.firstElementChild as HTMLElement;
+    Object.defineProperty(playerContainer, 'requestFullscreen', {
+      configurable: true,
+      value: undefined,
+    });
+    video.webkitEnterFullscreen = vi.fn();
+
+    act(() => {
+      fireEvent.click(getByTestId('fullscreen-button'));
+    });
+    expect(video.webkitEnterFullscreen).toHaveBeenCalledTimes(1);
+  });
 });
+
+function setFullscreenElement(el: Element | null) {
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: el });
+  document.dispatchEvent(new Event('fullscreenchange'));
+}
