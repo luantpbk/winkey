@@ -401,6 +401,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
 
   /v1/studio/videos/{video_id}/stats:
     parameters:
@@ -433,6 +435,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
         '429':
@@ -464,6 +468,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
