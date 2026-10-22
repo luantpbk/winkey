@@ -15,7 +15,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 // Configuration
-const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn').replace(/\/+$/, '');
+const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || 'https://media.winkey.vn').replace(
+  /\/+$/,
+  '',
+);
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://winkey.vn').replace(/\/+$/, '');
 const CACHE_DIR = process.env.CACHE_DIR || '/nginx-cache';
 const MAX_CACHE_BYTES = Number(process.env.MAX_CACHE_BYTES) || 40 * 1024 * 1024 * 1024; // 40GB
@@ -65,7 +68,9 @@ function checkDiskGuard() {
       const fsUsed = fsTotal - fsFree;
       const fsPercent = (fsUsed / fsTotal) * 100;
       if (fsPercent >= 85) {
-        console.warn(`[DISK GUARD] Filesystem usage at ${fsPercent.toFixed(1)}% (>=85%). Aborting warm.`);
+        console.warn(
+          `[DISK GUARD] Filesystem usage at ${fsPercent.toFixed(1)}% (>=85%). Aborting warm.`,
+        );
         return false;
       }
     } catch (_) {}
@@ -93,11 +98,13 @@ function checkDiskGuard() {
   const percentOfMax = (usedBytes / MAX_CACHE_BYTES) * 100;
 
   console.log(
-    `[DISK GUARD] Current cache usage: ${formatBytes(usedBytes)} / ${formatBytes(MAX_CACHE_BYTES)} (${percentOfMax.toFixed(1)}%, limit: 80.0%)`
+    `[DISK GUARD] Current cache usage: ${formatBytes(usedBytes)} / ${formatBytes(MAX_CACHE_BYTES)} (${percentOfMax.toFixed(1)}%, limit: 80.0%)`,
   );
 
   if (usedBytes >= thresholdBytes) {
-    console.warn(`[DISK GUARD] Cache directory usage ${formatBytes(usedBytes)} exceeds 80% threshold. Aborting warm.`);
+    console.warn(
+      `[DISK GUARD] Cache directory usage ${formatBytes(usedBytes)} exceeds 80% threshold. Aborting warm.`,
+    );
     return false;
   }
   return true;
@@ -110,10 +117,7 @@ function signMediaUrl(vid, targetPath, secret, expireSeconds = 86400) {
   if (!secret) return targetPath;
   const exp = Math.floor(Date.now() / 1000) + expireSeconds;
   // Format: $exp/v/$vid/ $media_link_secret
-  const hash = crypto
-    .createHash('md5')
-    .update(`${exp}/v/${vid}/ ${secret}`)
-    .digest('base64url');
+  const hash = crypto.createHash('md5').update(`${exp}/v/${vid}/ ${secret}`).digest('base64url');
   return `/s/${exp}/${hash}/${targetPath.replace(/^\/+/, '')}`;
 }
 
@@ -126,7 +130,7 @@ async function fetchMediaWithRateLimit(url) {
   const res = await fetch(url, {
     headers: {
       'User-Agent': USER_AGENT,
-      'Accept': '*/*',
+      Accept: '*/*',
     },
   });
 
@@ -337,7 +341,9 @@ async function warmVideo(video, isHot) {
 async function main() {
   console.log(`=======================================================`);
   console.log(`Winkey Media Cache Warmer starting at ${new Date().toISOString()}`);
-  console.log(`Media URL: ${MEDIA_BASE_URL} | Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`);
+  console.log(
+    `Media URL: ${MEDIA_BASE_URL} | Rate Limit: ${formatBytes(RATE_LIMIT_BPS)}/s | Concurrency: ${MAX_CONCURRENCY}`,
+  );
   console.log(`=======================================================`);
 
   // Check initial disk usage

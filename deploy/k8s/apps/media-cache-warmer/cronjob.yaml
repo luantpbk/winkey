@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: media-cache-warmer
     app.kubernetes.io/part-of: winkey
 spec:
-  schedule: "*/15 * * * *"
+  schedule: '*/15 * * * *'
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -24,26 +24,26 @@ spec:
           containers:
             - name: warmer
               image: node:22-alpine
-              command: ["node", "/app/warmer.mjs"]
+              command: ['node', '/app/warmer.mjs']
               env:
                 - name: MEDIA_BASE_URL
-                  value: "https://media.winkey.vn"
+                  value: 'https://media.winkey.vn'
                 - name: API_BASE_URL
-                  value: "https://winkey.vn"
+                  value: 'https://winkey.vn'
                 - name: CACHE_DIR
-                  value: "/nginx-cache"
+                  value: '/nginx-cache'
                 - name: MAX_CACHE_BYTES
-                  value: "42949672960" # 40GB
+                  value: '42949672960' # 40GB
                 - name: MAX_CONCURRENCY
-                  value: "4"
+                  value: '4'
                 - name: RATE_LIMIT_BPS
-                  value: "5242880" # 5 MB/s
+                  value: '5242880' # 5 MB/s
                 - name: WARM_SEGMENTS_COUNT
-                  value: "15" # ~60s
+                  value: '15' # ~60s
                 - name: HOT_VIDEOS_LIMIT
-                  value: "20"
+                  value: '20'
                 - name: NEW_VIDEOS_HOURS
-                  value: "24"
+                  value: '24'
               resources:
                 requests:
                   cpu: 50m
