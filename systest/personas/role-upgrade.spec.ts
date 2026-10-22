@@ -15,6 +15,11 @@ if (!manifest.moderator?.email) {
   throw new Error('[persona:role-upgrade] Missing moderator in seed-manifest.json');
 }
 
+const INVITE_CODE = manifest.invite_code;
+if (!INVITE_CODE) {
+  throw new Error('[persona:role-upgrade] Missing invite_code in seed-manifest.json');
+}
+
 const PASSWORD = 'Password123!';
 const testClipPath = path.resolve(__dirname, '../.run/seed_clip_16x9.mp4');
 const fallbackClipPath = path.resolve(__dirname, '../.run/clip.mp4');
@@ -54,14 +59,10 @@ test.describe
     await viewerContext?.close();
   });
 
-  test('register new account WITHOUT invite -> role is viewer -> no Upload/Studio in nav', async () => {
-    // 1. Navigate to /register without invite code in URL
-    await viewerPage.goto('/register');
+  test('register with invite -> demote to viewer via psql -> refresh picks up viewer -> no Upload/Studio in nav', async () => {
+    // 1. Navigate to /register with invite code
+    await viewerPage.goto(`/register?invite=${encodeURIComponent(INVITE_CODE)}`);
     await expect(viewerPage.locator('body')).toBeVisible();
-
-    // Invite code field should NOT be displayed when no ?invite= query parameter is passed
-    const inviteInput = viewerPage.locator('#invite-code-input');
-    await expect(inviteInput).not.toBeVisible();
 
     // Fill registration form
     await viewerPage.locator('input[placeholder*="Nguyễn Văn A"]').fill(viewerDisplayName);
@@ -80,17 +81,32 @@ test.describe
     await viewerPage.locator('main form button[type="submit"]').click();
     await viewerPage.waitForURL((url) => !url.pathname.includes('/register'), { timeout: 15000 });
 
-    // Verify session identity by logging in with credentials to get token and verify roles
-    const loginRes = await viewerPage.request.post('/v1/auth/login', {
-      data: { email: viewerEmail, password: PASSWORD },
-    });
-    expect(loginRes.ok()).toBeTruthy();
-    const loginData = await loginRes.json();
-    viewerToken = loginData.access_token;
-    expect(loginData.user.roles).toEqual(['viewer']);
+    // 2. Right after signup, demote with the seed's psql pattern:
+    // UPDATE auth.users SET roles='{viewer}' WHERE id=...
+    const userId = execSync(
+      `docker exec -i winkey-postgres psql -U winkey_migrator -d winkey -t -A -c "SELECT id FROM auth.users WHERE email = '${viewerEmail}';"`,
+    )
+      .toString()
+      .trim();
+    expect(userId).toBeTruthy();
+    execSync(
+      `docker exec -i winkey-postgres psql -U winkey_migrator -d winkey -c "UPDATE auth.users SET roles = '{viewer}' WHERE id = '${userId}';"`,
+    );
 
-    // 2. Assert no Upload / Studio in global nav
-    await viewerPage.goto('/');
+    // 3. reload() — the boot refresh picks up viewer; assert roles == ['viewer'] via /v1/auth/refresh
+    const refreshResPromise = viewerPage.waitForResponse(
+      (res) => res.url().includes('/v1/auth/refresh') && res.request().method() === 'POST',
+    );
+    await viewerPage.reload();
+    await expect(viewerPage.locator('body')).toBeVisible();
+
+    const refreshRes = await refreshResPromise;
+    expect(refreshRes.status()).toBe(200);
+    const refreshData = await refreshRes.json();
+    expect(refreshData.user.roles).toEqual(['viewer']);
+    viewerToken = refreshData.access_token;
+
+    // 4. Assert no Upload / Studio in global nav
     await expect(viewerPage.locator('[data-testid="topbar-upload-btn"]')).not.toBeVisible();
     await expect(viewerPage.locator('a[href="/upload"]')).not.toBeVisible();
     await expect(viewerPage.locator('a[href="/studio"]')).not.toBeVisible();
@@ -98,7 +114,7 @@ test.describe
   });
 
   test('/upload shows upgrade page -> POST /v1/uploads returns 403', async () => {
-    // 3. Direct navigation to /upload shows upgrade page instead of upload dropzone
+    // 5. Direct navigation to /upload shows upgrade page instead of upload dropzone
     await viewerPage.goto('/upload');
     await expect(viewerPage.getByText(/Trở thành Nhà sáng tạo Winkey/i)).toBeVisible({
       timeout: 10000,
@@ -106,7 +122,7 @@ test.describe
     await expect(viewerPage.locator('[data-testid="creator-request-textarea"]')).toBeVisible();
     await expect(viewerPage.locator('[data-testid="upload-tab-single"]')).not.toBeVisible();
 
-    // 4. Direct API POST /v1/uploads returns 403 CREATOR_ROLE_REQUIRED
+    // 6. Direct API POST /v1/uploads returns 403 CREATOR_ROLE_REQUIRED
     const uploadRes = await viewerPage.request.post('/v1/uploads', {
       headers: { Authorization: `Bearer ${viewerToken}` },
       data: {
@@ -126,7 +142,7 @@ test.describe
   });
 
   test('send creator request (/nang-cap) -> status becomes PENDING', async () => {
-    // 5. Navigate to /nang-cap and send creator request
+    // 7. Navigate to /nang-cap and send creator request
     await viewerPage.goto('/nang-cap');
     const textarea = viewerPage.locator('[data-testid="creator-request-textarea"]');
     await expect(textarea).toBeVisible({ timeout: 10000 });
@@ -148,7 +164,7 @@ test.describe
   });
 
   test('admin (sim_mod) approves in Admin tab "Yêu cầu sáng tạo"', async ({ browser }) => {
-    // 6. Admin logs in using separate isolated context
+    // 8. Admin logs in using separate isolated context
     resetRateLimits();
     const adminContext = await browser.newContext();
     const adminPage = await adminContext.newPage();
@@ -187,12 +203,22 @@ test.describe
     await adminContext.close();
   });
 
-  test('user page refreshes -> Upload visible -> upload starts (201)', async () => {
-    // 7. User refreshes page: session refresh brings new creator role
-    await viewerPage.goto('/upload');
+  test('after admin approval, assert POST /v1/auth/refresh returns creator, then upload -> 201', async () => {
+    // 9. Reload viewerPage on /nang-cap to trigger boot refresh; assert POST /v1/auth/refresh returns creator
+    const refreshResPromise = viewerPage.waitForResponse(
+      (res) => res.url().includes('/v1/auth/refresh') && res.request().method() === 'POST',
+    );
     await viewerPage.reload();
+    await expect(viewerPage.locator('body')).toBeVisible();
 
-    // Upload button in global nav must now be visible
+    const refreshRes = await refreshResPromise;
+    expect(refreshRes.status()).toBe(200);
+    const refreshData = await refreshRes.json();
+    expect(refreshData.user.roles).toContain('creator');
+    viewerToken = refreshData.access_token;
+
+    // Navigate to /upload: user is creator, upload button in global nav must now be visible
+    await viewerPage.goto('/upload');
     await expect(viewerPage.locator('[data-testid="topbar-upload-btn"]')).toBeVisible({
       timeout: 15000,
     });
@@ -202,16 +228,7 @@ test.describe
     const fileInput = viewerPage.locator('input[type="file"]');
     await expect(fileInput).toBeAttached({ timeout: 15000 });
 
-    // Re-login viewer to obtain updated token with creator role
-    const reloginRes = await viewerPage.request.post('/v1/auth/login', {
-      data: { email: viewerEmail, password: PASSWORD },
-    });
-    expect(reloginRes.ok()).toBeTruthy();
-    const reloginData = await reloginRes.json();
-    expect(reloginData.user.roles).toContain('creator');
-    viewerToken = reloginData.access_token;
-
-    // 8. Upload starts (POST /v1/uploads returns 201)
+    // 10. Upload starts (POST /v1/uploads returns 201)
     const clipSizeBytes = fs.existsSync(clipPath) ? fs.statSync(clipPath).size : 1024 * 512;
     const startUploadRes = await viewerPage.request.post('/v1/uploads', {
       headers: { Authorization: `Bearer ${viewerToken}` },

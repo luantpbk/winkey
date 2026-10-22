@@ -565,27 +565,6 @@ async function main() {
   const creator3 = await ensureUser('sim_creator3', 'sim_creator3@winkey.test', 'Winkey Creator 3');
   creator3.handle = 'sim_creator3';
 
-  try {
-    console.log(
-      '[seed] Ensuring creator roles in DB for sim_curator, sim_creator2, sim_creator3...',
-    );
-    execSync(
-      `docker exec winkey-postgres psql -U winkey_migrator -d winkey -c "UPDATE auth.users SET roles = '{viewer,creator}' WHERE id IN ('${curator.user.id}', '${creator2.user.id}', '${creator3.user.id}');"`,
-    );
-    for (const c of [curator, creator2, creator3]) {
-      const relogin = await request(`${GATEWAY_URL}/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: `${c.handle}@winkey.test`, password: PASSWORD }),
-      });
-      if (relogin.ok && relogin.json?.access_token) {
-        c.token = relogin.json.access_token;
-      }
-    }
-  } catch (err) {
-    console.warn('[seed] Warning: Creator DB elevation failed:', err.message);
-  }
-
   // 3. Ensure Moderator (sim_mod) & elevate role
   console.log('[seed] Registering moderator (sim_mod)...');
   const moderator = await ensureUser('sim_mod', 'sim_mod@winkey.test', 'Kiểm Duyệt Viên Winkey');
