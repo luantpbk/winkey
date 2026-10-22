@@ -15,9 +15,11 @@ if (!manifest.moderator?.email) {
   throw new Error('[persona:role-upgrade] Missing moderator in seed-manifest.json');
 }
 
-const INVITE_CODE = manifest.invite_code;
+const INVITE_CODE = process.env.INVITE_CODE || manifest.invite_code;
 if (!INVITE_CODE) {
-  throw new Error('[persona:role-upgrade] Missing invite_code in seed-manifest.json');
+  throw new Error(
+    '[persona:role-upgrade] Missing invite_code in process.env.INVITE_CODE and seed-manifest.json',
+  );
 }
 
 const PASSWORD = 'Password123!';
