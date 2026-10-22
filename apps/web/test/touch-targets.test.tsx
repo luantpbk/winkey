@@ -264,7 +264,7 @@ describe('UX1 Issue #397: Touch Targets >= 44x44px (ADR-044)', () => {
 
     it('3. TopBar search submit button and upload button have shrink-0 to prevent 35px squeeze on tablet', () => {
       mockIsAuthenticated = true;
-      mockUser = { id: 'u1', display_name: 'Tester', handle: 'tester' };
+      mockUser = { id: 'u1', display_name: 'Tester', handle: 'tester', roles: ['creator'] };
 
       render(<TopBar onToggleSidebar={vi.fn()} />);
 
@@ -280,6 +280,9 @@ describe('UX1 Issue #397: Touch Targets >= 44x44px (ADR-044)', () => {
     });
 
     it('4. CinemaShell search button and upload button have shrink-0, and nav links meet >= 44px height (py-2.5 min-h-11)', () => {
+      mockIsAuthenticated = true;
+      mockUser = { id: 'u1', display_name: 'Tester', handle: 'tester', roles: ['creator'] };
+
       render(
         <CinemaShell>
           <div>Content</div>

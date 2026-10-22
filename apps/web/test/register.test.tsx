@@ -133,6 +133,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
   });
 
   it('trims and includes invite_code in register payload when non-empty', async () => {
+    mockSearchParams = new URLSearchParams({ invite: '' });
     mockRegister.mockResolvedValue({ success: true });
     render(<RegisterPage />);
 
@@ -195,9 +196,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
 
     await waitFor(() => {
       const err = screen.getByTestId('invite-error-msg');
-      expect(err.textContent).toContain(
-        'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
-      );
+      expect(err.textContent).toContain('Bạn cần có mã mời để tạo tài khoản.');
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
@@ -248,9 +247,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
 
     await waitFor(() => {
       const err = screen.getByTestId('invite-error-msg');
-      expect(err.textContent).toContain(
-        'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
-      );
+      expect(err.textContent).toContain('Bạn cần có mã mời để tạo tài khoản.');
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
@@ -297,6 +294,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
   });
 
   it('Google button carries URL-encoded invite_code only when field is non-empty', () => {
+    mockSearchParams = new URLSearchParams({ invite: '' });
     render(<RegisterPage />);
 
     const checkbox = screen.getByTestId('terms-agreement-checkbox');

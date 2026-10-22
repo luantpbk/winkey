@@ -55,6 +55,18 @@ function RegisterForm() {
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   const inviteInputRef = useRef<HTMLInputElement>(null);
+  const showInviteField =
+    searchParams.has('invite') ||
+    !!fieldErrors.invite_code ||
+    searchParams.get('error') === 'INVITE_REQUIRED' ||
+    searchParams.get('error') === 'INVITE_INVALID';
+
+  // Automatically focus invite input if an invite error occurs
+  useEffect(() => {
+    if (fieldErrors.invite_code) {
+      inviteInputRef.current?.focus();
+    }
+  }, [fieldErrors.invite_code]);
 
   // Prefill invite code from ?invite= and handle ?error= from OAuth callback
   useEffect(() => {
@@ -67,11 +79,9 @@ function RegisterForm() {
     if (errorParam === 'INVITE_REQUIRED') {
       const msg = t('inviteRequired');
       setFieldErrors((prev) => (prev.invite_code === msg ? prev : { ...prev, invite_code: msg }));
-      inviteInputRef.current?.focus();
     } else if (errorParam === 'INVITE_INVALID') {
       const msg = t('inviteInvalid');
       setFieldErrors((prev) => (prev.invite_code === msg ? prev : { ...prev, invite_code: msg }));
-      inviteInputRef.current?.focus();
     }
   }, [searchParams, t]);
 
@@ -96,6 +106,9 @@ function RegisterForm() {
     setIsSubmitting(false);
 
     if (res.success) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('winkey_new_signup_hint', '1');
+      }
       router.push('/');
     } else if (res.error) {
       if (res.error.code === 'INVITE_REQUIRED') {
@@ -248,39 +261,41 @@ function RegisterForm() {
           </div>
         </div>
 
-        {/* Invite Code (ADR-034: closed beta invite) */}
-        <div>
-          <label
-            htmlFor="invite-code-input"
-            className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1"
-          >
-            {t('inviteCode')}
-          </label>
-          <input
-            id="invite-code-input"
-            ref={inviteInputRef}
-            type="text"
-            maxLength={64}
-            value={inviteCode}
-            onChange={(e) => setInviteCode(e.target.value)}
-            placeholder={t('invitePlaceholder')}
-            className={`w-full h-10 rounded-xl border px-3.5 text-sm bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
-              fieldErrors.invite_code
-                ? 'border-red-500 focus:ring-red-500'
-                : 'border-[#383838] dark:border-[#383838] border-gray-300 focus:border-red-500 focus:ring-red-500'
-            }`}
-          />
-          <div className="min-h-[18px] mt-1">
-            {fieldErrors.invite_code && (
-              <p
-                data-testid="invite-error-msg"
-                className="text-xs text-red-500 font-medium leading-tight"
-              >
-                {fieldErrors.invite_code}
-              </p>
-            )}
+        {/* Invite Code (ADR-046: only shown when ?invite= is present) */}
+        {showInviteField && (
+          <div>
+            <label
+              htmlFor="invite-code-input"
+              className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1"
+            >
+              {t('inviteCode')}
+            </label>
+            <input
+              id="invite-code-input"
+              ref={inviteInputRef}
+              type="text"
+              maxLength={64}
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder={t('invitePlaceholder')}
+              className={`w-full h-10 rounded-xl border px-3.5 text-sm bg-[#1e1e1e] dark:bg-[#1e1e1e] bg-gray-50 text-gray-900 dark:text-white focus:outline-none focus:ring-2 ${
+                fieldErrors.invite_code
+                  ? 'border-red-500 focus:ring-red-500'
+                  : 'border-[#383838] dark:border-[#383838] border-gray-300 focus:border-red-500 focus:ring-red-500'
+              }`}
+            />
+            <div className="min-h-[18px] mt-1">
+              {fieldErrors.invite_code && (
+                <p
+                  data-testid="invite-error-msg"
+                  className="text-xs text-red-500 font-medium leading-tight"
+                >
+                  {fieldErrors.invite_code}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Required legal agreement checkbox (client-only) */}
         <div className="flex items-start gap-2.5 pt-1">

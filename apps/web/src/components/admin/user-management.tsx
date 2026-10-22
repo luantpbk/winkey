@@ -17,11 +17,14 @@ import {
   UserX,
   X,
   RotateCw,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import type { AdminUser, Role, UserStatus, Problem } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
+import { useToast } from '../ui/toast';
 
 function toLocalInputValue(dateInput: string | Date): string {
   const d = new Date(dateInput);
@@ -42,6 +45,7 @@ export function UserManagement() {
   const tErrorsRef = useRef(tErrors);
   tErrorsRef.current = tErrors;
   const { user: currentUser, isAdmin, isModerator } = useAuth();
+  const { showToast } = useToast();
   const requestIdRef = useRef(0);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -112,6 +116,77 @@ export function UserManagement() {
     isSubmitting: false,
     error: null,
   });
+
+  const [quickRevokeModal, setQuickRevokeModal] = useState<{
+    isOpen: boolean;
+    targetUser: AdminUser | null;
+    isSubmitting: boolean;
+  }>({
+    isOpen: false,
+    targetUser: null,
+    isSubmitting: false,
+  });
+
+  const handleQuickGrantCreator = async (target: AdminUser) => {
+    const nextRoles: Role[] = target.roles.includes('creator')
+      ? target.roles
+      : [...target.roles, 'creator'];
+
+    try {
+      const { error: apiError } = await api.auth.PUT('/v1/admin/users/{user_id}/roles', {
+        params: { path: { user_id: target.id } },
+        body: { roles: nextRoles },
+      });
+
+      if (apiError) {
+        showToast({
+          title: (apiError as Problem)?.detail || 'Không thể cấp quyền Creator.',
+          type: 'error',
+        });
+      } else {
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, roles: nextRoles } : u)));
+        showToast({
+          title: `Đã cấp quyền Creator cho @${target.handle}.`,
+          type: 'success',
+        });
+      }
+    } catch {
+      showToast({ title: 'Lỗi mạng khi cấp quyền Creator.', type: 'error' });
+    }
+  };
+
+  const handleConfirmQuickRevokeCreator = async () => {
+    if (!quickRevokeModal.targetUser) return;
+    const target = quickRevokeModal.targetUser;
+    setQuickRevokeModal((prev) => ({ ...prev, isSubmitting: true }));
+
+    const nextRoles: Role[] = target.roles.filter((r) => r !== 'creator');
+    if (nextRoles.length === 0) nextRoles.push('viewer');
+
+    try {
+      const { error: apiError } = await api.auth.PUT('/v1/admin/users/{user_id}/roles', {
+        params: { path: { user_id: target.id } },
+        body: { roles: nextRoles },
+      });
+
+      if (apiError) {
+        showToast({
+          title: (apiError as Problem)?.detail || 'Không thể thu hồi quyền Creator.',
+          type: 'error',
+        });
+      } else {
+        setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, roles: nextRoles } : u)));
+        showToast({
+          title: `Đã thu hồi quyền Creator của @${target.handle}. Người dùng đã bị đăng xuất khỏi tất cả phiên.`,
+          type: 'info',
+        });
+      }
+    } catch {
+      showToast({ title: 'Lỗi mạng khi thu hồi quyền Creator.', type: 'error' });
+    } finally {
+      setQuickRevokeModal({ isOpen: false, targetUser: null, isSubmitting: false });
+    }
+  };
 
   const suspendInputRef = useRef<HTMLInputElement>(null);
   const rolesModalRef = useRef<HTMLDivElement>(null);
@@ -709,6 +784,40 @@ export function UserManagement() {
                             </button>
                           )}
 
+                          {/* Quick Grant / Revoke Creator (Admin only, never on self, never on deleted) */}
+                          {isAdmin &&
+                            !isSelf &&
+                            target.status !== 'DELETED' &&
+                            (target.roles.includes('creator') ? (
+                              <button
+                                type="button"
+                                data-testid={`quick-revoke-creator-btn-${target.id}`}
+                                onClick={() =>
+                                  setQuickRevokeModal({
+                                    isOpen: true,
+                                    targetUser: target,
+                                    isSubmitting: false,
+                                  })
+                                }
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold transition"
+                                title="Thu hồi quyền Creator (sẽ đăng xuất người dùng)"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                <span>Thu hồi Creator</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                data-testid={`quick-grant-creator-btn-${target.id}`}
+                                onClick={() => handleQuickGrantCreator(target)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-semibold transition"
+                                title="Cấp quyền Creator ngay"
+                              >
+                                <Sparkles className="h-3 w-3" />
+                                <span>Cấp Creator</span>
+                              </button>
+                            ))}
+
                           {/* Edit Roles (Admin only, never on self, never on deleted) */}
                           {isAdmin && (
                             <button
@@ -1056,6 +1165,64 @@ export function UserManagement() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Revoke Creator Warning Modal */}
+      {quickRevokeModal.isOpen && quickRevokeModal.targetUser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !quickRevokeModal.isSubmitting) {
+              setQuickRevokeModal({ isOpen: false, targetUser: null, isSubmitting: false });
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-[#1e1e1e] border border-[#333] p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <span>Cảnh báo thu hồi quyền Creator</span>
+            </h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Bạn có chắc chắn muốn thu hồi quyền Creator của người dùng{' '}
+              <span className="font-semibold text-white">
+                @{quickRevokeModal.targetUser.handle}
+              </span>
+              ?
+            </p>
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+              <strong>Lưu ý:</strong> Việc thu hồi quyền sáng tạo sẽ{' '}
+              <span className="underline font-bold">hủy toàn bộ phiên đăng nhập</span> của người
+              dùng. Họ sẽ bị đăng xuất khỏi tất cả các thiết bị ngay lập tức.
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={quickRevokeModal.isSubmitting}
+                onClick={() =>
+                  setQuickRevokeModal({ isOpen: false, targetUser: null, isSubmitting: false })
+                }
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-300 hover:bg-[#2a2a2a] transition disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-quick-revoke-btn"
+                disabled={quickRevokeModal.isSubmitting}
+                onClick={handleConfirmQuickRevokeCreator}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition disabled:opacity-50"
+              >
+                {quickRevokeModal.isSubmitting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span>Xác nhận thu hồi</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

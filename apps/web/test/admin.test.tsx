@@ -111,6 +111,8 @@ vi.mock('../src/i18n/routing', () => ({
   ),
 }));
 
+import { computePermissions } from '../src/lib/auth/permissions';
+
 // Mock auth context
 let mockUser: {
   id: string;
@@ -130,10 +132,12 @@ vi.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => {
     const isMod = mockUser?.roles?.includes('moderator') ?? false;
     const isAdm = mockUser?.roles?.includes('admin') ?? false;
+    const can = computePermissions(mockUser, mockIsAuthenticated);
     return {
       user: mockUser,
       isAuthenticated: mockIsAuthenticated,
       isLoading: mockIsLoading,
+      can,
       isModerator: isMod,
       isAdmin: isAdm,
       canAccessAdmin: isMod || isAdm,
