@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
+import { hasSessionIndicator } from '../../lib/auth/session-indicator';
 import { useTheme } from '../theme-provider';
 import {
   Menu,
@@ -27,7 +28,7 @@ interface TopBarProps {
 
 export function TopBar({ onToggleSidebar }: TopBarProps) {
   const t = useTranslations('nav');
-  const { user, isAuthenticated, logout, canAccessAdmin } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, canAccessAdmin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -220,6 +221,12 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
               )}
             </div>
           </>
+        ) : isLoading && hasSessionIndicator() ? (
+          <div className="flex items-center gap-2" aria-hidden="true">
+            <div className="h-8 w-20 rounded-full bg-zinc-800 animate-pulse hidden md:block" />
+            <div className="h-8 w-8 rounded-full bg-zinc-800 animate-pulse" />
+            <div className="h-8 w-8 rounded-full bg-zinc-800 animate-pulse" />
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <Link

@@ -53,7 +53,7 @@ export function Shell({
           feedbackUrl={feedbackUrl}
         />
         <main
-          className={`flex-1 flex flex-col transition-all duration-200 min-h-[calc(100vh-56px)] overflow-x-hidden pb-16 md:pb-0 ${
+          className={`flex-1 flex flex-col transition-[margin-left] duration-200 min-h-[calc(100vh-56px)] overflow-x-hidden pb-16 md:pb-0 ${
             collapsed ? 'md:ml-[72px]' : 'md:ml-60'
           }`}
         >

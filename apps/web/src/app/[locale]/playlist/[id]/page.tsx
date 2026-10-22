@@ -353,8 +353,44 @@ export default function PlaylistPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh] text-zinc-400">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div
+        data-testid="playlist-loading-skeleton"
+        className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4 min-h-[calc(100vh-140px)]"
+      >
+        {/* Left Column Skeleton */}
+        <div className="lg:col-span-4 xl:col-span-3">
+          <div className="rounded-2xl bg-gradient-to-b from-zinc-800/80 to-zinc-900 border border-zinc-800 p-6 flex flex-col gap-5 shadow-2xl">
+            <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 animate-pulse" />
+            <div className="flex flex-col gap-2">
+              <div className="h-7 w-3/4 rounded-lg bg-zinc-800 animate-pulse" />
+              <div className="h-4 w-1/2 rounded bg-zinc-800/70 animate-pulse" />
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-zinc-800">
+              <div className="h-8 w-8 rounded-full bg-zinc-800 animate-pulse shrink-0" />
+              <div className="h-4 w-28 rounded bg-zinc-800 animate-pulse" />
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-20 rounded-full bg-zinc-800 animate-pulse" />
+              <div className="h-6 w-24 rounded-full bg-zinc-800 animate-pulse" />
+            </div>
+          </div>
+        </div>
+        {/* Right Column Skeleton */}
+        <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/40 border border-zinc-800/60 animate-pulse"
+            >
+              <div className="w-8 text-center text-xs text-zinc-600">{i + 1}</div>
+              <div className="relative aspect-video w-32 sm:w-40 rounded-lg bg-zinc-800 shrink-0" />
+              <div className="flex flex-col gap-2 flex-1 min-w-0">
+                <div className="h-4 w-3/4 rounded bg-zinc-800" />
+                <div className="h-3 w-1/3 rounded bg-zinc-800/60" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -385,7 +421,7 @@ export default function PlaylistPage() {
   const coverUrl = getThumbnailUrl(firstValidVideo?.thumbnail_url);
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4">
+    <div className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4 min-h-[calc(100vh-140px)]">
       {/* Left Column: Playlist Card / Info */}
       <div className="lg:col-span-4 xl:col-span-3">
         <div className="sticky top-20 rounded-2xl bg-gradient-to-b from-zinc-800/80 to-zinc-900 border border-zinc-800 p-6 flex flex-col gap-5 shadow-2xl backdrop-blur-md">

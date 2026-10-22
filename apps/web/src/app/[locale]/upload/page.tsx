@@ -141,7 +141,7 @@ export default function UploadPage() {
           {/* Dropzone Skeleton Container (min-h-[320px] fixed dimension) */}
           <div
             data-testid="upload-dropzone-skeleton"
-            className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl min-h-[320px] flex items-center justify-center"
+            className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl min-h-[320px]"
           >
             <div className="flex flex-col items-center justify-center min-h-[240px] w-full rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center animate-pulse">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800/80 mb-4 text-zinc-600">
@@ -181,7 +181,7 @@ export default function UploadPage() {
               type="button"
               onClick={() => setActiveTab('single')}
               data-testid="upload-tab-single"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`flex h-8 items-center gap-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'single'
                   ? 'bg-red-600 text-white shadow-md'
                   : 'border border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:bg-zinc-800'
@@ -195,7 +195,7 @@ export default function UploadPage() {
               type="button"
               onClick={() => setActiveTab('package')}
               data-testid="upload-tab-package"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`flex h-8 items-center gap-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'package'
                   ? 'bg-red-600 text-white shadow-md'
                   : 'border border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:bg-zinc-800'
@@ -223,7 +223,7 @@ export default function UploadPage() {
                     }
                   }}
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center min-h-[240px] rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center hover:border-red-500 hover:bg-[#1b1b1b] dark:hover:bg-[#1b1b1b] hover:bg-gray-50 cursor-pointer transition"
+                  className="flex flex-col items-center justify-center min-h-[240px] w-full rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center hover:border-red-500 hover:bg-[#1b1b1b] dark:hover:bg-[#1b1b1b] hover:bg-gray-50 cursor-pointer transition"
                 >
                   <input
                     ref={fileInputRef}

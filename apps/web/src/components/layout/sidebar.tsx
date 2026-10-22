@@ -23,6 +23,7 @@ import {
   Clapperboard,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
+import { hasSessionIndicator } from '../../lib/auth/session-indicator';
 import { useFeedbackUrl } from '../../lib/feedback';
 import { getAllCategories } from '../../lib/seo/categories';
 
@@ -44,7 +45,8 @@ export function Sidebar({
   const tLegal = useTranslations('legal');
   const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
-  const { canAccessAdmin, isAuthenticated } = useAuth();
+  const { canAccessAdmin, isAuthenticated, isLoading } = useAuth();
+  const showMemberLinks = isAuthenticated || (isLoading && hasSessionIndicator());
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
@@ -52,13 +54,13 @@ export function Sidebar({
     { href: '/studio', label: t('studio'), icon: LayoutDashboard },
     ...(canAccessAdmin ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
     { href: '/upload', label: t('upload'), icon: UploadCloud },
-    ...(isAuthenticated
+    ...(showMemberLinks
       ? [{ href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv }]
       : []),
   ];
 
   const secondaryItems = [
-    ...(isAuthenticated
+    ...(showMemberLinks
       ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
       : []),
     { href: '/thu-vien', label: t('library'), icon: FolderHeart },
@@ -102,7 +104,7 @@ export function Sidebar({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-14 bottom-0 left-0 z-40 flex flex-col border-r border-[#272727] dark:border-[#272727] border-gray-200 bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white transition-all duration-200 overflow-y-auto ${
+        className={`fixed top-14 bottom-0 left-0 z-40 flex flex-col border-r border-[#272727] dark:border-[#272727] border-gray-200 bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white transition-[transform,width] duration-200 overflow-y-auto ${
           // Mobile state
           mobileOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'
         } ${
