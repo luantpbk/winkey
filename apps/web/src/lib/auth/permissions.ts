@@ -29,10 +29,13 @@ export function computePermissions(
   const isModerator = roles.includes('moderator');
   const isAdmin = roles.includes('admin');
 
+  // Admins have every role on the server (httpx.Identity.HasRole), so they can always upload.
+  const canCreate = isCreator || isAdmin;
+
   return {
-    upload: isCreator,
-    studio: isCreator,
-    requestCreator: !isCreator,
+    upload: canCreate,
+    studio: canCreate,
+    requestCreator: !canCreate,
     moderate: isModerator || isAdmin,
     adminOnly: isAdmin,
   };

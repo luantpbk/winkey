@@ -67,12 +67,12 @@ describe('Task ROLE1 (ADR-046): Permission Helper computePermissions', () => {
     });
   });
 
-  it('admin without creator: can moderate and adminOnly, can requestCreator, cannot upload/studio', () => {
+  it('admin without explicit creator: can upload/studio like the server (admin has every role), cannot requestCreator', () => {
     const perms = computePermissions({ roles: ['viewer', 'admin'] });
     expect(perms).toEqual({
-      upload: false,
-      studio: false,
-      requestCreator: true,
+      upload: true,
+      studio: true,
+      requestCreator: false,
       moderate: true,
       adminOnly: true,
     });
