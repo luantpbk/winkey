@@ -64,7 +64,7 @@ describe('auth-svc full integration flow', () => {
     expect(typeof body.access_token).toBe('string');
     expect(body.user.email).toBe('alice@winkey.vn');
     expect(body.user.handle).toBe('alice_streamer');
-    expect(body.user.roles).toEqual(['viewer', 'creator']);
+    expect(body.user.roles).toEqual(['viewer']);
     expect(isValidUuid(body.user.id)).toBe(true);
 
     // Verify Set-Cookie header
@@ -371,7 +371,7 @@ describe('auth-svc full integration flow', () => {
     });
     expect(authRes.statusCode).toBe(204);
     expect(authRes.headers['x-user-id']).toBe(user.id);
-    expect(authRes.headers['x-user-roles']).toBe('viewer,creator');
+    expect(authRes.headers['x-user-roles']).toBe('viewer');
 
     // 3. Expired / tampered / wrong token -> 401
     const tamperedRes = await app.inject({

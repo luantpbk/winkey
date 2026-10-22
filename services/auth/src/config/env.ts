@@ -51,6 +51,9 @@ export const envSchema = z
         return Number(val);
       }, z.number().int().min(0).max(60))
       .default(30),
+
+    // Sign-up default roles (ADR-046, task ROLE1: only 'viewer' or 'viewer,creator' accepted)
+    SIGNUP_ROLES: z.enum(['viewer', 'viewer,creator']).default('viewer'),
   })
   .superRefine((data, ctx) => {
     if (data.MAIL_TRANSPORT === 'smtp' && !data.SMTP_URL) {

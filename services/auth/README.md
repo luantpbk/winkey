@@ -39,6 +39,7 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 | `REGISTRATION_MODE` | Account registration mode (`open` or `invite`, task BETA1, ADR-034) | `open` |
 | `INVITE_CODES` | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes) | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678` |
 | `REFRESH_REUSE_GRACE` | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s) | `30` |
+| `SIGNUP_ROLES` | Default roles for new signups (`viewer` or `viewer,creator`, task ROLE1, ADR-046; service fails to start on other values) | `viewer` |
 
 ---
 
@@ -187,6 +188,36 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 - **Retry & Backoff:** On delivery failure, retries with exponential backoff (`2^attempts` minutes, capped at 60 minutes) and records sanitized errors (email addresses redacted). Rows failing 8 times are marked `dead_at = now()` and `params` is cleared to ensure security.
 - Rows older than 7 days are automatically purged.
 - When an account is deleted via `DELETE /v1/auth/me`, all pending mail rows and live tokens of the user are dropped in the deletion transaction.
+
+---
+
+## Creator Requests & Role Management (Task ROLE1 / ADR-046)
+
+Under open registration, all new accounts (password or Google sign-up) are created with `roles: ["viewer"]` by default. To upload or manage videos, users submit a creator-upgrade request for admin approval. Dev and test stacks can configure `SIGNUP_ROLES=viewer,creator` to auto-grant `creator` upon signup.
+
+### Endpoints
+
+| Endpoint | Method | Security | Description |
+|---|---|---|---|
+| `/v1/auth/me/creator-request` | `GET` | Bearer | Returns the caller's latest request (`created_at DESC, id DESC`), or `404` if none. Polled by web client on upgrade page. |
+| `/v1/auth/me/creator-request` | `POST` | Bearer | Submits a `PENDING` request. `message` is trimmed then validated (10–1000 chars, else `400 VALIDATION_ERROR`). Rate limited to 5 requests/user/day (`429`). Evaluates conflicts in strict order: (1) already has `creator` → `409 ALREADY_CREATOR`; (2) existing `PENDING` request → `409 REQUEST_PENDING`; (3) latest request `REJECTED` < 24h ago → `409 REQUEST_COOLDOWN` (detail contains ISO time when eligible). Logs `request_id` and `user_id`, never `message`. Returns `201`. |
+| `/v1/admin/creator-requests` | `GET` | Bearer (admin) | Lists upgrade requests. Admin only (`moderator` and `viewer` receive `403`). Optional `status` query defaults to `PENDING`. `PENDING` is ordered oldest-first (`created_at ASC, id ASC`); `APPROVED` and `REJECTED` are ordered newest-first (`decided_at DESC, id DESC`). Keyset cursor pagination. Each item contains `user` (`AdminUser`) and `decided_by` (`PublicProfile` or null). Response carries `pending_count` (total pending requests regardless of `status` query filter). |
+| `/v1/admin/creator-requests/{id}/decision` | `POST` | Bearer (admin) | Decides a request in a single transaction with `SELECT ... FOR UPDATE`. Admin only (`403`). Unknown id → `404`. Request not `PENDING` → `409 REQUEST_ALREADY_DECIDED`. Caller's own request → `403 CANNOT_MODERATE_TARGET`.<br>• `REJECT`: Requires `note` (1–500 chars trimmed, else `400`). Sets `status = 'REJECTED'`, `decision_note`, `decided_by`, `decided_at`. Roles untouched, no audit row.<br>• `APPROVE`: User not `ACTIVE` → `409 USER_NOT_ACTIVE`. Otherwise adds `creator` to `roles` (kept if already present), sets `status = 'APPROVED'`. Writes one `USER_ROLES_CHANGED` audit row with `{from, to, creator_request_id}` only if roles actually mutated. **Does NOT revoke sessions**; new roles take effect on next token refresh (or immediate refresh by web client). Returns `200` with `AdminCreatorRequest`. |
+
+### Error Codes Reference
+
+| Error Code | HTTP Status | Meaning |
+|---|---|---|
+| `VALIDATION_ERROR` | `400` | Input validation failed (`message` length / missing `note` on reject). |
+| `FORBIDDEN` | `403` | Caller lacks `admin` role for admin endpoints. |
+| `CANNOT_MODERATE_TARGET` | `403` | Admin attempted to decide their own creator request. |
+| `NOT_FOUND` | `404` | Creator request or user not found. |
+| `ALREADY_CREATOR` | `409` | User already holds the `creator` role. |
+| `REQUEST_PENDING` | `409` | User already has an open `PENDING` request. |
+| `REQUEST_COOLDOWN` | `409` | Previous request rejected < 24 hours ago. |
+| `REQUEST_ALREADY_DECIDED` | `409` | Request was already approved or rejected. |
+| `USER_NOT_ACTIVE` | `409` | User account is suspended or deleted upon approval attempt. |
+| `RATE_LIMIT_EXCEEDED` | `429` | Daily creator request submission limit exceeded (5/day). |
 
 ---
 
