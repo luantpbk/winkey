@@ -72,12 +72,13 @@ export INVITE_CODE
 INVITE_CODE="$(cat "${KEYS_DIR}/invite_code.txt" | tr -d '[:space:]')"
 
 if [ "${SIM}" -eq 1 ]; then
-  export REGISTRATION_MODE="invite"
-  export INVITE_CODES="${INVITE_CODE}"
+  export REGISTRATION_MODE="${REGISTRATION_MODE:-invite}"
+  export INVITE_CODES="${INVITE_CODES:-${INVITE_CODE}}"
 else
   export REGISTRATION_MODE="${REGISTRATION_MODE:-open}"
   export INVITE_CODES="${INVITE_CODES:-}"
 fi
+export SIGNUP_ROLES="${SIGNUP_ROLES:-viewer,creator}"
 
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
