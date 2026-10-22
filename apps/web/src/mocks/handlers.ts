@@ -996,9 +996,18 @@ export const handlers = [
       return HttpResponse.json(problem, { status: 401 });
     }
 
-    if (body.email === 'admin@winkey.vn') {
+    if (
+      body.email === 'admin@winkey.vn' ||
+      body.email === 'sim_admin@example.com' ||
+      body.email?.includes('admin')
+    ) {
       currentUser = mockUsers.admin;
-    } else if (body.email === 'mod@winkey.vn' || body.email === 'moderator@winkey.vn') {
+    } else if (
+      body.email === 'mod@winkey.vn' ||
+      body.email === 'moderator@winkey.vn' ||
+      body.email === 'sim_mod@example.com' ||
+      body.email?.includes('mod')
+    ) {
       currentUser = mockUsers.moderator;
     } else {
       currentUser = mockUsers.creator;

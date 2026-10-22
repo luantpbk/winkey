@@ -141,3 +141,12 @@ describe('UX1 Issue #428: WCAG 2.1 AA Contrast and 404 Localized Documents', () 
     expect(htmlString).toContain('bg-[#D9002B]');
   });
 });
+
+describe('UX1 Issue #436: WCAG AA Color Contrast Violations & Admin Lang (#436)', () => {
+  it('A11Y_COLORS provides compliant tokens for activeTabBorder, tableHeader, and actionButtonText', () => {
+    expect(A11Y_COLORS.activeTabBorder).toBe('border-[#D9002B] dark:border-[#FF4D4F]');
+    expect(A11Y_COLORS.activeTabText).toBe('text-[#D9002B] dark:text-[#FF4D4F]');
+    expect(A11Y_COLORS.tableHeader).toBe('text-gray-700 dark:text-zinc-300');
+    expect(A11Y_COLORS.actionButtonText).toBe('text-gray-900 dark:text-white');
+  });
+});

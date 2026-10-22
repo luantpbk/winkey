@@ -5,6 +5,7 @@ import type { ChannelStatsTopVideo } from '@winkey/api-client';
 import { Link } from '../../i18n/routing';
 import { formatStarts, formatWatchTime } from '../../lib/analytics/stats-utils';
 import { PlaySquare, ChevronRight } from 'lucide-react';
+import { A11Y_COLORS } from '../../lib/a11y-tokens';
 
 interface TopVideosTableProps {
   videos: ChannelStatsTopVideo[];
@@ -13,7 +14,9 @@ interface TopVideosTableProps {
 export function TopVideosTable({ videos }: TopVideosTableProps) {
   if (!videos || videos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white text-center text-sm text-gray-500">
+      <div
+        className={`flex flex-col items-center justify-center p-8 rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white text-center text-sm ${A11Y_COLORS.textMuted}`}
+      >
         <PlaySquare className="h-8 w-8 text-gray-600 mb-2" />
         <p>Không có video nào có lượt phát trong khoảng thời gian này.</p>
       </div>
@@ -26,12 +29,14 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
         <h3 className="text-sm font-bold text-gray-900 dark:text-white">
           Top 10 video xem nhiều nhất
         </h3>
-        <span className="text-xs text-gray-500">Xếp hạng theo thời gian xem</span>
+        <span className={`text-xs ${A11Y_COLORS.textMuted}`}>Xếp hạng theo thời gian xem</span>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm" data-testid="top-videos-table">
-          <thead className="border-b border-[#272727] dark:border-[#272727] border-gray-200 text-xs font-semibold text-gray-500 uppercase">
+          <thead
+            className={`border-b border-[#272727] dark:border-[#272727] border-gray-200 text-xs font-semibold ${A11Y_COLORS.tableHeader} uppercase`}
+          >
             <tr>
               <th className="py-2.5 px-3 w-12 text-center">#</th>
               <th className="py-2.5 px-3">Video</th>
@@ -57,7 +62,9 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
                     className="flex flex-col font-medium text-gray-900 dark:text-white hover:text-red-500 transition line-clamp-1"
                   >
                     <span>{item.title}</span>
-                    <span className="text-[11px] text-gray-500 font-mono">{item.video_id}</span>
+                    <span className={`text-[11px] ${A11Y_COLORS.textMuted} font-mono`}>
+                      {item.video_id}
+                    </span>
                   </Link>
                 </td>
                 <td className="py-3 px-3 text-right font-medium text-gray-700 dark:text-gray-300">
@@ -70,7 +77,7 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
                   <Link
                     href={`/studio/videos/${item.video_id}/analytics`}
                     aria-label={`Xem thống kê video ${item.title}`}
-                    className="inline-flex items-center justify-center p-1.5 text-gray-500 group-hover:text-red-500 transition"
+                    className="inline-flex items-center justify-center p-1.5 text-gray-400 group-hover:text-red-500 transition"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Link>

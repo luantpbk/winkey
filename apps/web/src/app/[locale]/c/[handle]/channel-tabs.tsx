@@ -57,7 +57,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-videos"
           className={`px-4 py-3 transition ${
             activeTab === 'videos'
-              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              ? `border-b-2 ${A11Y_COLORS.activeTabBorder} ${A11Y_COLORS.brandText} font-bold`
               : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >
@@ -70,7 +70,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-playlists"
           className={`px-4 py-3 transition ${
             activeTab === 'playlists'
-              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              ? `border-b-2 ${A11Y_COLORS.activeTabBorder} ${A11Y_COLORS.brandText} font-bold`
               : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >
@@ -83,7 +83,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
           data-testid="tab-channel-about"
           className={`px-4 py-3 transition ${
             activeTab === 'about'
-              ? `border-b-2 border-[#D9002B] ${A11Y_COLORS.brandText} font-bold`
+              ? `border-b-2 ${A11Y_COLORS.activeTabBorder} ${A11Y_COLORS.brandText} font-bold`
               : `${A11Y_COLORS.textSecondary} hover:text-gray-900 dark:hover:text-white`
           }`}
         >

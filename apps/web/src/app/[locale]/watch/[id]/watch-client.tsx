@@ -87,7 +87,7 @@ export function WatchClientSection({
               }}
               aria-label="Chia sẻ video"
               data-testid="watch-share-btn"
-              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-900 dark:text-white transition"
             >
               <Share2 className="h-4 w-4" />
               <span>Chia sẻ</span>
@@ -108,7 +108,7 @@ export function WatchClientSection({
               }}
               aria-label="Xem sau"
               data-testid="watch-page-watch-later-btn"
-              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-900 dark:text-white transition disabled:opacity-50"
             >
               <Clock className="h-4 w-4" />
               <span>Xem sau</span>
@@ -133,7 +133,7 @@ export function WatchClientSection({
               }}
               aria-label="Lưu vào danh sách phát"
               data-testid="watch-page-save-btn"
-              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 transition disabled:opacity-50"
+              className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-900 dark:text-white transition disabled:opacity-50"
             >
               <BookmarkPlus className="h-4 w-4" />
               <span>Lưu</span>
@@ -145,7 +145,7 @@ export function WatchClientSection({
                   href={`/studio/videos/${video.id}/edit`}
                   aria-label="Chỉnh sửa video"
                   data-testid="owner-edit-video-btn"
-                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-900 dark:text-white hover:text-white transition"
                 >
                   <Pencil className="h-4 w-4 text-red-500" />
                   <span>Chỉnh sửa</span>
@@ -156,7 +156,7 @@ export function WatchClientSection({
                   onClick={() => setShowSubtitlesDialog(true)}
                   aria-label="Quản lý phụ đề"
                   data-testid="owner-manage-subtitles"
-                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-white transition"
+                  className="inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-4 text-xs font-semibold text-gray-900 dark:text-white hover:text-white transition"
                 >
                   <Subtitles className="h-4 w-4 text-red-500" />
                   <span>Phụ đề</span>
@@ -170,7 +170,7 @@ export function WatchClientSection({
                 onClick={() => setShowReportDialog(true)}
                 aria-label="Báo cáo video"
                 data-testid="watch-report-btn"
-                className="inline-flex h-10 min-w-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-red-500 transition"
+                className="inline-flex h-10 min-w-10 shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 hover:bg-[#383838] px-3.5 text-xs font-semibold text-gray-900 dark:text-white hover:text-red-500 transition"
               >
                 <Flag className="h-4 w-4 text-red-500" />
                 <span className="hidden sm:inline">Báo cáo</span>

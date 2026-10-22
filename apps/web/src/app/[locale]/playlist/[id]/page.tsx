@@ -445,7 +445,7 @@ export default function PlaylistPage() {
               >
                 {playlist.owner.display_name}
               </Link>
-              <span className="text-xs text-zinc-500 truncate">@{playlist.owner.handle}</span>
+              <span className="text-xs text-zinc-400 truncate">@{playlist.owner.handle}</span>
             </div>
           </div>
 
@@ -554,12 +554,12 @@ export default function PlaylistPage() {
       {/* Right Column: Playlist Items */}
       <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-2">
         {visibleItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center p-6 text-zinc-500">
+          <div className="flex flex-col items-center justify-center py-20 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center p-6 text-zinc-400">
             <Clock className="h-10 w-10 text-zinc-600 mb-3" />
             <p className="text-base font-semibold text-zinc-300">
               Danh sách phát này chưa có video nào.
             </p>
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-zinc-400 mt-1">
               Thêm video bằng nút "Lưu" hoặc "Xem sau" trên trang xem video.
             </p>
             {isOwner && (
@@ -611,11 +611,11 @@ export default function PlaylistPage() {
                   {/* Drag Handle & Index */}
                   <div className="flex items-center gap-2 shrink-0">
                     {isOwner ? (
-                      <div className="text-zinc-500 group-hover:text-zinc-300 transition cursor-grab">
+                      <div className="text-zinc-400 group-hover:text-zinc-300 transition cursor-grab">
                         <GripVertical className="h-4 w-4" />
                       </div>
                     ) : null}
-                    <span className="w-5 text-center text-xs font-semibold text-zinc-500">
+                    <span className="w-5 text-center text-xs font-semibold text-zinc-400">
                       {index + 1}
                     </span>
                   </div>
@@ -668,7 +668,7 @@ export default function PlaylistPage() {
                         >
                           {video.owner.display_name}
                         </Link>
-                        <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 mt-1">
+                        <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-1">
                           <span>{formatViews(video.view_count)} lượt xem</span>
                           <span>•</span>
                           <span>{formatRelativeTime(video.published_at || item.added_at)}</span>
@@ -844,7 +844,7 @@ export default function PlaylistPage() {
                   >
                     Bộ phim
                   </label>
-                  <span className="text-[11px] text-zinc-500">
+                  <span className="text-[11px] text-zinc-400">
                     Đánh dấu danh sách phát này là một bộ phim.
                   </span>
                 </div>
