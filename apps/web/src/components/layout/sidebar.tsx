@@ -23,6 +23,7 @@ import {
   Clapperboard,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
+import { computePermissions } from '../../lib/auth';
 import { hasSessionIndicator } from '../../lib/auth/session-indicator';
 import { useFeedbackUrl } from '../../lib/feedback';
 import { getAllCategories } from '../../lib/seo/categories';
@@ -45,15 +46,16 @@ export function Sidebar({
   const tLegal = useTranslations('legal');
   const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
-  const { canAccessAdmin, isAuthenticated, isLoading } = useAuth();
+  const { can: rawCan, user, isAuthenticated, isLoading } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
   const showMemberLinks = isAuthenticated || (isLoading && hasSessionIndicator());
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
     { href: '/kham-pha', label: t('explore'), icon: Compass },
-    { href: '/studio', label: t('studio'), icon: LayoutDashboard },
-    ...(canAccessAdmin ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
-    { href: '/upload', label: t('upload'), icon: UploadCloud },
+    ...(can.studio ? [{ href: '/studio', label: t('studio'), icon: LayoutDashboard }] : []),
+    ...(can.moderate ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
+    ...(can.upload ? [{ href: '/upload', label: t('upload'), icon: UploadCloud }] : []),
     ...(showMemberLinks
       ? [{ href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv }]
       : []),

@@ -13,6 +13,7 @@ import { SavePlaylistDialog } from '../../../../components/playlist/save-playlis
 import { addToWatchLater } from '../../../../lib/playlist/playlist-utils';
 import { useToast } from '../../../../components/ui/toast';
 import { useAuth } from '../../../../lib/auth/auth-context';
+import { computePermissions } from '../../../../lib/auth';
 
 export function WatchClientSection({
   video,
@@ -28,7 +29,8 @@ export function WatchClientSection({
   const [showSubtitlesDialog, setShowSubtitlesDialog] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const { showToast } = useToast();
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, can: rawCan, isLoading, isAuthenticated } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
   const isOwner = user?.id === video.owner.id;
 
   return (
@@ -139,7 +141,7 @@ export function WatchClientSection({
               <span>Lưu</span>
             </button>
 
-            {isOwner && (
+            {isOwner && can.studio && (
               <>
                 <Link
                   href={`/studio/videos/${video.id}/edit`}

@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
+import { computePermissions } from '../../lib/auth';
 import { hasSessionIndicator } from '../../lib/auth/session-indicator';
 import { useTheme } from '../theme-provider';
 import {
@@ -18,6 +19,7 @@ import {
   Shield,
   Settings,
   FolderHeart,
+  Sparkles,
 } from 'lucide-react';
 import { NotificationBell } from '../notifications/notification-bell';
 import { BrandLogo } from '../brand/logo';
@@ -28,7 +30,8 @@ interface TopBarProps {
 
 export function TopBar({ onToggleSidebar }: TopBarProps) {
   const t = useTranslations('nav');
-  const { user, isAuthenticated, isLoading, logout, canAccessAdmin } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, can: rawCan } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
   const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,23 +108,28 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
         {isAuthenticated ? (
           <>
             {/* Upload Button */}
-            <Link
-              href="/upload"
-              data-testid="topbar-upload-btn"
-              className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
-            >
-              <VideoIcon className="h-4 w-4 text-red-500 shrink-0" />
-              <span className="hidden md:inline">{t('upload')}</span>
-            </Link>
+            {can.upload && (
+              <Link
+                href="/upload"
+                data-testid="topbar-upload-btn"
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
+              >
+                <VideoIcon className="h-4 w-4 text-red-500 shrink-0" />
+                <span className="hidden md:inline">{t('upload')}</span>
+              </Link>
+            )}
 
             {/* Studio Link */}
-            <Link
-              href="/studio"
-              className="rounded-full min-w-11 min-h-11 shrink-0 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
-              title={t('studio')}
-            >
-              <LayoutDashboard className="h-5 w-5" />
-            </Link>
+            {can.studio && (
+              <Link
+                href="/studio"
+                data-testid="topbar-studio-btn"
+                className="rounded-full min-w-11 min-h-11 shrink-0 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+                title={t('studio')}
+              >
+                <LayoutDashboard className="h-5 w-5" />
+              </Link>
+            )}
 
             {/* Notification Bell */}
             <NotificationBell />
@@ -187,18 +195,34 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
                     <span>{t('accountSettings')}</span>
                   </Link>
 
-                  <Link
-                    href="/studio"
-                    onClick={() => setShowUserMenu(false)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-[#2a2a2a] dark:hover:bg-[#2a2a2a] hover:bg-gray-100 transition"
-                  >
-                    <LayoutDashboard className="h-4 w-4" />
-                    <span>Winkey Studio</span>
-                  </Link>
+                  {can.studio && (
+                    <Link
+                      href="/studio"
+                      data-testid="user-menu-studio-btn"
+                      onClick={() => setShowUserMenu(false)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-[#2a2a2a] dark:hover:bg-[#2a2a2a] hover:bg-gray-100 transition"
+                    >
+                      <LayoutDashboard className="h-4 w-4" />
+                      <span>Winkey Studio</span>
+                    </Link>
+                  )}
 
-                  {canAccessAdmin && (
+                  {can.requestCreator && (
+                    <Link
+                      href="/nang-cap"
+                      data-testid="user-menu-upgrade-btn"
+                      onClick={() => setShowUserMenu(false)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-[#2a2a2a] dark:hover:bg-[#2a2a2a] hover:bg-gray-100 transition"
+                    >
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      <span>Trở thành nhà sáng tạo</span>
+                    </Link>
+                  )}
+
+                  {can.moderate && (
                     <Link
                       href="/admin"
+                      data-testid="user-menu-admin-btn"
                       onClick={() => setShowUserMenu(false)}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-red-500 hover:bg-[#2a2a2a] dark:hover:bg-[#2a2a2a] hover:bg-gray-100 transition"
                     >

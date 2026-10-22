@@ -114,6 +114,26 @@ export const customFetch: typeof fetch = async (input, init) => {
     }
   }
 
+  // Handle 403 CREATOR_ROLE_REQUIRED (task ROLE1, ADR-046: stale token)
+  if (response.status === 403 && !isAuthRoute) {
+    try {
+      const cloned = response.clone();
+      const body = await cloned.json();
+      if (body?.code === 'CREATOR_ROLE_REQUIRED') {
+        const { token: newToken, user } = await refreshSession();
+        if (newToken && user?.roles?.includes('creator')) {
+          reqForRetry.headers.set('Authorization', `Bearer ${newToken}`);
+          return fetch(reqForRetry);
+        }
+        if (typeof window !== 'undefined' && !window.location.pathname.includes('/nang-cap')) {
+          window.location.href = '/nang-cap';
+        }
+      }
+    } catch {
+      // Body not JSON or parsing failed; proceed with original response
+    }
+  }
+
   return response;
 };
 

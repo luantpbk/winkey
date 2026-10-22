@@ -9,6 +9,7 @@ import { VideoFeed } from '../../../components/video/video-feed';
 import { VideoSkeleton } from '../../../components/video/video-skeleton';
 import { Link, useRouter, usePathname } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { computePermissions } from '../../../lib/auth';
 import type { VideoPage } from '@winkey/api-client';
 import { CATEGORY_CHIPS } from '../../../lib/explore-categories';
 
@@ -31,7 +32,8 @@ function KhamPhaContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, can: rawCan, isAuthenticated } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
 
   const tabParam = searchParams.get('tab');
   const catParam = searchParams.get('cat');
@@ -304,14 +306,16 @@ function KhamPhaContent() {
                     <Flame className="h-4 w-4" />
                     {t('exploreTrending')}
                   </button>
-                  <Link
-                    href="/upload"
-                    data-testid="empty-upload-link"
-                    className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
-                  >
-                    <Upload className="h-4 w-4" />
-                    {t('uploadVideo')}
-                  </Link>
+                  {can.upload && (
+                    <Link
+                      href="/upload"
+                      data-testid="empty-upload-link"
+                      className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {t('uploadVideo')}
+                    </Link>
+                  )}
                 </div>
               </div>
             }

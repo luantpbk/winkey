@@ -18,6 +18,11 @@ import type {
   EditCommentRequest,
   AdminUser,
   AdminUserPage,
+  CreatorRequestStatus,
+  CreateCreatorRequestRequest,
+  AdminCreatorRequest,
+  AdminCreatorRequestPage,
+  CreatorRequestDecision,
   ModerationCase,
   ModerationCasePage,
   AuditEntry,
@@ -81,6 +86,75 @@ let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
 let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
 let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
 let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+const initialMockCreatorRequests: AdminCreatorRequest[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c91',
+    status: 'PENDING',
+    message:
+      'Tôi là nhà sáng tạo nội dung công nghệ, mong muốn chia sẻ video về lập trình và thiết kế.',
+    decision_note: null,
+    created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
+    decided_at: null,
+    user: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c05',
+      email: 'viewer@winkey.vn',
+      email_verified: true,
+      handle: 'simple_viewer',
+      display_name: 'Simple Viewer',
+      avatar_url: null,
+      roles: ['viewer'],
+      status: 'ACTIVE',
+      created_at: '2026-02-01T00:00:00Z',
+      suspended_until: null,
+      suspension_reason: null,
+    },
+    decided_by: null,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c92',
+    status: 'APPROVED',
+    message: 'Kênh chuyên review phim điện ảnh cổ điển và hiện đại.',
+    decision_note: 'Đã duyệt. Chào mừng bạn gia nhập đội ngũ nhà sáng tạo!',
+    created_at: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
+    decided_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
+    user: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+      email: 'tech@winkey.vn',
+      email_verified: true,
+      handle: 'viet_coder',
+      display_name: 'Việt Coder Channel',
+      avatar_url:
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
+      roles: ['viewer', 'creator'],
+      status: 'ACTIVE',
+      created_at: '2026-01-15T00:00:00Z',
+      suspended_until: null,
+      suspension_reason: null,
+    },
+    decided_by: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
+      handle: 'admin_winkey',
+      display_name: 'Winkey Administrator',
+      avatar_url:
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+    },
+  },
+];
+
+let dynamicCreatorRequests: AdminCreatorRequest[] = [...initialMockCreatorRequests];
+
+export function setDynamicCreatorRequests(reqs: AdminCreatorRequest[]) {
+  dynamicCreatorRequests = [...reqs];
+}
+
+export function getDynamicCreatorRequests(): AdminCreatorRequest[] {
+  return dynamicCreatorRequests;
+}
+
+export function resetDynamicCreatorRequests() {
+  dynamicCreatorRequests = [...initialMockCreatorRequests];
+}
 
 let mockPlaylistFull = false;
 let mockPlaylistLimit = false;
@@ -955,7 +1029,7 @@ export const handlers = [
       display_name: body.display_name,
       avatar_url:
         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      roles: ['viewer', 'creator'],
+      roles: ['viewer'],
       created_at: new Date().toISOString(),
     };
 
@@ -1074,6 +1148,141 @@ export const handlers = [
       );
     }
     return HttpResponse.json(caller);
+  }),
+
+  // ROLE1 (ADR-046): Creator Requests me endpoints
+  http.get('*/v1/auth/me/creator-request', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const userReqs = dynamicCreatorRequests.filter((r) => r.user.id === caller.id);
+    if (userReqs.length === 0) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          code: 'NOT_FOUND',
+          detail: 'Chưa có yêu cầu nâng cấp nào.',
+        },
+        { status: 404 },
+      );
+    }
+    const latest = [...userReqs].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0];
+    const { user: _u, decided_by: _d, ...creatorRequest } = latest;
+    return HttpResponse.json(creatorRequest);
+  }),
+
+  http.post('*/v1/auth/me/creator-request', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (caller.roles?.includes('creator')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'ALREADY_CREATOR',
+          detail: 'Tài khoản đã có quyền sáng tạo.',
+        },
+        { status: 409 },
+      );
+    }
+    const userReqs = dynamicCreatorRequests.filter((r) => r.user.id === caller.id);
+    const pending = userReqs.find((r) => r.status === 'PENDING');
+    if (pending) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'REQUEST_PENDING',
+          detail: 'Bạn đã có một yêu cầu đang chờ phê duyệt.',
+        },
+        { status: 409 },
+      );
+    }
+    const latest = [...userReqs].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0];
+    if (latest && latest.status === 'REJECTED' && latest.decided_at) {
+      const decidedMs = new Date(latest.decided_at).getTime();
+      const nowMs = Date.now();
+      const cooldownMs = 24 * 3600 * 1000;
+      if (nowMs - decidedMs < cooldownMs) {
+        const canRetryAt = new Date(decidedMs + cooldownMs).toISOString();
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Conflict',
+            status: 409,
+            code: 'REQUEST_COOLDOWN',
+            detail: `Bạn có thể gửi lại yêu cầu sau ${canRetryAt}.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
+    const body = (await request.json().catch(() => ({}))) as CreateCreatorRequestRequest;
+    const msg = body?.message?.trim() || '';
+    if (msg.length < 10 || msg.length > 1000) {
+      return HttpResponse.json(
+        {
+          type: '/problems/validation',
+          title: 'Validation Error',
+          status: 422,
+          code: 'VALIDATION_ERROR',
+          errors: [{ field: 'message', message: 'Nội dung phải từ 10 đến 1000 ký tự.' }],
+        },
+        { status: 422 },
+      );
+    }
+    const newReq: AdminCreatorRequest = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-${Date.now().toString(16).padStart(12, '0')}`,
+      status: 'PENDING',
+      message: msg,
+      decision_note: null,
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      user: {
+        id: caller.id,
+        email: caller.email,
+        email_verified: caller.email_verified ?? true,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+        roles: caller.roles as Role[],
+        status: 'ACTIVE',
+        created_at: caller.created_at,
+        suspended_until: null,
+        suspension_reason: null,
+      },
+      decided_by: null,
+    };
+    dynamicCreatorRequests.unshift(newReq);
+    const { user: _u, decided_by: _d, ...resp } = newReq;
+    return HttpResponse.json(resp, { status: 201 });
   }),
 
   http.patch('*/v1/auth/me', async ({ request }) => {
@@ -4160,6 +4369,117 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     });
 
     return HttpResponse.json(dynamicAdminUsers[userIndex]);
+  }),
+
+  // ROLE1 (ADR-046): Admin Creator Requests
+  http.get('*/v1/admin/creator-requests', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles?.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const statusFilter = url.searchParams.get('status') as CreatorRequestStatus | null;
+    let filtered = dynamicCreatorRequests;
+    if (statusFilter) {
+      filtered = filtered.filter((r) => r.status === statusFilter);
+    }
+    const pendingCount = dynamicCreatorRequests.filter((r) => r.status === 'PENDING').length;
+    const page: AdminCreatorRequestPage = {
+      items: filtered,
+      next_cursor: null,
+      pending_count: pendingCount,
+    };
+    return HttpResponse.json(page);
+  }),
+
+  http.post('*/v1/admin/creator-requests/:request_id/decision', async ({ request, params }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles?.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const requestId = params.request_id as string;
+    const reqItem = dynamicCreatorRequests.find((r) => r.id === requestId);
+    if (!reqItem) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+    if (reqItem.status !== 'PENDING') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'REQUEST_ALREADY_DECIDED',
+          detail: 'Yêu cầu này đã được quyết định trước đó.',
+        },
+        { status: 409 },
+      );
+    }
+    const body = (await request.json().catch(() => ({}))) as CreatorRequestDecision;
+    if (body.decision === 'REJECT' && (!body.note || !body.note.trim())) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'NOTE_REQUIRED',
+          detail: 'Lý do từ chối là bắt buộc.',
+        },
+        { status: 400 },
+      );
+    }
+    reqItem.status = body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    reqItem.decision_note = body.note?.trim() || null;
+    reqItem.decided_at = new Date().toISOString();
+    reqItem.decided_by = {
+      id: caller.id,
+      handle: caller.handle,
+      display_name: caller.display_name,
+      avatar_url: caller.avatar_url,
+    };
+
+    if (body.decision === 'APPROVE') {
+      if (!reqItem.user.roles.includes('creator')) {
+        reqItem.user.roles = [...reqItem.user.roles, 'creator'];
+      }
+      for (const u of Object.values(mockUsers)) {
+        if (u.id === reqItem.user.id && !u.roles.includes('creator')) {
+          u.roles = [...u.roles, 'creator'];
+        }
+      }
+      if (
+        currentUser &&
+        currentUser.id === reqItem.user.id &&
+        !currentUser.roles.includes('creator')
+      ) {
+        currentUser.roles = [...currentUser.roles, 'creator'];
+      }
+    }
+
+    return HttpResponse.json(reqItem);
   }),
 
   // --- Task U4: Audit Log ---

@@ -3,11 +3,15 @@
 import React from 'react';
 import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '../../i18n/routing';
-import { Home, Compass, History, FolderHeart } from 'lucide-react';
+import { Home, Compass, History, FolderHeart, UploadCloud } from 'lucide-react';
+import { useAuth } from '../../lib/auth/auth-context';
+import { computePermissions } from '../../lib/auth';
 
 export function BottomNav() {
   const t = useTranslations('nav');
   const pathname = usePathname();
+  const { can: rawCan, user, isAuthenticated } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
 
   const navItems = [
     {
@@ -28,12 +32,19 @@ export function BottomNav() {
       icon: History,
       isActive: pathname.startsWith('/lich-su'),
     },
-    {
-      href: '/thu-vien',
-      label: t('library'),
-      icon: FolderHeart,
-      isActive: pathname.startsWith('/thu-vien'),
-    },
+    can.upload
+      ? {
+          href: '/upload',
+          label: t('upload'),
+          icon: UploadCloud,
+          isActive: pathname.startsWith('/upload'),
+        }
+      : {
+          href: '/thu-vien',
+          label: t('library'),
+          icon: FolderHeart,
+          isActive: pathname.startsWith('/thu-vien'),
+        },
   ];
 
   return (

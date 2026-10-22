@@ -4,8 +4,10 @@ import React, { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link, usePathname, useRouter } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
+import { computePermissions } from '../../lib/auth';
 import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
+import { CreatorSignupHintBanner } from '../auth/creator-signup-hint';
 import { beVietnamPro } from '../../lib/fonts';
 import { Footer } from './footer';
 import {
@@ -22,6 +24,7 @@ import {
   X,
   Play,
   FolderHeart,
+  Sparkles,
 } from 'lucide-react';
 
 interface CinemaShellProps {
@@ -34,7 +37,8 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
   const tCin = useTranslations('cinema');
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, logout, canAccessAdmin } = useAuth();
+  const { user, isAuthenticated, logout, can: rawCan } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -177,14 +181,16 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
           </button>
 
           {/* Upload */}
-          <Link
-            href="/upload"
-            aria-label="Tải video lên"
-            data-testid="cinema-upload-btn"
-            className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
-          >
-            <Upload className="w-5 h-5" />
-          </Link>
+          {can.upload && (
+            <Link
+              href="/upload"
+              aria-label="Tải video lên"
+              data-testid="cinema-upload-btn"
+              className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-[#F4F4F6] hover:bg-white/10 transition-colors"
+            >
+              <Upload className="w-5 h-5" />
+            </Link>
+          )}
 
           {/* Notifications */}
           <NotificationBell />
@@ -247,18 +253,34 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                     <span>{tNav('accountSettings')}</span>
                   </Link>
 
-                  <Link
-                    href="/studio"
-                    onClick={() => setShowUserMenu(false)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[#F4F4F6] hover:bg-white/10 transition"
-                  >
-                    <LayoutDashboard className="h-4 w-4 text-[#A3A3AD]" />
-                    <span>Winkey Studio</span>
-                  </Link>
+                  {can.studio && (
+                    <Link
+                      href="/studio"
+                      data-testid="cinema-user-menu-studio"
+                      onClick={() => setShowUserMenu(false)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[#F4F4F6] hover:bg-white/10 transition"
+                    >
+                      <LayoutDashboard className="h-4 w-4 text-[#A3A3AD]" />
+                      <span>Winkey Studio</span>
+                    </Link>
+                  )}
 
-                  {canAccessAdmin && (
+                  {can.requestCreator && (
+                    <Link
+                      href="/nang-cap"
+                      data-testid="cinema-user-menu-upgrade"
+                      onClick={() => setShowUserMenu(false)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[#F4F4F6] hover:bg-white/10 transition"
+                    >
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      <span>Trở thành nhà sáng tạo</span>
+                    </Link>
+                  )}
+
+                  {can.moderate && (
                     <Link
                       href="/admin"
+                      data-testid="cinema-user-menu-admin"
                       onClick={() => setShowUserMenu(false)}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-red-400 hover:bg-white/10 transition"
                     >
@@ -398,6 +420,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
       {/* Email Verification Banner */}
       <div className="pt-[72px] md:pt-[72px]">
         <EmailVerificationBanner />
+        <CreatorSignupHintBanner />
       </div>
 
       {/* Main Page Content */}
@@ -433,15 +456,26 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
           <Compass className="w-5 h-5" />
           <span>{tCin('explore')}</span>
         </Link>
-        <Link
-          href="/upload"
-          aria-label={tCin('upload')}
-          className="flex-1 flex flex-col items-center justify-center text-[#8E8E99]"
-        >
-          <span className="w-10 h-7 rounded-lg border-[1.5px] border-current flex items-center justify-center">
-            <Upload className="w-4 h-4" />
-          </span>
-        </Link>
+        {can.upload ? (
+          <Link
+            href="/upload"
+            aria-label={tCin('upload')}
+            className="flex-1 flex flex-col items-center justify-center text-[#8E8E99]"
+          >
+            <span className="w-10 h-7 rounded-lg border-[1.5px] border-current flex items-center justify-center">
+              <Upload className="w-4 h-4" />
+            </span>
+          </Link>
+        ) : (
+          <Link
+            href="/thu-vien"
+            aria-label={tNav('library')}
+            className="flex-1 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold text-[#8E8E99]"
+          >
+            <FolderHeart className="w-5 h-5" />
+            <span>{tNav('library')}</span>
+          </Link>
+        )}
         <Link
           href="/notifications"
           className="flex-1 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold text-[#8E8E99]"
