@@ -15,6 +15,7 @@ interface QualityMenuProps {
   currentLevel: number;
   currentHeight?: number;
   onSelectLevel: (levelIndex: number) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function QualityMenu({
@@ -22,9 +23,14 @@ export function QualityMenu({
   currentLevel,
   currentHeight,
   onSelectLevel,
+  onOpenChange,
 }: QualityMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {

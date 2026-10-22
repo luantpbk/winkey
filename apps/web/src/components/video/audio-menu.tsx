@@ -16,11 +16,16 @@ export interface AudioMenuProps {
   tracks: AudioTrackOption[];
   selectedIndex: number;
   onSelectTrack: (track: AudioTrackOption) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function AudioMenu({ tracks, selectedIndex, onSelectTrack }: AudioMenuProps) {
+export function AudioMenu({ tracks, selectedIndex, onSelectTrack, onOpenChange }: AudioMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
