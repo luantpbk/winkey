@@ -44,6 +44,8 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | owner not ACTIVE (suspended/deleted) | **404** | 200 (placeholder owner `deleted_user`) |
 | **HIDDEN** by a moderator (any visibility) | **404** | 200, `Cache-Control: private, no-store` |
 
+**Creator role (ROLE1, ADR-046).** `PATCH /v1/videos/{id}`, the subtitle and audio-track routes, `GET /v1/studio/videos` and both studio stats routes first require `creator` in `X-User-Roles` (admins have every role): otherwise `403` `CREATOR_ROLE_REQUIRED`, decided from the header alone before anything is read. `DELETE /v1/videos/{id}` does not need it: an owner can always delete their own videos.
+
 A video the caller may not see is always **404, never 403**, so ids cannot be probed. PATCH and DELETE follow the same rule first (404), then answer **403** for a visible video the caller may not change. Identity comes only from `X-User-Id` / `X-User-Roles`; on the two optional routes a missing `X-User-Id` is an anonymous request and a malformed one is a 401.
 
 ### Events (transactional outbox, stream `VIDEO`)

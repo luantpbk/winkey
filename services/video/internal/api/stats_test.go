@@ -175,7 +175,11 @@ func TestVideoStatsAccess(t *testing.T) {
 		t.Fatalf("admin: %d", w.Code)
 	}
 	mod := &who{ids.New(), "moderator"}
-	if w := e.req(mod, "GET", statsPath(v, ""), ""); w.Code != 404 {
+	if w := e.req(mod, "GET", statsPath(v, ""), ""); w.Code != 403 || problemCode(t, w) != "CREATOR_ROLE_REQUIRED" {
+		t.Fatalf("moderator without creator: %d (ROLE1)", w.Code)
+	}
+	modCreator := &who{ids.New(), "creator,moderator"}
+	if w := e.req(modCreator, "GET", statsPath(v, ""), ""); w.Code != 404 {
 		t.Fatalf("moderator: %d, owner or admin only", w.Code)
 	}
 	unknown := domain.Video{ID: ids.New()}
