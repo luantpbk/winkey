@@ -81,7 +81,10 @@ async function main() {
   mailQueueWorker.start();
 
   await app.listen({ port: env.HTTP_PORT, host: '0.0.0.0' });
-  app.log.info({ port: env.HTTP_PORT, service: 'auth-svc' }, 'auth-svc started');
+  app.log.info(
+    { port: env.HTTP_PORT, service: 'auth-svc', signup_roles: env.SIGNUP_ROLES },
+    'auth-svc started',
+  );
 
   // 8. Graceful shutdown handler (SIGTERM / SIGINT)
   const shutdown = async (signal: string) => {

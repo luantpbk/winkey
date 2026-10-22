@@ -247,6 +247,57 @@ describe('RBAC Matrix (Table-Driven)', () => {
       action: 'VIEW_AUDIT_LOG',
       expectedAllowed: true,
     },
+
+    // 4. Creator requests (task ROLE1, ADR-046: admin only)
+    {
+      name: 'viewer cannot list creator requests',
+      actorRoles: ['viewer'],
+      action: 'LIST_CREATOR_REQUESTS',
+      expectedAllowed: false,
+      expectedErrorCode: 'FORBIDDEN',
+    },
+    {
+      name: 'moderator cannot list creator requests',
+      actorRoles: ['moderator'],
+      action: 'LIST_CREATOR_REQUESTS',
+      expectedAllowed: false,
+      expectedErrorCode: 'FORBIDDEN',
+    },
+    {
+      name: 'admin can list creator requests',
+      actorRoles: ['admin'],
+      action: 'LIST_CREATOR_REQUESTS',
+      expectedAllowed: true,
+    },
+    {
+      name: 'viewer cannot decide creator request',
+      actorRoles: ['viewer'],
+      action: 'DECIDE_CREATOR_REQUEST',
+      expectedAllowed: false,
+      expectedErrorCode: 'FORBIDDEN',
+    },
+    {
+      name: 'moderator cannot decide creator request',
+      actorRoles: ['moderator'],
+      action: 'DECIDE_CREATOR_REQUEST',
+      expectedAllowed: false,
+      expectedErrorCode: 'FORBIDDEN',
+    },
+    {
+      name: 'admin can decide creator request for another user',
+      actorRoles: ['admin'],
+      action: 'DECIDE_CREATOR_REQUEST',
+      isSelf: false,
+      expectedAllowed: true,
+    },
+    {
+      name: 'admin CANNOT decide own creator request',
+      actorRoles: ['admin'],
+      action: 'DECIDE_CREATOR_REQUEST',
+      isSelf: true,
+      expectedAllowed: false,
+      expectedErrorCode: 'CANNOT_MODERATE_TARGET',
+    },
   ];
 
   for (const tc of cases) {

@@ -290,7 +290,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     expect(body.user.email).toBe('alice_real@winkey.vn');
     expect(body.user.handle).toBe('alice_real');
     expect(Array.isArray(body.user.roles)).toBe(true);
-    expect(body.user.roles).toEqual(['viewer', 'creator']);
+    expect(body.user.roles).toEqual(['viewer']);
     expect(regRes.headers['set-cookie']).toContain(REFRESH_COOKIE_NAME + '=');
 
     // Verify outbox row written in the SAME transaction
@@ -359,7 +359,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
     // Regression check: roles must be an array, NOT a postgres enum string '{viewer,creator}'
     expect(Array.isArray(body.user.roles)).toBe(true);
-    expect(body.user.roles).toEqual(['viewer', 'creator']);
+    expect(body.user.roles).toEqual(['viewer']);
 
     // Regression check: verify forwardAuth works with the access token without 500 TypeError
     const verifyRes = await app.inject({
@@ -371,7 +371,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
     expect(verifyRes.statusCode).toBe(204);
     expect(verifyRes.headers['x-user-id']).toBe(body.user.id);
-    expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
+    expect(verifyRes.headers['x-user-roles']).toBe('viewer');
 
     // Login with wrong password
     const wrongRes = await app.inject({
@@ -2306,6 +2306,609 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
       const badRes = res1.statusCode === 400 ? res1 : res2;
       expect(badRes.json().code).toBe('INVALID_TOKEN');
+    });
+  });
+
+  describe('Task ROLE1: Viewer-Only Registration and Creator Requests (ADR-046 DoD)', () => {
+    it('register gives [viewer] roles only', async () => {
+      if (!app || !pool) return;
+
+      const regRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'role1_reg@winkey.vn',
+          password: 'Password123!',
+          handle: 'role1_reg',
+          display_name: 'Role 1 Reg',
+        },
+      });
+      expect(regRes.statusCode).toBe(201);
+      const regBody = regRes.json();
+      expect(regBody.user.roles).toEqual(['viewer']);
+    });
+
+    it('POST /v1/auth/me/creator-request lifecycle: create -> 201, then REQUEST_PENDING -> 409', async () => {
+      if (!app || !pool) return;
+
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'creator_applicant1@winkey.vn',
+          password: 'Password123!',
+          handle: 'applicant1',
+          display_name: 'Applicant One',
+        },
+      });
+      const { access_token } = reg.json();
+
+      // 1. Submit creator request -> 201
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'I make documentary videos about Vietnamese nature.' },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const createBody = createRes.json();
+      expect(createBody.status).toBe('PENDING');
+      expect(createBody.message).toBe('I make documentary videos about Vietnamese nature.');
+      expect(createBody.decision_note).toBeNull();
+      expect(createBody.decided_at).toBeNull();
+      expect(createBody.created_at).toBeDefined();
+
+      // 2. GET /v1/auth/me/creator-request returns the latest request
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().id).toBe(createBody.id);
+
+      // 3. Second request while PENDING -> 409 REQUEST_PENDING
+      const dupRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'Trying to submit a second request now.' },
+      });
+      expect(dupRes.statusCode).toBe(409);
+      expect(dupRes.json().code).toBe('REQUEST_PENDING');
+    });
+
+    it('already a creator -> 409 ALREADY_CREATOR', async () => {
+      if (!app || !pool) return;
+
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'already_creator@winkey.vn',
+          password: 'Password123!',
+          handle: 'already_creator',
+          display_name: 'Already Creator',
+        },
+      });
+      const { access_token, user } = reg.json();
+
+      // Grant creator in DB
+      await pool.query("UPDATE auth.users SET roles = '{viewer,creator}' WHERE id = $1", [user.id]);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'I already have the creator role.' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('ALREADY_CREATOR');
+    });
+
+    it('rejected less than 24h ago -> REQUEST_COOLDOWN, more than 24h ago is allowed', async () => {
+      if (!app || !pool) return;
+
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'cooldown_user@winkey.vn',
+          password: 'Password123!',
+          handle: 'cooldown_user',
+          display_name: 'Cooldown User',
+        },
+      });
+      const { access_token, user } = reg.json();
+
+      // Insert rejected request 2 hours ago
+      const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000);
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message, decision_note, decided_by, decided_at, created_at)
+         VALUES ($1, $2, 'REJECTED', 'Need better audio quality.', 'Please upgrade microphone.', $2, $3, $3)`,
+        [uuidv7(), user.id, twoHoursAgo],
+      );
+
+      // Submit new request -> 409 REQUEST_COOLDOWN
+      const cdRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'I bought a new microphone now.' },
+      });
+      expect(cdRes.statusCode).toBe(409);
+      expect(cdRes.json().code).toBe('REQUEST_COOLDOWN');
+      const expectedAvailable = new Date(twoHoursAgo.getTime() + 24 * 3600 * 1000).toISOString();
+      expect(cdRes.json().detail).toContain(expectedAvailable);
+
+      // Now rewind the decided_at in DB to 25 hours ago (> 24h)
+      const twentyFiveHoursAgo = new Date(Date.now() - 25 * 3600 * 1000);
+      await pool.query('UPDATE auth.creator_requests SET decided_at = $1 WHERE user_id = $2', [
+        twentyFiveHoursAgo,
+        user.id,
+      ]);
+
+      // Submit new request -> 201 Created
+      const okRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'I bought a new microphone and studio setup.' },
+      });
+      expect(okRes.statusCode).toBe(201);
+      expect(okRes.json().status).toBe('PENDING');
+    });
+
+    it('rate limit 5 per user per day -> 429', async () => {
+      if (!app || !pool) return;
+
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'ratelimit_applicant@winkey.vn',
+          password: 'Password123!',
+          handle: 'rl_applicant',
+          display_name: 'RL Applicant',
+        },
+      });
+      const { access_token, user } = reg.json();
+
+      // Submit 5 requests (cleaning creator_requests table so conflict doesn't block)
+      for (let i = 0; i < 5; i++) {
+        await pool.query('DELETE FROM auth.creator_requests WHERE user_id = $1', [user.id]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/auth/me/creator-request',
+          headers: { authorization: `Bearer ${access_token}` },
+          payload: { message: `Request attempt number ${i + 1} for rate limit` },
+        });
+        expect(res.statusCode).toBe(201);
+      }
+
+      // 6th attempt -> 429
+      const res6 = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${access_token}` },
+        payload: { message: 'Request attempt number 6 should fail' },
+      });
+      expect(res6.statusCode).toBe(429);
+      expect(res6.json().code).toBe('RATE_LIMIT_EXCEEDED');
+    });
+
+    it('Admin list creator requests: ordering, cursor paging, pending_count, RBAC', async () => {
+      if (!app || !pool) return;
+
+      // 1. Setup admin and moderator users
+      const adminId = uuidv7();
+      const modId = uuidv7();
+      const viewerId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'admin_cr@winkey.vn', 'hash', 'admin_cr', 'Admin CR', '{admin,viewer}', 'ACTIVE'),
+         ($2, 'mod_cr@winkey.vn', 'hash', 'mod_cr', 'Mod CR', '{moderator,viewer}', 'ACTIVE'),
+         ($3, 'viewer_cr@winkey.vn', 'hash', 'viewer_cr', 'Viewer CR', '{viewer}', 'ACTIVE')`,
+        [adminId, modId, viewerId],
+      );
+
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const { token: modToken } = await issueAccessToken(
+        { id: modId, roles: ['moderator', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const { token: viewerToken } = await issueAccessToken(
+        { id: viewerId, roles: ['viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+
+      // RBAC check: viewer -> 403, mod -> 403
+      const vRes = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/creator-requests',
+        headers: { authorization: `Bearer ${viewerToken}` },
+      });
+      expect(vRes.statusCode).toBe(403);
+
+      const mRes = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/creator-requests',
+        headers: { authorization: `Bearer ${modToken}` },
+      });
+      expect(mRes.statusCode).toBe(403);
+
+      // Clear existing creator_requests for pristine test
+      await pool.query('DELETE FROM auth.creator_requests');
+
+      // Create 3 applicants with PENDING requests
+      const app1 = uuidv7();
+      const app2 = uuidv7();
+      const app3 = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'app1@winkey.vn', 'hash', 'app1', 'App One', '{viewer}', 'ACTIVE'),
+         ($2, 'app2@winkey.vn', 'hash', 'app2', 'App Two', '{viewer}', 'ACTIVE'),
+         ($3, 'app3@winkey.vn', 'hash', 'app3', 'App Three', '{viewer}', 'ACTIVE')`,
+        [app1, app2, app3],
+      );
+
+      const t1 = new Date(Date.now() - 3000);
+      const t2 = new Date(Date.now() - 2000);
+      const t3 = new Date(Date.now() - 1000);
+      const reqId1 = uuidv7();
+      const reqId2 = uuidv7();
+      const reqId3 = uuidv7();
+
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message, created_at)
+         VALUES
+         ($1, $4, 'PENDING', 'Message 1 from applicant 1', $7),
+         ($2, $5, 'PENDING', 'Message 2 from applicant 2', $8),
+         ($3, $6, 'PENDING', 'Message 3 from applicant 3', $9)`,
+        [reqId1, reqId2, reqId3, app1, app2, app3, t1, t2, t3],
+      );
+
+      // Fetch with limit=2 (page 1)
+      const page1Res = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/creator-requests?limit=2',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(page1Res.statusCode).toBe(200);
+      const page1 = page1Res.json();
+      expect(page1.pending_count).toBe(3);
+      expect(page1.items).toHaveLength(2);
+      // PENDING is ordered created_at ASC, id ASC
+      expect(page1.items[0].id).toBe(reqId1);
+      expect(page1.items[1].id).toBe(reqId2);
+      expect(page1.next_cursor).not.toBeNull();
+
+      // Fetch page 2 using cursor
+      const page2Res = await app.inject({
+        method: 'GET',
+        url: `/v1/admin/creator-requests?limit=2&cursor=${page1.next_cursor}`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(page2Res.statusCode).toBe(200);
+      const page2 = page2Res.json();
+      expect(page2.items).toHaveLength(1);
+      expect(page2.items[0].id).toBe(reqId3);
+      expect(page2.next_cursor).toBeNull();
+    });
+
+    it('Approve flow: adds creator, writes audit row, does NOT revoke sessions, refresh gets new roles', async () => {
+      if (!app || !pool) return;
+
+      // 1. Register normal user
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: 'approve_test@winkey.vn',
+          password: 'Password123!',
+          handle: 'approve_test',
+          display_name: 'Approve Test',
+        },
+      });
+      const { user: applicantUser, access_token: initialAccessToken } = reg.json();
+      const rtCookie = reg.headers['set-cookie'] as string;
+
+      // 2. Submit creator request
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/creator-request',
+        headers: { authorization: `Bearer ${initialAccessToken}` },
+        payload: { message: 'Please approve my creator upgrade request.' },
+      });
+      const reqId = createRes.json().id;
+
+      // 3. Admin approves
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, 'admin_approver@winkey.vn', 'hash', 'admin_approver', 'Admin Approver', '{admin,viewer}', 'ACTIVE')`,
+        [adminId],
+      );
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+
+      const approveRes = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'APPROVE', note: 'Portfolio looks great!' },
+      });
+      expect(approveRes.statusCode).toBe(200);
+      const appvBody = approveRes.json();
+      expect(appvBody.status).toBe('APPROVED');
+      expect(appvBody.decision_note).toBe('Portfolio looks great!');
+      expect(appvBody.user.roles).toContain('creator');
+      expect(appvBody.decided_by.id).toBe(adminId);
+
+      // Check DB user roles
+      const userDb = await pool.query('SELECT roles FROM auth.users WHERE id = $1', [
+        applicantUser.id,
+      ]);
+      expect(userDb.rows[0].roles).toContain('creator');
+
+      // Check audit log
+      const auditRes = await pool.query(
+        "SELECT * FROM auth.audit_log WHERE action = 'USER_ROLES_CHANGED' AND target_user_id = $1",
+        [applicantUser.id],
+      );
+      expect(auditRes.rows).toHaveLength(1);
+      const auditDetails =
+        typeof auditRes.rows[0].details === 'string'
+          ? JSON.parse(auditRes.rows[0].details)
+          : auditRes.rows[0].details;
+      expect(auditDetails.creator_request_id).toBe(reqId);
+      expect(auditDetails.to).toContain('creator');
+
+      // Check NO revocation: refresh token still valid
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        headers: {
+          cookie: rtCookie,
+          origin: testEnv!.PUBLIC_ORIGIN,
+        },
+      });
+      expect(refreshRes.statusCode).toBe(200);
+      const refreshBody = refreshRes.json();
+      expect(refreshBody.user.roles).toContain('creator');
+
+      // Initial access token also still valid (stateless JWT until exp)
+      const verifyInitial = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/verify',
+        headers: { authorization: `Bearer ${initialAccessToken}` },
+      });
+      expect(verifyInitial.statusCode).toBe(204);
+    });
+
+    it('Approve when user already has creator: status APPROVED, no audit row', async () => {
+      if (!app || !pool) return;
+
+      const applicantId = uuidv7();
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'has_creator@winkey.vn', 'hash', 'has_creator', 'Has Creator', '{viewer,creator}', 'ACTIVE'),
+         ($2, 'admin_dup_appv@winkey.vn', 'hash', 'admin_dup_appv', 'Admin Dup', '{admin,viewer}', 'ACTIVE')`,
+        [applicantId, adminId],
+      );
+      const reqId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message)
+         VALUES ($1, $2, 'PENDING', 'Request before roles were assigned manually.')`,
+        [reqId, applicantId],
+      );
+
+      const auditBefore = await pool.query('SELECT count(*) FROM auth.audit_log');
+      const countBefore = Number(auditBefore.rows[0].count);
+
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'APPROVE' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().status).toBe('APPROVED');
+
+      const auditAfter = await pool.query('SELECT count(*) FROM auth.audit_log');
+      expect(Number(auditAfter.rows[0].count)).toBe(countBefore); // No new audit row
+    });
+
+    it('Approve suspended user -> 409 USER_NOT_ACTIVE', async () => {
+      if (!app || !pool) return;
+
+      const applicantId = uuidv7();
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'suspended_app@winkey.vn', 'hash', 'susp_app', 'Susp App', '{viewer}', 'SUSPENDED'),
+         ($2, 'admin_susp_app@winkey.vn', 'hash', 'admin_susp_app', 'Admin Susp', '{admin,viewer}', 'ACTIVE')`,
+        [applicantId, adminId],
+      );
+      const reqId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message)
+         VALUES ($1, $2, 'PENDING', 'Suspended user request.')`,
+        [reqId, applicantId],
+      );
+
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'APPROVE' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('USER_NOT_ACTIVE');
+    });
+
+    it('Reject without note -> 400, with note -> stored, deciding twice -> 409', async () => {
+      if (!app || !pool) return;
+
+      const applicantId = uuidv7();
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'reject_user@winkey.vn', 'hash', 'reject_user', 'Reject User', '{viewer}', 'ACTIVE'),
+         ($2, 'admin_rejector@winkey.vn', 'hash', 'admin_rejector', 'Admin Rejector', '{admin,viewer}', 'ACTIVE')`,
+        [applicantId, adminId],
+      );
+      const reqId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message)
+         VALUES ($1, $2, 'PENDING', 'Applicant request to be rejected.')`,
+        [reqId, applicantId],
+      );
+
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+
+      // Reject without note -> 400
+      const noNoteRes = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'REJECT' },
+      });
+      expect(noNoteRes.statusCode).toBe(400);
+
+      // Reject with note -> 200
+      const okReject = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'REJECT', note: 'Channels must have at least 3 videos uploaded.' },
+      });
+      expect(okReject.statusCode).toBe(200);
+      expect(okReject.json().status).toBe('REJECTED');
+      expect(okReject.json().decision_note).toBe('Channels must have at least 3 videos uploaded.');
+
+      // Deciding twice -> 409 REQUEST_ALREADY_DECIDED
+      const secondRes = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'APPROVE' },
+      });
+      expect(secondRes.statusCode).toBe(409);
+      expect(secondRes.json().code).toBe('REQUEST_ALREADY_DECIDED');
+    });
+
+    it('Deciding own request -> 403 CANNOT_MODERATE_TARGET', async () => {
+      if (!app || !pool) return;
+
+      const adminId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, 'self_admin@winkey.vn', 'hash', 'self_admin', 'Self Admin', '{admin,viewer}', 'ACTIVE')`,
+        [adminId],
+      );
+      const reqId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message)
+         VALUES ($1, $2, 'PENDING', 'Self decision test request.')`,
+        [reqId, adminId],
+      );
+
+      const { token: adminToken } = await issueAccessToken(
+        { id: adminId, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/admin/creator-requests/${reqId}/decision`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { decision: 'APPROVE' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('CANNOT_MODERATE_TARGET');
+    });
+
+    it('Two concurrent decisions: exactly one wins (409 on second)', async () => {
+      if (!app || !pool) return;
+
+      const applicantId = uuidv7();
+      const admin1 = uuidv7();
+      const admin2 = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES
+         ($1, 'conc_applicant@winkey.vn', 'hash', 'conc_app', 'Conc App', '{viewer}', 'ACTIVE'),
+         ($2, 'admin1@winkey.vn', 'hash', 'admin1', 'Admin 1', '{admin,viewer}', 'ACTIVE'),
+         ($3, 'admin2@winkey.vn', 'hash', 'admin2', 'Admin 2', '{admin,viewer}', 'ACTIVE')`,
+        [applicantId, admin1, admin2],
+      );
+      const reqId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.creator_requests (id, user_id, status, message)
+         VALUES ($1, $2, 'PENDING', 'Concurrent decision test request.')`,
+        [reqId, applicantId],
+      );
+
+      const { token: token1 } = await issueAccessToken(
+        { id: admin1, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+      const { token: token2 } = await issueAccessToken(
+        { id: admin2, roles: ['admin', 'viewer'] },
+        uuidv7(),
+        testEnv!,
+      );
+
+      const [res1, res2] = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: `/v1/admin/creator-requests/${reqId}/decision`,
+          headers: { authorization: `Bearer ${token1}` },
+          payload: { decision: 'APPROVE' },
+        }),
+        app.inject({
+          method: 'POST',
+          url: `/v1/admin/creator-requests/${reqId}/decision`,
+          headers: { authorization: `Bearer ${token2}` },
+          payload: { decision: 'REJECT', note: 'Concurrent reject' },
+        }),
+      ]);
+
+      const codes = [res1.statusCode, res2.statusCode].sort();
+      expect(codes).toEqual([200, 409]);
+      const conflictRes = res1.statusCode === 409 ? res1 : res2;
+      expect(conflictRes.json().code).toBe('REQUEST_ALREADY_DECIDED');
     });
   });
 });

@@ -28,6 +28,11 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
   let validatePasswordResetRequest: ValidateFunction;
   let validateResetPasswordRequest: ValidateFunction;
   let validateVerifyEmailRequest: ValidateFunction;
+  let validateCreateCreatorRequestRequest: ValidateFunction;
+  let validateCreatorRequest: ValidateFunction;
+  let validateAdminCreatorRequest: ValidateFunction;
+  let validateAdminCreatorRequestPage: ValidateFunction;
+  let validateCreatorRequestDecision: ValidateFunction;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -85,6 +90,21 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     )!;
     validateVerifyEmailRequest = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/VerifyEmailRequest',
+    )!;
+    validateCreateCreatorRequestRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/CreateCreatorRequestRequest',
+    )!;
+    validateCreatorRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/CreatorRequest',
+    )!;
+    validateAdminCreatorRequest = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AdminCreatorRequest',
+    )!;
+    validateAdminCreatorRequestPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/AdminCreatorRequestPage',
+    )!;
+    validateCreatorRequestDecision = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/CreatorRequestDecision',
     )!;
 
     // 3. Build test app
@@ -484,5 +504,71 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     const verifyProblem = verifyBadRes.json();
     expect(validateProblem(verifyProblem)).toBe(true);
     expect(verifyProblem.code).toBe('INVALID_TOKEN');
+  });
+
+  it('verifies CreatorRequest schemas against auth.v1.yaml contracts (task ROLE1)', async () => {
+    // 1. CreateCreatorRequestRequest validation
+    const validCreatePayload = {
+      message: 'I want to upload high quality coding tutorials for developers.',
+    };
+    expect(validateCreateCreatorRequestRequest(validCreatePayload)).toBe(true);
+
+    const invalidShortPayload = { message: 'Short' };
+    expect(validateCreateCreatorRequestRequest(invalidShortPayload)).toBe(false);
+
+    // 2. CreatorRequest validation
+    const sampleCreatorRequest = {
+      id: '018f6c38-892f-7634-9388-3490715e2197',
+      status: 'PENDING',
+      message: 'I want to upload high quality coding tutorials for developers.',
+      decision_note: null,
+      created_at: new Date().toISOString(),
+      decided_at: null,
+    };
+    expect(validateCreatorRequest(sampleCreatorRequest)).toBe(true);
+
+    // 3. CreatorRequestDecision validation
+    const approveDecision = { decision: 'APPROVE', note: 'Looks good' };
+    const rejectDecision = { decision: 'REJECT', note: 'Please provide more details.' };
+    const invalidDecision = { decision: 'MAYBE' };
+    expect(validateCreatorRequestDecision(approveDecision)).toBe(true);
+    expect(validateCreatorRequestDecision(rejectDecision)).toBe(true);
+    expect(validateCreatorRequestDecision(invalidDecision)).toBe(false);
+
+    // 4. AdminCreatorRequest validation
+    const sampleAdminCreatorRequest = {
+      ...sampleCreatorRequest,
+      status: 'APPROVED',
+      decision_note: 'Approved for video tutorials',
+      decided_at: new Date().toISOString(),
+      user: {
+        id: '018f6c38-892f-7634-9388-3490715e2198',
+        email: 'alice@example.com',
+        email_verified: true,
+        handle: 'alice',
+        display_name: 'Alice Cooper',
+        avatar_url: null,
+        roles: ['viewer', 'creator'],
+        status: 'ACTIVE',
+        suspended_until: null,
+        suspension_reason: null,
+        created_at: new Date().toISOString(),
+      },
+      decided_by: {
+        id: '018f6c38-892f-7634-9388-3490715e2199',
+        handle: 'admin',
+        display_name: 'Admin User',
+        avatar_url: 'https://media.winkey.vn/avatars/admin.png',
+      },
+    };
+    expect(validateAdminCreatorRequest(sampleAdminCreatorRequest)).toBe(true);
+
+    // 5. AdminCreatorRequestPage validation
+    const samplePage = {
+      items: [sampleAdminCreatorRequest],
+      next_cursor: null,
+      pending_count: 5,
+    };
+    expect(validateAdminCreatorRequestPage(samplePage)).toBe(true);
   });
 });
