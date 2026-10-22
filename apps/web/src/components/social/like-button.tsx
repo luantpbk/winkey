@@ -123,7 +123,7 @@ export function LikeButton({ videoId, initialLikeCount = 0 }: LikeButtonProps) {
       className={`inline-flex h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-red-600 ${
         liked
           ? 'bg-red-600/20 text-[#FF4D6D] border border-red-500/40'
-          : 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-gray-800 dark:text-gray-200 hover:bg-[#383838]'
+          : 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-gray-900 dark:text-white hover:bg-[#383838]'
       }`}
     >
       <ThumbsUp className={`h-4 w-4 ${liked ? 'fill-current' : ''}`} />

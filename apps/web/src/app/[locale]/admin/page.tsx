@@ -17,6 +17,13 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState<AdminTab>('queue');
 
+  // Ensure document language is explicitly declared for accessibility audit
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = 'vi';
+    }
+  }, []);
+
   // Route guard: if authenticated but neither moderator nor admin, trigger 404
   if (!isLoading && (!isAuthenticated || !canAccessAdmin)) {
     notFound();

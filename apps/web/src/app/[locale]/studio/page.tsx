@@ -314,7 +314,7 @@ export default function StudioPage() {
       <div className="overflow-x-auto rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white shadow-xl">
         <table className="w-full text-left text-sm">
           <thead
-            className={`border-b border-[#272727] dark:border-[#272727] border-gray-200 bg-[#1c1c1c] dark:bg-[#1c1c1c] bg-gray-50 text-xs font-semibold ${A11Y_COLORS.textMuted} uppercase`}
+            className={`border-b border-[#272727] dark:border-[#272727] border-gray-200 bg-[#1c1c1c] dark:bg-[#1c1c1c] bg-gray-50 text-xs font-semibold ${A11Y_COLORS.tableHeader} uppercase`}
           >
             <tr>
               <th className="py-3.5 px-4">{t('tableTitle')}</th>
