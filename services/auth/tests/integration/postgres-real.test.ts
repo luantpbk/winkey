@@ -10,7 +10,7 @@ import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
 import { getDb, registerArrayParsers } from '../../src/db/client.js';
-import type { RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
+import { ValkeyRateLimiter, type RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 import { v7 as uuidv7, version as uuidVersion } from 'uuid';
 import { issueAccessToken } from '../../src/crypto/jwt.js';
@@ -1590,16 +1590,16 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       const rtCookie1 = regRes.cookies.find((c) => c.name === REFRESH_COOKIE_NAME)!.value;
       const userId = regRes.json().user.id;
 
-      // Old token verified with initial roles (viewer,creator)
+      // Old token verified with initial roles (ROLE1: new accounts are viewer-only)
       const v1 = await app.inject({
         method: 'GET',
         url: '/v1/auth/verify',
         headers: { authorization: `Bearer ${oldToken}` },
       });
       expect(v1.statusCode).toBe(204);
-      expect(v1.headers['x-user-roles']).toBe('viewer,creator');
+      expect(v1.headers['x-user-roles']).toBe('viewer');
 
-      // Admin changes roles to viewer only (demote creator)
+      // Admin changes roles (grants creator through adminSetUserRoles, which revokes sessions)
       const roleRes = await app.inject({
         method: 'PUT',
         url: `/v1/admin/users/${userId}/roles`,
@@ -1608,7 +1608,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
           'x-user-roles': 'admin,viewer',
         },
         payload: {
-          roles: ['viewer'],
+          roles: ['viewer', 'creator'],
         },
       });
       expect(roleRes.statusCode).toBe(200);
@@ -1633,7 +1633,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       });
       expect(refreshRes.statusCode).toBe(200);
       const newToken = refreshRes.json().access_token;
-      expect(refreshRes.json().user.roles).toEqual(['viewer']);
+      expect(refreshRes.json().user.roles).toEqual(['viewer', 'creator']);
 
       // New token gets 204 with updated roles
       const vNew = await app.inject({
@@ -1642,7 +1642,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         headers: { authorization: `Bearer ${newToken}` },
       });
       expect(vNew.statusCode).toBe(204);
-      expect(vNew.headers['x-user-roles']).toBe('viewer');
+      expect(vNew.headers['x-user-roles']).toBe('viewer,creator');
     });
 
     // 4. changePassword -> the other device's access token 401, the current device's token still 204
@@ -1897,7 +1897,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
         // 204 No Content with identity headers (fail-open)
         expect(verifyRes.statusCode).toBe(204);
         expect(verifyRes.headers['x-user-id']).toBe(validUserId);
-        expect(verifyRes.headers['x-user-roles']).toBe('viewer,creator');
+        expect(verifyRes.headers['x-user-roles']).toBe('viewer'); // ROLE1 default
 
         const afterMetric = await (
           authRegistry.getSingleMetric('auth_verify_revocation_check_total') as Counter<string>
@@ -2460,41 +2460,53 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
     });
 
     it('rate limit 5 per user per day -> 429', async () => {
-      if (!app || !pool) return;
+      if (!app || !pool || !testEnv) return;
 
-      const reg = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/register',
-        payload: {
-          email: 'ratelimit_applicant@winkey.vn',
-          password: 'Password123!',
-          handle: 'rl_applicant',
-          display_name: 'RL Applicant',
-        },
+      // The shared app runs with a no-op limiter; this test needs a counting one.
+      const limitedApp = await buildApp({
+        env: testEnv,
+        db: getDb(dbUrl!, pool).db,
+        rateLimiter: new ValkeyRateLimiter(),
+        redis: redisClient,
       });
-      const { access_token, user } = reg.json();
+      try {
+        const reg = await limitedApp.inject({
+          method: 'POST',
+          url: '/v1/auth/register',
+          payload: {
+            email: 'ratelimit_applicant@winkey.vn',
+            password: 'Password123!',
+            handle: 'rl_applicant',
+            display_name: 'RL Applicant',
+          },
+        });
+        const { access_token, user } = reg.json();
 
-      // Submit 5 requests (cleaning creator_requests table so conflict doesn't block)
-      for (let i = 0; i < 5; i++) {
+        // Submit 5 requests (cleaning creator_requests table so conflict doesn't block)
+        for (let i = 0; i < 5; i++) {
+          await pool.query('DELETE FROM auth.creator_requests WHERE user_id = $1', [user.id]);
+          const res = await limitedApp.inject({
+            method: 'POST',
+            url: '/v1/auth/me/creator-request',
+            headers: { authorization: `Bearer ${access_token}` },
+            payload: { message: `Request attempt number ${i + 1} for rate limit` },
+          });
+          expect(res.statusCode).toBe(201);
+        }
+
+        // 6th attempt -> 429 (the limiter runs before the conflict checks)
         await pool.query('DELETE FROM auth.creator_requests WHERE user_id = $1', [user.id]);
-        const res = await app.inject({
+        const res6 = await limitedApp.inject({
           method: 'POST',
           url: '/v1/auth/me/creator-request',
           headers: { authorization: `Bearer ${access_token}` },
-          payload: { message: `Request attempt number ${i + 1} for rate limit` },
+          payload: { message: 'Request attempt number 6 should fail' },
         });
-        expect(res.statusCode).toBe(201);
+        expect(res6.statusCode).toBe(429);
+        expect(res6.json().code).toBe('RATE_LIMIT_EXCEEDED');
+      } finally {
+        await limitedApp.close();
       }
-
-      // 6th attempt -> 429
-      const res6 = await app.inject({
-        method: 'POST',
-        url: '/v1/auth/me/creator-request',
-        headers: { authorization: `Bearer ${access_token}` },
-        payload: { message: 'Request attempt number 6 should fail' },
-      });
-      expect(res6.statusCode).toBe(429);
-      expect(res6.json().code).toBe('RATE_LIMIT_EXCEEDED');
     });
 
     it('Admin list creator requests: ordering, cursor paging, pending_count, RBAC', async () => {
