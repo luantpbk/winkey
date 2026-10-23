@@ -34,7 +34,7 @@ type deletedEvent struct {
 }
 
 // Janitor consumes video.deleted and removes every object of the video:
-// everything under media_prefix (all attempts) plus the raw object. It is
+// everything under media_prefix (all attempts) plus its raw directory. It is
 // idempotent, so redelivery is harmless.
 type Janitor struct {
 	JS          jetstream.JetStream
@@ -114,12 +114,17 @@ func (j *Janitor) Validate(ev deletedEvent) error {
 	return nil
 }
 
-// Purge deletes the media prefix and the raw object.
+// Purge deletes the media prefix and the video's raw directory: the source object plus the raw sources of
+// its extra audio tracks ({owner_id}/{video_id}/audio/{track_id}/source, MUX1), which upload-svc writes next
+// to it (STOR1: deleting only raw_key left them behind).
 func (j *Janitor) Purge(ctx context.Context, ev deletedEvent) error {
 	if err := j.Objects.DeletePrefix(ctx, j.MediaBucket, ev.MediaPrefix); err != nil {
 		return err
 	}
-	return j.Objects.DeleteObject(ctx, j.RawBucket, ev.RawKey)
+	if err := j.Objects.DeleteObject(ctx, j.RawBucket, ev.RawKey); err != nil {
+		return err
+	}
+	return j.Objects.DeletePrefix(ctx, j.RawBucket, ev.OwnerID+"/"+ev.VideoID+"/")
 }
 
 var scratchDirRe = regexp.MustCompile(`^[0-9a-f-]{36}-a\d+$`)

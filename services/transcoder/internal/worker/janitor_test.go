@@ -69,7 +69,10 @@ func TestPurgeRemovesAllAttemptsAndRawOnly(t *testing.T) {
 		objs.Put("winkey-media", k, []byte("x"))
 	}
 	objs.Put("winkey-raw", owner+"/"+vid+"/source", []byte("raw"))
+	// STOR1: the raw sources of the video's extra audio tracks go too.
+	objs.Put("winkey-raw", owner+"/"+vid+"/audio/0192f5e4-7c1a-7b3e-9d2a-0000000000a1/source", []byte("raw"))
 	objs.Put("winkey-raw", owner+"/other/source", []byte("raw"))
+	objs.Put("winkey-raw", owner+"/"+vid+"x/source", []byte("raw")) // a sibling whose id shares the prefix
 
 	if err := newJanitor(objs).Purge(context.Background(), goodEvent()); err != nil {
 		t.Fatal(err)
@@ -77,7 +80,7 @@ func TestPurgeRemovesAllAttemptsAndRawOnly(t *testing.T) {
 	if got := objs.Keys("winkey-media"); len(got) != 2 || got[0] != "v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/hls/master.m3u8" || got[1] != "v/0192f5e4-7c1a-7b3e-9d2a-000000000000/a1/storyboard/storyboard.vtt" {
 		t.Errorf("media: %v", got)
 	}
-	if got := objs.Keys("winkey-raw"); len(got) != 1 || got[0] != owner+"/other/source" {
+	if got := objs.Keys("winkey-raw"); len(got) != 2 || got[0] != owner+"/"+vid+"x/source" || got[1] != owner+"/other/source" {
 		t.Errorf("raw: %v", got)
 	}
 	// Idempotent: purging again is fine.
