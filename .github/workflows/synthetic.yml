@@ -30,7 +30,7 @@ jobs:
           node-version: '22'
 
       - name: Restore synthetic state cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .synthetic-state
           key: synthetic-state-${{ github.run_id }}
@@ -71,7 +71,7 @@ jobs:
 
       - name: Save synthetic state cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .synthetic-state
           key: synthetic-state-${{ github.run_id }}
