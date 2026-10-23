@@ -61,8 +61,30 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm --filter e2e exec playwright install --with-deps chromium
 
+      - name: Cache ffmpeg
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: |
+            /home/runner/.local/bin/ffmpeg
+            /home/runner/.local/bin/ffprobe
+          key: ffmpeg-static-7.1.5-c1e6caf4
+
       - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+        run: |
+          if [ "${{ steps.cache-ffmpeg.outputs.cache-hit }}" != "true" ]; then
+            mkdir -p /home/runner/.local/bin
+            FFMPEG_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n7.1.5-12-g1fdbca85aa-linux64-gpl-7.1.tar.xz"
+            FFMPEG_SHA="c1e6caf48923dd8e6bc5e54d51ba70c321175b8162ae9c414c392990e72f0e79"
+            curl -fsSL "$FFMPEG_URL" -o /tmp/ffmpeg.tar.xz
+            echo "$FFMPEG_SHA  /tmp/ffmpeg.tar.xz" | sha256sum -c -
+            tar -xJf /tmp/ffmpeg.tar.xz -C /home/runner/.local/bin --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+            rm -f /tmp/ffmpeg.tar.xz
+            chmod +x /home/runner/.local/bin/ffmpeg /home/runner/.local/bin/ffprobe
+          fi
+          sudo ln -sf /home/runner/.local/bin/ffmpeg /usr/local/bin/ffmpeg
+          sudo ln -sf /home/runner/.local/bin/ffprobe /usr/local/bin/ffprobe
+          ffmpeg -version | head -n 1
 
       - name: Compose env
         run: cp deploy/compose/.env.example deploy/compose/.env
