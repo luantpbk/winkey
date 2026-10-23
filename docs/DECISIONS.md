@@ -1377,3 +1377,34 @@ Hiện trạng code:
   - Trang xem: menu "⋯ Quản trị" cho moderator và admin, có Ẩn/Hiện lại và Xoá; xoá xong thì quay về trang chủ.
 
 *Hệ quả.* Admin xử lý được video vi phạm mà không cần chờ người dùng báo cáo. Xoá không hoàn tác được nên giao diện bắt xác nhận hai bước. Ẩn là cách xử lý mặc định nên được đề xuất trước.
+
+### ADR-048 — Dọn rác R2 và chính sách AV1 theo top N (STOR1, AV1POL)
+
+*Bối cảnh (2026-10-23).*
+- R2 báo khoảng 9,2 GB. Kiểm kê bằng `storage-gc` (#456) trên gpu-01:
+  - H.264 đang dùng: 3,10 GiB;
+  - **bộ AV1 đang dùng: 2,21 GiB**;
+  - **file gốc: 2,71 GiB** (22 video, chỉ có một bản trên R2, vault chưa sao lưu);
+  - rác: 0,42 GiB (file gốc của video đã xoá, file gốc âm thanh đã xử lý);
+  - backup: 0,13 GiB.
+- Đã sửa trong #456 lỗi janitor bỏ sót file gốc của track âm thanh khi xoá video. R2 có thêm quy tắc tự huỷ multipart upload dở dang sau 1 ngày.
+- Từ #445, player chỉ dùng AV1 khi máy giải mã AV1 bằng phần cứng (`mediaCapabilities` báo `powerEfficient` và `smooth`), hiện là số ít người xem. Mỗi video có hai bộ HLS thì hai nhóm người xem không dùng chung cache edge, trong khi cache-miss đang là nguyên nhân giật chính.
+- User muốn giữ AV1 vì sẽ phổ biến hơn, nhưng mở rộng theo nhu cầu thật.
+
+*Quyết định.*
+- **Dọn rác:** kiến trúc sư duyệt `storage-gc -apply media-orphan-video,raw-orphan-video,raw-audio-processed`. Nhóm `media-old-attempt` và `media-old-av1` cũng được xoá khi có.
+- **AV1 theo top N (AV1POL, user đồng ý 2026-10-23).** `av1-upgrade` có thêm hai biến:
+  - `AV1_TOP_N`: `all` (mặc định, giữ hành vi cũ) hoặc một số N;
+  - `AV1_KEEP_TOP`: mặc định max(2N, N+5).
+  - Mỗi đêm `av1-upgrade` xếp hạng video READY theo lượt xem 7 ngày, rồi:
+    1. xoá file của các bộ AV1 đã bị gỡ ở lần chạy trước;
+    2. gỡ bộ AV1 của video xếp ngoài hạng `KEEP_TOP` (chỉ trong database, file để lần chạy sau mới xoá, để người đang xem dở xem hết);
+    3. chỉ nâng cấp video trong top N.
+  - Production bắt đầu với `AV1_TOP_N=5`. Tăng lên 10, 100 hay `all` chỉ cần đổi biến môi trường; lần chạy sau tự làm AV1 từ file gốc.
+- **Đo tỷ lệ AV1:** player sẽ báo codec đang phát (H.264 hay AV1) trong dữ liệu lượt xem (contract và video-svc do kiến trúc sư làm, player do Antigravity 1). Khi tỷ lệ máy phát AV1 vượt khoảng 30–40% thì tăng N.
+- **File gốc:** Antigravity 2 thêm `winkey-raw` vào lịch sao lưu vault (HDD gpu-01). Có xoá file gốc cũ khỏi R2 hay không, user quyết định sau.
+
+*Hệ quả.*
+- R2 giảm khoảng 2–2,5 GiB: 0,42 GiB rác cộng phần lớn 2,21 GiB AV1 của các video ngoài top 5.
+- Cache edge tập trung vào một bộ cho các video ít người xem. Video hot vẫn có AV1 cho máy hỗ trợ.
+- AV1 có thể mở rộng lại bất cứ lúc nào, vì file gốc vẫn còn.

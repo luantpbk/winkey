@@ -71,17 +71,24 @@ type Options struct {
 	CQ          int // 0: media.DefaultAV1CQ
 	MaxratePct  int // 0: media.DefaultAV1MaxratePct
 	NoHWDecode  bool
+	// TopN and KeepTop are the AV1 policy (AV1POL, ADR-048); TopN = AllVideos keeps the original behaviour
+	// (every video over MinStarts, nothing dropped). They apply only when Runner.Policy is set.
+	TopN    int
+	KeepTop int
 }
 
 // Summary is the outcome of a run.
 type Summary struct {
 	Selected, Done, Failed, LostRace, WouldDo int
-	Duration                                  time.Duration
+	// Dropped AV1 sets (policy) and Swept leftover set directories deleted (sets dropped by an earlier run).
+	Dropped, Swept int
+	Duration       time.Duration
 }
 
 // Line is the summary line printed by the CLI.
 func (s Summary) Line(dry bool) string {
-	line := fmt.Sprintf("summary: selected=%d done=%d failed=%d lost_race=%d", s.Selected, s.Done, s.Failed, s.LostRace)
+	line := fmt.Sprintf("summary: selected=%d done=%d failed=%d lost_race=%d dropped=%d swept=%d",
+		s.Selected, s.Done, s.Failed, s.LostRace, s.Dropped, s.Swept)
 	if dry {
 		line += fmt.Sprintf(" would_do=%d dry_run=true", s.WouldDo)
 	}
@@ -95,6 +102,8 @@ type Runner struct {
 	Media   Media
 	Opt     Options
 	Log     *slog.Logger
+	// Policy enables the top-N policy (Opt.TopN, Opt.KeepTop); nil keeps the threshold-only behaviour.
+	Policy PolicyStore
 	// NewRunID names the output directory of one video (default: a UUIDv7).
 	NewRunID func() string
 }
@@ -104,12 +113,37 @@ type Runner struct {
 func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	start := time.Now()
 	var sum Summary
-	cands, err := r.Store.SelectAV1(ctx, r.Opt.MinStarts, r.Opt.Limit)
-	sum.Selected = len(cands)
+	limit := r.Opt.Limit
+	var plan PolicyPlan
+	if r.Policy != nil {
+		ranks, err := r.Policy.RankAV1(ctx)
+		if err != nil {
+			sum.Duration = time.Since(start)
+			return sum, fmt.Errorf("rank: %w", err)
+		}
+		plan = Plan(ranks, r.Opt.TopN, KeepTop(r.Opt.TopN, r.Opt.KeepTop))
+		// Sweep first: directories of sets dropped by an earlier run (never the ones dropped below).
+		sum.Swept = r.sweep(ctx, plan.NoAV1)
+		sum.Dropped = r.drop(ctx, plan.Drop)
+		if plan.Eligible != nil {
+			limit = AV1UpgradeSelectAll // filter below, keeping the most-watched order
+		}
+	}
+	cands, err := r.Store.SelectAV1(ctx, r.Opt.MinStarts, limit)
 	if err != nil {
 		sum.Duration = time.Since(start)
 		return sum, fmt.Errorf("select: %w", err)
 	}
+	if plan.Eligible != nil {
+		var kept []Candidate
+		for _, c := range cands {
+			if plan.Eligible[c.ID] && len(kept) < r.Opt.Limit {
+				kept = append(kept, c)
+			}
+		}
+		cands = kept
+	}
+	sum.Selected = len(cands)
 	if !r.Opt.DryRun {
 		if err := os.MkdirAll(r.Opt.ScratchDir, 0o750); err != nil {
 			sum.Duration = time.Since(start)
@@ -307,6 +341,66 @@ func (r *Runner) fail(ctx context.Context, log *slog.Logger, step string, err er
 	}
 	log.ErrorContext(ctx, "AV1 upgrade failed", "step", step, "error", err)
 	return outFailed
+}
+
+// AV1UpgradeSelectAll is the selection limit used when the policy filters the candidates itself.
+const AV1UpgradeSelectAll = 100000
+
+// drop forgets the AV1 sets of the given videos (objects stay until the next run's sweep).
+func (r *Runner) drop(ctx context.Context, ids []uuid.UUID) int {
+	n := 0
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			break
+		}
+		if r.Opt.DryRun {
+			r.Log.InfoContext(ctx, "would drop AV1 set", "video_id", id)
+			n++
+			continue
+		}
+		ok, err := r.Policy.DropAV1(ctx, id)
+		if err != nil {
+			r.Log.ErrorContext(ctx, "drop AV1 set failed", "video_id", id, "error", err)
+			continue
+		}
+		if ok {
+			r.Log.InfoContext(ctx, "AV1 set dropped (objects deleted by the next run)", "video_id", id)
+			n++
+		}
+	}
+	return n
+}
+
+// sweep deletes the av1/{run}/ directories of READY videos that have no AV1 set (dropped by an earlier run).
+func (r *Runner) sweep(ctx context.Context, ids []uuid.UUID) int {
+	n := 0
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			break
+		}
+		prefix := "v/" + id.String() + "/av1/"
+		dirs, err := r.Objects.ListPrefixes(ctx, r.Opt.MediaBucket, prefix)
+		if err != nil {
+			r.Log.WarnContext(ctx, "list leftover AV1 sets failed", "video_id", id, "error", err)
+			continue
+		}
+		for _, d := range dirs {
+			if !strings.HasPrefix(d, prefix) || d == prefix {
+				continue
+			}
+			if r.Opt.DryRun {
+				r.Log.InfoContext(ctx, "would delete leftover AV1 set", "prefix", d)
+				n++
+				continue
+			}
+			if err := r.Objects.DeletePrefix(ctx, r.Opt.MediaBucket, d); err != nil {
+				r.Log.WarnContext(ctx, "delete leftover AV1 set failed", "prefix", d, "error", err)
+				continue
+			}
+			n++
+		}
+	}
+	return n
 }
 
 // cleanup removes an uploaded set on a fresh context (the run context may be cancelled).

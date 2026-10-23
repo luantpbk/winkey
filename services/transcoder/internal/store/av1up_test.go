@@ -226,3 +226,61 @@ func TestCompleteAudioRewritesAV1Master(t *testing.T) {
 		t.Fatalf("not rolled back: %s", s)
 	}
 }
+
+// AV1POL (ADR-048): RankAV1 orders every READY video by 7-day starts, flags the ones with a set; DropAV1 forgets
+// a set in one transaction and is a no-op the second time.
+func TestRankAndDropAV1(t *testing.T) {
+	pg := testkit.StartPostgres(t)
+	ctx := context.Background()
+	st := &store.Postgres{Pool: pg.Pool}
+
+	hot, o1 := seed(t, pg, "UPLOADED")
+	encode(t, st, hot, o1, nil)
+	starts(t, pg, hot, o1, 0, 90)
+	if _, ok, err := st.CommitAV1(ctx, av1Commit(hot, "r1"), nil); err != nil || !ok {
+		t.Fatalf("commit: %v %v", ok, err)
+	}
+	warm, o2 := seed(t, pg, "UPLOADED")
+	encode(t, st, warm, o2, nil)
+	starts(t, pg, warm, o2, 1, 30)
+	starts(t, pg, warm, o2, 9, 5000) // outside the window
+	never, o3 := seed(t, pg, "UPLOADED")
+	encode(t, st, never, o3, nil)
+	busy, o4 := seed(t, pg, "UPLOADED") // not READY: never ranked
+	starts(t, pg, busy, o4, 0, 9999)
+
+	ranks, err := st.RankAV1(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ranks) != 3 || ranks[0].ID != hot || !ranks[0].HasAV1 || ranks[0].Starts7d != 90 ||
+		ranks[1].ID != warm || ranks[1].HasAV1 || ranks[1].Starts7d != 30 || ranks[2].ID != never || ranks[2].Starts7d != 0 {
+		t.Fatalf("ranks %+v", ranks)
+	}
+
+	ok, err := st.DropAV1(ctx, hot)
+	if err != nil || !ok {
+		t.Fatalf("drop: %v %v", ok, err)
+	}
+	var key *string
+	var av1Rows, h264Rows int
+	if err := pg.Pool.QueryRow(ctx, `SELECT hls_av1_master_key,
+		(SELECT count(*) FROM media.video_renditions WHERE video_id = $1 AND codec = 'av1'),
+		(SELECT count(*) FROM media.video_renditions WHERE video_id = $1 AND codec = 'h264')
+		FROM media.videos WHERE id = $1`, hot).Scan(&key, &av1Rows, &h264Rows); err != nil {
+		t.Fatal(err)
+	}
+	if key != nil || av1Rows != 0 || h264Rows == 0 {
+		t.Fatalf("after drop: key=%v av1=%d h264=%d", key, av1Rows, h264Rows)
+	}
+	if ok, err := st.DropAV1(ctx, hot); err != nil || ok {
+		t.Fatalf("second drop: %v %v", ok, err)
+	}
+	if ok, err := st.DropAV1(ctx, uuid.New()); err != nil || ok {
+		t.Fatalf("unknown video: %v %v", ok, err)
+	}
+	// A video without a set can get one again later (the policy may re-admit it).
+	if _, ok, err := st.CommitAV1(ctx, av1Commit(hot, "r2"), nil); err != nil || !ok {
+		t.Fatalf("re-commit: %v %v", ok, err)
+	}
+}

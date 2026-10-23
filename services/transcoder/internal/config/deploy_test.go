@@ -303,6 +303,9 @@ func TestAV1UpgradeUnitAgreesWithTheEnvExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("env example + unit Environment= is not a valid AV1Upgrade configuration: %v", err)
 	}
+	if cfg.TopN != "5" {
+		t.Errorf("AV1_TOP_N=%q, want 5 (AV1POL, ADR-048)", cfg.TopN)
+	}
 	if cfg.AV1FFmpegPath != "/opt/ffmpeg-8/bin/ffmpeg" {
 		t.Errorf("AV1_FFMPEG_PATH=%q, want the FFmpeg 8 build at /opt/ffmpeg-8 (ADR-041)", cfg.AV1FFmpegPath)
 	}

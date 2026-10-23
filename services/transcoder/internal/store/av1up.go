@@ -129,3 +129,57 @@ func (p *Postgres) CommitAV1(ctx context.Context, c av1up.Commit, rewrite func(c
 	}
 	return prev, true, nil
 }
+
+// RankAV1 implements av1up.PolicyStore: every READY video, most watched over the AV1 window first, then newest.
+func (p *Postgres) RankAV1(ctx context.Context) ([]av1up.Rank, error) {
+	rows, err := p.Pool.Query(ctx, `
+		WITH starts AS (
+			SELECT video_id, sum(starts)::bigint AS starts
+			FROM analytics.video_daily
+			WHERE day > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - $1::int
+			GROUP BY video_id
+		)
+		SELECT v.id, coalesce(s.starts, 0), v.hls_av1_master_key IS NOT NULL
+		FROM media.videos v LEFT JOIN starts s ON s.video_id = v.id
+		WHERE v.status = 'READY'
+		ORDER BY coalesce(s.starts, 0) DESC, v.created_at DESC, v.id`, av1Window)
+	if err != nil {
+		return nil, fmt.Errorf("rank videos: %w", err)
+	}
+	defer rows.Close()
+	var out []av1up.Rank
+	for rows.Next() {
+		var r av1up.Rank
+		if err := rows.Scan(&r.ID, &r.Starts7d, &r.HasAV1); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DropAV1 implements av1up.PolicyStore. The objects stay; the next av1-upgrade run deletes them.
+func (p *Postgres) DropAV1(ctx context.Context, id uuid.UUID) (bool, error) {
+	tx, err := p.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var key *string
+	if err := tx.QueryRow(ctx, `SELECT hls_av1_master_key FROM media.videos WHERE id = $1 FOR UPDATE`, id).Scan(&key); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lock video: %w", err)
+	}
+	if key == nil {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM media.video_renditions WHERE video_id = $1 AND codec = 'av1'`, id); err != nil {
+		return false, fmt.Errorf("clear renditions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE media.videos SET hls_av1_master_key = NULL WHERE id = $1`, id); err != nil {
+		return false, fmt.Errorf("clear av1 master key: %w", err)
+	}
+	return true, tx.Commit(ctx)
+}
