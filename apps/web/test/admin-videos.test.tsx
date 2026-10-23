@@ -402,13 +402,13 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
   });
 
   describe('4. Row Rendering & Inactive Owner Badge', () => {
-    it('displays "Tài khoản đã khoá/xoá" for video with owner_active === false', async () => {
+    it('displays "Tài khoản đã khóa/xóa" for video with owner_active === false', async () => {
       render(<AdminVideosViewer />);
 
       await waitFor(() => {
         expect(screen.getByTestId('admin-video-owner-inactive')).toBeDefined();
       });
-      expect(screen.getByText('Tài khoản đã khoá/xoá')).toBeDefined();
+      expect(screen.getByText('Tài khoản đã khóa/xóa')).toBeDefined();
       expect(screen.getByText('@coder_pro')).toBeDefined();
     });
   });
@@ -510,8 +510,8 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
     });
   });
 
-  describe('7. Delete Video: Confirmation typing "XOÁ" & Optimistic Removal', () => {
-    it('requires typing exact "XOÁ" to enable delete button and removes row on success', async () => {
+  describe('7. Delete Video: Confirmation typing "XÓA" & Optimistic Removal', () => {
+    it('requires typing exact "XÓA" to enable delete button and removes row on success', async () => {
       render(<AdminVideosViewer />);
 
       await waitFor(() => {
@@ -528,8 +528,8 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
       fireEvent.change(input, { target: { value: 'XOA' } });
       expect(confirmBtn.disabled).toBe(true);
 
-      // Typing correct text "XOÁ" enables
-      fireEvent.change(input, { target: { value: 'XOÁ' } });
+      // Typing correct text "XÓA" enables
+      fireEvent.change(input, { target: { value: 'XÓA' } });
       expect(confirmBtn.disabled).toBe(false);
 
       fireEvent.click(confirmBtn);
@@ -545,13 +545,13 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
         expect(screen.queryByTestId('admin-video-row-vid-001')).toBeNull();
       });
       expect(mockShowToast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'success', title: 'Đã xoá video vĩnh viễn' }),
+        expect.objectContaining({ type: 'success', title: 'Đã xóa video vĩnh viễn' }),
       );
     });
 
     it('rolls back deleted video row when DELETE API fails', async () => {
       mockApiDelete.mockResolvedValueOnce({
-        error: { detail: 'Lỗi máy chủ khi xoá video' },
+        error: { detail: 'Lỗi máy chủ khi xóa video' },
         response: { ok: false, status: 500 },
       });
 
@@ -562,7 +562,7 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
       });
 
       fireEvent.click(screen.getByTestId('admin-video-delete-btn-vid-001'));
-      fireEvent.change(screen.getByTestId('confirm-delete-input'), { target: { value: 'XOÁ' } });
+      fireEvent.change(screen.getByTestId('confirm-delete-input'), { target: { value: 'XÓA' } });
       fireEvent.click(screen.getByTestId('confirm-delete-submit-btn'));
 
       await waitFor(() => {
@@ -572,8 +572,8 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
       expect(mockShowToast).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'error',
-          title: 'Không thể xoá video',
-          description: 'Lỗi máy chủ khi xoá video',
+          title: 'Không thể xóa video',
+          description: 'Lỗi máy chủ khi xóa video',
         }),
       );
     });
@@ -681,7 +681,7 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
       expect(screen.queryByTestId('hidden-video-banner')).toBeNull();
     });
 
-    it('staff clicking "Xoá" from watch menu redirects to "/" upon confirmation', async () => {
+    it('staff clicking "Xóa" from watch menu redirects to "/" upon confirmation', async () => {
       mockAuthState = {
         user: { id: 'admin-user', roles: ['viewer', 'admin'] },
         isAuthenticated: true,
@@ -705,8 +705,8 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
       fireEvent.click(screen.getByTestId('staff-delete-video-btn'));
       expect(screen.getByTestId('delete-video-dialog')).toBeDefined();
 
-      // Type "XOÁ" and submit
-      fireEvent.change(screen.getByTestId('confirm-delete-input'), { target: { value: 'XOÁ' } });
+      // Type "XÓA" and submit
+      fireEvent.change(screen.getByTestId('confirm-delete-input'), { target: { value: 'XÓA' } });
       fireEvent.click(screen.getByTestId('confirm-delete-submit-btn'));
 
       await waitFor(() => {
@@ -719,7 +719,7 @@ describe('ADMV1 (ADR-047): Admin Videos & Watch-Page Moderation Actions', () => 
         expect(mockPush).toHaveBeenCalledWith('/');
       });
       expect(mockShowToast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'success', title: 'Đã xoá video vĩnh viễn' }),
+        expect.objectContaining({ type: 'success', title: 'Đã xóa video vĩnh viễn' }),
       );
     });
   });

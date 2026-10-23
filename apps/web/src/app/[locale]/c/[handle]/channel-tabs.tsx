@@ -113,7 +113,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
       {/* Tab: Playlists */}
       {activeTab === 'playlists' && (
         <div data-testid="channel-playlists-section" className="flex flex-col gap-4">
-          {/* Owner only "+ Tạo danh sách" button */}
+          {/* Owner only "Tạo danh sách" button */}
           {isOwner && (
             <div className="flex justify-end">
               <button
@@ -123,7 +123,7 @@ export function ChannelTabs({ profile, initialVideos }: ChannelTabsProps) {
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-full ${A11Y_COLORS.brandSolidBg} text-xs font-semibold shadow-md transition`}
               >
                 <Plus className="h-4 w-4" />
-                <span>+ Tạo danh sách</span>
+                <span>Tạo danh sách</span>
               </button>
             </div>
           )}

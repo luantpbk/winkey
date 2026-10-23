@@ -276,17 +276,17 @@ export function AdminVideosViewer() {
       if (!response.ok || apiErr) {
         setVideos(prevVideos);
         showToast({
-          title: 'Không thể xoá video',
+          title: 'Không thể xóa video',
           description: apiErr?.detail || 'Lỗi hệ thống',
           type: 'error',
         });
       } else {
-        showToast({ title: 'Đã xoá video vĩnh viễn', type: 'success' });
+        showToast({ title: 'Đã xóa video vĩnh viễn', type: 'success' });
       }
     } catch (err: unknown) {
       setVideos(prevVideos);
-      const msg = err instanceof Error ? err.message : 'Có lỗi xảy ra khi xoá video.';
-      showToast({ title: 'Không thể xoá video', description: msg, type: 'error' });
+      const msg = err instanceof Error ? err.message : 'Có lỗi xảy ra khi xóa video.';
+      showToast({ title: 'Không thể xóa video', description: msg, type: 'error' });
     }
   };
 
@@ -480,7 +480,7 @@ export function AdminVideosViewer() {
                           data-testid="admin-video-owner-inactive"
                           className="font-semibold text-amber-500 bg-amber-950/30 border border-amber-800/40 px-2 py-0.5 rounded-md"
                         >
-                          Tài khoản đã khoá/xoá
+                          Tài khoản đã khóa/xóa
                         </span>
                       ) : (
                         <Link
@@ -599,7 +599,7 @@ export function AdminVideosViewer() {
                     className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl border border-red-800/40 bg-red-950/30 hover:bg-red-900/40 px-3.5 py-2 text-xs font-semibold text-red-400 hover:text-red-300 transition"
                   >
                     <Trash2 className="h-4 w-4" />
-                    <span>Xoá</span>
+                    <span>Xóa</span>
                   </button>
                 </div>
               </div>
