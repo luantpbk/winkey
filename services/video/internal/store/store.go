@@ -246,6 +246,76 @@ func studioSQL(q domain.StudioQuery) (string, []any) {
 	return sb.String(), args
 }
 
+// ListAdminVideos reads one page of every video (task ADMV1), keyset on (created_at DESC, id DESC). The title
+// filter uses the folded-title trigram index (videos_search_title_trgm) through LIKE.
+func (p *Postgres) ListAdminVideos(ctx context.Context, q domain.AdminVideoQuery) ([]domain.AdminVideoItem, error) {
+	sql, args := adminVideosSQL(q)
+	rows, err := p.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list admin videos: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.AdminVideoItem
+	for rows.Next() {
+		var s domain.AdminVideoItem
+		var progress float32
+		var handle, name *string
+		if err := rows.Scan(&s.ID, &s.Title, &s.Visibility, &s.Status, &progress, &s.Error,
+			&s.DurationMs, &s.CreatedAt, &s.ThumbnailKey,
+			&s.ModerationState, &s.ModerationReason, &s.ModeratedAt, &s.OwnerActive,
+			&s.Owner.ID, &handle, &name, &s.Owner.AvatarKey); err != nil {
+			return nil, err
+		}
+		s.Progress = float64(progress)
+		if s.OwnerActive && handle != nil && name != nil {
+			s.Owner.Handle, s.Owner.DisplayName = *handle, *name
+		} else {
+			s.Owner.Missing, s.Owner.AvatarKey = true, nil
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func adminVideosSQL(q domain.AdminVideoQuery) (string, []any) {
+	var sb strings.Builder
+	sb.WriteString(`
+		SELECT v.id, v.title, v.visibility::text, v.status::text, coalesce(j.progress, 0), v.error,
+		       v.duration_ms, v.created_at, v.thumbnail_key,
+		       v.moderation_state::text, v.moderation_reason, v.moderated_at, p.id IS NOT NULL,
+		       v.owner_id, p.handle, p.display_name, p.avatar_key
+		FROM media.videos v
+		LEFT JOIN auth.public_profiles p ON p.id = v.owner_id
+		LEFT JOIN LATERAL (
+		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
+		) j ON true
+		WHERE true`)
+	var args []any
+	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
+	if q.Q != "" {
+		// LIKE metacharacters in the needle are escaped so they match literally.
+		needle := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q.Q)
+		sb.WriteString(" AND public.winkey_fold(v.title) LIKE '%' || public.winkey_fold(" + arg(needle) + ") || '%'")
+	}
+	if q.Status != "" {
+		sb.WriteString(" AND v.status = " + arg(q.Status) + "::media.video_status")
+	}
+	if q.Visibility != "" {
+		sb.WriteString(" AND v.visibility = " + arg(q.Visibility) + "::media.visibility")
+	}
+	if q.ModerationState != "" {
+		sb.WriteString(" AND v.moderation_state = " + arg(q.ModerationState) + "::media.moderation_state")
+	}
+	if q.OwnerID != nil {
+		sb.WriteString(" AND v.owner_id = " + arg(*q.OwnerID))
+	}
+	if q.After != nil {
+		sb.WriteString(" AND (v.created_at, v.id) < (" + arg(q.After.T) + ", " + arg(q.After.ID) + ")")
+	}
+	sb.WriteString(" ORDER BY v.created_at DESC, v.id DESC LIMIT " + arg(q.Limit))
+	return sb.String(), args
+}
+
 // MediaPublic answers mediaAccess (task SEC1) with one primary-key lookup joined to
 // auth.public_profiles. Keep it in step with domain.PubliclyWatchable.
 func (p *Postgres) MediaPublic(ctx context.Context, id uuid.UUID) (bool, error) {

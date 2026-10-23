@@ -461,3 +461,55 @@ func TestSetLikeCount(t *testing.T) {
 		t.Fatalf("GetVideo like_count %d", got.LikeCount)
 	}
 }
+
+// ADMV1 (ADR-047): every owner, every state; filters, owner placeholder, keyset order, LIKE escaping.
+func TestListAdminVideos(t *testing.T) {
+	st, pg := setup(t)
+	ctx := context.Background()
+	alice := testutil.SeedUser(t, pg.Pool, "alice", strp("avatars/alice.jpg"), "")
+	ghost := testutil.SeedUser(t, pg.Pool, "ghost", nil, "SUSPENDED")
+	base := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
+
+	a1 := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID, Title: "Thiên Cơ Biến tập 1", Created: base.Add(1 * time.Minute)})
+	a2 := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: alice.ID, Title: "100% thật", Status: "FAILED", Error: "x", Visibility: "PRIVATE", Created: base.Add(2 * time.Minute)})
+	g1 := testutil.SeedVideo(t, pg.Pool, testutil.Video{Owner: ghost.ID, Title: "Ghost video", Created: base.Add(3 * time.Minute)})
+
+	all, err := st.ListAdminVideos(ctx, domain.AdminVideoQuery{Limit: 50})
+	if err != nil || len(all) != 3 || all[0].ID != g1.ID || all[1].ID != a2.ID || all[2].ID != a1.ID {
+		t.Fatalf("all: %d %v", len(all), err)
+	}
+	if g := all[0]; g.OwnerActive || !g.Owner.Missing || g.Owner.ID != ghost.ID || g.Owner.AvatarKey != nil {
+		t.Fatalf("suspended owner must be a placeholder: %+v", g.Owner)
+	}
+	if a := all[2]; !a.OwnerActive || a.Owner.Handle != "alice" || a.Owner.AvatarKey == nil {
+		t.Fatalf("active owner: %+v", a.Owner)
+	}
+	count := func(q domain.AdminVideoQuery) int {
+		t.Helper()
+		q.Limit = 50
+		rows, err := st.ListAdminVideos(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rows)
+	}
+	if n := count(domain.AdminVideoQuery{Q: "THIEN co"}); n != 1 {
+		t.Errorf("folded title search: %d", n)
+	}
+	if n := count(domain.AdminVideoQuery{Q: "0%"}); n != 1 {
+		t.Errorf("literal %%: %d", n)
+	}
+	if n := count(domain.AdminVideoQuery{Q: "_"}); n != 0 {
+		t.Errorf("'_' must match literally: %d", n)
+	}
+	if n := count(domain.AdminVideoQuery{Status: "FAILED", Visibility: "PRIVATE", OwnerID: &alice.ID}); n != 1 {
+		t.Errorf("combined filters: %d", n)
+	}
+	if n := count(domain.AdminVideoQuery{ModerationState: "HIDDEN"}); n != 0 {
+		t.Errorf("hidden: %d", n)
+	}
+	page, err := st.ListAdminVideos(ctx, domain.AdminVideoQuery{Limit: 1, After: &domain.Position{T: a2.Created, ID: a2.ID}})
+	if err != nil || len(page) != 1 || page[0].ID != a1.ID {
+		t.Fatalf("keyset: %v %v", page, err)
+	}
+}

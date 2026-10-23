@@ -148,6 +148,40 @@ func (s *memStore) ListStudio(_ context.Context, q domain.StudioQuery) ([]domain
 	return out, nil
 }
 
+func (s *memStore) ListAdminVideos(_ context.Context, q domain.AdminVideoQuery) ([]domain.AdminVideoItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []domain.AdminVideoItem
+	for _, v := range s.videos {
+		mod := v.ModerationState
+		if mod == "" {
+			mod = domain.ModVisible
+		}
+		switch {
+		case q.Q != "" && !strings.Contains(strings.ToLower(v.Title), strings.ToLower(q.Q)),
+			q.Status != "" && v.Status != q.Status,
+			q.Visibility != "" && v.Visibility != q.Visibility,
+			q.ModerationState != "" && mod != q.ModerationState,
+			q.OwnerID != nil && v.OwnerID != *q.OwnerID,
+			q.After != nil && !less(v.CreatedAt, v.ID, q.After.T, q.After.ID):
+			continue
+		}
+		item := domain.AdminVideoItem{StudioItem: domain.StudioItem{
+			ID: v.ID, Title: v.Title, Visibility: v.Visibility, Status: v.Status, Progress: s.progress[v.ID],
+			DurationMs: v.DurationMs, CreatedAt: v.CreatedAt, ThumbnailKey: v.ThumbnailKey,
+			ModerationState: v.ModerationState, ModerationReason: v.ModerationReason, ModeratedAt: v.ModeratedAt,
+			OwnerActive: !v.Owner.Missing,
+		}, Owner: v.Owner}
+		item.Owner.ID = v.OwnerID
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return less(out[j].CreatedAt, out[j].ID, out[i].CreatedAt, out[i].ID) })
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
 func (s *memStore) UpdateVideo(_ context.Context, id, ownerID uuid.UUID, u domain.Update) (domain.Video, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

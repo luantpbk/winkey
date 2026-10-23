@@ -1355,3 +1355,25 @@ Hiện trạng code:
   3. AG2 áp migration 000027, deploy auth-svc, video-svc và web, đặt `REGISTRATION_MODE=open`, cấp quyền Admin.
   4. AG4 thêm kịch bản systest cho cả luồng: đăng ký → không thấy Tải lên → gửi yêu cầu → admin duyệt → thấy Tải lên và upload được.
 - **Deploy auth-svc trước rồi mới mở đăng ký.** Bản auth-svc cũ vẫn cấp `creator` cho tài khoản mới.
+
+### ADR-047 — Admin tìm, ẩn và xoá bất kỳ video nào (ADMV1)
+
+*Bối cảnh (2026-10-23).* User muốn admin ẩn hoặc xoá được bất kỳ video nào trên hệ thống. Hiện trạng:
+- Server đã cho phép: `moderateVideo` (moderator hoặc admin, ẩn kèm lý do / hiện lại) và `deleteVideo` (chủ video, moderator hoặc admin).
+- Nhưng admin không có cách tìm video: chỉ thấy video bị báo cáo trong Hàng kiểm duyệt, hoặc video của chính mình trong Studio. Web cũng không có nút ẩn/xoá trên trang xem.
+
+*Quyết định.*
+- **API (kiến trúc sư, video-svc):** `GET /v1/studio/admin/videos` (`adminListVideos`).
+  - Chỉ moderator và admin; kiểm tra từ `X-User-Roles` trước khi đọc dữ liệu.
+  - Trả mọi video của mọi người, mọi trạng thái, chế độ hiển thị và trạng thái kiểm duyệt, mới nhất trước.
+  - Bộ lọc: `q` (chuỗi con của tiêu đề, không phân biệt hoa thường và dấu), `status`, `visibility`, `moderation_state`, `owner_id`. Cursor gắn với bộ lọc.
+  - Mỗi dòng có `owner` (tài khoản không còn hoạt động thì dùng hồ sơ thay thế `deleted_user`) và `owner_active`.
+  - Đặt dưới `/v1/studio/`, vì gateway đã chuyển `/v1/studio/*` sang video-svc, còn `/v1/admin/*` sang auth-svc.
+- **Ẩn và xoá dùng lại endpoint có sẵn,** không đổi quyền. Moderator vẫn được ẩn và xoá như contract hiện tại. Xoá là vĩnh viễn: media janitor xoá toàn bộ file trên R2.
+- **Web (Antigravity 1):**
+  - Tab Admin "Video" cho moderator và admin, có ô tìm kiếm, các bộ lọc và tải thêm theo cursor.
+  - Mỗi dòng hiện ảnh nhỏ, tiêu đề (link tới trang xem), chủ video, trạng thái, chế độ hiển thị, trạng thái kiểm duyệt và ngày tạo.
+  - Hành động: **Ẩn** (bắt buộc nhập lý do), **Hiện lại**, **Xoá** (hộp xác nhận phải gõ lại "XOÁ").
+  - Trang xem: menu "⋯ Quản trị" cho moderator và admin, có Ẩn/Hiện lại và Xoá; xoá xong thì quay về trang chủ.
+
+*Hệ quả.* Admin xử lý được video vi phạm mà không cần chờ người dùng báo cáo. Xoá không hoàn tác được nên giao diện bắt xác nhận hai bước. Ẩn là cách xử lý mặc định nên được đề xuất trước.

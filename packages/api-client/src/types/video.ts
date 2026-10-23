@@ -197,6 +197,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/studio/admin/videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every video on the platform, for moderators and admins (task ADMV1, ADR-047). Newest first.
+         * @description Every video in every status, visibility and moderation state, whoever owns it, so a moderator or admin can
+         *     find any video and hide it (`moderateVideo`) or delete it (`deleteVideo`). Authorization from `X-User-Roles`
+         *     only, before anything is read: a caller who is neither `moderator` nor `admin` → `403`. Filters combine
+         *     with AND; the cursor is bound to them (another filter with an old cursor → `400`). Ordered by `created_at`
+         *     DESC, then `id` DESC. `owner` is the placeholder profile (handle `deleted_user`) when the owner is no longer
+         *     active. Thumbnails of videos the public cannot watch are signed like in the studio.
+         *     `Cache-Control: private, no-store`.
+         */
+        get: operations["adminListVideos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/studio/videos/{video_id}/stats": {
         parameters: {
             query?: never;
@@ -816,6 +842,15 @@ export interface components {
             items: components["schemas"]["StudioVideo"][];
             next_cursor: string | null;
         };
+        AdminVideo: components["schemas"]["StudioVideo"] & {
+            owner: components["schemas"]["PublicProfile"];
+            /** @description false when the owner is suspended or deleted (their videos are hidden from everyone else). */
+            owner_active: boolean;
+        };
+        AdminVideoPage: {
+            items: components["schemas"]["AdminVideo"][];
+            next_cursor: string | null;
+        };
         UpdateVideoRequest: {
             title?: string;
             description?: string;
@@ -1349,6 +1384,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudioVideoPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminListVideos: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                /** @description Case- and accent-insensitive substring of the title (trimmed). */
+                q?: string;
+                status?: components["schemas"]["VideoStatus"];
+                visibility?: components["schemas"]["Visibility"];
+                moderation_state?: "VISIBLE" | "HIDDEN";
+                owner_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of videos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVideoPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
