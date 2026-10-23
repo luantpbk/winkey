@@ -246,6 +246,30 @@ Videos encoded before this change have muxed variants. Extra audio tracks do not
 
 It uses the worker's env file and needs no NATS: the running worker's outbox relay publishes `video.ready`. Transient failures are retried 3 times; a permanent one leaves the video `FAILED` like a normal job. Afterwards, run `av1-upgrade` to rebuild the AV1 sets. On gpu-01, see `deploy/gpu-01/README.md` section 10.
 
+### Storage inventory and garbage collection (`cmd/storage-gc`, STOR1)
+
+`storage-gc` lists the media and raw buckets, judges every object against the database and prints bytes per bucket and per category, stale multipart uploads and the largest videos. **By default it deletes nothing.**
+
+| Category | Meaning | Deletable |
+|---|---|---|
+| `media-current`, `media-av1-current`, `media-audio` | what playback uses | no |
+| `media-in-flight` | attempts of a video that is not `READY` (encode or re-encode in progress) | no |
+| `raw-source`, `raw-audio-pending` | raw sources still needed (re-encode, AV1 upgrade, pending audio) | no |
+| `recent`, `unknown` | younger than `-min-age` (default 48 h, minimum 24 h), or outside the documented layout | no |
+| `media-orphan-video`, `raw-orphan-video` | objects of a video row that no longer exists | yes |
+| `media-old-attempt` | `a{n}/` that is not the current attempt of a `READY` video | yes |
+| `media-old-av1` | `av1/{run}/` that is not the current AV1 set | yes |
+| `media-orphan-audio`, `raw-orphan-audio` | objects of an audio track that no longer exists | yes |
+| `raw-audio-processed` | raw audio of a `READY` track (only its HLS output is ever used again) | yes |
+
+```
+storage-gc                                   # report
+storage-gc -apply media-old-attempt          # delete one category
+storage-gc -apply all -abort-uploads         # every garbage category + stale multipart uploads
+```
+
+It uses the worker's env file (`DATABASE_URL`, `S3_*`). The database snapshot is read before the listing, and nothing younger than `-min-age` is judged, so encodes and uploads in progress are safe. The media janitor (`video.deleted`) removes the whole raw directory `{owner_id}/{video_id}/` since STOR1, including the raw sources of extra audio tracks.
+
 ## Audio tracks (MUX1, ADR-042)
 
 A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDeliver` unlimited, bounded by the job at 200 deliveries), encodes extra audio tracks on their own. The video is never re-encoded.
