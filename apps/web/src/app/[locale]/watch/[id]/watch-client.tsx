@@ -125,17 +125,17 @@ export function WatchClientSection({
 
       if (!response.ok || error) {
         showToast({
-          title: 'Không thể xoá video',
+          title: 'Không thể xóa video',
           description: error?.detail || 'Lỗi hệ thống',
           type: 'error',
         });
       } else {
-        showToast({ title: 'Đã xoá video vĩnh viễn', type: 'success' });
+        showToast({ title: 'Đã xóa video vĩnh viễn', type: 'success' });
         router.push('/');
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Có lỗi xảy ra khi xoá video.';
-      showToast({ title: 'Không thể xoá video', description: msg, type: 'error' });
+      const msg = err instanceof Error ? err.message : 'Có lỗi xảy ra khi xóa video.';
+      showToast({ title: 'Không thể xóa video', description: msg, type: 'error' });
     }
   };
 
@@ -351,7 +351,7 @@ export function WatchClientSection({
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-red-400 hover:bg-white/10 transition"
                     >
                       <Trash2 className="h-4 w-4" />
-                      <span>Xoá vĩnh viễn</span>
+                      <span>Xóa vĩnh viễn</span>
                     </button>
                   </div>
                 )}

@@ -571,7 +571,7 @@ export default function PlaylistPage() {
               )}
             </div>
 
-            {/* + Thêm video của tôi button */}
+            {/* Thêm video của tôi button */}
             {isOwner && (
               <button
                 type="button"
@@ -580,7 +580,7 @@ export default function PlaylistPage() {
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md transition"
               >
                 <Plus className="h-4 w-4" />
-                <span>+ Thêm video của tôi</span>
+                <span>Thêm video của tôi</span>
               </button>
             )}
           </div>
@@ -605,7 +605,7 @@ export default function PlaylistPage() {
                 className="mt-4 flex items-center gap-2 px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-lg transition"
               >
                 <Plus className="h-4 w-4" />
-                <span>+ Thêm video của tôi</span>
+                <span>Thêm video của tôi</span>
               </button>
             )}
           </div>
