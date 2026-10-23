@@ -415,6 +415,7 @@
     "unauthorizedDesc": "This panel is restricted to Administrators and Content Moderators.",
     "nav": {
       "queue": "Moderation Queue",
+      "videos": "Videos",
       "users": "Users",
       "audit": "Audit Log"
     },
