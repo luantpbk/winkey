@@ -161,18 +161,22 @@ test.describe.serial('Persona: member (The "Lưu" Refresh-Token Regression, ADR-
   test('reload page (forces refresh-cookie path) -> "Lưu" again succeeds', async () => {
     // Member session in cookies
     const targetVideo = getPublicVideo();
+    const profileBtn = page.locator('button[aria-label="User profile menu"]');
+    const saveBtn = page
+      .locator('button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")')
+      .first();
+
     await page.goto(`/watch/${targetVideo.id}`);
     await expect(page.locator('h1')).toBeVisible();
+    await expect(profileBtn).toBeVisible({ timeout: 15000 });
 
     // Force page reload -> tests refresh-token cookie restoration
     await page.reload();
     await expect(page.locator('h1')).toBeVisible();
+    await expect(profileBtn).toBeVisible({ timeout: 15000 });
 
     // Click "Lưu" again
-    const saveBtn = page.locator(
-      'button[aria-label="Lưu vào danh sách phát"], button:has-text("Lưu")',
-    );
-    await saveBtn.first().click();
+    await saveBtn.click();
 
     const dialog = page.getByRole('dialog').filter({ hasText: 'Lưu video vào' });
     await expect(dialog.first()).toBeVisible({ timeout: 10000 });
