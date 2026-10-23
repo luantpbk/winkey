@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { notFound } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Flag, Users, History, ShieldCheck, Sparkles } from 'lucide-react';
+import { Flag, Users, History, ShieldCheck, Sparkles, Film } from 'lucide-react';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { computePermissions } from '../../../lib/auth';
 import { api } from '../../../lib/api-client';
@@ -11,8 +11,9 @@ import { ModerationQueue } from '../../../components/admin/moderation-queue';
 import { UserManagement } from '../../../components/admin/user-management';
 import { AuditLogViewer } from '../../../components/admin/audit-log-viewer';
 import { CreatorRequestsViewer } from '../../../components/admin/creator-requests-viewer';
+import { AdminVideosViewer } from '../../../components/admin/admin-videos-viewer';
 
-type AdminTab = 'queue' | 'users' | 'creator-requests' | 'audit';
+type AdminTab = 'queue' | 'videos' | 'users' | 'creator-requests' | 'audit';
 
 export default function AdminPage() {
   const t = useTranslations('admin');
@@ -107,6 +108,19 @@ export default function AdminPage() {
         </button>
 
         <button
+          data-testid="admin-tab-videos"
+          onClick={() => setActiveTab('videos')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
+            activeTab === 'videos'
+              ? 'border-red-500 text-white bg-[#222]'
+              : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a]'
+          }`}
+        >
+          <Film className="h-4 w-4" />
+          <span>{t('nav.videos')}</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('users')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
             activeTab === 'users'
@@ -159,6 +173,7 @@ export default function AdminPage() {
       {/* Active Tab Content */}
       <div className="pt-2">
         {activeTab === 'queue' && <ModerationQueue />}
+        {activeTab === 'videos' && <AdminVideosViewer />}
         {activeTab === 'users' && <UserManagement />}
         {activeTab === 'creator-requests' && can.adminOnly && (
           <CreatorRequestsViewer onPendingCountChange={setPendingCount} />

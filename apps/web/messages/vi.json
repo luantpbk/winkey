@@ -415,6 +415,7 @@
     "unauthorizedDesc": "Khu vực này chỉ dành riêng cho Quản trị viên (Admin) và Người kiểm duyệt (Moderator).",
     "nav": {
       "queue": "Hàng đợi báo cáo",
+      "videos": "Video",
       "users": "Người dùng",
       "audit": "Nhật ký kiểm toán"
     },
