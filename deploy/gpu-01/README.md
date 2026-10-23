@@ -53,7 +53,7 @@ sudo systemctl enable --now winkey-clickhouse-backup.timer
 
 The interim vault protects Winkey against primary storage loss or R2 outage by maintaining an offline copy on HDD storage (`/mnt/hdd_storage/winkey/vault`):
 - Runs as dedicated unprivileged user `winkey`.
-- Uses a **read-only** R2 token scoped to `winkey-media`, `winkey-pg-backup`, and `winkey-backup`.
+- Uses a **read-only** R2 token scoped to `winkey-raw`, `winkey-media`, `winkey-pg-backup`, and `winkey-backup`.
 - Employs `rclone sync --backup-dir /mnt/hdd_storage/winkey/vault/archive/YYYYMMDD/<bucket>` for **14-day rolling retention**.
 - Automatically cleans archive directories older than 14 days.
 - Emits Prometheus node-exporter textfile metrics (`winkey_vault_last_success_timestamp_seconds` and `winkey_vault_sync_success`) to `/var/lib/prometheus/node-exporter/winkey_vault.prom`.
