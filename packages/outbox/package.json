@@ -47,7 +47,7 @@
     "@types/node": "^22.20.5",
     "@types/pg": "^8.11.11",
     "@types/uuid": "^10.0.0",
-    "kysely": "^0.29.6",
+    "kysely": "^0.29.7",
     "pg": "^8.23.1",
     "testcontainers": "^10.18.0",
     "typescript": "^5.8.2",
