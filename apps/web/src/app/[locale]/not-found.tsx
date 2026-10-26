@@ -15,7 +15,7 @@ export default function LocaleNotFound() {
         Không tìm thấy trang
       </h1>
       <p className={`mt-2 max-w-md text-sm sm:text-base ${A11Y_COLORS.textMuted}`}>
-        Trang bạn đang tìm kiếm không tồn tại, đã bị xoá hoặc đường dẫn không chính xác.
+        Trang bạn đang tìm kiếm không tồn tại, đã bị xóa hoặc đường dẫn không chính xác.
       </p>
       <div className="mt-6">
         <Link

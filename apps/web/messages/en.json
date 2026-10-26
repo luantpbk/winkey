@@ -415,6 +415,7 @@
     "unauthorizedDesc": "This panel is restricted to Administrators and Content Moderators.",
     "nav": {
       "queue": "Moderation Queue",
+      "videos": "Videos",
       "users": "Users",
       "audit": "Audit Log"
     },
@@ -672,7 +673,7 @@
   "library": {
     "title": "Library",
     "description": "Manage your playlists and series.",
-    "createPlaylist": "+ Create playlist",
+    "createPlaylist": "Create playlist",
     "emptyTitle": "You don't have any playlists yet.",
     "emptyDesc": "Create a playlist or series to organize your videos.",
     "public": "Public",
@@ -681,7 +682,7 @@
     "seriesBadge": "Series",
     "seriesCheckbox": "Series (group episodes into a series on the home page)",
     "seriesHint": "Series can only contain your own videos and must be Public to appear on the home page.",
-    "addMyVideos": "+ Add my videos",
+    "addMyVideos": "Add my videos",
     "selectMyVideos": "Add videos from Studio",
     "searchVideosPlaceholder": "Search by video title...",
     "addNVideos": "Add {count} videos",

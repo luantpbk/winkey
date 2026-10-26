@@ -69,6 +69,8 @@ type Sample struct {
 	Client        string // web | ios | android | other
 	Surface       *string
 	RecoVariant   *string // assigned by video-svc, never taken from the client
+	Codec         *string // h264 | av1
+	AV1Capable    *bool
 }
 
 // data is the `data` of analytics.playback v1; every field of the schema is present (nullable ones as null).
@@ -94,6 +96,10 @@ type data struct {
 	Country       *string `json:"country"` // reserved (GeoIP later): null in v1
 	Surface       *string `json:"surface"`
 	RecoVariant   *string `json:"reco_variant"`
+	// Omitted (not null) when the client did not send them, so this producer can deploy before the worker that
+	// accepts them; the keys only appear once the player sends the fields (AV1-tel, ADR-048).
+	Codec      *string `json:"codec,omitempty"`
+	AV1Capable *bool   `json:"av1_capable,omitempty"`
 }
 
 // Message is what is published: the JetStream message id and the JSON payload.
@@ -117,7 +123,7 @@ func Build(s Sample, ownerID uuid.UUID, viewerKey string, authenticated bool, no
 		ReceivedAt: now.Format(time.RFC3339Nano), SentAt: s.SentAt.UTC().Format(time.RFC3339Nano),
 		PositionMs: s.PositionMs, WatchedMs: s.WatchedMs, RebufferMs: s.RebufferMs, RebufferCount: s.RebufferCount,
 		StartupMs: s.StartupMs, Rendition: s.Rendition, BitrateKbps: s.BitrateKbps, ErrorCode: s.ErrorCode, Client: s.Client,
-		Surface: s.Surface, RecoVariant: s.RecoVariant,
+		Surface: s.Surface, RecoVariant: s.RecoVariant, Codec: s.Codec, AV1Capable: s.AV1Capable,
 	})
 	if err != nil {
 		return Message{}, err

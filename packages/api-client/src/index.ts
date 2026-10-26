@@ -134,6 +134,8 @@ export type ModerateCommentRequest = SocialComponents['schemas']['ModerateCommen
 
 export type ModerateVideoRequest = VideoComponents['schemas']['ModerateVideoRequest'];
 export type VideoModeration = VideoComponents['schemas']['VideoModeration'];
+export type AdminVideo = VideoComponents['schemas']['AdminVideo'];
+export type AdminVideoPage = VideoComponents['schemas']['AdminVideoPage'];
 
 export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string;

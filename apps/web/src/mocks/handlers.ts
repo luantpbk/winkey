@@ -18,6 +18,8 @@ import type {
   EditCommentRequest,
   AdminUser,
   AdminUserPage,
+  AdminVideo,
+  AdminVideoPage,
   CreatorRequestStatus,
   CreateCreatorRequestRequest,
   AdminCreatorRequest,
@@ -154,6 +156,35 @@ export function getDynamicCreatorRequests(): AdminCreatorRequest[] {
 
 export function resetDynamicCreatorRequests() {
   dynamicCreatorRequests = [...initialMockCreatorRequests];
+}
+
+const initialMockAdminVideos: AdminVideo[] = mockVideos.map((v, i) => ({
+  id: v.id,
+  title: v.title,
+  visibility: v.visibility,
+  status: v.status,
+  progress: 100,
+  error: null,
+  duration_ms: v.duration_ms,
+  created_at: v.created_at,
+  thumbnail_url: v.playback?.thumbnail_url || null,
+  moderation: v.moderation,
+  owner: v.owner,
+  owner_active: i !== 3,
+}));
+
+let dynamicAdminVideos: AdminVideo[] = [...initialMockAdminVideos];
+
+export function setDynamicAdminVideos(videos: AdminVideo[]) {
+  dynamicAdminVideos = [...videos];
+}
+
+export function getDynamicAdminVideos(): AdminVideo[] {
+  return dynamicAdminVideos;
+}
+
+export function resetDynamicAdminVideos() {
+  dynamicAdminVideos = [...initialMockAdminVideos];
 }
 
 let mockPlaylistFull = false;
@@ -646,6 +677,8 @@ export function resetModerationMocks() {
   dynamicAdminUsers = [...mockAdminUsers];
   dynamicModerationCases = [...mockModerationCases];
   dynamicAuditEntries = [...mockAuditEntries];
+  resetDynamicCreatorRequests();
+  resetDynamicAdminVideos();
   mockTrendingEmpty = false;
   mockSubscriptionEmpty = false;
   mockSubscriptionVideosOverride = null;
@@ -2538,6 +2571,8 @@ export const handlers = [
     setDynamicVideos(currentVideos);
     const currentStudio = getDynamicStudioVideos().filter((v) => v.id !== videoId);
     setDynamicStudioVideos(currentStudio);
+    const currentAdmin = getDynamicAdminVideos().filter((v) => v.id !== videoId);
+    setDynamicAdminVideos(currentAdmin);
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -3269,6 +3304,100 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     return HttpResponse.json(page);
   }),
 
+  http.get('*/v1/studio/admin/videos', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+          detail: 'Moderator or admin role required.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const q = url.searchParams.get('q');
+    const status = url.searchParams.get('status');
+    const visibility = url.searchParams.get('visibility');
+    const moderationState = url.searchParams.get('moderation_state');
+    const ownerId = url.searchParams.get('owner_id');
+    const cursor = url.searchParams.get('cursor');
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+
+    let items = [...getDynamicAdminVideos()];
+
+    // Filter: q (case and diacritics insensitive substring)
+    if (q && q.trim().length >= 2) {
+      const normalizedQ = q
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      items = items.filter((v) => {
+        const normalizedTitle = (v.title || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+        return normalizedTitle.includes(normalizedQ);
+      });
+    }
+
+    // Filter: status
+    if (status) {
+      items = items.filter((v) => v.status === status);
+    }
+
+    // Filter: visibility
+    if (visibility) {
+      items = items.filter((v) => v.visibility === visibility);
+    }
+
+    // Filter: moderation_state
+    if (moderationState) {
+      items = items.filter((v) => {
+        const state = v.moderation?.state ?? 'VISIBLE';
+        return state === moderationState;
+      });
+    }
+
+    // Filter: owner_id
+    if (ownerId) {
+      items = items.filter((v) => v.owner.id === ownerId);
+    }
+
+    // Sort: newest first (created_at DESC, id DESC)
+    items.sort((a, b) => {
+      const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.id.localeCompare(a.id);
+    });
+
+    // Cursor pagination
+    let startIndex = 0;
+    if (cursor) {
+      const idx = items.findIndex((v) => v.id === cursor);
+      if (idx !== -1) {
+        startIndex = idx + 1;
+      }
+    }
+
+    const pagedItems = items.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < items.length && pagedItems.length > 0
+        ? pagedItems[pagedItems.length - 1].id
+        : null;
+
+    const page: AdminVideoPage = {
+      items: pagedItems,
+      next_cursor: nextCursor,
+    };
+    return HttpResponse.json(page);
+  }),
+
   // --- Social: Comments ---
   http.get('*/v1/videos/:id/comments', async ({ params, request }) => {
     const videoId = params.id as string;
@@ -3928,6 +4057,18 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     if (studioIdx !== -1) {
       dynamicStudioVideos[studioIdx] = {
         ...dynamicStudioVideos[studioIdx],
+        moderation: {
+          state: body.state,
+          reason: body.state === 'HIDDEN' ? body.reason || null : null,
+          moderated_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    const adminIdx = dynamicAdminVideos.findIndex((v) => v.id === videoId);
+    if (adminIdx !== -1) {
+      dynamicAdminVideos[adminIdx] = {
+        ...dynamicAdminVideos[adminIdx],
         moderation: {
           state: body.state,
           reason: body.state === 'HIDDEN' ? body.reason || null : null,
