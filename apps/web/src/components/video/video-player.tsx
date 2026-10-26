@@ -77,6 +77,15 @@ export async function isAv1Supported(): Promise<boolean> {
   }
 }
 
+export function getLoadedCodec(
+  url: string | undefined | null,
+  av1Url: string | undefined | null,
+): 'av1' | 'h264' {
+  if (!url) return 'h264';
+  if (av1Url && url === av1Url) return 'av1';
+  return 'h264';
+}
+
 function findPreferredAudioTrackIndex(tracks: AudioTrackOption[]): number {
   if (tracks.length === 0) return 0;
   try {
@@ -127,24 +136,26 @@ export function VideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
 
   const rawAv1Url = hlsAv1Url ?? null;
+  const av1CapableRef = useRef<boolean | undefined>(undefined);
 
   // Codec selection: defaults to 'h264' while query is pending or when API is missing
   const [activeCodec, setActiveCodec] = useState<'av1' | 'h264'>('h264');
 
-  // Check AV1 decoding capabilities asynchronously when video or AV1 stream URL changes
+  // Check AV1 decoding capabilities asynchronously (for activeCodec selection and telemetry)
   useEffect(() => {
     let cancelled = false;
-    if (!rawAv1Url) {
-      setActiveCodec('h264');
-      return;
-    }
 
     void isAv1Supported().then((supported) => {
-      if (!cancelled && supported) {
-        if (hasFirstFrameRef.current) {
-          return;
+      if (cancelled) return;
+      av1CapableRef.current = supported;
+      trackerRef.current?.setAv1Capable(supported);
+
+      if (rawAv1Url && supported) {
+        if (!hasFirstFrameRef.current) {
+          setActiveCodec('av1');
         }
-        setActiveCodec('av1');
+      } else {
+        setActiveCodec('h264');
       }
     });
 
@@ -312,10 +323,15 @@ export function VideoPlayer({
     const strippedSurface = stripWatchSurfaceFromAddressBar();
     const playbackSurface = surface ?? strippedSurface;
 
+    const effectiveAv1 = refreshedPlayback ? refreshedPlayback.hls_av1_url : rawAv1Url;
+    const initialCodec = getLoadedCodec(activeSrc, effectiveAv1);
+
     const tracker = new PlaybackTracker({
       videoId,
       playbackId: playbackIdRef.current,
       surface: playbackSurface,
+      codec: initialCodec,
+      av1Capable: av1CapableRef.current,
     });
     trackerRef.current = tracker;
 
@@ -491,6 +507,9 @@ export function VideoPlayer({
           ? newPlayback.hls_av1_url
           : newPlayback.hls_url;
 
+      const nextCodec = getLoadedCodec(nextUrl, newPlayback.hls_av1_url);
+      trackerRef.current?.setCodec(nextCodec);
+
       if (hlsRef.current) {
         hlsRef.current.loadSource(nextUrl);
         video.currentTime = savedTime;
@@ -541,6 +560,10 @@ export function VideoPlayer({
   const setupMedia = useCallback(() => {
     const video = videoRef.current;
     if (!video || !activeSrc) return;
+
+    const effectiveAv1 = refreshedPlayback ? refreshedPlayback.hls_av1_url : rawAv1Url;
+    const loadedCodec = getLoadedCodec(activeSrc, effectiveAv1);
+    trackerRef.current?.setCodec(loadedCodec);
 
     setHasError(false);
     setErrorMessage('');
@@ -700,7 +723,14 @@ export function VideoPlayer({
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
-  }, [activeSrc, activeRenditions, activeExpiresAt, refreshSignedUrls]);
+  }, [
+    activeSrc,
+    activeRenditions,
+    activeExpiresAt,
+    refreshSignedUrls,
+    refreshedPlayback,
+    rawAv1Url,
+  ]);
 
   useEffect(() => {
     setupMedia();
