@@ -216,3 +216,43 @@ describe('envSchema REFRESH_REUSE_GRACE validation', () => {
     expect(resOverMaxStr.success).toBe(false);
   });
 });
+
+describe('envSchema SIGNUP_ROLES validation (ADR-046, task ROLE1)', () => {
+  const validBase = {
+    JWT_PRIVATE_KEY: 'test-key',
+  };
+
+  it('defaults SIGNUP_ROLES to viewer', () => {
+    const parsed = envSchema.parse({
+      ...validBase,
+    });
+    expect(parsed.SIGNUP_ROLES).toBe('viewer');
+  });
+
+  it('accepts SIGNUP_ROLES=viewer explicitly', () => {
+    const parsed = envSchema.parse({
+      ...validBase,
+      SIGNUP_ROLES: 'viewer',
+    });
+    expect(parsed.SIGNUP_ROLES).toBe('viewer');
+  });
+
+  it('accepts SIGNUP_ROLES=viewer,creator for dev/test stacks', () => {
+    const parsed = envSchema.parse({
+      ...validBase,
+      SIGNUP_ROLES: 'viewer,creator',
+    });
+    expect(parsed.SIGNUP_ROLES).toBe('viewer,creator');
+  });
+
+  it('fails fast on any other value', () => {
+    const invalidValues = ['creator', 'admin', 'viewer,admin', 'creator,viewer', 'user', ''];
+    for (const val of invalidValues) {
+      const res = envSchema.safeParse({
+        ...validBase,
+        SIGNUP_ROLES: val,
+      });
+      expect(res.success).toBe(false);
+    }
+  });
+});

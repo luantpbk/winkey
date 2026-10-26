@@ -409,7 +409,7 @@ export function CinemaHero({
       <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 sm:p-10 md:p-14 max-w-4xl pb-16 sm:pb-20">
         {/* TOP Badge & Trending label */}
         <div className="flex items-center gap-2.5 mb-2">
-          <span className="inline-flex items-center justify-center h-[26px] px-2 rounded bg-[#FF0033] text-white text-[13px] font-extrabold tracking-wide">
+          <span className="inline-flex items-center justify-center h-[26px] px-2 rounded bg-[#D9002B] text-white text-[13px] font-extrabold tracking-wide">
             TOP {activeIndex + 1}
           </span>
           <span className="text-[15px] font-semibold text-[#F4F4F6]">
@@ -512,14 +512,21 @@ export function CinemaHero({
           {videos.map((vid, idx) => (
             <button
               key={vid.id}
+              type="button"
               onClick={() => setActiveIndex(idx)}
               aria-label={`Video nổi bật ${idx + 1} trên ${videos.length}`}
               aria-pressed={idx === activeIndex}
               data-testid={`cinema-hero-dot-${idx}`}
-              className={`h-1 rounded-sm transition-all duration-300 ${
-                idx === activeIndex ? 'w-10 bg-[#FF0033]' : 'w-4 bg-white/30 hover:bg-white/60'
-              }`}
-            />
+              className="group inline-flex items-center justify-center min-w-11 min-h-11 p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600 rounded"
+            >
+              <span
+                className={`h-1 rounded-sm transition-all duration-300 block pointer-events-none ${
+                  idx === activeIndex
+                    ? 'w-10 bg-[#FF0033]'
+                    : 'w-4 bg-white/30 group-hover:bg-white/60'
+                }`}
+              />
+            </button>
           ))}
         </div>
       )}

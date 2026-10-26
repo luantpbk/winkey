@@ -16,11 +16,16 @@ export interface AudioMenuProps {
   tracks: AudioTrackOption[];
   selectedIndex: number;
   onSelectTrack: (track: AudioTrackOption) => void;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function AudioMenu({ tracks, selectedIndex, onSelectTrack }: AudioMenuProps) {
+export function AudioMenu({ tracks, selectedIndex, onSelectTrack, onOpenChange }: AudioMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -52,7 +57,7 @@ export function AudioMenu({ tracks, selectedIndex, onSelectTrack }: AudioMenuPro
         aria-label="Chọn âm thanh"
         aria-expanded={isOpen}
         data-testid="audio-menu-button"
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition border border-white/10 bg-black/60 hover:bg-black/80 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition border border-white/10 bg-black/60 hover:bg-black/80 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
       >
         <Headphones className="h-4 w-4" />
         <span className="hidden sm:inline max-w-[120px] truncate">{buttonLabel}</span>

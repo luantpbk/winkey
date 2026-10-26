@@ -23,6 +23,8 @@ import {
   Clapperboard,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
+import { computePermissions } from '../../lib/auth';
+import { hasSessionIndicator } from '../../lib/auth/session-indicator';
 import { useFeedbackUrl } from '../../lib/feedback';
 import { getAllCategories } from '../../lib/seo/categories';
 
@@ -44,21 +46,23 @@ export function Sidebar({
   const tLegal = useTranslations('legal');
   const feedbackUrl = useFeedbackUrl(propFeedbackUrl);
   const pathname = usePathname();
-  const { canAccessAdmin, isAuthenticated } = useAuth();
+  const { can: rawCan, user, isAuthenticated, isLoading } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
+  const showMemberLinks = isAuthenticated || (isLoading && hasSessionIndicator());
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
     { href: '/kham-pha', label: t('explore'), icon: Compass },
-    { href: '/studio', label: t('studio'), icon: LayoutDashboard },
-    ...(canAccessAdmin ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
-    { href: '/upload', label: t('upload'), icon: UploadCloud },
-    ...(isAuthenticated
+    ...(can.studio ? [{ href: '/studio', label: t('studio'), icon: LayoutDashboard }] : []),
+    ...(can.moderate ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
+    ...(can.upload ? [{ href: '/upload', label: t('upload'), icon: UploadCloud }] : []),
+    ...(showMemberLinks
       ? [{ href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv }]
       : []),
   ];
 
   const secondaryItems = [
-    ...(isAuthenticated
+    ...(showMemberLinks
       ? [{ href: '/playlist/watch-later', label: t('watchLater'), icon: Clock }]
       : []),
     { href: '/thu-vien', label: t('library'), icon: FolderHeart },
@@ -102,7 +106,7 @@ export function Sidebar({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-14 bottom-0 left-0 z-40 flex flex-col border-r border-[#272727] dark:border-[#272727] border-gray-200 bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white transition-all duration-200 overflow-y-auto ${
+        className={`fixed top-14 bottom-0 left-0 z-40 flex flex-col border-r border-[#272727] dark:border-[#272727] border-gray-200 bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white transition-[transform,width] duration-200 overflow-y-auto ${
           // Mobile state
           mobileOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'
         } ${
@@ -119,7 +123,7 @@ export function Sidebar({
                 key={item.href}
                 href={item.href}
                 onClick={onCloseMobile}
-                className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                   collapsed ? 'flex-col gap-1 px-1 py-3 text-[10px]' : ''
                 } ${
                   active
@@ -150,7 +154,7 @@ export function Sidebar({
                     key={item.href}
                     href={item.href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
@@ -176,7 +180,7 @@ export function Sidebar({
                     key={item.href}
                     href={item.href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
@@ -203,7 +207,7 @@ export function Sidebar({
                     key={cat.slug}
                     href={href}
                     onClick={onCloseMobile}
-                    className={`flex items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
+                    className={`flex min-h-11 items-center gap-4 rounded-xl px-3 py-2.5 transition text-sm font-medium ${
                       active
                         ? 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-red-500 dark:text-white font-semibold'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-[#272727]/60 dark:hover:bg-[#272727]/60 hover:bg-gray-50'
@@ -222,26 +226,26 @@ export function Sidebar({
             >
               <nav
                 aria-label={tLegal('legalNav')}
-                className="flex flex-wrap gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400"
+                className="flex flex-wrap gap-x-3 gap-y-0 text-gray-500 dark:text-gray-400"
               >
                 <Link
                   href="/dieu-khoan"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('terms')}
                 </Link>
                 <Link
                   href="/quyen-rieng-tu"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('privacy')}
                 </Link>
                 <Link
                   href="/quy-tac-cong-dong"
                   onClick={onCloseMobile}
-                  className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                  className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                 >
                   {tCin('communityRules')}
                 </Link>
@@ -250,13 +254,13 @@ export function Sidebar({
                     href={feedbackUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-gray-900 dark:hover:text-white transition hover:underline"
+                    className="inline-flex items-center min-h-11 min-w-11 py-2 hover:text-gray-900 dark:hover:text-white transition hover:underline"
                   >
                     {tCin('betaFeedback')}
                   </a>
                 )}
               </nav>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500">{tCin('copyright')}</p>
+              <p className="text-[11px] text-gray-500 dark:text-zinc-400">{tCin('copyright')}</p>
             </div>
           </>
         )}

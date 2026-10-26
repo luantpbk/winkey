@@ -21,7 +21,7 @@ echo "=========================================================="
 
 mkdir -p "${VAULT_DIR}" "${ARCHIVE_DIR}"
 
-BUCKETS=("winkey-media" "winkey-pg-backup" "winkey-backup")
+BUCKETS=("winkey-media" "winkey-pg-backup" "winkey-backup" "winkey-raw")
 SYNC_FAILED=0
 
 for b in "${BUCKETS[@]}"; do

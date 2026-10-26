@@ -23,7 +23,7 @@ func TestLoadAV1UpgradeDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.MinStarts7d != 50 || c.Limit != 20 || c.CQ != 0 || c.MaxratePct != 0 || !c.HWAccelDecode ||
-		c.S3MediaBucket != "winkey-media" || c.ScratchDir == "" {
+		c.S3MediaBucket != "winkey-media" || c.ScratchDir == "" || c.TopN != "all" || c.KeepTop != 0 {
 		t.Errorf("defaults: %+v", c)
 	}
 }
@@ -41,6 +41,8 @@ func TestLoadAV1UpgradeValidation(t *testing.T) {
 		"cq out of range":  {map[string]string{"AV1_CQ": "64"}, "AV1_CQ"},
 		"ceiling too high": {map[string]string{"AV1_MAXRATE_PCT": "101"}, "AV1_MAXRATE_PCT"},
 		"ceiling too low":  {map[string]string{"AV1_MAXRATE_PCT": "5"}, "AV1_MAXRATE_PCT"},
+		"top n":            {map[string]string{"AV1_TOP_N": "5", "AV1_KEEP_TOP": "12"}, ""},
+		"negative keep":    {map[string]string{"AV1_KEEP_TOP": "-1"}, "AV1_KEEP_TOP"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := LoadAV1UpgradeFrom(av1Env(tc.env))

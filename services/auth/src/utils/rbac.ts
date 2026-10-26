@@ -2,7 +2,14 @@ import type { Role } from '../db/types.js';
 import { ProblemError } from '../errors/problem.js';
 
 export type AdminAction =
-  'LIST_USERS' | 'GET_USER' | 'CHANGE_ROLES' | 'SUSPEND_USER' | 'UNSUSPEND_USER' | 'VIEW_AUDIT_LOG';
+  | 'LIST_USERS'
+  | 'GET_USER'
+  | 'CHANGE_ROLES'
+  | 'SUSPEND_USER'
+  | 'UNSUSPEND_USER'
+  | 'VIEW_AUDIT_LOG'
+  | 'LIST_CREATOR_REQUESTS'
+  | 'DECIDE_CREATOR_REQUEST';
 
 export interface RbacCheckParams {
   actorRoles: Role[];
@@ -32,7 +39,13 @@ export function checkRbacPermission(params: RbacCheckParams): RbacCheckResult {
   }
 
   // Admin-only actions
-  if ((action === 'CHANGE_ROLES' || action === 'VIEW_AUDIT_LOG') && !isActorAdmin) {
+  if (
+    (action === 'CHANGE_ROLES' ||
+      action === 'VIEW_AUDIT_LOG' ||
+      action === 'LIST_CREATOR_REQUESTS' ||
+      action === 'DECIDE_CREATOR_REQUEST') &&
+    !isActorAdmin
+  ) {
     return {
       allowed: false,
       errorCode: 'FORBIDDEN',
@@ -42,11 +55,11 @@ export function checkRbacPermission(params: RbacCheckParams): RbacCheckResult {
 
   // Self protection
   if (isSelf) {
-    if (action === 'CHANGE_ROLES') {
+    if (action === 'CHANGE_ROLES' || action === 'DECIDE_CREATOR_REQUEST') {
       return {
         allowed: false,
         errorCode: 'CANNOT_MODERATE_TARGET',
-        reason: 'Cannot change own roles',
+        reason: 'Cannot moderate self',
       };
     }
     if (action === 'SUSPEND_USER' || action === 'UNSUSPEND_USER') {

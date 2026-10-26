@@ -178,7 +178,7 @@ describe('HIST1: Watch History (/lich-su) Unit Tests (ADR-044)', () => {
       // Check remove button exists with proper aria-label
       const removeBtn = screen.getByTestId(`remove-history-${firstItem.video.id}`);
       expect(removeBtn).toBeDefined();
-      expect(removeBtn.getAttribute('aria-label')).toBe('Xoá khỏi nhật ký xem');
+      expect(removeBtn.getAttribute('aria-label')).toBe('Xóa khỏi nhật ký xem');
     });
 
     it('deletes a single video item optimistically on click', async () => {
@@ -199,7 +199,7 @@ describe('HIST1: Watch History (/lich-su) Unit Tests (ADR-044)', () => {
 
       // Toast notification displayed
       await waitFor(() => {
-        expect(screen.getByText('Đã xoá video khỏi lịch sử xem')).toBeDefined();
+        expect(screen.getByText('Đã xóa video khỏi lịch sử xem')).toBeDefined();
       });
     });
   });
@@ -214,10 +214,10 @@ describe('HIST1: Watch History (/lich-su) Unit Tests (ADR-044)', () => {
       // Modal appears
       const dialog = await screen.findByTestId('clear-history-dialog');
       expect(dialog).toBeDefined();
-      expect(screen.getByText('Xoá lịch sử xem video?')).toBeDefined();
+      expect(screen.getByText('Xóa lịch sử xem video?')).toBeDefined();
       expect(
         screen.getByText(
-          'Thao tác này sẽ xoá toàn bộ lịch sử xem video của tài khoản trên mọi thiết bị. Bạn sẽ không thể hoàn tác.',
+          'Thao tác này sẽ xóa toàn bộ lịch sử xem video của tài khoản trên mọi thiết bị. Bạn sẽ không thể hoàn tác.',
         ),
       ).toBeDefined();
 
@@ -248,7 +248,7 @@ describe('HIST1: Watch History (/lich-su) Unit Tests (ADR-044)', () => {
 
       // Toast notification displayed
       await waitFor(() => {
-        expect(screen.getByText('Đã xoá toàn bộ lịch sử xem')).toBeDefined();
+        expect(screen.getByText('Đã xóa toàn bộ lịch sử xem')).toBeDefined();
       });
     });
   });

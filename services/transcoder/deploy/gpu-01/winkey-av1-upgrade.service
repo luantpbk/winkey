@@ -21,6 +21,8 @@ EnvironmentFile=/etc/winkey/transcoder.env
 Environment=AV1_FFMPEG_PATH=/opt/ffmpeg-8/bin/ffmpeg
 Environment=AV1_MIN_STARTS_7D=50
 Environment=AV1_UPGRADE_LIMIT=20
+# AV1POL (ADR-048): only the 5 most watched READY videos keep an AV1 set (drop beyond rank 10). Raise N or set "all".
+Environment=AV1_TOP_N=5
 ExecStart=/opt/winkey/transcoder/current/av1-upgrade
 
 # Stop before the morning: SIGTERM lets the current video's encode be cancelled and its upload

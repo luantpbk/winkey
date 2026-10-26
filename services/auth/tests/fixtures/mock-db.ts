@@ -77,6 +77,16 @@ export interface MockStore {
     dead_at: Date | null;
     last_error: string | null;
   }>;
+  creator_requests: Array<{
+    id: string;
+    user_id: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    message: string;
+    decision_note: string | null;
+    decided_by: string | null;
+    decided_at: Date | null;
+    created_at: Date;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -88,6 +98,7 @@ export function createMockStore(): MockStore {
     audit_log: [],
     email_tokens: [],
     mail_queue: [],
+    creator_requests: [],
   };
 }
 
@@ -283,9 +294,114 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [entry], rowCount: 1 };
       }
 
-      // 4e. pg_advisory_xact_lock
+      // 4e. INSERT INTO "auth"."creator_requests"
+      if (sql.includes('insert into "auth"."creator_requests"')) {
+        const colMatch = sql.match(/insert into "auth"."creator_requests"\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+        const id = colMap['id'] || params[0];
+        const user_id = colMap['user_id'] || params[1];
+        const status = colMap['status'] || params[2] || 'PENDING';
+        const message = colMap['message'] || params[3];
+        const decision_note = colMap['decision_note'] || params[4] || null;
+        const decided_by = colMap['decided_by'] || params[5] || null;
+        const decided_at = colMap['decided_at'] ? new Date(colMap['decided_at']) : null;
+
+        if (
+          status === 'PENDING' &&
+          store.creator_requests.some((r) => r.user_id === user_id && r.status === 'PENDING')
+        ) {
+          const err: any = new Error(
+            'duplicate key value violates unique constraint "creator_requests_one_pending"',
+          );
+          err.code = '23505';
+          err.constraint = 'creator_requests_one_pending';
+          throw err;
+        }
+
+        const newReq = {
+          id: String(id),
+          user_id: String(user_id),
+          status: status as any,
+          message: String(message),
+          decision_note: decision_note ? String(decision_note) : null,
+          decided_by: decided_by ? String(decided_by) : null,
+          decided_at,
+          created_at: new Date(),
+        };
+        store.creator_requests.push(newReq);
+        return { rows: [newReq], rowCount: 1 };
+      }
+
+      // 4f. pg_advisory_xact_lock
       if (sql.includes('pg_advisory_xact_lock')) {
         return { rows: [{ pg_advisory_xact_lock: null }], rowCount: 1 };
+      }
+
+      // 4g. SELECT FROM "auth"."creator_requests"
+      if (sql.includes('count(*)') && sql.includes('"auth"."creator_requests"')) {
+        const cnt = store.creator_requests.filter((r) => r.status === 'PENDING').length;
+        return { rows: [{ count: cnt }], rowCount: 1 };
+      }
+
+      if (sql.includes('select') && sql.includes('"auth"."creator_requests"')) {
+        let matching = store.creator_requests.map((cr) => {
+          const user = store.users.find((u) => u.id === cr.user_id);
+          const decider = cr.decided_by ? store.users.find((u) => u.id === cr.decided_by) : null;
+          return {
+            id: cr.id,
+            status: cr.status,
+            message: cr.message,
+            decision_note: cr.decision_note,
+            created_at: cr.created_at,
+            decided_at: cr.decided_at,
+            created_at_iso: cr.created_at.toISOString(),
+            decided_at_iso: cr.decided_at ? cr.decided_at.toISOString() : null,
+            user_id: cr.user_id,
+            user_email: user?.email || '',
+            user_email_verified_at: user?.email_verified_at || null,
+            user_handle: user?.handle || '',
+            user_display_name: user?.display_name || '',
+            user_avatar_key: user?.avatar_key || null,
+            user_roles: user?.roles || ['viewer'],
+            user_status: user?.status || 'ACTIVE',
+            user_suspended_until: user?.suspended_until || null,
+            user_suspension_reason: user?.suspension_reason || null,
+            user_created_at_iso: user?.created_at
+              ? user.created_at.toISOString()
+              : new Date().toISOString(),
+            decider_id: decider?.id || null,
+            decider_handle: decider?.handle || null,
+            decider_display_name: decider?.display_name || null,
+            decider_avatar_key: decider?.avatar_key || null,
+          };
+        });
+
+        if (sql.includes('"user_id" = $1')) {
+          matching = matching.filter((cr) => cr.user_id === String(params[0]));
+        }
+        if (sql.includes('"cr"."id" = $1') || sql.includes('"id" = $1')) {
+          matching = matching.filter((cr) => cr.id === String(params[0]));
+        }
+        if (sql.includes('"cr"."status" = $1')) {
+          matching = matching.filter((cr) => cr.status === String(params[0]));
+        }
+
+        // Ordering
+        if (sql.includes('"cr"."created_at" asc')) {
+          matching.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+        } else if (sql.includes('"created_at" desc')) {
+          matching.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+        } else if (sql.includes('"cr"."decided_at" desc')) {
+          matching.sort((a, b) => (b.decided_at?.getTime() ?? 0) - (a.decided_at?.getTime() ?? 0));
+        }
+
+        return { rows: matching, rowCount: matching.length };
       }
 
       // 5. SELECT FROM "auth"."users"
@@ -541,6 +657,36 @@ export function createMockDb(store: MockStore = createMockStore()): {
           store.mail_queue = store.mail_queue.filter((m) => m.created_at >= cutoff);
           return { rows: [], rowCount: before - store.mail_queue.length };
         }
+      }
+
+      // 8i. UPDATE "auth"."creator_requests"
+      if (sql.includes('update "auth"."creator_requests"')) {
+        let updatedCount = 0;
+        const reqId = String(params[params.length - 1]);
+        const req = store.creator_requests.find((r) => r.id === reqId);
+        if (req) {
+          const matchStatus = sql.match(/"status"\s*=\s*\$(\d+)/);
+          if (matchStatus) {
+            req.status = params[parseInt(matchStatus[1], 10) - 1];
+          }
+          const matchNote = sql.match(/"decision_note"\s*=\s*\$(\d+)/);
+          if (matchNote) {
+            const val = params[parseInt(matchNote[1], 10) - 1];
+            req.decision_note = val ? String(val) : null;
+          }
+          const matchDecidedBy = sql.match(/"decided_by"\s*=\s*\$(\d+)/);
+          if (matchDecidedBy) {
+            const val = params[parseInt(matchDecidedBy[1], 10) - 1];
+            req.decided_by = val ? String(val) : null;
+          }
+          const matchDecidedAt = sql.match(/"decided_at"\s*=\s*\$(\d+)/);
+          if (matchDecidedAt) {
+            const val = params[parseInt(matchDecidedAt[1], 10) - 1];
+            req.decided_at = val ? new Date(val) : new Date();
+          }
+          updatedCount++;
+        }
+        return { rows: req ? [req] : [], rowCount: updatedCount };
       }
 
       // 9. UPDATE "auth"."refresh_tokens"

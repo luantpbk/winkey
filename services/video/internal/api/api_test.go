@@ -503,9 +503,13 @@ func TestStudioListsOwnVideosInEveryStatus(t *testing.T) {
 	if page = decode[pageJSON[studioJSON]](t, e.req(alice, "GET", "/v1/studio/videos?status=PROCESSING", "")); len(page.Items) != 1 || page.Items[0].ID != proc.ID.String() {
 		t.Fatalf("status filter: %+v", page.Items)
 	}
-	// Moderators only see their own videos in the studio.
-	if page = decode[pageJSON[studioJSON]](t, e.req(mod, "GET", "/v1/studio/videos", "")); len(page.Items) != 0 {
+	// Moderators only see their own videos in the studio (ROLE1: and only with the creator role).
+	modCreator := &who{ids.New(), "viewer,creator,moderator"}
+	if page = decode[pageJSON[studioJSON]](t, e.req(modCreator, "GET", "/v1/studio/videos", "")); len(page.Items) != 0 {
 		t.Fatalf("moderator studio: %d", len(page.Items))
+	}
+	if w := e.req(mod, "GET", "/v1/studio/videos", ""); w.Code != 403 || problemCode(t, w) != "CREATOR_ROLE_REQUIRED" {
+		t.Fatalf("moderator without creator: %d", w.Code)
 	}
 }
 
@@ -565,10 +569,14 @@ func TestPatchOwnerOnly(t *testing.T) {
 	if w := e.req(anon, "PATCH", path, `{"title":"x"}`); w.Code != 401 || problemCode(t, w) != "UNAUTHORIZED" {
 		t.Errorf("anonymous: %d", w.Code)
 	}
-	for _, u := range []*who{bob, mod, admin} { // visible but not theirs: 403
+	for _, u := range []*who{bob, admin} { // visible but not theirs: 403
 		if w := e.req(u, "PATCH", path, `{"title":"x"}`); w.Code != 403 || problemCode(t, w) != "FORBIDDEN" {
 			t.Errorf("%s: %d", name(u), w.Code)
 		}
+	}
+	// ROLE1: without the creator role the roles header alone answers.
+	if w := e.req(mod, "PATCH", path, `{"title":"x"}`); w.Code != 403 || problemCode(t, w) != "CREATOR_ROLE_REQUIRED" {
+		t.Errorf("moderator: %d", w.Code)
 	}
 	// A video the caller cannot see is 404, not 403.
 	priv := e.video(alice, visibility(domain.VisPrivate))

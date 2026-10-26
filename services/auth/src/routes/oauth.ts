@@ -284,7 +284,7 @@ export const oauthRoute: FastifyPluginAsync<{
             targetUserId = uuidv7();
             const derivedHandle = await generateUniqueHandle(trx, googleUser.email);
             const displayName = (googleUser.name || derivedHandle).slice(0, 50);
-            const defaultRoles: Role[] = ['viewer', 'creator'];
+            const defaultRoles: Role[] = env.SIGNUP_ROLES.split(',') as Role[];
 
             await trx
               .insertInto('auth.users')

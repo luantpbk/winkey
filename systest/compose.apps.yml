@@ -23,6 +23,8 @@ services:
       SMTP_URL: smtp://mailpit:1025
       REGISTRATION_MODE: ${REGISTRATION_MODE:-open}
       INVITE_CODES: ${INVITE_CODES:-}
+      # ROLE1 (ADR-046): seed and loadtest accounts register through the API, then upload.
+      SIGNUP_ROLES: ${SIGNUP_ROLES:-viewer,creator}
     healthcheck:
       test:
         [

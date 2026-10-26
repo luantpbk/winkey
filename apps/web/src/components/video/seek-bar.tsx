@@ -141,6 +141,22 @@ export function SeekBar({
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!duration || duration <= 0) return;
+    const step = 5;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      const newTime = Math.min(duration, currentTime + step);
+      onSeek(newTime);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      const newTime = Math.max(0, currentTime - step);
+      onSeek(newTime);
+    }
+  };
+
   const currentPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPercent = duration > 0 ? Math.min(100, (buffered / duration) * 100) : 0;
   const hoverPercent = duration > 0 ? (hoverTime / duration) * 100 : 0;
@@ -172,7 +188,8 @@ export function SeekBar({
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
       onPointerDown={handlePointerDown}
-      className="group/seek relative w-full h-4 cursor-pointer flex items-center select-none touch-none focus:outline-none"
+      onKeyDown={handleKeyDown}
+      className="group/seek relative w-full h-4 cursor-pointer flex items-center select-none touch-none focus:outline-2 focus:outline-[#d9002b] focus:ring-2 focus:ring-[#d9002b]/40 focus:ring-offset-2 focus:ring-offset-black rounded transition-shadow"
     >
       {/* Track Background */}
       <div className="relative w-full h-1 group-hover/seek:h-2 transition-all duration-150 rounded-full bg-white/20 overflow-hidden">

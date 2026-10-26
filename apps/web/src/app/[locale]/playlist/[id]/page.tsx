@@ -73,6 +73,19 @@ export default function PlaylistPage() {
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
+  // Handle Escape key for modals (UX1 Issue #401 TV dialog trap)
+  useEffect(() => {
+    if (!showEditModal && !showDeleteConfirm) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showEditModal && !savingEdit) setShowEditModal(false);
+        if (showDeleteConfirm && !deleting) setShowDeleteConfirm(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showEditModal, showDeleteConfirm, savingEdit, deleting]);
+
   const isOwner = Boolean(isAuthenticated && user && playlist && user.id === playlist.owner.id);
 
   // Load playlist metadata
@@ -340,8 +353,44 @@ export default function PlaylistPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh] text-zinc-400">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div
+        data-testid="playlist-loading-skeleton"
+        className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4 min-h-[calc(100vh-140px)]"
+      >
+        {/* Left Column Skeleton */}
+        <div className="lg:col-span-4 xl:col-span-3">
+          <div className="rounded-2xl bg-gradient-to-b from-zinc-800/80 to-zinc-900 border border-zinc-800 p-6 flex flex-col gap-5 shadow-2xl">
+            <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 animate-pulse" />
+            <div className="flex flex-col gap-2">
+              <div className="h-7 w-3/4 rounded-lg bg-zinc-800 animate-pulse" />
+              <div className="h-4 w-1/2 rounded bg-zinc-800/70 animate-pulse" />
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-zinc-800">
+              <div className="h-8 w-8 rounded-full bg-zinc-800 animate-pulse shrink-0" />
+              <div className="h-4 w-28 rounded bg-zinc-800 animate-pulse" />
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-20 rounded-full bg-zinc-800 animate-pulse" />
+              <div className="h-6 w-24 rounded-full bg-zinc-800 animate-pulse" />
+            </div>
+          </div>
+        </div>
+        {/* Right Column Skeleton */}
+        <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/40 border border-zinc-800/60 animate-pulse"
+            >
+              <div className="w-8 text-center text-xs text-zinc-600">{i + 1}</div>
+              <div className="relative aspect-video w-32 sm:w-40 rounded-lg bg-zinc-800 shrink-0" />
+              <div className="flex flex-col gap-2 flex-1 min-w-0">
+                <div className="h-4 w-3/4 rounded bg-zinc-800" />
+                <div className="h-3 w-1/3 rounded bg-zinc-800/60" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -372,7 +421,7 @@ export default function PlaylistPage() {
   const coverUrl = getThumbnailUrl(firstValidVideo?.thumbnail_url);
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4">
+    <div className="w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-4 px-2 sm:px-4 min-h-[calc(100vh-140px)]">
       {/* Left Column: Playlist Card / Info */}
       <div className="lg:col-span-4 xl:col-span-3">
         <div className="sticky top-20 rounded-2xl bg-gradient-to-b from-zinc-800/80 to-zinc-900 border border-zinc-800 p-6 flex flex-col gap-5 shadow-2xl backdrop-blur-md">
@@ -432,7 +481,7 @@ export default function PlaylistPage() {
               >
                 {playlist.owner.display_name}
               </Link>
-              <span className="text-xs text-zinc-500 truncate">@{playlist.owner.handle}</span>
+              <span className="text-xs text-zinc-400 truncate">@{playlist.owner.handle}</span>
             </div>
           </div>
 
@@ -522,7 +571,7 @@ export default function PlaylistPage() {
               )}
             </div>
 
-            {/* + Thêm video của tôi button */}
+            {/* Thêm video của tôi button */}
             {isOwner && (
               <button
                 type="button"
@@ -531,7 +580,7 @@ export default function PlaylistPage() {
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md transition"
               >
                 <Plus className="h-4 w-4" />
-                <span>+ Thêm video của tôi</span>
+                <span>Thêm video của tôi</span>
               </button>
             )}
           </div>
@@ -541,12 +590,12 @@ export default function PlaylistPage() {
       {/* Right Column: Playlist Items */}
       <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-2">
         {visibleItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center p-6 text-zinc-500">
+          <div className="flex flex-col items-center justify-center py-20 rounded-2xl bg-zinc-900/50 border border-zinc-800 text-center p-6 text-zinc-400">
             <Clock className="h-10 w-10 text-zinc-600 mb-3" />
             <p className="text-base font-semibold text-zinc-300">
               Danh sách phát này chưa có video nào.
             </p>
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-xs text-zinc-400 mt-1">
               Thêm video bằng nút "Lưu" hoặc "Xem sau" trên trang xem video.
             </p>
             {isOwner && (
@@ -556,7 +605,7 @@ export default function PlaylistPage() {
                 className="mt-4 flex items-center gap-2 px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-lg transition"
               >
                 <Plus className="h-4 w-4" />
-                <span>+ Thêm video của tôi</span>
+                <span>Thêm video của tôi</span>
               </button>
             )}
           </div>
@@ -598,11 +647,11 @@ export default function PlaylistPage() {
                   {/* Drag Handle & Index */}
                   <div className="flex items-center gap-2 shrink-0">
                     {isOwner ? (
-                      <div className="text-zinc-500 group-hover:text-zinc-300 transition cursor-grab">
+                      <div className="text-zinc-400 group-hover:text-zinc-300 transition cursor-grab">
                         <GripVertical className="h-4 w-4" />
                       </div>
                     ) : null}
-                    <span className="w-5 text-center text-xs font-semibold text-zinc-500">
+                    <span className="w-5 text-center text-xs font-semibold text-zinc-400">
                       {index + 1}
                     </span>
                   </div>
@@ -655,7 +704,7 @@ export default function PlaylistPage() {
                         >
                           {video.owner.display_name}
                         </Link>
-                        <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 mt-1">
+                        <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-1">
                           <span>{formatViews(video.view_count)} lượt xem</span>
                           <span>•</span>
                           <span>{formatRelativeTime(video.published_at || item.added_at)}</span>
@@ -831,7 +880,7 @@ export default function PlaylistPage() {
                   >
                     Bộ phim
                   </label>
-                  <span className="text-[11px] text-zinc-500">
+                  <span className="text-[11px] text-zinc-400">
                     Đánh dấu danh sách phát này là một bộ phim.
                   </span>
                 </div>

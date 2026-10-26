@@ -18,13 +18,16 @@ import {
   setSessionIndicator,
   clearSessionIndicator,
   setSessionProbed,
+  consumeOAuthReturnMarker,
 } from './session-indicator';
 import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
+import { computePermissions, type UserPermissions, ANONYMOUS_PERMISSIONS } from './permissions';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  can: UserPermissions;
   isCreator: boolean;
   isModerator: boolean;
   isAdmin: boolean;
@@ -84,6 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Back from Google sign-in: the callback only set the HttpOnly refresh cookie, so mark the
+    // session and refresh (a failed refresh clears the indicator again).
+    if (consumeOAuthReturnMarker()) {
+      setSessionIndicator();
+    }
     // Session restore on initial mount: only refresh if we have a session indicator or need to probe
     if (!hasSessionIndicator() && !shouldProbeSession()) {
       setIsLoading(false);
@@ -192,12 +200,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isModerator = !!user?.roles?.includes('moderator');
   const isAdmin = !!user?.roles?.includes('admin');
   const canAccessAdmin = isModerator || isAdmin;
+  const can = useMemo(() => computePermissions(user, !!user), [user]);
 
   const contextValue = useMemo(
     () => ({
       user,
       isLoading,
       isAuthenticated: !!user,
+      can,
       isCreator,
       isModerator,
       isAdmin,
@@ -212,6 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       user,
       isLoading,
+      can,
       isCreator,
       isModerator,
       isAdmin,
@@ -228,10 +239,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 }
 
+const DEFAULT_AUTH_CONTEXT: AuthContextType = {
+  user: null,
+  isLoading: false,
+  isAuthenticated: false,
+  can: ANONYMOUS_PERMISSIONS,
+  isCreator: false,
+  isModerator: false,
+  isAdmin: false,
+  canAccessAdmin: false,
+  login: async () => ({ success: false }),
+  register: async () => ({ success: false }),
+  logout: async () => {},
+  refresh: async () => {},
+  updateUser: () => {},
+  clearSession: () => {},
+};
+
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    return DEFAULT_AUTH_CONTEXT;
   }
   return context;
 }

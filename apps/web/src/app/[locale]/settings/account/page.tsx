@@ -6,6 +6,7 @@ import { useRouter } from '../../../../i18n/routing';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { ProfileSettings } from '../../../../components/settings/profile-settings';
 import { PasswordSettings } from '../../../../components/settings/password-settings';
+import { TvModeSettings } from '../../../../components/settings/tv-mode-settings';
 import { DangerZone } from '../../../../components/settings/danger-zone';
 import { Settings } from 'lucide-react';
 
@@ -51,6 +52,7 @@ export default function AccountSettingsPage() {
       <div className="space-y-8">
         <ProfileSettings user={user} />
         <PasswordSettings user={user} />
+        <TvModeSettings />
         <DangerZone user={user} />
       </div>
     </div>

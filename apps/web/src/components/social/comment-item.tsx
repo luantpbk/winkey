@@ -367,7 +367,7 @@ export function CommentItem({
                 <button
                   type="button"
                   onClick={handleReplyClick}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 hover:text-white transition"
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition"
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{t('reply')}</span>

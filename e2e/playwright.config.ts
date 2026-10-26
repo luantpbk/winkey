@@ -20,6 +20,35 @@ export default defineConfig({
         viewport: { width: 1440, height: 900 },
       },
     },
+    {
+      name: 'mobile',
+      use: {
+        viewport: { width: 393, height: 851 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'tablet',
+      use: {
+        viewport: { width: 768, height: 1024 },
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'tv-720',
+      use: {
+        viewport: { width: 1280, height: 720 },
+        hasTouch: false,
+      },
+    },
+    {
+      name: 'tv-1080',
+      use: {
+        viewport: { width: 1920, height: 1080 },
+        hasTouch: false,
+      },
+    },
   ],
   webServer: {
     command: 'pnpm --filter @winkey/web run dev',

@@ -14,6 +14,7 @@ import { api } from '../../../lib/api-client';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { useRouter } from '../../../i18n/routing';
 import { NotificationItem } from '../../../components/notifications/notification-item';
+import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 
 export default function NotificationsPage() {
   const t = useTranslations('notifications');
@@ -231,7 +232,7 @@ export default function NotificationsPage() {
           data-testid="notifications-tab-all"
           className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
             activeTab === 'all'
-              ? 'bg-red-600 text-white shadow'
+              ? `${A11Y_COLORS.brandSolidBg} shadow`
               : 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-gray-700 dark:text-gray-300 hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200'
           }`}
         >
@@ -243,7 +244,7 @@ export default function NotificationsPage() {
           data-testid="notifications-tab-unread"
           className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
             activeTab === 'unread'
-              ? 'bg-red-600 text-white shadow'
+              ? `${A11Y_COLORS.brandSolidBg} shadow`
               : 'bg-[#272727] dark:bg-[#272727] bg-gray-100 text-gray-700 dark:text-gray-300 hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200'
           }`}
         >
@@ -265,13 +266,13 @@ export default function NotificationsPage() {
             <button
               type="button"
               onClick={() => void refetch()}
-              className="rounded-full bg-red-600 text-white px-4 py-1.5 text-xs font-semibold hover:bg-red-700 transition"
+              className={`rounded-full ${A11Y_COLORS.brandSolidBg} px-4 py-1.5 text-xs font-semibold transition`}
             >
               {t('retry')}
             </button>
           </div>
         ) : allItems.length === 0 ? (
-          <div className="py-20 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div className={`py-20 text-center text-sm ${A11Y_COLORS.textMuted}`}>
             {activeTab === 'all' ? t('emptyAll') : t('emptyUnread')}
           </div>
         ) : (

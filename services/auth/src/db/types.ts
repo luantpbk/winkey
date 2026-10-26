@@ -103,6 +103,19 @@ export interface MailQueueTable {
   last_error: string | null;
 }
 
+export type CreatorRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface CreatorRequestsTable {
+  id: string;
+  user_id: string;
+  status: ColumnType<CreatorRequestStatus, CreatorRequestStatus | undefined, CreatorRequestStatus>;
+  message: string;
+  decision_note: ColumnType<string | null, string | null | undefined, string | null>;
+  decided_by: ColumnType<string | null, string | null | undefined, string | null>;
+  decided_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+}
+
 export interface Database {
   'auth.users': UsersTable;
   'auth.oauth_identities': OAuthIdentitiesTable;
@@ -112,4 +125,5 @@ export interface Database {
   'auth.audit_log': AuditLogTable;
   'auth.email_tokens': EmailTokensTable;
   'auth.mail_queue': MailQueueTable;
+  'auth.creator_requests': CreatorRequestsTable;
 }

@@ -88,7 +88,7 @@ export function HistoryView() {
       if (context?.previousData) {
         queryClient.setQueryData(HISTORY_QUERY_KEY, context.previousData);
       }
-      showToast({ title: 'Không thể xoá video. Vui lòng thử lại.', type: 'error' });
+      showToast({ title: 'Không thể xóa video. Vui lòng thử lại.', type: 'error' });
     },
     onSuccess: () => {
       showToast({ title: t('itemRemoved'), type: 'success' });
@@ -121,7 +121,7 @@ export function HistoryView() {
       if (context?.previousData) {
         queryClient.setQueryData(HISTORY_QUERY_KEY, context.previousData);
       }
-      showToast({ title: 'Không thể xoá toàn bộ lịch sử. Vui lòng thử lại.', type: 'error' });
+      showToast({ title: 'Không thể xóa toàn bộ lịch sử. Vui lòng thử lại.', type: 'error' });
     },
     onSuccess: () => {
       setIsClearDialogOpen(false);

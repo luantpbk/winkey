@@ -25,6 +25,13 @@ info:
     before it passes.
     Task V5b (ADR-018) — subtitles: WebVTT tracks, one per language, uploaded by the owner. Objects live
     under `v/{video_id}/subtitles/`, so SEC1 signing and the delete path apply to them unchanged.
+    Task ROLE1 (ADR-046) — creator role: managing videos needs `creator` in `X-User-Roles` on top of the
+    ownership rules each operation states. `updateVideo`, `putSubtitle`, `updateSubtitle`, `deleteSubtitle`,
+    `listAudioTracks`, `updateAudioTrack`, `deleteAudioTrack`, `listStudioVideos`, `getChannelStats` and
+    `getVideoStats` answer `403` with code `CREATOR_ROLE_REQUIRED` to an authenticated caller who has neither
+    `creator` nor a role the operation already accepts on its own (`admin` for the stats). The check comes from
+    the roles header only, before anything is read, so it reveals nothing about the video. `deleteVideo` is
+    unchanged: an owner without `creator` can still delete their own videos.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -394,6 +401,69 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/studio/admin/videos:
+    get:
+      tags: [studio, moderation]
+      operationId: adminListVideos
+      summary: Every video on the platform, for moderators and admins (task ADMV1, ADR-047). Newest first.
+      description: |
+        Every video in every status, visibility and moderation state, whoever owns it, so a moderator or admin can
+        find any video and hide it (`moderateVideo`) or delete it (`deleteVideo`). Authorization from `X-User-Roles`
+        only, before anything is read: a caller who is neither `moderator` nor `admin` → `403`. Filters combine
+        with AND; the cursor is bound to them (another filter with an old cursor → `400`). Ordered by `created_at`
+        DESC, then `id` DESC. `owner` is the placeholder profile (handle `deleted_user`) when the owner is no longer
+        active. Thumbnails of videos the public cannot watch are signed like in the studio.
+        `Cache-Control: private, no-store`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+        - name: q
+          in: query
+          required: false
+          description: Case- and accent-insensitive substring of the title (trimmed).
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/VideoStatus'
+        - name: visibility
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/Visibility'
+        - name: moderation_state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [VISIBLE, HIDDEN]
+        - name: owner_id
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: One page of videos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVideoPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
 
   /v1/studio/videos/{video_id}/stats:
     parameters:
@@ -426,6 +496,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
         '429':
@@ -457,6 +529,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
@@ -1493,6 +1567,29 @@ components:
         next_cursor:
           type: [string, 'null']
 
+    AdminVideo:
+      allOf:
+        - $ref: '#/components/schemas/StudioVideo'
+        - type: object
+          required: [owner, owner_active]
+          properties:
+            owner:
+              $ref: './common.yaml#/components/schemas/PublicProfile'
+            owner_active:
+              type: boolean
+              description: false when the owner is suspended or deleted (their videos are hidden from everyone else).
+
+    AdminVideoPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminVideo'
+        next_cursor:
+          type: [string, 'null']
+
     UpdateVideoRequest:
       type: object
       additionalProperties: false
@@ -1623,6 +1720,18 @@ components:
             `trending`), the watch page column (`up_next`), search, the subscription feed, a channel page, a playlist,
             or `other` (direct link, notification, unknown). Same value on every sample of one playback; omitted
             by older clients (stored as unknown).
+        codec:
+          type: string
+          enum: [h264, av1]
+          description: |
+            Video codec of the master the player is playing (task AV1-tel, ADR-048): `av1` when it loaded
+            `hls_av1_url`, `h264` when it loaded `hls_url`. Omitted by older clients (stored as unknown).
+        av1_capable:
+          type: boolean
+          description: |
+            Whether this device can play the AV1 rendition smoothly and power-efficiently (the player's
+            `mediaCapabilities.decodingInfo` result, task AV1-tel, ADR-048), whatever the video offers. Same value on
+            every sample of one playback; omitted by older clients (stored as unknown).
 
     PlaybackHeartbeatResult:
       type: object

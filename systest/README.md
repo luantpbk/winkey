@@ -141,3 +141,41 @@ Inspect these log files to trace error causes across cross-service event flows.
 
 - **[#103](https://github.com/luantpbk/winkey/issues/103)**: Traefik missing routing rules for `/v1/realtime` WebSocket ticket endpoint (`POST /v1/realtime/ticket`). S4 connects to `realtime-svc` port 8003 directly when not routed via Traefik gateway.
 - **[#112](https://github.com/luantpbk/winkey/issues/112)**: Traefik missing routing rules for `/v1/reports`, `/v1/moderation` and `/v1/search`. S8 & S9 fallback to direct service calls (`social-svc` / `video-svc`) when not routed via Traefik gateway.
+
+---
+
+## UX1 Phase 0: Automated UI Audit (--ui-audit, ADR-044)
+
+Bộ công cụ tự động hóa kiểm tra giao diện người dùng và khả năng tiếp cận (Accessibility) dựa theo đặc tả **ADR-044**.
+
+### 🎯 Phạm vi & Cơ chế hoạt động
+- **Ma trận kiểm thử:** Quét qua **8 viewports** tiêu chuẩn với **4 personas** người dùng khác nhau (`anon`, `member`, `creator`, `admin`).
+- **Loại kiểm tra:**
+  - Layout: Tràn ngang (`overflow-x`), diện tích cảm ứng < 44×44px (`touch-target`), chữ bị cắt không có ellipsis.
+  - Accessibility: Tuân thủ WCAG với `@axe-core/playwright` (`axe-a11y`, critical -> P0, serious -> P1).
+  - TV Navigation: Phím Tab/Enter, chỉ báo focus nhìn thấy được, đóng dialog bằng phím Esc (`tv-focus`).
+  - Active Mutation: Kiểm tra các phần tử tương tác không phản hồi (`dead-control`), giới hạn 80 elements/trang.
+  - Web Vitals: Đo CLS và LCP qua `PerformanceObserver`.
+- **Độ an toàn:** Chạy hoàn toàn trên stack giả lập cục bộ với cơ chế denylist bảo vệ tuyệt đối (không bấm xoá, đăng xuất, báo cáo, chặn, nộp upload, đổi mật khẩu).
+
+### 🚀 Lệnh thực thi & Tùy chọn
+Thực thi trực tiếp từ thư mục gốc của hệ thống:
+```bash
+# Chạy UI audit tiêu chuẩn và kiểm tra CI gate
+./systest/run.sh --ui-audit
+
+# Chạy kèm đồng bộ kết quả lên GitHub Issues
+./systest/run.sh --ui-audit --sync-gh
+# Hoặc sử dụng biến môi trường:
+SYNC_GH=true ./systest/run.sh --ui-audit
+```
+
+### 📂 Quản lý Báo cáo & Đồng bộ GitHub
+- **Báo cáo chi tiết:** Lưu trữ tại `systest/ui-audit/report/<date>/report.md` (track trên Git).
+- **Artifacts nhị phân:** Các file ảnh chụp màn hình (`.png`, `.jpg`) được loại trừ qua `.gitignore` nhằm tối ưu hóa dung lượng repository.
+- **Root-Cause Clustering:** Kết quả vi phạm được tự động nhóm theo nguyên nhân gốc rễ và đồng bộ trực tiếp lên GitHub Issues (nhãn `ux1` + `p0`/`p1`/`p2` giao Antigravity 1, và `backend` cho lỗi thiếu API).
+
+### 🛑 Chính sách CI Gate (ADR-044)
+- Kiểm tra tự động số lượng lỗi P0 sau khi quét.
+- Nếu **P0 > 0**, runner sẽ thoát với mã **`exit 1`** để ngăn chặn việc merge PR vi phạm tiêu chuẩn ADR-044.
+

@@ -9,4 +9,5 @@ resources:
   - realtime
   - web
   - media-origin
+  - media-cache-warmer
   - ../observability

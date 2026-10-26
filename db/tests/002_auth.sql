@@ -31,7 +31,7 @@ END $$;
 -- Default roles and public view.
 DO $$
 BEGIN
-    IF (SELECT roles FROM auth.users WHERE handle = 'luan.dev') <> '{viewer,creator}'::auth.role[] THEN
+    IF (SELECT roles FROM auth.users WHERE handle = 'luan.dev') <> '{viewer}'::auth.role[] THEN  -- ROLE1 (ADR-046)
         RAISE EXCEPTION 'TEST FAILED: default roles';
     END IF;
     IF (SELECT count(*) FROM auth.public_profiles WHERE handle = 'luan.dev') <> 1 THEN
