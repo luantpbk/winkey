@@ -1233,4 +1233,180 @@ describe('PlaybackTracker Unit Tests (R1 telemetry & QoE)', () => {
       tracker.destroy();
     });
   });
+
+  describe('Task AV1-tel: Telemetry for Codec and AV1 Capability (ADR-048 addendum)', () => {
+    it('omits codec and av1_capable when neither is set (never sends null)', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        transport: mockTransport,
+      });
+
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(1);
+      const sample = sentBatches[0].samples[0];
+      expect(sample.codec).toBeUndefined();
+      expect(sample.av1_capable).toBeUndefined();
+      expect('codec' in sample).toBe(false);
+      expect('av1_capable' in sample).toBe(false);
+
+      // JSON stringify should not contain "codec":null or "av1_capable":null
+      const json = JSON.stringify(sample);
+      expect(json).not.toContain('"codec"');
+      expect(json).not.toContain('"av1_capable"');
+
+      tracker.destroy();
+    });
+
+    it('reports codec: "av1" when playing AV1 and codec: "h264" when playing H.264', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        codec: 'av1',
+        av1Capable: true,
+        transport: mockTransport,
+      });
+
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(1);
+      const startSample = sentBatches[0].samples[0];
+      expect(startSample.codec).toBe('av1');
+      expect(startSample.av1_capable).toBe(true);
+
+      // Switch to h264 mid-playback (e.g. error fallback or signed URL refresh)
+      tracker.setCodec('h264');
+
+      // Heartbeat at 30s
+      for (let s = 1; s <= 30; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(2);
+      const hbSample = sentBatches[1].samples[0];
+      expect(hbSample.codec).toBe('h264');
+      expect(hbSample.av1_capable).toBe(true);
+
+      tracker.destroy();
+    });
+
+    it('omits av1_capable before check resolves, then includes it on every later sample', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      // Tracker initialized before isAv1Supported() check resolves
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        codec: 'h264',
+        transport: mockTransport,
+      });
+
+      // Start sample emitted while check is still pending
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(1);
+      const startSample = sentBatches[0].samples[0];
+      expect(startSample.codec).toBe('h264');
+      expect(startSample.av1_capable).toBeUndefined();
+      expect('av1_capable' in startSample).toBe(false);
+
+      // Media capabilities check resolves: device is AV1 capable
+      tracker.setAv1Capable(true);
+
+      // Play for 30s -> emits heartbeat
+      for (let s = 1; s <= 30; s++) {
+        tracker.recordTimeUpdate(s);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(2);
+      const hbSample = sentBatches[1].samples[0];
+      expect(hbSample.codec).toBe('h264');
+      expect(hbSample.av1_capable).toBe(true);
+
+      // End sample also carries av1_capable
+      tracker.recordEnded(30);
+      await Promise.resolve();
+
+      expect(sentBatches).toHaveLength(3);
+      const endSample = sentBatches[2].samples[0];
+      expect(endSample.codec).toBe('h264');
+      expect(endSample.av1_capable).toBe(true);
+
+      tracker.destroy();
+    });
+
+    it('ensures batch payload adheres to PlaybackHeartbeatBatch contract', async () => {
+      const sentBatches: PlaybackHeartbeatBatch[] = [];
+      const mockTransport = vi.fn(async (batch: PlaybackHeartbeatBatch) => {
+        sentBatches.push(batch);
+        return true;
+      });
+
+      const tracker = new PlaybackTracker({
+        videoId: defaultVideoId,
+        playbackId: defaultPlaybackId,
+        codec: 'av1',
+        av1Capable: false,
+        transport: mockTransport,
+      });
+
+      tracker.recordPlayRequest();
+      tracker.recordLoadedData();
+      tracker.recordPlaying(0);
+      tracker.recordEnded(10);
+      await Promise.resolve();
+
+      expect(sentBatches.length).toBeGreaterThan(0);
+      for (const batch of sentBatches) {
+        expect(Array.isArray(batch.samples)).toBe(true);
+        expect(batch.samples.length).toBeGreaterThanOrEqual(1);
+        expect(batch.samples.length).toBeLessThanOrEqual(20);
+
+        for (const sample of batch.samples) {
+          expect(['start', 'heartbeat', 'end']).toContain(sample.kind);
+          expect(typeof sample.seq).toBe('number');
+          expect(sample.seq).toBeGreaterThanOrEqual(0);
+          expect(sample.client).toBe('web');
+          if (sample.codec !== undefined) {
+            expect(['h264', 'av1']).toContain(sample.codec);
+          }
+          if (sample.av1_capable !== undefined) {
+            expect(typeof sample.av1_capable).toBe('boolean');
+          }
+        }
+      }
+
+      tracker.destroy();
+    });
+  });
 });

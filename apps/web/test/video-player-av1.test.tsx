@@ -368,4 +368,114 @@ describe('VideoPlayer AV1 Playback Support (ADR-041 ENC2 & MediaCapabilities)', 
     canPlayTypeSpy.mockRestore();
     setRenditionSpy.mockRestore();
   });
+
+  describe('AV1-tel: Codec and AV1 Capability Telemetry (ADR-048 addendum)', () => {
+    it('feeds codec: "av1" and av1Capable: true to tracker when loading hls_av1_url', async () => {
+      vi.stubGlobal('navigator', {
+        mediaCapabilities: {
+          decodingInfo: vi.fn().mockResolvedValue({
+            supported: true,
+            smooth: true,
+            powerEfficient: true,
+          }),
+        },
+      });
+
+      const setCodecSpy = vi.spyOn(PlaybackTracker.prototype, 'setCodec');
+      const setAv1CapableSpy = vi.spyOn(PlaybackTracker.prototype, 'setAv1Capable');
+
+      render(
+        <VideoPlayer
+          videoId="vid-av1-tel"
+          src={hlsUrl}
+          hlsAv1Url={hlsAv1Url}
+          renditions={mockRenditions}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(latestHlsInstance?.loadSource).toHaveBeenCalledWith(hlsAv1Url);
+      });
+
+      await waitFor(() => {
+        expect(setCodecSpy).toHaveBeenCalledWith('av1');
+        expect(setAv1CapableSpy).toHaveBeenCalledWith(true);
+      });
+
+      setCodecSpy.mockRestore();
+      setAv1CapableSpy.mockRestore();
+    });
+
+    it('feeds codec: "h264" and av1Capable: false when AV1 is unsupported, even if hlsAv1Url exists', async () => {
+      vi.stubGlobal('navigator', {
+        mediaCapabilities: {
+          decodingInfo: vi.fn().mockResolvedValue({
+            supported: false,
+            smooth: false,
+            powerEfficient: false,
+          }),
+        },
+      });
+
+      const setCodecSpy = vi.spyOn(PlaybackTracker.prototype, 'setCodec');
+      const setAv1CapableSpy = vi.spyOn(PlaybackTracker.prototype, 'setAv1Capable');
+
+      render(
+        <VideoPlayer
+          videoId="vid-h264-tel"
+          src={hlsUrl}
+          hlsAv1Url={hlsAv1Url}
+          renditions={mockRenditions}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(latestHlsInstance?.loadSource).toHaveBeenCalledWith(hlsUrl);
+      });
+
+      await waitFor(() => {
+        expect(setCodecSpy).toHaveBeenCalledWith('h264');
+        expect(setAv1CapableSpy).toHaveBeenCalledWith(false);
+      });
+
+      setCodecSpy.mockRestore();
+      setAv1CapableSpy.mockRestore();
+    });
+
+    it('feeds av1Capable to tracker even when the video offers NO hlsAv1Url', async () => {
+      vi.stubGlobal('navigator', {
+        mediaCapabilities: {
+          decodingInfo: vi.fn().mockResolvedValue({
+            supported: true,
+            smooth: true,
+            powerEfficient: true,
+          }),
+        },
+      });
+
+      const setCodecSpy = vi.spyOn(PlaybackTracker.prototype, 'setCodec');
+      const setAv1CapableSpy = vi.spyOn(PlaybackTracker.prototype, 'setAv1Capable');
+
+      render(
+        <VideoPlayer
+          videoId="vid-no-av1"
+          src={hlsUrl}
+          // no hlsAv1Url provided
+          renditions={mockRenditions}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(latestHlsInstance?.loadSource).toHaveBeenCalledWith(hlsUrl);
+      });
+
+      await waitFor(() => {
+        expect(setCodecSpy).toHaveBeenCalledWith('h264');
+        expect(setAv1CapableSpy).toHaveBeenCalledWith(true);
+      });
+
+      setCodecSpy.mockRestore();
+      setAv1CapableSpy.mockRestore();
+    });
+  });
 });
