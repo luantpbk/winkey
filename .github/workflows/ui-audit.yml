@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload audit report and screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-audit-report
           path: systest/ui-audit/report/
