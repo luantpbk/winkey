@@ -5,6 +5,34 @@
 @theme {
   --color-brand: #ff0033;
   --color-brand-hover: #cc0029;
+  --breakpoint-3xl: 1920px;
+  --breakpoint-4xl: 2560px;
+}
+
+@layer base {
+  /* TV & Keyboard Focus Indicators (WCAG 2.4.7 & UX1 Issue #401): one clear ring around controls. */
+  a:focus-visible,
+  button:focus-visible,
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible,
+  input[type='range']:focus-visible,
+  [role='button']:focus-visible,
+  [role='slider']:focus-visible,
+  [role='tab']:focus-visible,
+  [tabindex='0']:focus-visible {
+    outline: 2px solid #d9002b !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Text fields show focus on every click (not only keyboard), so they get a single brand border instead of
+     the ring: the outline + offset + glow stacked on each field's own border looked like three frames. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+  select:focus,
+  textarea:focus {
+    outline: none !important;
+    border-color: #d9002b !important;
+    box-shadow: 0 0 0 1px #d9002b !important;
+  }
 }
 
 :root {
@@ -48,4 +76,13 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #777777;
+}
+
+/* Utility to hide scrollbars while preserving scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

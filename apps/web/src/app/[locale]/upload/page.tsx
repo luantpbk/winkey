@@ -2,8 +2,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { Link } from '../../../i18n/routing';
+import { Link, useRouter, usePathname } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { computePermissions } from '../../../lib/auth';
+import { UpgradeCreatorView } from '../../../components/auth/upgrade-creator-view';
 import {
   MultipartUploader,
   type UploadProgress,
@@ -28,7 +30,16 @@ import { MediaPackageUploadSection } from '../../../components/studio/media-pack
 
 export default function UploadPage() {
   const t = useTranslations('upload');
-  const { user, isLoading: authLoading, isCreator, isAuthenticated } = useAuth();
+  const { user, isLoading: authLoading, can: rawCan, isAuthenticated } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push(`/login?return_to=${encodeURIComponent(pathname)}`);
+    }
+  }, [authLoading, isAuthenticated, pathname, router]);
 
   const [activeTab, setActiveTab] = useState<'single' | 'package'>('single');
 
@@ -114,42 +125,57 @@ export default function UploadPage() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-[500px] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-red-600 border-t-transparent" />
-      </div>
-    );
-  }
-
-  // Role validation: Requires creator role
-  if (!isAuthenticated || !isCreator) {
-    return (
-      <div className="mx-auto max-w-xl py-12 px-4 text-center">
-        <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-8">
-          <AlertTriangle className="mx-auto h-12 w-12 text-yellow-500 mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-            Yêu cầu vai trò Creator
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">{t('onlyCreator')}</p>
-          {!isAuthenticated ? (
-            <Link
-              href="/login"
-              className="inline-flex rounded-xl bg-red-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition"
-            >
-              Đăng nhập tài khoản Creator
-            </Link>
-          ) : (
-            <p className="text-xs text-gray-400">
-              Tài khoản hiện tại: <span className="font-semibold">{user?.email}</span> (Vai trò:{' '}
-              {user?.roles?.join(', ')})
+      <div className="mx-auto max-w-3xl py-6 px-4">
+        {/* Page Header (Static Shell - Zero Shift) */}
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Đăng video chuẩn HLS CMAF đa độ phân giải
             </p>
-          )}
+          </div>
+          <Link
+            href="/studio"
+            className="rounded-xl border border-[#383838] dark:border-[#383838] border-gray-300 px-4 py-2 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 transition"
+          >
+            {t('goToStudio')}
+          </Link>
+        </div>
+
+        {/* Upload Mode Tabs Placeholder */}
+        <div className="flex items-center gap-2 mb-6" aria-hidden="true">
+          <div className="h-8 w-32 rounded-xl bg-[#1a1a1a] border border-[#333] animate-pulse" />
+          <div className="h-8 w-32 rounded-xl bg-[#1a1a1a] border border-[#333] animate-pulse" />
+        </div>
+
+        {/* Dropzone Skeleton Container (min-h-[320px] fixed dimension) */}
+        <div
+          data-testid="upload-dropzone-skeleton"
+          className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl min-h-[320px]"
+        >
+          <div className="flex flex-col items-center justify-center min-h-[240px] w-full rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center animate-pulse">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-800/80 mb-4 text-zinc-600">
+              <UploadCloud className="h-8 w-8" />
+            </div>
+            <div className="h-5 w-48 rounded bg-zinc-800/80 mb-2" />
+            <div className="h-3 w-64 rounded bg-zinc-800/50" />
+          </div>
         </div>
       </div>
     );
   }
 
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  if (!can.upload) {
+    return <UpgradeCreatorView />;
+  }
+
   return (
     <div className="mx-auto max-w-3xl py-6 px-4">
+      {/* Page Header (Static Shell - Zero Shift) */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
@@ -171,7 +197,7 @@ export default function UploadPage() {
           type="button"
           onClick={() => setActiveTab('single')}
           data-testid="upload-tab-single"
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+          className={`flex h-8 items-center gap-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer ${
             activeTab === 'single'
               ? 'bg-red-600 text-white shadow-md'
               : 'border border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:bg-zinc-800'
@@ -185,7 +211,7 @@ export default function UploadPage() {
           type="button"
           onClick={() => setActiveTab('package')}
           data-testid="upload-tab-package"
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+          className={`flex h-8 items-center gap-2 px-4 rounded-xl text-xs font-semibold transition cursor-pointer ${
             activeTab === 'package'
               ? 'bg-red-600 text-white shadow-md'
               : 'border border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:bg-zinc-800'
@@ -197,11 +223,11 @@ export default function UploadPage() {
       </div>
 
       {activeTab === 'package' ? (
-        <div className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl">
+        <div className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl min-h-[320px]">
           <MediaPackageUploadSection />
         </div>
       ) : (
-        <div className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl">
+        <div className="rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-6 sm:p-8 shadow-xl min-h-[320px]">
           {/* Step 1: Select / Drop File */}
           {!selectedFile && (
             <div
@@ -213,7 +239,7 @@ export default function UploadPage() {
                 }
               }}
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center hover:border-red-500 hover:bg-[#1b1b1b] dark:hover:bg-[#1b1b1b] hover:bg-gray-50 cursor-pointer transition"
+              className="flex flex-col items-center justify-center min-h-[240px] w-full rounded-2xl border-2 border-dashed border-[#383838] dark:border-[#383838] border-gray-300 p-12 text-center hover:border-red-500 hover:bg-[#1b1b1b] dark:hover:bg-[#1b1b1b] hover:bg-gray-50 cursor-pointer transition"
             >
               <input
                 ref={fileInputRef}

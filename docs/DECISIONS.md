@@ -1264,3 +1264,157 @@ Web cần sửa nhỏ: chỉ hiện menu âm thanh khi có ít nhất 2 lựa ch
 - TV đi được hết các luồng chính bằng bàn phím;
 - CLS < 0,1 trên mọi trang;
 - người dùng tự kiểm tra trên điện thoại, máy tính bảng và TV thật.
+
+### ADR-045 — Danh sách tập khi xem phim bộ và giao diện xem trên điện thoại (CIN3, UX2)
+
+*Bối cảnh (2026-10-21).* Người dùng thử trên điện thoại (ảnh chụp trang xem Thiên Cơ Biến tập 3):
+1. **Thanh điều khiển của player tràn ra ngoài.** Nút cài đặt và toàn màn hình bị cắt, nút phụ đề to bất thường. Nguyên nhân: sau UX1 (#423, vùng chạm 44 px), mọi nút có `min-w-11` nhưng thanh điều khiển vẫn xếp một hàng không co.
+2. **Hàng nút Thích, Chia sẻ, Xem sau, Lưu, Báo cáo không đều và bị che.** Nút cao thấp khác nhau, chữ "Chia sẻ" và "Xem sau" xuống hai dòng, nút Báo cáo bị cắt mép phải.
+3. **Xem một tập phim bộ chỉ thấy "Xem tiếp", không thấy danh sách tập.** Web đã có cột danh sách tập (`watch-series-column`), nhưng chỉ hiện khi link có `?playlist=<id>` (vào từ trang Phim). Vào từ tìm kiếm, Lịch sử, Google hay link chia sẻ thì không có tham số này nên không có ngữ cảnh phim bộ.
+
+*Quyết định.*
+- **CIN3, API (contract của kiến trúc sư, Antigravity 3 làm trong social-svc):** `GET /v1/series?video_id=` (`listSeriesForVideo`) trả về tối đa 5 series `PUBLIC` có video là tập **phát được**, `updated_at` mới nhất trước; không có thì trả về danh sách rỗng, không 404. Gateway: `/v1/series` đã sang social-svc.
+- **CIN3, web (Antigravity 1):**
+  - Trang xem không có `?playlist=` thì gọi `listSeriesForVideo`. Có series thì dùng series đầu tiên: gọi `getSeriesEpisode`, hiện danh sách tập (cột phải trên desktop, khối dưới player trên mobile, có Tập trước/Tập sau), và thêm `?playlist=` vào URL bằng `replaceState`, không tạo bước lịch sử mới.
+  - Danh sách tập: tập đang xem được làm nổi và tự cuộn tới; có số tập, thumbnail, tiêu đề, thời lượng; tải thêm theo cursor.
+  - Hết tập thì tự phát tập sau, có đếm ngược 5 giây và nút huỷ.
+- **UX2, giao diện xem trên mobile (Antigravity 1):**
+  - *Thanh điều khiển player dưới 640 px:* chỉ giữ Phát/Dừng, thời gian dạng gọn, Cài đặt và Toàn màn hình. Âm lượng chỉ còn nút tắt/bật tiếng (bỏ thanh trượt). Phụ đề, âm thanh và chất lượng chuyển vào menu Cài đặt.
+    - Nút hiển thị 36 px, vùng chạm vẫn 44 px (dùng padding hoặc `::before`).
+    - Không nút nào bị cắt ở 360 px.
+    - Nút phụ đề không dùng nền đỏ đặc; đang bật thì đổi màu icon hoặc thêm gạch dưới.
+  - *Hàng hành động dưới tiêu đề:* các chip có cùng chiều cao, icon và chữ trên một dòng (`whitespace-nowrap`), cuộn ngang được (`overflow-x-auto`, ẩn thanh cuộn, có gradient mờ ở mép phải). Không chip nào bị che.
+  - *Hàng kênh:* nút Đăng ký kích thước bình thường, không phình to.
+  - Thêm ảnh chụp e2e ở 360, 390 và 768 px cho trang xem; kiểm toán UX1 không được báo tràn hay cắt ở trang xem.
+
+### ADR-046 — Đăng ký mở, tài khoản thường chỉ xem; quyền sáng tạo do Admin duyệt (ROLE1)
+
+*Bối cảnh (2026-10-22).* User quyết định:
+- mở đăng ký, không cần mã mời nữa;
+- tài khoản thường chỉ được xem;
+- muốn upload và quản lý video thì phải gửi yêu cầu nâng cấp và chờ Admin duyệt;
+- tài khoản của user là Admin;
+- giao diện ẩn/hiện chức năng theo quyền: thường thì chỉ xem, sáng tạo có thêm upload và Studio, admin có thêm trang Admin.
+
+Hiện trạng code:
+- Đã có role `viewer`, `creator`, `moderator`, `admin`.
+- Đã có `adminSetUserRoles`, đình chỉ tài khoản, audit log, tab Admin "Người dùng" và "Nhật ký".
+- upload-svc đã đòi `creator`.
+- Nhưng tài khoản mới mặc định có `{viewer,creator}`. Video-svc chỉ kiểm tra chủ sở hữu, không kiểm tra `creator`. Web hiện nút Tải lên và Studio cho mọi người.
+
+*Quyết định.*
+- **Đăng ký mở (Antigravity 2, Antigravity 1).**
+  - Production đặt `REGISTRATION_MODE=open`. Code BETA1 giữ nguyên để có thể đóng lại khi cần.
+  - Form đăng ký chỉ hiện ô mã mời khi link có `?invite=`. Bỏ chữ "beta kín" khỏi giao diện.
+  - Theo ADR-034, LEGAL chặn việc mở công khai. User đã quyết định mở đăng ký ngày 2026-10-22; LEGAL vẫn mở và cần làm sớm.
+- **Role mặc định là `viewer`.**
+  - Contract `register` và Google sign-up đặt `roles = [viewer]`. Migration 000027 đổi default của cột thành `{viewer}`.
+  - Biến cấu hình `SIGNUP_ROLES` của auth-svc chỉ nhận `viewer` (mặc định, production) hoặc `viewer,creator`; giá trị khác thì service không khởi động. Giá trị được ghi log lúc khởi động. Stack dev/test (compose, systest, mô phỏng CI) đặt `viewer,creator`, vì seed và loadtest đăng ký tài khoản qua API rồi upload. Manifest production không bao giờ đặt biến này.
+  - **Tài khoản đã có giữ nguyên role.** Admin thu hồi `creator` ở tab Người dùng nếu cần.
+  - Không chạy migration dữ liệu: không đoán được ai "đáng" giữ `creator`, và migration đó không đảo ngược được.
+- **Yêu cầu nâng cấp (contract của kiến trúc sư, Antigravity 3 làm trong auth-svc).**
+  - Bảng `auth.creator_requests`. Mỗi user có tối đa một yêu cầu `PENDING`.
+  - Endpoint:
+    - `GET/POST /v1/auth/me/creator-request`;
+    - `GET /v1/admin/creator-requests?status=` (chỉ admin; có `pending_count` cho badge);
+    - `POST /v1/admin/creator-requests/{id}/decision` với `APPROVE | REJECT` và `note` (bắt buộc khi từ chối).
+  - Duyệt thì trong cùng transaction: thêm `creator` vào roles và ghi audit `USER_ROLES_CHANGED` kèm `creator_request_id`.
+    - **Không thu hồi phiên đăng nhập**, vì thêm quyền thì chậm tối đa 15 phút cũng an toàn. Web gọi `refresh` ngay khi thấy yêu cầu được duyệt.
+    - Thu hồi quyền vẫn đi qua `adminSetUserRoles`, giữ hành vi thu hồi phiên như cũ.
+  - Bị từ chối thì 24 giờ sau mới gửi lại được (`REQUEST_COOLDOWN`). Rate limit 5 yêu cầu/ngày.
+  - Log không ghi nội dung `message`.
+  - Chưa gửi email báo kết quả (bản sau). Người dùng thấy trạng thái trên trang nâng cấp.
+- **Máy chủ thực thi quyền, không chỉ giao diện.**
+  - upload-svc đã đòi `creator`.
+  - video-svc (kiến trúc sư làm) đòi `creator` cho sửa video, phụ đề, track âm thanh, danh sách Studio và thống kê. Thiếu quyền thì trả `403 CREATOR_ROLE_REQUIRED`, kiểm từ header trước khi đọc dữ liệu.
+  - **Xoá video của mình** vẫn được làm khi không có `creator`.
+  - Phần xem (like, bình luận, playlist, xem sau, lịch sử, đăng ký kênh) vẫn dành cho mọi tài khoản.
+- **Tài khoản Admin của user (Antigravity 2).**
+  - Chạy SQL một lần trên edge-1: đặt `roles = {viewer,creator,admin}` cho tài khoản có email của user, nếu chưa có.
+  - Email nhập bằng `read -r`, không ghi vào git, issue hay log. Báo cáo chỉ ghi id tài khoản và role trước/sau.
+  - User đăng xuất rồi đăng nhập lại để nhận token mới.
+- **Giao diện theo quyền (Antigravity 1).**
+
+  | Chức năng | Khách | Thường (`viewer`) | Sáng tạo (`creator`) | Kiểm duyệt (`moderator`) | Admin |
+  |---|---|---|---|---|---|
+  | Xem, tìm kiếm, phim | ✓ | ✓ | ✓ | ✓ | ✓ |
+  | Thích, bình luận, playlist, xem sau, lịch sử, đăng ký kênh | – | ✓ | ✓ | ✓ | ✓ |
+  | "Trở thành nhà sáng tạo" (gửi yêu cầu, xem trạng thái) | – | ✓ | – | ✓ nếu chưa có `creator` | – |
+  | Tải lên, Studio, sửa video, phụ đề, track âm thanh, thống kê | – | – | ✓ | – | ✓ (admin có cả `creator`) |
+  | Admin: Hàng kiểm duyệt, Người dùng | – | – | – | ✓ | ✓ |
+  | Admin: Yêu cầu sáng tạo, Nhật ký, đổi role | – | – | – | – | ✓ |
+
+  - Thiếu quyền thì **ẩn** nút và link: thanh trên, sidebar, tab dưới mobile, menu tài khoản, nút Chỉnh sửa/Phụ đề trên trang xem.
+  - Vào thẳng `/upload` hay `/studio/*` khi thiếu quyền: khách được chuyển tới đăng nhập; tài khoản thường thấy trang "Trở thành nhà sáng tạo", không phải trang lỗi.
+  - Khi đang tải phiên đăng nhập: dùng chỗ giữ chỗ như #442, không để giao diện nhảy (CLS).
+
+*Hệ quả.*
+- Thứ tự làm:
+  1. Merge PR thiết kế này (contract và migration).
+  2. Song song: AG3 (auth-svc), kiến trúc sư (video-svc), AG1 (web, dùng mock theo contract).
+  3. AG2 áp migration 000027, deploy auth-svc, video-svc và web, đặt `REGISTRATION_MODE=open`, cấp quyền Admin.
+  4. AG4 thêm kịch bản systest cho cả luồng: đăng ký → không thấy Tải lên → gửi yêu cầu → admin duyệt → thấy Tải lên và upload được.
+- **Deploy auth-svc trước rồi mới mở đăng ký.** Bản auth-svc cũ vẫn cấp `creator` cho tài khoản mới.
+
+### ADR-047 — Admin tìm, ẩn và xoá bất kỳ video nào (ADMV1)
+
+*Bối cảnh (2026-10-23).* User muốn admin ẩn hoặc xoá được bất kỳ video nào trên hệ thống. Hiện trạng:
+- Server đã cho phép: `moderateVideo` (moderator hoặc admin, ẩn kèm lý do / hiện lại) và `deleteVideo` (chủ video, moderator hoặc admin).
+- Nhưng admin không có cách tìm video: chỉ thấy video bị báo cáo trong Hàng kiểm duyệt, hoặc video của chính mình trong Studio. Web cũng không có nút ẩn/xoá trên trang xem.
+
+*Quyết định.*
+- **API (kiến trúc sư, video-svc):** `GET /v1/studio/admin/videos` (`adminListVideos`).
+  - Chỉ moderator và admin; kiểm tra từ `X-User-Roles` trước khi đọc dữ liệu.
+  - Trả mọi video của mọi người, mọi trạng thái, chế độ hiển thị và trạng thái kiểm duyệt, mới nhất trước.
+  - Bộ lọc: `q` (chuỗi con của tiêu đề, không phân biệt hoa thường và dấu), `status`, `visibility`, `moderation_state`, `owner_id`. Cursor gắn với bộ lọc.
+  - Mỗi dòng có `owner` (tài khoản không còn hoạt động thì dùng hồ sơ thay thế `deleted_user`) và `owner_active`.
+  - Đặt dưới `/v1/studio/`, vì gateway đã chuyển `/v1/studio/*` sang video-svc, còn `/v1/admin/*` sang auth-svc.
+- **Ẩn và xoá dùng lại endpoint có sẵn,** không đổi quyền. Moderator vẫn được ẩn và xoá như contract hiện tại. Xoá là vĩnh viễn: media janitor xoá toàn bộ file trên R2.
+- **Web (Antigravity 1):**
+  - Tab Admin "Video" cho moderator và admin, có ô tìm kiếm, các bộ lọc và tải thêm theo cursor.
+  - Mỗi dòng hiện ảnh nhỏ, tiêu đề (link tới trang xem), chủ video, trạng thái, chế độ hiển thị, trạng thái kiểm duyệt và ngày tạo.
+  - Hành động: **Ẩn** (bắt buộc nhập lý do), **Hiện lại**, **Xoá** (hộp xác nhận phải gõ lại "XOÁ").
+  - Trang xem: menu "⋯ Quản trị" cho moderator và admin, có Ẩn/Hiện lại và Xoá; xoá xong thì quay về trang chủ.
+
+*Hệ quả.* Admin xử lý được video vi phạm mà không cần chờ người dùng báo cáo. Xoá không hoàn tác được nên giao diện bắt xác nhận hai bước. Ẩn là cách xử lý mặc định nên được đề xuất trước.
+
+### ADR-048 — Dọn rác R2 và chính sách AV1 theo top N (STOR1, AV1POL)
+
+*Bối cảnh (2026-10-23).*
+- R2 báo khoảng 9,2 GB. Kiểm kê bằng `storage-gc` (#456) trên gpu-01:
+  - H.264 đang dùng: 3,10 GiB;
+  - **bộ AV1 đang dùng: 2,21 GiB**;
+  - **file gốc: 2,71 GiB** (22 video, chỉ có một bản trên R2, vault chưa sao lưu);
+  - rác: 0,42 GiB (file gốc của video đã xoá, file gốc âm thanh đã xử lý);
+  - backup: 0,13 GiB.
+- Đã sửa trong #456 lỗi janitor bỏ sót file gốc của track âm thanh khi xoá video. R2 có thêm quy tắc tự huỷ multipart upload dở dang sau 1 ngày.
+- Từ #445, player chỉ dùng AV1 khi máy giải mã AV1 bằng phần cứng (`mediaCapabilities` báo `powerEfficient` và `smooth`), hiện là số ít người xem. Mỗi video có hai bộ HLS thì hai nhóm người xem không dùng chung cache edge, trong khi cache-miss đang là nguyên nhân giật chính.
+- User muốn giữ AV1 vì sẽ phổ biến hơn, nhưng mở rộng theo nhu cầu thật.
+
+*Quyết định.*
+- **Dọn rác:** kiến trúc sư duyệt `storage-gc -apply media-orphan-video,raw-orphan-video,raw-audio-processed`. Nhóm `media-old-attempt` và `media-old-av1` cũng được xoá khi có.
+- **AV1 theo top N (AV1POL, user đồng ý 2026-10-23).** `av1-upgrade` có thêm hai biến:
+  - `AV1_TOP_N`: `all` (mặc định, giữ hành vi cũ) hoặc một số N;
+  - `AV1_KEEP_TOP`: mặc định max(2N, N+5).
+  - Mỗi đêm `av1-upgrade` xếp hạng video READY theo lượt xem 7 ngày, rồi:
+    1. xoá file của các bộ AV1 đã bị gỡ ở lần chạy trước;
+    2. gỡ bộ AV1 của video xếp ngoài hạng `KEEP_TOP` (chỉ trong database, file để lần chạy sau mới xoá, để người đang xem dở xem hết);
+    3. chỉ nâng cấp video trong top N.
+  - Production bắt đầu với `AV1_TOP_N=5`. Tăng lên 10, 100 hay `all` chỉ cần đổi biến môi trường; lần chạy sau tự làm AV1 từ file gốc.
+- **Đo tỷ lệ AV1:** player sẽ báo codec đang phát (H.264 hay AV1) trong dữ liệu lượt xem (contract và video-svc do kiến trúc sư làm, player do Antigravity 1). Khi tỷ lệ máy phát AV1 vượt khoảng 30–40% thì tăng N.
+- **File gốc:** Antigravity 2 thêm `winkey-raw` vào lịch sao lưu vault (HDD gpu-01). Có xoá file gốc cũ khỏi R2 hay không, user quyết định sau.
+
+*Hệ quả.*
+- R2 giảm khoảng 2–2,5 GiB: 0,42 GiB rác cộng phần lớn 2,21 GiB AV1 của các video ngoài top 5.
+- Cache edge tập trung vào một bộ cho các video ít người xem. Video hot vẫn có AV1 cho máy hỗ trợ.
+- AV1 có thể mở rộng lại bất cứ lúc nào, vì file gốc vẫn còn.
+
+*Bổ sung 2026-10-26 (AV1-tel, đo tỷ lệ AV1).*
+- `PlaybackSample` và event `analytics.playback` có thêm hai field tuỳ chọn:
+  - `codec` (`h264` | `av1`): codec của master đang phát, tức URL player thực sự nạp (`hls_av1_url` hay `hls_url`), không phải codec player muốn dùng;
+  - `av1_capable` (boolean): kết quả `isAv1Supported()` của máy, kể cả khi video không có bộ AV1.
+- video-svc chỉ đưa hai field vào event khi client gửi (bỏ hẳn key, không gửi `null`). Nhờ vậy video-svc deploy trước hay sau worker đều an toàn; chỉ **player** phải đợi analytics-worker mới chạy trên gpu-01, vì worker cũ `DisallowUnknownFields` và sẽ `Term` event lạ.
+- ClickHouse `db/clickhouse/0003_codec.sql` thêm hai cột Nullable vào `playback_events`, vào cùng PR với worker. File này có sẵn hai câu truy vấn:
+  - tỷ lệ máy AV1 trên các lượt phát 7 ngày;
+  - tỷ lệ thời gian xem bằng AV1.
+- Ngưỡng tăng `AV1_TOP_N` vẫn như trên: `av1_capable_share` vượt khoảng 30–40%.

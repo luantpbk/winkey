@@ -7,7 +7,7 @@ import { verifyAccessToken } from '../crypto/jwt.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { enforceRbac } from '../utils/rbac.js';
 import type { Env } from '../config/env.js';
-import type { Database, Role, UserStatus } from '../db/types.js';
+import type { Database, Role, UserStatus, CreatorRequestStatus } from '../db/types.js';
 import type { RevocationService } from '../revocation/revocation.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -90,6 +90,32 @@ interface CursorPayload {
   created_at: string;
   id: string;
 }
+
+interface CreatorRequestCursorPayload {
+  s: 'PENDING' | 'APPROVED' | 'REJECTED';
+  t: string;
+  id: string;
+}
+
+const creatorRequestStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED']);
+
+const decideCreatorRequestSchema = z
+  .object({
+    decision: z.enum(['APPROVE', 'REJECT']),
+    note: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.decision === 'REJECT') {
+      if (!data.note || data.note.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Note is required when rejecting a creator request',
+          path: ['note'],
+        });
+      }
+    }
+  });
 
 const setRolesSchema = z.object({
   roles: z
@@ -622,6 +648,354 @@ export const adminRoute: FastifyPluginAsync<{
     return reply.status(200).send({
       items: formattedItems,
       next_cursor: nextCursor,
+    });
+  });
+
+  // 7. List creator requests (admin only, task ROLE1, ADR-046)
+  fastify.get<{
+    Querystring: {
+      status?: string;
+      cursor?: string;
+      limit?: string;
+    };
+  }>('/v1/admin/creator-requests', async (request, reply) => {
+    const caller = await getCaller(request, env);
+    enforceRbac({ actorRoles: caller.roles, action: 'LIST_CREATOR_REQUESTS' });
+
+    const { status, cursor, limit } = request.query;
+    let targetStatus: CreatorRequestStatus = 'PENDING';
+    if (status !== undefined) {
+      const parsedStatus = creatorRequestStatusSchema.safeParse(status);
+      if (!parsedStatus.success) {
+        throw ProblemError.badRequest('Invalid status parameter');
+      }
+      targetStatus = parsedStatus.data;
+    }
+
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit || '24', 10) || 24));
+
+    let cursorData: CreatorRequestCursorPayload | null = null;
+    if (cursor) {
+      cursorData = decodeCursor<CreatorRequestCursorPayload>(cursor);
+      if (
+        !cursorData ||
+        cursorData.s !== targetStatus ||
+        !cursorData.t ||
+        !cursorData.id ||
+        !isValidUuid(cursorData.id)
+      ) {
+        throw ProblemError.badRequest('Invalid cursor');
+      }
+    }
+
+    let query = db
+      .selectFrom('auth.creator_requests as cr')
+      .innerJoin('auth.users as u', 'u.id', 'cr.user_id')
+      .leftJoin('auth.public_profiles as decider', 'decider.id', 'cr.decided_by')
+      .select([
+        'cr.id',
+        'cr.status',
+        'cr.message',
+        'cr.decision_note',
+        sql<string>`to_char(cr.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'created_at_iso',
+        ),
+        sql<string>`to_char(cr.decided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'decided_at_iso',
+        ),
+        'u.id as user_id',
+        'u.email as user_email',
+        'u.email_verified_at as user_email_verified_at',
+        'u.handle as user_handle',
+        'u.display_name as user_display_name',
+        'u.avatar_key as user_avatar_key',
+        'u.roles as user_roles',
+        'u.status as user_status',
+        'u.suspended_until as user_suspended_until',
+        'u.suspension_reason as user_suspension_reason',
+        sql<string>`to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          'user_created_at_iso',
+        ),
+        'decider.id as decider_id',
+        'decider.handle as decider_handle',
+        'decider.display_name as decider_display_name',
+        'decider.avatar_key as decider_avatar_key',
+      ])
+      .where('cr.status', '=', targetStatus);
+
+    if (targetStatus === 'PENDING') {
+      if (cursorData) {
+        query = query.where(
+          sql<boolean>`(cr.created_at > ${cursorData.t}::timestamptz OR (cr.created_at = ${cursorData.t}::timestamptz AND cr.id > ${cursorData.id}::uuid))`,
+        );
+      }
+      query = query
+        .orderBy('cr.created_at', 'asc')
+        .orderBy('cr.id', 'asc')
+        .limit(limitNum + 1);
+    } else {
+      if (cursorData) {
+        query = query.where(
+          sql<boolean>`(cr.decided_at < ${cursorData.t}::timestamptz OR (cr.decided_at = ${cursorData.t}::timestamptz AND cr.id < ${cursorData.id}::uuid))`,
+        );
+      }
+      query = query
+        .orderBy('cr.decided_at', 'desc')
+        .orderBy('cr.id', 'desc')
+        .limit(limitNum + 1);
+    }
+
+    const [rows, pendingCountResult] = await Promise.all([
+      query.execute(),
+      db
+        .selectFrom('auth.creator_requests')
+        .select(sql<number>`count(*)::int`.as('count'))
+        .where('status', '=', 'PENDING')
+        .executeTakeFirst(),
+    ]);
+
+    const pendingCount = Number(pendingCountResult?.count ?? 0);
+    const hasNext = rows.length > limitNum;
+    const items = hasNext ? rows.slice(0, limitNum) : rows;
+
+    let nextCursor: string | null = null;
+    if (hasNext && items.length > 0) {
+      const last = items[items.length - 1];
+      nextCursor = encodeCursor<CreatorRequestCursorPayload>({
+        s: targetStatus,
+        t: targetStatus === 'PENDING' ? last.created_at_iso : last.decided_at_iso!,
+        id: last.id,
+      });
+    }
+
+    const formattedItems = items.map((row) => ({
+      id: row.id,
+      status: row.status,
+      message: row.message,
+      decision_note: row.decision_note ?? null,
+      created_at: row.created_at_iso,
+      decided_at: row.decided_at_iso ?? null,
+      user: formatAdminUser(
+        {
+          id: row.user_id,
+          email: row.user_email,
+          email_verified_at: row.user_email_verified_at,
+          handle: row.user_handle,
+          display_name: row.user_display_name,
+          avatar_key: row.user_avatar_key,
+          roles: row.user_roles,
+          status: row.user_status,
+          suspended_until: row.user_suspended_until,
+          suspension_reason: row.user_suspension_reason,
+          created_at_iso: row.user_created_at_iso,
+        },
+        env,
+      ),
+      decided_by: row.decider_id
+        ? {
+            id: row.decider_id,
+            handle: row.decider_handle || 'unknown',
+            display_name: row.decider_display_name || 'Unknown User',
+            avatar_url: row.decider_avatar_key
+              ? `${env.MEDIA_BASE_URL}/${row.decider_avatar_key}`
+              : null,
+          }
+        : null,
+    }));
+
+    return reply.status(200).send({
+      items: formattedItems,
+      next_cursor: nextCursor,
+      pending_count: pendingCount,
+    });
+  });
+
+  // 8. Decide creator request (admin only, task ROLE1, ADR-046)
+  fastify.post<{
+    Params: { request_id: string };
+  }>('/v1/admin/creator-requests/:request_id/decision', async (request, reply) => {
+    const caller = await getCaller(request, env);
+    enforceRbac({ actorRoles: caller.roles, action: 'DECIDE_CREATOR_REQUEST' });
+
+    const { request_id } = request.params;
+    if (!isValidUuid(request_id)) {
+      throw ProblemError.badRequest('Invalid request ID');
+    }
+
+    const parseResult = decideCreatorRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const fieldErrors = parseResult.error.errors.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_ERROR');
+    }
+    const { decision, note } = parseResult.data;
+
+    const result = await db.transaction().execute(async (trx) => {
+      // Lock request row
+      const requestRow = await trx
+        .selectFrom('auth.creator_requests')
+        .selectAll()
+        .where('id', '=', request_id)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!requestRow) {
+        throw ProblemError.notFound('Creator request not found');
+      }
+
+      if (requestRow.status !== 'PENDING') {
+        throw ProblemError.conflict('Request has already been decided', 'REQUEST_ALREADY_DECIDED');
+      }
+
+      if (requestRow.user_id === caller.id) {
+        throw ProblemError.cannotModerateTarget('Cannot moderate own creator request');
+      }
+
+      const now = new Date();
+
+      if (decision === 'REJECT') {
+        await trx
+          .updateTable('auth.creator_requests')
+          .set({
+            status: 'REJECTED',
+            decision_note: note!,
+            decided_by: caller.id,
+            decided_at: now,
+          })
+          .where('id', '=', request_id)
+          .execute();
+      } else {
+        // APPROVE: lock target user
+        const targetUser = await trx
+          .selectFrom('auth.users')
+          .selectAll()
+          .where('id', '=', requestRow.user_id)
+          .forUpdate()
+          .executeTakeFirst();
+
+        if (!targetUser) {
+          throw ProblemError.notFound('Target user not found');
+        }
+
+        if (targetUser.status !== 'ACTIVE') {
+          throw ProblemError.conflict('Target user is not active', 'USER_NOT_ACTIVE');
+        }
+
+        const currentRoles = [...targetUser.roles];
+        const rolesChanged = !currentRoles.includes('creator');
+        if (rolesChanged) {
+          const newRoles = [...currentRoles, 'creator' as Role];
+          await trx
+            .updateTable('auth.users')
+            .set({
+              roles: newRoles,
+              updated_at: now,
+            })
+            .where('id', '=', requestRow.user_id)
+            .execute();
+
+          await trx
+            .insertInto('auth.audit_log')
+            .values({
+              id: uuidv7(),
+              actor_id: caller.id,
+              action: 'USER_ROLES_CHANGED',
+              target_user_id: requestRow.user_id,
+              details: JSON.stringify({
+                from: currentRoles,
+                to: newRoles,
+                creator_request_id: request_id,
+              }),
+            })
+            .execute();
+        }
+
+        await trx
+          .updateTable('auth.creator_requests')
+          .set({
+            status: 'APPROVED',
+            decision_note: note ?? null,
+            decided_by: caller.id,
+            decided_at: now,
+          })
+          .where('id', '=', request_id)
+          .execute();
+      }
+
+      const decided = await trx
+        .selectFrom('auth.creator_requests as cr')
+        .innerJoin('auth.users as u', 'u.id', 'cr.user_id')
+        .leftJoin('auth.public_profiles as decider', 'decider.id', 'cr.decided_by')
+        .select([
+          'cr.id',
+          'cr.status',
+          'cr.message',
+          'cr.decision_note',
+          sql<string>`to_char(cr.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+            'created_at_iso',
+          ),
+          sql<string>`to_char(cr.decided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+            'decided_at_iso',
+          ),
+          'u.id as user_id',
+          'u.email as user_email',
+          'u.email_verified_at as user_email_verified_at',
+          'u.handle as user_handle',
+          'u.display_name as user_display_name',
+          'u.avatar_key as user_avatar_key',
+          'u.roles as user_roles',
+          'u.status as user_status',
+          'u.suspended_until as user_suspended_until',
+          'u.suspension_reason as user_suspension_reason',
+          sql<string>`to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+            'user_created_at_iso',
+          ),
+          'decider.id as decider_id',
+          'decider.handle as decider_handle',
+          'decider.display_name as decider_display_name',
+          'decider.avatar_key as decider_avatar_key',
+        ])
+        .where('cr.id', '=', request_id)
+        .executeTakeFirstOrThrow();
+
+      return decided;
+    });
+
+    return reply.status(200).send({
+      id: result.id,
+      status: result.status,
+      message: result.message,
+      decision_note: result.decision_note ?? null,
+      created_at: result.created_at_iso,
+      decided_at: result.decided_at_iso ?? null,
+      user: formatAdminUser(
+        {
+          id: result.user_id,
+          email: result.user_email,
+          email_verified_at: result.user_email_verified_at,
+          handle: result.user_handle,
+          display_name: result.user_display_name,
+          avatar_key: result.user_avatar_key,
+          roles: result.user_roles,
+          status: result.user_status,
+          suspended_until: result.user_suspended_until,
+          suspension_reason: result.user_suspension_reason,
+          created_at_iso: result.user_created_at_iso,
+        },
+        env,
+      ),
+      decided_by: result.decider_id
+        ? {
+            id: result.decider_id,
+            handle: result.decider_handle || 'unknown',
+            display_name: result.decider_display_name || 'Unknown User',
+            avatar_url: result.decider_avatar_key
+              ? `${env.MEDIA_BASE_URL}/${result.decider_avatar_key}`
+              : null,
+          }
+        : null,
     });
   });
 };

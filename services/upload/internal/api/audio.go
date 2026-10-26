@@ -33,7 +33,7 @@ var allowedAudioContentTypes = map[string]bool{
 
 func (h *Handler) audioRoutes(r chi.Router) {
 	r.Route("/audio-tracks", func(r chi.Router) {
-		r.Post("/", h.createAudio)
+		r.With(httpx.RequireRole(httpx.RoleCreator)).Post("/", h.createAudio) // ROLE1 (ADR-046)
 		r.Route("/{track_id}", func(r chi.Router) {
 			r.Delete("/", h.abortAudio)
 			r.Post("/parts", h.presignAudio)

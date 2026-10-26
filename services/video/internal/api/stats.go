@@ -173,6 +173,9 @@ func (h *Handler) limitedUser(w http.ResponseWriter, r *http.Request, scope stri
 // ---- GET /v1/studio/videos/{video_id}/stats -----------------------------------------------------------------------
 
 func (h *Handler) getVideoStats(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	who := viewer(r)
 	if h.limitedUser(w, r, "studio-stats", who.ID, statsRateLimit) {
 		return
@@ -228,6 +231,9 @@ func (h *Handler) getVideoStats(w http.ResponseWriter, r *http.Request) {
 // ---- GET /v1/studio/stats -----------------------------------------------------------------------------------------
 
 func (h *Handler) getChannelStats(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	who := viewer(r)
 	if h.limitedUser(w, r, "studio-stats", who.ID, statsRateLimit) {
 		return

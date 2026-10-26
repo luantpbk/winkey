@@ -11,17 +11,26 @@ import {
   VolumeX,
   Maximize,
   Minimize,
+  Settings,
 } from 'lucide-react';
 import type { Rendition, SubtitleTrack, PlaybackAudioTrack } from '@winkey/api-client';
 import { api } from '../../lib/api-client';
 import { QualityMenu, type QualityLevel } from './quality-menu';
 import { CcMenu } from './cc-menu';
 import { AudioMenu, type AudioTrackOption } from './audio-menu';
+import { PlayerSettingsSheet } from './player-settings-sheet';
 import { SeekBar, formatTime } from './seek-bar';
 import { useViewCounter } from './use-view-counter';
 import { PlaybackTracker } from '../../lib/video/playback-tracker';
 import { type WatchSurface, stripWatchSurfaceFromAddressBar } from '../../lib/video/watch-url';
 import { saveContinueWatching, removeContinueWatching } from '../../lib/video/continue-watching';
+
+type LockableOrientation = ScreenOrientation & {
+  lock?: (orientation: 'landscape') => Promise<void>;
+  unlock?: () => void;
+};
+
+type IosVideoElement = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 
 export interface VideoPlayerProps {
   videoId?: string;
@@ -37,21 +46,44 @@ export interface VideoPlayerProps {
   expiresAt?: string | null;
   surface?: WatchSurface;
   onRecordView?: (playbackId: string, watchedMs: number) => Promise<void> | void;
+  onEnded?: () => void;
   className?: string;
 }
 
-export function isAv1Supported(): boolean {
-  if (typeof window === 'undefined' || typeof window.MediaSource === 'undefined') {
-    return false;
-  }
-  if (typeof window.MediaSource.isTypeSupported !== 'function') {
+export const AV1_MEDIA_CAPABILITIES_CONFIG: MediaDecodingConfiguration = {
+  type: 'media-source',
+  video: {
+    contentType: 'video/mp4; codecs="av01.0.08M.08"',
+    width: 1920,
+    height: 1080,
+    bitrate: 3000000,
+    framerate: 30,
+  },
+};
+
+export async function isAv1Supported(): Promise<boolean> {
+  if (
+    typeof navigator === 'undefined' ||
+    !navigator.mediaCapabilities ||
+    typeof navigator.mediaCapabilities.decodingInfo !== 'function'
+  ) {
     return false;
   }
   try {
-    return window.MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"');
+    const info = await navigator.mediaCapabilities.decodingInfo(AV1_MEDIA_CAPABILITIES_CONFIG);
+    return Boolean(info && info.supported && info.smooth && info.powerEfficient);
   } catch {
     return false;
   }
+}
+
+export function getLoadedCodec(
+  url: string | undefined | null,
+  av1Url: string | undefined | null,
+): 'av1' | 'h264' {
+  if (!url) return 'h264';
+  if (av1Url && url === av1Url) return 'av1';
+  return 'h264';
 }
 
 function findPreferredAudioTrackIndex(tracks: AudioTrackOption[]): number {
@@ -96,6 +128,7 @@ export function VideoPlayer({
   expiresAt,
   surface,
   onRecordView,
+  onEnded: onEndedProp,
   className,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,15 +136,32 @@ export function VideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
 
   const rawAv1Url = hlsAv1Url ?? null;
+  const av1CapableRef = useRef<boolean | undefined>(undefined);
 
-  // Determine active codec for this video session: once determined, never switch codec mid-playback
-  const [activeCodec, setActiveCodec] = useState<'av1' | 'h264'>(() => {
-    return rawAv1Url && isAv1Supported() ? 'av1' : 'h264';
-  });
+  // Codec selection: defaults to 'h264' while query is pending or when API is missing
+  const [activeCodec, setActiveCodec] = useState<'av1' | 'h264'>('h264');
 
-  // Re-evaluate only when the videoId or stream URLs change
+  // Check AV1 decoding capabilities asynchronously (for activeCodec selection and telemetry)
   useEffect(() => {
-    setActiveCodec(rawAv1Url && isAv1Supported() ? 'av1' : 'h264');
+    let cancelled = false;
+
+    void isAv1Supported().then((supported) => {
+      if (cancelled) return;
+      av1CapableRef.current = supported;
+      trackerRef.current?.setAv1Capable(supported);
+
+      if (rawAv1Url && supported) {
+        if (!hasFirstFrameRef.current) {
+          setActiveCodec('av1');
+        }
+      } else {
+        setActiveCodec('h264');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [videoId, src, rawAv1Url]);
 
   // Playback overrides populated after a signed-URL auto-refresh
@@ -173,8 +223,21 @@ export function VideoPlayer({
   const [showControls, setShowControls] = useState<boolean>(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isPlayingRef = useRef<boolean>(false);
+  const isAnyMenuOpenRef = useRef<boolean>(false);
+  const touchHandledRef = useRef<boolean>(false);
+  const controlsVisibleAtTouchRef = useRef<boolean>(true);
+
   // Subtitle state
   const [selectedSubtitleLang, setSelectedSubtitleLang] = useState<string | null>(null);
+
+  // Settings sheet state (Mobile < 640px)
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isQualityMenuOpen, setIsQualityMenuOpen] = useState<boolean>(false);
+  const [isCcMenuOpen, setIsCcMenuOpen] = useState<boolean>(false);
+  const [isAudioMenuOpen, setIsAudioMenuOpen] = useState<boolean>(false);
+
+  const isAnyMenuOpen = isSettingsOpen || isQualityMenuOpen || isCcMenuOpen || isAudioMenuOpen;
 
   // Audio track state: prefill from activeAudioTracks before manifest loads
   const initialAudioOptions = useMemo<AudioTrackOption[]>(() => {
@@ -260,10 +323,15 @@ export function VideoPlayer({
     const strippedSurface = stripWatchSurfaceFromAddressBar();
     const playbackSurface = surface ?? strippedSurface;
 
+    const effectiveAv1 = refreshedPlayback ? refreshedPlayback.hls_av1_url : rawAv1Url;
+    const initialCodec = getLoadedCodec(activeSrc, effectiveAv1);
+
     const tracker = new PlaybackTracker({
       videoId,
       playbackId: playbackIdRef.current,
       surface: playbackSurface,
+      codec: initialCodec,
+      av1Capable: av1CapableRef.current,
     });
     trackerRef.current = tracker;
 
@@ -439,6 +507,9 @@ export function VideoPlayer({
           ? newPlayback.hls_av1_url
           : newPlayback.hls_url;
 
+      const nextCodec = getLoadedCodec(nextUrl, newPlayback.hls_av1_url);
+      trackerRef.current?.setCodec(nextCodec);
+
       if (hlsRef.current) {
         hlsRef.current.loadSource(nextUrl);
         video.currentTime = savedTime;
@@ -490,6 +561,10 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video || !activeSrc) return;
 
+    const effectiveAv1 = refreshedPlayback ? refreshedPlayback.hls_av1_url : rawAv1Url;
+    const loadedCodec = getLoadedCodec(activeSrc, effectiveAv1);
+    trackerRef.current?.setCodec(loadedCodec);
+
     setHasError(false);
     setErrorMessage('');
     loadStartTimeRef.current = performance.now();
@@ -509,6 +584,10 @@ export function VideoPlayer({
       setIsUsingHls(true);
       const hls = new Hls({
         enableWorker: true,
+        capLevelToPlayerSize: true,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        backBufferLength: 30,
       });
       hlsRef.current = hls;
 
@@ -644,7 +723,14 @@ export function VideoPlayer({
       setHasError(true);
       setErrorMessage('Trình duyệt của bạn không hỗ trợ phát HLS stream.');
     }
-  }, [activeSrc, activeRenditions, activeExpiresAt, refreshSignedUrls]);
+  }, [
+    activeSrc,
+    activeRenditions,
+    activeExpiresAt,
+    refreshSignedUrls,
+    refreshedPlayback,
+    rawAv1Url,
+  ]);
 
   useEffect(() => {
     setupMedia();
@@ -676,21 +762,79 @@ export function VideoPlayer({
     [activeRenditions],
   );
 
-  // Controls auto-hide
+  // Controls auto-hide (3 seconds, ref-guarded, paused or menu open keeps controls visible)
   const scheduleControlsHide = useCallback(() => {
     if (controlsTimeoutRef.current) {
       clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
+    }
+    if (!isPlayingRef.current || isAnyMenuOpenRef.current) {
+      return;
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
+      if (isPlayingRef.current && !isAnyMenuOpenRef.current) {
         setShowControls(false);
       }
-    }, 2500);
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (!isPlaying) {
+      setShowControls(true);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
+    }
   }, [isPlaying]);
+
+  useEffect(() => {
+    isAnyMenuOpenRef.current = isAnyMenuOpen;
+    if (isAnyMenuOpen) {
+      setShowControls(true);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
+    } else if (isPlayingRef.current) {
+      scheduleControlsHide();
+    }
+  }, [isAnyMenuOpen, scheduleControlsHide]);
 
   const handleMouseMove = () => {
     setShowControls(true);
     scheduleControlsHide();
+  };
+
+  const handleTouchStart = () => {
+    // Remember visibility before this touch reveals the controls, so a tap on the
+    // video can toggle them (touchstart bubbles to the container before touchend).
+    controlsVisibleAtTouchRef.current = showControls;
+    setShowControls(true);
+    scheduleControlsHide();
+  };
+
+  const handleVideoTouchEnd = () => {
+    touchHandledRef.current = true;
+    if (controlsVisibleAtTouchRef.current && isPlayingRef.current && !isAnyMenuOpenRef.current) {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
+      setShowControls(false);
+    } else {
+      setShowControls(true);
+      scheduleControlsHide();
+    }
+  };
+
+  const handleVideoClick = () => {
+    if (touchHandledRef.current) {
+      touchHandledRef.current = false;
+      return;
+    }
+    togglePlayPause();
   };
 
   // Keyboard shortcuts
@@ -713,6 +857,9 @@ export function VideoPlayer({
 
       const video = videoRef.current;
       if (!video) return;
+
+      setShowControls(true);
+      scheduleControlsHide();
 
       switch (e.code) {
         case 'Space':
@@ -783,6 +930,9 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     setIsPlaying(true);
+    isPlayingRef.current = true;
+    setShowControls(true);
+    scheduleControlsHide();
     trackerRef.current?.recordPlayRequest();
     onPlay(video.currentTime);
   };
@@ -831,7 +981,12 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     setIsPlaying(false);
+    isPlayingRef.current = false;
     setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
+    }
     savePlaybackPosition(video.currentTime, true);
     if (rebufferStartTimeRef.current !== null) {
       const rebuffDuration = performance.now() - rebufferStartTimeRef.current;
@@ -875,11 +1030,17 @@ export function VideoPlayer({
 
   const handleEndedEvent = () => {
     setIsPlaying(false);
+    isPlayingRef.current = false;
     setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = null;
+    }
     clearPlaybackPosition();
     onEnded();
     const video = videoRef.current;
     trackerRef.current?.recordEnded(video?.currentTime);
+    onEndedProp?.();
   };
 
   const handleVideoError = () => {
@@ -902,8 +1063,15 @@ export function VideoPlayer({
     if (video.paused) {
       trackerRef.current?.recordPlayRequest();
       void video.play();
+      setShowControls(true);
+      scheduleControlsHide();
     } else {
       video.pause();
+      setShowControls(true);
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
     }
   };
 
@@ -914,24 +1082,66 @@ export function VideoPlayer({
     setIsMuted(video.muted);
   };
 
+  // Keep isFullscreen in sync with the browser (Esc, Android back gesture, KeyF)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active =
+        containerRef.current !== null && document.fullscreenElement === containerRef.current;
+      setIsFullscreen(active);
+      if (active) {
+        setShowControls(true);
+        scheduleControlsHide();
+      } else {
+        try {
+          (screen.orientation as LockableOrientation | undefined)?.unlock?.();
+        } catch {
+          // unlock is unsupported outside fullscreen-capable mobile browsers
+        }
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [scheduleControlsHide]);
+
   const toggleFullscreen = () => {
+    const container = containerRef.current;
+    const video = videoRef.current as IosVideoElement | null;
     if (document.fullscreenElement) {
       void document.exitFullscreen();
-      setIsFullscreen(false);
-    } else if (containerRef.current?.requestFullscreen) {
-      void containerRef.current.requestFullscreen();
-      setIsFullscreen(true);
+    } else if (container?.requestFullscreen) {
+      Promise.resolve(container.requestFullscreen())
+        .then(() => {
+          // Phones: rotate a landscape video to landscape (Android Chrome; no-op elsewhere)
+          const orientation = screen.orientation as LockableOrientation | undefined;
+          const landscapeVideo = !video || video.videoWidth >= video.videoHeight;
+          if (
+            orientation?.lock &&
+            landscapeVideo &&
+            window.matchMedia?.('(pointer: coarse)').matches
+          ) {
+            return orientation.lock('landscape').catch(() => undefined);
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    } else if (video?.webkitEnterFullscreen) {
+      // iPhone Safari cannot fullscreen a <div>; only the <video> (native controls, auto-hide)
+      video.webkitEnterFullscreen();
     }
   };
 
   return (
     <div
       ref={containerRef}
+      data-spatial-nav="off"
       onMouseMove={handleMouseMove}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
+      onTouchStart={handleTouchStart}
+      onMouseLeave={() =>
+        isPlayingRef.current && !isAnyMenuOpenRef.current && setShowControls(false)
+      }
       className={`group relative overflow-hidden bg-black flex items-center justify-center select-none ${
-        className ?? 'aspect-video w-full rounded-2xl shadow-2xl'
-      }`}
+        isFullscreen && !showControls ? 'cursor-none' : ''
+      } ${className ?? 'aspect-video w-full rounded-2xl shadow-2xl'}`}
     >
       <video
         ref={videoRef}
@@ -953,8 +1163,11 @@ export function VideoPlayer({
         onWaiting={handleWaitingEvent}
         onEnded={handleEndedEvent}
         onError={handleVideoError}
-        onClick={togglePlayPause}
-        className="h-full w-full object-contain cursor-pointer"
+        onClick={handleVideoClick}
+        onTouchEnd={handleVideoTouchEnd}
+        className={`h-full w-full object-contain ${
+          isFullscreen && !showControls ? 'cursor-none' : 'cursor-pointer'
+        }`}
       >
         {/* Native WebVTT Text Tracks - Rendered only by browser engine, NEVER innerHTML (ADR-018) */}
         {activeSubtitles.map((track) => (
@@ -993,15 +1206,15 @@ export function VideoPlayer({
           </div>
 
           {/* Action Buttons Row */}
-          <div className="flex items-center justify-between gap-3 text-white">
+          <div className="flex items-center justify-between gap-1 sm:gap-3 text-white">
             {/* Left Controls: Play/Pause, Volume, Time */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 sm:gap-2">
               <button
                 type="button"
                 onClick={togglePlayPause}
                 aria-label={isPlaying ? 'Tạm dừng (k)' : 'Phát (k)'}
                 data-testid="play-pause-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
               </button>
@@ -1011,14 +1224,14 @@ export function VideoPlayer({
                 onClick={toggleMute}
                 aria-label={isMuted ? 'Bật âm thanh (m)' : 'Tắt tiếng (m)'}
                 data-testid="volume-mute-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
               </button>
 
               <div
                 data-testid="time-display"
-                className="text-xs font-mono font-medium text-gray-200"
+                className="text-[11px] sm:text-xs font-mono font-medium text-gray-200 select-none whitespace-nowrap shrink-0"
               >
                 <span>{formatTime(currentTime)}</span>
                 <span className="mx-1 text-gray-500">/</span>
@@ -1026,35 +1239,55 @@ export function VideoPlayer({
               </div>
             </div>
 
-            {/* Right Controls: CC Menu, Quality Menu, Fullscreen */}
-            <div className="flex items-center gap-2">
-              {/* CC Menu */}
+            {/* Right Controls: CC Menu, Audio Menu, Quality Menu, Mobile Settings Button, Fullscreen */}
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* CC Menu (Desktop >= sm) */}
               {activeSubtitles.length > 0 && (
-                <CcMenu
-                  tracks={activeSubtitles}
-                  selectedLang={selectedSubtitleLang}
-                  onSelectTrack={handleSelectSubtitle}
-                />
+                <div className="hidden sm:inline-block">
+                  <CcMenu
+                    tracks={activeSubtitles}
+                    selectedLang={selectedSubtitleLang}
+                    onSelectTrack={handleSelectSubtitle}
+                    onOpenChange={setIsCcMenuOpen}
+                  />
+                </div>
               )}
 
-              {/* Audio Menu (only shown when there are 2 or more audio tracks) */}
+              {/* Audio Menu (only shown when there are 2 or more audio tracks) (Desktop >= sm) */}
               {audioTracksList.length >= 2 && (
-                <AudioMenu
-                  tracks={audioTracksList}
-                  selectedIndex={currentAudioIndex}
-                  onSelectTrack={handleSelectAudioTrack}
-                />
+                <div className="hidden sm:inline-block">
+                  <AudioMenu
+                    tracks={audioTracksList}
+                    selectedIndex={currentAudioIndex}
+                    onSelectTrack={handleSelectAudioTrack}
+                    onOpenChange={setIsAudioMenuOpen}
+                  />
+                </div>
               )}
 
-              {/* Quality Menu */}
+              {/* Quality Menu (Desktop >= sm) */}
               {isUsingHls && qualityLevels.length > 1 && (
-                <QualityMenu
-                  levels={qualityLevels}
-                  currentLevel={currentLevel}
-                  currentHeight={currentHeight}
-                  onSelectLevel={handleSelectLevel}
-                />
+                <div className="hidden sm:inline-block">
+                  <QualityMenu
+                    levels={qualityLevels}
+                    currentLevel={currentLevel}
+                    currentHeight={currentHeight}
+                    onSelectLevel={handleSelectLevel}
+                    onOpenChange={setIsQualityMenuOpen}
+                  />
+                </div>
               )}
+
+              {/* Mobile Settings Button (opens sheet with Subtitles, Audio, Quality on < sm) */}
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                aria-label="Cài đặt phát lại"
+                data-testid="player-settings-button"
+                className="relative inline-flex sm:hidden items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
 
               {/* Fullscreen Button */}
               <button
@@ -1062,7 +1295,7 @@ export function VideoPlayer({
                 onClick={toggleFullscreen}
                 aria-label={isFullscreen ? 'Thoát toàn màn hình (f)' : 'Toàn màn hình (f)'}
                 data-testid="fullscreen-button"
-                className="rounded-lg p-1.5 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="relative inline-flex items-center justify-center h-9 w-9 rounded-lg hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-red-500 before:absolute before:-inset-1 before:content-['']"
               >
                 {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
               </button>
@@ -1070,6 +1303,22 @@ export function VideoPlayer({
           </div>
         </div>
       )}
+
+      {/* Player Settings Sheet for mobile (< 640px) */}
+      <PlayerSettingsSheet
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        subtitles={activeSubtitles}
+        selectedSubtitleLang={selectedSubtitleLang}
+        onSelectSubtitle={handleSelectSubtitle}
+        audioTracks={audioTracksList}
+        selectedAudioIndex={currentAudioIndex}
+        onSelectAudio={handleSelectAudioTrack}
+        qualityLevels={qualityLevels}
+        currentLevel={currentLevel}
+        currentHeight={currentHeight}
+        onSelectQuality={handleSelectLevel}
+      />
 
       {/* Error Overlay with Retry Button */}
       {hasError && (

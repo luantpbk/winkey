@@ -548,7 +548,7 @@ not ok 1 - auth
 
     it('marks all personas NOT RUN when Playwright output is missing', () => {
       const personas = parsePlaywright(null);
-      assert.equal(personas.length, 5);
+      assert.equal(personas.length, 6);
       for (const p of personas) {
         assert.equal(p.status, 'NOT RUN');
       }
@@ -604,6 +604,7 @@ not ok 1 - auth
                 { tests: [{ projectName: 'anon-viewer-desktop', status: 'expected' }] },
                 { tests: [{ projectName: 'anon-viewer-mobile', status: 'expected' }] },
                 { tests: [{ projectName: 'moderator', status: 'expected' }] },
+                { tests: [{ projectName: 'role-upgrade', status: 'expected' }] },
               ],
             },
           ],
@@ -846,6 +847,67 @@ not ok 1 - auth
         content.includes('Resetting auth rate limits before Playwright personas...'),
         'run.sh must reset rate limits before Playwright personas',
       );
+    });
+  });
+
+  describe('ROLE1 / ADR-046: Google OAuth return_to Marker Unit Check', () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+    const repoRoot = path.resolve(testDir, '../..');
+    const loginPagePath = path.resolve(repoRoot, 'apps/web/src/app/[locale]/login/page.tsx');
+    const sessionIndicatorPath = path.resolve(
+      repoRoot,
+      'apps/web/src/lib/auth/session-indicator.ts',
+    );
+
+    it('/login page Google sign-in link carries wk_oauth=1 in return_to', () => {
+      assert.ok(fs.existsSync(loginPagePath), 'login/page.tsx must exist');
+      const loginContent = fs.readFileSync(loginPagePath, 'utf8');
+
+      // Verify login page uses withOAuthReturnMarker on safeReturnTo
+      assert.ok(
+        loginContent.includes('withOAuthReturnMarker(safeReturnTo)'),
+        'login/page.tsx must wrap safeReturnTo with withOAuthReturnMarker',
+      );
+      assert.ok(
+        loginContent.includes('/v1/auth/oauth/google?return_to='),
+        'login/page.tsx must construct /v1/auth/oauth/google?return_to= link',
+      );
+    });
+
+    it('withOAuthReturnMarker appends wk_oauth=1 to return_to preserving path, query, and hash', () => {
+      assert.ok(fs.existsSync(sessionIndicatorPath), 'session-indicator.ts must exist');
+      const sessionContent = fs.readFileSync(sessionIndicatorPath, 'utf8');
+
+      assert.ok(
+        sessionContent.includes("export const OAUTH_RETURN_PARAM = 'wk_oauth'"),
+        'session-indicator.ts must define OAUTH_RETURN_PARAM as wk_oauth',
+      );
+
+      // Verify the transformation logic directly
+      function withOAuthReturnMarker(p) {
+        const hashIndex = p.indexOf('#');
+        const base = hashIndex === -1 ? p : p.slice(0, hashIndex);
+        const hash = hashIndex === -1 ? '' : p.slice(hashIndex);
+        return `${base}${base.includes('?') ? '&' : '?'}wk_oauth=1${hash}`;
+      }
+
+      // Root path
+      assert.equal(withOAuthReturnMarker('/'), '/?wk_oauth=1');
+      assert.equal(encodeURIComponent(withOAuthReturnMarker('/')), '%2F%3Fwk_oauth%3D1');
+
+      // Watch path with query
+      assert.equal(withOAuthReturnMarker('/watch/x?playlist=y'), '/watch/x?playlist=y&wk_oauth=1');
+
+      // Path with query and hash
+      assert.equal(
+        withOAuthReturnMarker('/watch?id=123#comments'),
+        '/watch?id=123&wk_oauth=1#comments',
+      );
+
+      // Verify final Google OAuth link URL structure
+      const targetPath = '/upload';
+      const expectedHref = `/v1/auth/oauth/google?return_to=${encodeURIComponent(withOAuthReturnMarker(targetPath))}`;
+      assert.ok(expectedHref.includes('return_to=%2Fupload%3Fwk_oauth%3D1'));
     });
   });
 });

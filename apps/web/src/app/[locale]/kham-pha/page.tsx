@@ -9,6 +9,7 @@ import { VideoFeed } from '../../../components/video/video-feed';
 import { VideoSkeleton } from '../../../components/video/video-skeleton';
 import { Link, useRouter, usePathname } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { computePermissions } from '../../../lib/auth';
 import type { VideoPage } from '@winkey/api-client';
 import { CATEGORY_CHIPS } from '../../../lib/explore-categories';
 
@@ -31,7 +32,8 @@ function KhamPhaContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, can: rawCan, isAuthenticated } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
 
   const tabParam = searchParams.get('tab');
   const catParam = searchParams.get('cat');
@@ -189,7 +191,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'for-you'}
           data-testid="tab-for-you"
           onClick={() => handleTabChange('for-you')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'for-you'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -203,7 +205,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'latest'}
           data-testid="tab-latest"
           onClick={() => handleTabChange('latest')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'latest'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -217,7 +219,7 @@ function KhamPhaContent() {
           aria-selected={activeTab === 'trending'}
           data-testid="tab-trending"
           onClick={() => handleTabChange('trending')}
-          className={`px-4 py-2 text-sm font-semibold transition relative whitespace-nowrap ${
+          className={`px-4 min-h-11 inline-flex items-center justify-center text-sm font-semibold transition relative whitespace-nowrap ${
             activeTab === 'trending'
               ? 'text-red-600 dark:text-red-500 font-bold border-b-2 border-red-600 dark:border-red-500 -mb-[5px]'
               : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -242,7 +244,7 @@ function KhamPhaContent() {
               aria-pressed={isSelected}
               data-testid={`category-chip-${chip.id}`}
               onClick={() => handleCatChange(chip.id)}
-              className={`rounded-lg px-3 py-1.5 whitespace-nowrap transition cursor-pointer ${
+              className={`rounded-lg px-3.5 min-h-11 inline-flex items-center justify-center whitespace-nowrap transition cursor-pointer ${
                 isSelected
                   ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                   : 'bg-gray-100 dark:bg-[#272727] text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-[#383838]'
@@ -304,14 +306,16 @@ function KhamPhaContent() {
                     <Flame className="h-4 w-4" />
                     {t('exploreTrending')}
                   </button>
-                  <Link
-                    href="/upload"
-                    data-testid="empty-upload-link"
-                    className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
-                  >
-                    <Upload className="h-4 w-4" />
-                    {t('uploadVideo')}
-                  </Link>
+                  {can.upload && (
+                    <Link
+                      href="/upload"
+                      data-testid="empty-upload-link"
+                      className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-[#272727] hover:bg-gray-200 dark:hover:bg-[#383838] text-gray-800 dark:text-gray-200 px-5 py-2.5 text-sm font-semibold transition"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {t('uploadVideo')}
+                    </Link>
+                  )}
                 </div>
               </div>
             }
@@ -356,7 +360,7 @@ function KhamPhaContent() {
       {activeTab === null && (
         <div
           data-testid="feed-skeleton"
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 mt-2"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6 gap-x-4 gap-y-8 mt-2"
         >
           {Array.from({ length: 8 }).map((_, i) => (
             <VideoSkeleton key={i} />

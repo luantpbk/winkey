@@ -68,11 +68,11 @@ spec:
               value: 'auto'
           resources:
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 200m
+              memory: 256Mi
             limits:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 2000m
+              memory: 1Gi
           livenessProbe:
             tcpSocket:
               port: http

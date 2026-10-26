@@ -100,7 +100,7 @@ func (i *Inserter) InsertBatch(ctx context.Context, rows []event.Row, token stri
 	batch, err := i.Conn.PrepareBatch(ctx, `INSERT INTO winkey.playback_events (
  event_id, received_at, sent_at, playback_id, video_id, owner_id, viewer_key, authenticated,
  kind, seq, position_ms, watched_ms, rebuffer_ms, rebuffer_count,
- startup_ms, rendition, bitrate_kbps, error_code, client, country, surface, reco_variant)`)
+ startup_ms, rendition, bitrate_kbps, error_code, client, country, surface, reco_variant, codec, av1_capable)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
@@ -108,7 +108,7 @@ func (i *Inserter) InsertBatch(ctx context.Context, rows []event.Row, token stri
 		if err := batch.Append(
 			r.EventID, r.ReceivedAt, r.SentAt, r.PlaybackID, r.VideoID, r.OwnerID, r.ViewerKey, r.Authenticated,
 			r.Kind, r.Seq, r.PositionMs, r.WatchedMs, r.RebufferMs, r.RebufferCount,
-			r.StartupMs, r.Rendition, r.BitrateKbps, r.ErrorCode, r.Client, r.Country, r.Surface, r.RecoVariant,
+			r.StartupMs, r.Rendition, r.BitrateKbps, r.ErrorCode, r.Client, r.Country, r.Surface, r.RecoVariant, r.Codec, r.AV1Capable,
 		); err != nil {
 			_ = batch.Abort()
 			return fmt.Errorf("append: %w", err)

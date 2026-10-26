@@ -308,6 +308,24 @@ type FeedQuery struct {
 }
 
 // StudioQuery asks for one user's videos in every status, newest created first.
+// AdminVideoQuery filters adminListVideos (task ADMV1): every video, whoever owns it. Empty strings and a
+// nil OwnerID mean "any".
+type AdminVideoQuery struct {
+	Q               string
+	Status          string
+	Visibility      string
+	ModerationState string
+	OwnerID         *uuid.UUID
+	After           *Position
+	Limit           int
+}
+
+// AdminVideoItem is a studio row plus its owner (a placeholder profile when Owner.Missing).
+type AdminVideoItem struct {
+	StudioItem
+	Owner Profile
+}
+
 type StudioQuery struct {
 	UserID uuid.UUID
 	Status string // "" = every status
@@ -367,6 +385,7 @@ type Store interface {
 	GetVideo(ctx context.Context, id uuid.UUID) (Video, error)
 	ListFeed(ctx context.Context, q FeedQuery) ([]Summary, error)
 	ListStudio(ctx context.Context, q StudioQuery) ([]StudioItem, error)
+	ListAdminVideos(ctx context.Context, q AdminVideoQuery) ([]AdminVideoItem, error)
 	// UpdateVideo applies u to the video only if ownerID owns it and returns the
 	// new record. ErrNotFound if the video does not exist or is not theirs. In the
 	// SAME transaction, when the visibility actually changes, it enqueues

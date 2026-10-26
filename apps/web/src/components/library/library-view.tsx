@@ -10,6 +10,7 @@ import { useTranslations } from 'next-intl';
 import { formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
 import { CreatePlaylistDialog } from '../playlist/create-playlist-dialog';
+import { A11Y_COLORS } from '../../lib/a11y-tokens';
 import {
   ListVideo,
   Plus,
@@ -21,6 +22,24 @@ import {
   Loader2,
   FolderHeart,
 } from 'lucide-react';
+
+function PlaylistCardSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col gap-3 rounded-2xl p-3 bg-zinc-900/60 border border-zinc-800/80 shadow-md"
+    >
+      <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 animate-pulse" />
+      <div className="flex flex-col gap-1.5 px-0.5">
+        <div className="min-h-[20px] flex items-center gap-1.5">
+          <div className="h-5 w-16 rounded-md bg-zinc-800 animate-pulse" />
+        </div>
+        <div className="h-5 w-3/4 rounded bg-zinc-800 animate-pulse mt-0.5" />
+        <div className="h-4 w-1/3 rounded bg-zinc-800/70 animate-pulse" />
+      </div>
+    </div>
+  );
+}
 
 export function LibraryView() {
   const router = useRouter();
@@ -163,22 +182,35 @@ export function LibraryView() {
     }
   };
 
-  if (authLoading || (isAuthenticated && loading && playlists.length === 0)) {
+  if (!authLoading && !isAuthenticated) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-zinc-400 gap-3">
-        <Loader2 className="h-8 w-8 animate-spin text-red-500" />
-        <span className="text-sm font-medium">Đang tải Thư viện...</span>
+      <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 min-h-[calc(100vh-140px)]">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-zinc-800">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600/10 text-red-500 border border-red-500/20">
+              <FolderHeart className="h-6 w-6" />
+            </div>
+            <div>
+              <h1
+                data-testid="library-page-title"
+                className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white"
+              >
+                {t('title')}
+              </h1>
+              <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">{t('description')}</p>
+            </div>
+          </div>
+        </div>
+        <div className="min-h-[520px] w-full flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-red-500 animate-spin" />
+        </div>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    return null; // redirecting to login in useEffect
-  }
-
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-      {/* Page Header */}
+    <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 min-h-[calc(100vh-140px)]">
+      {/* Page Header (Static Shell - Zero Shift) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-zinc-800">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600/10 text-red-500 border border-red-500/20">
@@ -199,142 +231,157 @@ export function LibraryView() {
           type="button"
           onClick={() => setShowCreateDialog(true)}
           data-testid="create-playlist-btn"
-          className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs sm:text-sm shadow-lg hover:shadow-red-600/20 transition active:scale-95 self-start sm:self-auto cursor-pointer"
+          className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-full ${A11Y_COLORS.brandSolidBg} font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95 self-start sm:self-auto cursor-pointer`}
         >
           <Plus className="h-4 w-4" />
           <span>{t('createPlaylist')}</span>
         </button>
       </div>
 
-      {/* Grid of Playlists */}
-      {playlists.length === 0 ? (
-        /* Empty State */
-        <div
-          data-testid="library-empty-state"
-          className="flex flex-col items-center justify-center py-20 rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-center p-8 max-w-xl mx-auto shadow-xl"
-        >
-          <div className="p-4 rounded-2xl bg-zinc-800/80 text-zinc-400 mb-4 border border-zinc-700/50">
-            <ListVideo className="h-10 w-10 text-red-500" />
-          </div>
-          <h2 className="text-lg sm:text-xl font-bold text-white mb-2">{t('emptyTitle')}</h2>
-          <p className="text-xs sm:text-sm text-zinc-400 mb-6 max-w-md leading-relaxed">
-            {t('emptyDesc')}
-          </p>
-          <button
-            type="button"
-            onClick={() => setShowCreateDialog(true)}
-            data-testid="empty-create-playlist-btn"
-            className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95"
+      {/* Content Area: Skeleton Grid while loading, Empty State if 0, else Playlists Grid */}
+      <div className="min-h-[520px] w-full flex flex-col">
+        {loading && playlists.length === 0 ? (
+          <div
+            data-testid="library-playlists-skeleton"
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
           >
-            <Plus className="h-4 w-4" />
-            <span>{t('createPlaylist')}</span>
-          </button>
-        </div>
-      ) : (
-        <div
-          data-testid="library-playlists-grid"
-          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
-        >
-          {playlists.map((pl) => {
-            const rawThumb = thumbnails.get(pl.id);
-            const coverUrl = rawThumb ? getThumbnailUrl(rawThumb) : null;
-            const isWatchLater = pl.kind === 'WATCH_LATER';
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={i >= 2 ? 'hidden sm:block' : 'block'}>
+                <PlaylistCardSkeleton />
+              </div>
+            ))}
+          </div>
+        ) : playlists.length === 0 ? (
+          /* Empty State */
+          <div
+            data-testid="library-empty-state"
+            className="flex flex-col items-center justify-center py-16 sm:py-20 rounded-3xl bg-zinc-900/40 border border-zinc-800/80 text-center p-8 max-w-xl mx-auto shadow-xl w-full my-auto"
+          >
+            <div className="p-4 rounded-2xl bg-zinc-800/80 text-zinc-400 mb-4 border border-zinc-700/50">
+              <ListVideo className="h-10 w-10 text-red-500" />
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold text-white mb-2">{t('emptyTitle')}</h2>
+            <p className="text-xs sm:text-sm text-zinc-400 mb-6 max-w-md leading-relaxed">
+              {t('emptyDesc')}
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowCreateDialog(true)}
+              data-testid="empty-create-playlist-btn"
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-full ${A11Y_COLORS.brandSolidBg} font-semibold text-xs sm:text-sm shadow-lg transition active:scale-95`}
+            >
+              <Plus className="h-4 w-4" />
+              <span>{t('createPlaylist')}</span>
+            </button>
+          </div>
+        ) : (
+          <div
+            data-testid="library-playlists-grid"
+            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+          >
+            {playlists.map((pl) => {
+              const rawThumb = thumbnails.get(pl.id);
+              const coverUrl = rawThumb ? getThumbnailUrl(rawThumb) : null;
+              const isWatchLater = pl.kind === 'WATCH_LATER';
 
-            return (
-              <Link
-                key={pl.id}
-                href={`/playlist/${pl.id}`}
-                data-testid={`library-playlist-card-${pl.id}`}
-                className="group flex flex-col gap-3 rounded-2xl p-3 bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800/80 hover:border-zinc-700/90 shadow-md hover:shadow-xl transition duration-200"
-              >
-                {/* Thumbnail Cover 16:9 */}
-                <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 shadow-sm">
-                  {coverUrl ? (
-                    <img
-                      src={coverUrl}
-                      alt={pl.title}
-                      loading="lazy"
-                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-gradient-to-br from-zinc-800 via-zinc-900 to-black flex items-center justify-center">
+              return (
+                <Link
+                  key={pl.id}
+                  href={`/playlist/${pl.id}`}
+                  data-testid={`library-playlist-card-${pl.id}`}
+                  className="group flex flex-col gap-3 rounded-2xl p-3 bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800/80 hover:border-zinc-700/90 shadow-md hover:shadow-xl transition duration-200"
+                >
+                  {/* Thumbnail Cover 16:9 with Intrinsic Aspect Ratio Container */}
+                  <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-800 shadow-sm shrink-0">
+                    <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-black flex items-center justify-center">
                       {isWatchLater ? (
                         <Clock className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
                       ) : (
                         <ListVideo className="h-10 w-10 text-zinc-600 group-hover:text-red-500 transition" />
                       )}
                     </div>
-                  )}
+                    {coverUrl && (
+                      <img
+                        src={coverUrl}
+                        alt={pl.title}
+                        loading="lazy"
+                        decoding="async"
+                        className="absolute inset-0 h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                      />
+                    )}
 
-                  {/* Item count overlay badge (bottom right) */}
-                  <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-[11px] font-semibold text-white">
-                    <ListVideo className="h-3.5 w-3.5" />
-                    <span>{pl.item_count} video</span>
-                  </div>
-
-                  {/* Watch Later badge (bottom left) */}
-                  {isWatchLater && (
-                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/90 backdrop-blur-xs text-[11px] font-bold text-white shadow-sm">
-                      <Clock className="h-3.5 w-3.5" />
-                      <span>{tPl('watchLater')}</span>
+                    {/* Item count overlay badge (bottom right) */}
+                    <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-[11px] font-semibold text-white pointer-events-none">
+                      <ListVideo className="h-3.5 w-3.5" />
+                      <span>{pl.item_count} video</span>
                     </div>
-                  )}
-                </div>
 
-                {/* Card Info */}
-                <div className="flex flex-col gap-1.5 px-0.5">
-                  {/* Badges: Visibility & Series */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Visibility badge */}
-                    <span
-                      data-testid="playlist-visibility-badge"
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700/60"
-                    >
-                      {pl.visibility === 'PUBLIC' ? (
-                        <>
-                          <Globe className="h-3 w-3 text-emerald-400" />
-                          <span>{t('public')}</span>
-                        </>
-                      ) : pl.visibility === 'UNLISTED' ? (
-                        <>
-                          <EyeOff className="h-3 w-3 text-amber-400" />
-                          <span>{t('unlisted')}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="h-3 w-3 text-red-400" />
-                          <span>{t('private')}</span>
-                        </>
-                      )}
-                    </span>
-
-                    {/* Series badge */}
-                    {pl.is_series && (
-                      <span
-                        data-testid="playlist-series-badge"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-red-950/60 border border-red-700/60 text-red-400"
-                      >
-                        <Film className="h-3 w-3" />
-                        <span>{t('seriesBadge')}</span>
-                      </span>
+                    {/* Watch Later badge (bottom left) */}
+                    {isWatchLater && (
+                      <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/90 backdrop-blur-xs text-[11px] font-bold text-white shadow-sm pointer-events-none">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>{tPl('watchLater')}</span>
+                      </div>
                     )}
                   </div>
 
-                  {/* Title */}
-                  <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-red-500 transition mt-0.5">
-                    {isWatchLater ? tPl('watchLater') : pl.title}
-                  </h3>
+                  {/* Card Info (Fixed heights to prevent CLS) */}
+                  <div className="flex flex-col gap-1.5 px-0.5">
+                    {/* Badges: Visibility & Series */}
+                    <div className="min-h-[20px] flex flex-wrap items-center gap-1.5">
+                      {/* Visibility badge */}
+                      <span
+                        data-testid="playlist-visibility-badge"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700/60"
+                      >
+                        {pl.visibility === 'PUBLIC' ? (
+                          <>
+                            <Globe className="h-3 w-3 text-emerald-400" />
+                            <span>{t('public')}</span>
+                          </>
+                        ) : pl.visibility === 'UNLISTED' ? (
+                          <>
+                            <EyeOff className="h-3 w-3 text-amber-400" />
+                            <span>{t('unlisted')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="h-3 w-3 text-red-400" />
+                            <span>{t('private')}</span>
+                          </>
+                        )}
+                      </span>
 
-                  {/* Updated time */}
-                  <span className="text-[11px] text-zinc-500">
-                    Cập nhật {formatRelativeTime(pl.updated_at)}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+                      {/* Series badge */}
+                      {pl.is_series && (
+                        <span
+                          data-testid="playlist-series-badge"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-red-950/60 border border-red-700/60 text-red-400"
+                        >
+                          <Film className="h-3 w-3" />
+                          <span>{t('seriesBadge')}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Title */}
+                    <h3 className="text-sm font-bold text-white line-clamp-1 group-hover:text-red-500 transition mt-0.5 h-5 leading-5">
+                      {isWatchLater ? tPl('watchLater') : pl.title}
+                    </h3>
+
+                    {/* Updated time */}
+                    <span
+                      className={`text-[11px] ${A11Y_COLORS.textMuted} h-4 leading-4 block truncate`}
+                    >
+                      Cập nhật {formatRelativeTime(pl.updated_at)}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Pagination "Tải thêm" */}
       {nextCursor && (

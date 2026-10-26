@@ -1,4 +1,4 @@
-﻿import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'kysely';
 import type {
   CinemaCatalogItemDto,
@@ -8,6 +8,7 @@ import type {
   SeriesEpisodeContextDto,
   SeriesEpisodeDto,
   SeriesEpisodePageDto,
+  SeriesForVideoDto,
   SeriesSummaryDto,
 } from '../db/types.js';
 import { ProblemError } from '../errors/problem.js';
@@ -316,7 +317,119 @@ export const cinemaRoute: FastifyPluginAsync<PlaylistsRouteOptions> = async (
     return reply.status(200).send(pageDto);
   });
 
-  // 2. GET /v1/series/:playlist_id/episodes - Playable episodes of a public series
+  // 2. GET /v1/series - Public series that contain a video as a playable episode (CIN3 / ADR-045, optional auth)
+  fastify.get<{
+    Querystring: {
+      video_id?: string;
+    };
+  }>('/v1/series', async (request, reply) => {
+    const { video_id } = request.query;
+
+    if (!video_id || !isValidUuid(video_id)) {
+      throw ProblemError.badRequest(
+        'Query parameter "video_id" is required and must be a valid UUID',
+        undefined,
+        'VALIDATION_ERROR',
+      );
+    }
+
+    reply.header('Cache-Control', 'public, max-age=60');
+
+    interface SeriesForVideoRawRow {
+      id: string;
+      title: string;
+      description: string;
+      owner_id: string;
+      episode_count: number;
+      first_video_id: string;
+      updated_at: Date | string;
+      prof_id: string | null;
+      prof_handle: string | null;
+      prof_display_name: string | null;
+      prof_avatar_key: string | null;
+    }
+
+    const seriesQuery = sql<SeriesForVideoRawRow>`
+      WITH candidate_series AS (
+        SELECT DISTINCT
+          p.id,
+          p.owner_id,
+          p.title,
+          p.description
+        FROM social.playlist_items pi_target
+        JOIN social.playlists p ON p.id = pi_target.playlist_id
+        JOIN social.videos v_target ON v_target.id = pi_target.video_id
+        WHERE pi_target.video_id = ${video_id}::uuid
+          AND p.is_series = true
+          AND p.visibility = 'PUBLIC'
+          AND v_target.visibility = 'PUBLIC'
+          AND NOT v_target.hidden
+          AND v_target.owner_id = p.owner_id
+      ),
+      series_metrics AS (
+        SELECT
+          cs.id AS playlist_id,
+          COUNT(pi.video_id)::int AS episode_count,
+          MAX(pi.added_at) AS updated_at,
+          (ARRAY_AGG(pi.video_id ORDER BY pi.position ASC, pi.video_id ASC))[1] AS first_video_id
+        FROM candidate_series cs
+        JOIN social.playlist_items pi ON pi.playlist_id = cs.id
+        JOIN social.videos v ON v.id = pi.video_id
+        WHERE v.visibility = 'PUBLIC'
+          AND NOT v.hidden
+          AND v.owner_id = cs.owner_id
+        GROUP BY cs.id
+      )
+      SELECT
+        cs.id,
+        cs.title,
+        cs.description,
+        cs.owner_id,
+        sm.episode_count,
+        sm.first_video_id,
+        sm.updated_at,
+        prof.id AS prof_id,
+        prof.handle AS prof_handle,
+        prof.display_name AS prof_display_name,
+        prof.avatar_key AS prof_avatar_key
+      FROM candidate_series cs
+      JOIN series_metrics sm ON sm.playlist_id = cs.id
+      LEFT JOIN auth.public_profiles prof ON prof.id = cs.owner_id
+      ORDER BY sm.updated_at DESC, cs.id ASC
+      LIMIT 5
+    `;
+
+    const res = await seriesQuery.execute(db);
+
+    const items: SeriesSummaryDto[] = res.rows.map((r) => ({
+      playlist_id: r.id,
+      title: r.title,
+      description: r.description,
+      owner: resolveOwnerProfile(
+        r.prof_id
+          ? {
+              id: r.prof_id,
+              handle: r.prof_handle!,
+              display_name: r.prof_display_name!,
+              avatar_key: r.prof_avatar_key,
+            }
+          : undefined,
+        r.owner_id,
+        env.MEDIA_BASE_URL,
+      ),
+      episode_count: Number(r.episode_count),
+      first_video_id: r.first_video_id,
+      updated_at:
+        r.updated_at instanceof Date
+          ? r.updated_at.toISOString()
+          : new Date(r.updated_at).toISOString(),
+    }));
+
+    const responseDto: SeriesForVideoDto = { items };
+    return reply.status(200).send(responseDto);
+  });
+
+  // 3. GET /v1/series/:playlist_id/episodes - Playable episodes of a public series
   fastify.get<{
     Params: { playlist_id: string };
     Querystring: {

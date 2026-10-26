@@ -36,6 +36,11 @@ type AV1Upgrade struct {
 	Limit       int   `env:"AV1_UPGRADE_LIMIT" default:"20"`
 	CQ          int   `env:"AV1_CQ"`          // 0: media.DefaultAV1CQ (35)
 	MaxratePct  int   `env:"AV1_MAXRATE_PCT"` // 0: media.DefaultAV1MaxratePct (85)
+	// AV1 policy (AV1POL, ADR-048): "all" (default, every video over AV1_MIN_STARTS_7D, nothing dropped) or N,
+	// the number of most watched READY videos that keep an AV1 set. AV1_KEEP_TOP is the rank beyond which a set
+	// is dropped (0: max(2N, N+5)); it must be >= N.
+	TopN    string `env:"AV1_TOP_N" default:"all"`
+	KeepTop int    `env:"AV1_KEEP_TOP"`
 }
 
 // LoadAV1Upgrade reads and validates the environment.
@@ -56,6 +61,9 @@ func LoadAV1UpgradeFrom(lookup func(string) (string, bool)) (AV1Upgrade, error) 
 	}
 	if c.CQ != 0 && (c.CQ < 1 || c.CQ > 63) {
 		errs = append(errs, errors.New("AV1_CQ must be in 1..63"))
+	}
+	if c.KeepTop < 0 {
+		errs = append(errs, errors.New("AV1_KEEP_TOP must be 0 (automatic) or more"))
 	}
 	if c.MaxratePct != 0 && (c.MaxratePct < 10 || c.MaxratePct > 100) {
 		errs = append(errs, errors.New("AV1_MAXRATE_PCT must be in 10..100"))

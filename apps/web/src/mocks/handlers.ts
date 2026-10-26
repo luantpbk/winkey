@@ -18,6 +18,13 @@ import type {
   EditCommentRequest,
   AdminUser,
   AdminUserPage,
+  AdminVideo,
+  AdminVideoPage,
+  CreatorRequestStatus,
+  CreateCreatorRequestRequest,
+  AdminCreatorRequest,
+  AdminCreatorRequestPage,
+  CreatorRequestDecision,
   ModerationCase,
   ModerationCasePage,
   AuditEntry,
@@ -71,6 +78,7 @@ import {
   mockAuditEntries,
   mockSeriesPlaylist,
   mockSeriesEpisodes,
+  mockSeriesSummary,
   mockCinemaCatalogItems,
 } from './fixtures';
 
@@ -80,6 +88,104 @@ let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
 let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
 let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
 let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+const initialMockCreatorRequests: AdminCreatorRequest[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c91',
+    status: 'PENDING',
+    message:
+      'Tôi là nhà sáng tạo nội dung công nghệ, mong muốn chia sẻ video về lập trình và thiết kế.',
+    decision_note: null,
+    created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
+    decided_at: null,
+    user: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c05',
+      email: 'viewer@winkey.vn',
+      email_verified: true,
+      handle: 'simple_viewer',
+      display_name: 'Simple Viewer',
+      avatar_url: null,
+      roles: ['viewer'],
+      status: 'ACTIVE',
+      created_at: '2026-02-01T00:00:00Z',
+      suspended_until: null,
+      suspension_reason: null,
+    },
+    decided_by: null,
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c92',
+    status: 'APPROVED',
+    message: 'Kênh chuyên review phim điện ảnh cổ điển và hiện đại.',
+    decision_note: 'Đã duyệt. Chào mừng bạn gia nhập đội ngũ nhà sáng tạo!',
+    created_at: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
+    decided_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
+    user: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+      email: 'tech@winkey.vn',
+      email_verified: true,
+      handle: 'viet_coder',
+      display_name: 'Việt Coder Channel',
+      avatar_url:
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
+      roles: ['viewer', 'creator'],
+      status: 'ACTIVE',
+      created_at: '2026-01-15T00:00:00Z',
+      suspended_until: null,
+      suspension_reason: null,
+    },
+    decided_by: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
+      handle: 'admin_winkey',
+      display_name: 'Winkey Administrator',
+      avatar_url:
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+    },
+  },
+];
+
+let dynamicCreatorRequests: AdminCreatorRequest[] = [...initialMockCreatorRequests];
+
+export function setDynamicCreatorRequests(reqs: AdminCreatorRequest[]) {
+  dynamicCreatorRequests = [...reqs];
+}
+
+export function getDynamicCreatorRequests(): AdminCreatorRequest[] {
+  return dynamicCreatorRequests;
+}
+
+export function resetDynamicCreatorRequests() {
+  dynamicCreatorRequests = [...initialMockCreatorRequests];
+}
+
+const initialMockAdminVideos: AdminVideo[] = mockVideos.map((v, i) => ({
+  id: v.id,
+  title: v.title,
+  visibility: v.visibility,
+  status: v.status,
+  progress: 100,
+  error: null,
+  duration_ms: v.duration_ms,
+  created_at: v.created_at,
+  thumbnail_url: v.playback?.thumbnail_url || null,
+  moderation: v.moderation,
+  owner: v.owner,
+  owner_active: i !== 3,
+}));
+
+let dynamicAdminVideos: AdminVideo[] = [...initialMockAdminVideos];
+
+export function setDynamicAdminVideos(videos: AdminVideo[]) {
+  dynamicAdminVideos = [...videos];
+}
+
+export function getDynamicAdminVideos(): AdminVideo[] {
+  return dynamicAdminVideos;
+}
+
+export function resetDynamicAdminVideos() {
+  dynamicAdminVideos = [...initialMockAdminVideos];
+}
 
 let mockPlaylistFull = false;
 let mockPlaylistLimit = false;
@@ -571,6 +677,8 @@ export function resetModerationMocks() {
   dynamicAdminUsers = [...mockAdminUsers];
   dynamicModerationCases = [...mockModerationCases];
   dynamicAuditEntries = [...mockAuditEntries];
+  resetDynamicCreatorRequests();
+  resetDynamicAdminVideos();
   mockTrendingEmpty = false;
   mockSubscriptionEmpty = false;
   mockSubscriptionVideosOverride = null;
@@ -954,7 +1062,7 @@ export const handlers = [
       display_name: body.display_name,
       avatar_url:
         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-      roles: ['viewer', 'creator'],
+      roles: ['viewer'],
       created_at: new Date().toISOString(),
     };
 
@@ -995,9 +1103,18 @@ export const handlers = [
       return HttpResponse.json(problem, { status: 401 });
     }
 
-    if (body.email === 'admin@winkey.vn') {
+    if (
+      body.email === 'admin@winkey.vn' ||
+      body.email === 'sim_admin@example.com' ||
+      body.email?.includes('admin')
+    ) {
       currentUser = mockUsers.admin;
-    } else if (body.email === 'mod@winkey.vn' || body.email === 'moderator@winkey.vn') {
+    } else if (
+      body.email === 'mod@winkey.vn' ||
+      body.email === 'moderator@winkey.vn' ||
+      body.email === 'sim_mod@example.com' ||
+      body.email?.includes('mod')
+    ) {
       currentUser = mockUsers.moderator;
     } else {
       currentUser = mockUsers.creator;
@@ -1064,6 +1181,141 @@ export const handlers = [
       );
     }
     return HttpResponse.json(caller);
+  }),
+
+  // ROLE1 (ADR-046): Creator Requests me endpoints
+  http.get('*/v1/auth/me/creator-request', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    const userReqs = dynamicCreatorRequests.filter((r) => r.user.id === caller.id);
+    if (userReqs.length === 0) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          code: 'NOT_FOUND',
+          detail: 'Chưa có yêu cầu nâng cấp nào.',
+        },
+        { status: 404 },
+      );
+    }
+    const latest = [...userReqs].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0];
+    const { user: _u, decided_by: _d, ...creatorRequest } = latest;
+    return HttpResponse.json(creatorRequest);
+  }),
+
+  http.post('*/v1/auth/me/creator-request', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller) {
+      return HttpResponse.json(
+        {
+          type: '/problems/unauthorized',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'UNAUTHORIZED',
+        },
+        { status: 401 },
+      );
+    }
+    if (caller.roles?.includes('creator')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'ALREADY_CREATOR',
+          detail: 'Tài khoản đã có quyền sáng tạo.',
+        },
+        { status: 409 },
+      );
+    }
+    const userReqs = dynamicCreatorRequests.filter((r) => r.user.id === caller.id);
+    const pending = userReqs.find((r) => r.status === 'PENDING');
+    if (pending) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'REQUEST_PENDING',
+          detail: 'Bạn đã có một yêu cầu đang chờ phê duyệt.',
+        },
+        { status: 409 },
+      );
+    }
+    const latest = [...userReqs].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0];
+    if (latest && latest.status === 'REJECTED' && latest.decided_at) {
+      const decidedMs = new Date(latest.decided_at).getTime();
+      const nowMs = Date.now();
+      const cooldownMs = 24 * 3600 * 1000;
+      if (nowMs - decidedMs < cooldownMs) {
+        const canRetryAt = new Date(decidedMs + cooldownMs).toISOString();
+        return HttpResponse.json(
+          {
+            type: '/problems/conflict',
+            title: 'Conflict',
+            status: 409,
+            code: 'REQUEST_COOLDOWN',
+            detail: `Bạn có thể gửi lại yêu cầu sau ${canRetryAt}.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
+    const body = (await request.json().catch(() => ({}))) as CreateCreatorRequestRequest;
+    const msg = body?.message?.trim() || '';
+    if (msg.length < 10 || msg.length > 1000) {
+      return HttpResponse.json(
+        {
+          type: '/problems/validation',
+          title: 'Validation Error',
+          status: 422,
+          code: 'VALIDATION_ERROR',
+          errors: [{ field: 'message', message: 'Nội dung phải từ 10 đến 1000 ký tự.' }],
+        },
+        { status: 422 },
+      );
+    }
+    const newReq: AdminCreatorRequest = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-${Date.now().toString(16).padStart(12, '0')}`,
+      status: 'PENDING',
+      message: msg,
+      decision_note: null,
+      created_at: new Date().toISOString(),
+      decided_at: null,
+      user: {
+        id: caller.id,
+        email: caller.email,
+        email_verified: caller.email_verified ?? true,
+        handle: caller.handle,
+        display_name: caller.display_name,
+        avatar_url: caller.avatar_url,
+        roles: caller.roles as Role[],
+        status: 'ACTIVE',
+        created_at: caller.created_at,
+        suspended_until: null,
+        suspension_reason: null,
+      },
+      decided_by: null,
+    };
+    dynamicCreatorRequests.unshift(newReq);
+    const { user: _u, decided_by: _d, ...resp } = newReq;
+    return HttpResponse.json(resp, { status: 201 });
   }),
 
   http.patch('*/v1/auth/me', async ({ request }) => {
@@ -2319,6 +2571,8 @@ export const handlers = [
     setDynamicVideos(currentVideos);
     const currentStudio = getDynamicStudioVideos().filter((v) => v.id !== videoId);
     setDynamicStudioVideos(currentStudio);
+    const currentAdmin = getDynamicAdminVideos().filter((v) => v.id !== videoId);
+    setDynamicAdminVideos(currentAdmin);
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -3050,6 +3304,100 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     return HttpResponse.json(page);
   }),
 
+  http.get('*/v1/studio/admin/videos', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || (!caller.roles.includes('moderator') && !caller.roles.includes('admin'))) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+          detail: 'Moderator or admin role required.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const url = new URL(request.url);
+    const q = url.searchParams.get('q');
+    const status = url.searchParams.get('status');
+    const visibility = url.searchParams.get('visibility');
+    const moderationState = url.searchParams.get('moderation_state');
+    const ownerId = url.searchParams.get('owner_id');
+    const cursor = url.searchParams.get('cursor');
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+
+    let items = [...getDynamicAdminVideos()];
+
+    // Filter: q (case and diacritics insensitive substring)
+    if (q && q.trim().length >= 2) {
+      const normalizedQ = q
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      items = items.filter((v) => {
+        const normalizedTitle = (v.title || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+        return normalizedTitle.includes(normalizedQ);
+      });
+    }
+
+    // Filter: status
+    if (status) {
+      items = items.filter((v) => v.status === status);
+    }
+
+    // Filter: visibility
+    if (visibility) {
+      items = items.filter((v) => v.visibility === visibility);
+    }
+
+    // Filter: moderation_state
+    if (moderationState) {
+      items = items.filter((v) => {
+        const state = v.moderation?.state ?? 'VISIBLE';
+        return state === moderationState;
+      });
+    }
+
+    // Filter: owner_id
+    if (ownerId) {
+      items = items.filter((v) => v.owner.id === ownerId);
+    }
+
+    // Sort: newest first (created_at DESC, id DESC)
+    items.sort((a, b) => {
+      const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.id.localeCompare(a.id);
+    });
+
+    // Cursor pagination
+    let startIndex = 0;
+    if (cursor) {
+      const idx = items.findIndex((v) => v.id === cursor);
+      if (idx !== -1) {
+        startIndex = idx + 1;
+      }
+    }
+
+    const pagedItems = items.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < items.length && pagedItems.length > 0
+        ? pagedItems[pagedItems.length - 1].id
+        : null;
+
+    const page: AdminVideoPage = {
+      items: pagedItems,
+      next_cursor: nextCursor,
+    };
+    return HttpResponse.json(page);
+  }),
+
   // --- Social: Comments ---
   http.get('*/v1/videos/:id/comments', async ({ params, request }) => {
     const videoId = params.id as string;
@@ -3717,6 +4065,18 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       };
     }
 
+    const adminIdx = dynamicAdminVideos.findIndex((v) => v.id === videoId);
+    if (adminIdx !== -1) {
+      dynamicAdminVideos[adminIdx] = {
+        ...dynamicAdminVideos[adminIdx],
+        moderation: {
+          state: body.state,
+          reason: body.state === 'HIDDEN' ? body.reason || null : null,
+          moderated_at: new Date().toISOString(),
+        },
+      };
+    }
+
     return HttpResponse.json(dynamicVideos[videoIndex]);
   }),
 
@@ -4150,6 +4510,117 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     });
 
     return HttpResponse.json(dynamicAdminUsers[userIndex]);
+  }),
+
+  // ROLE1 (ADR-046): Admin Creator Requests
+  http.get('*/v1/admin/creator-requests', async ({ request }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles?.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const statusFilter = url.searchParams.get('status') as CreatorRequestStatus | null;
+    let filtered = dynamicCreatorRequests;
+    if (statusFilter) {
+      filtered = filtered.filter((r) => r.status === statusFilter);
+    }
+    const pendingCount = dynamicCreatorRequests.filter((r) => r.status === 'PENDING').length;
+    const page: AdminCreatorRequestPage = {
+      items: filtered,
+      next_cursor: null,
+      pending_count: pendingCount,
+    };
+    return HttpResponse.json(page);
+  }),
+
+  http.post('*/v1/admin/creator-requests/:request_id/decision', async ({ request, params }) => {
+    const caller = callerFromRequest(request);
+    if (!caller || !caller.roles?.includes('admin')) {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Forbidden',
+          status: 403,
+          code: 'FORBIDDEN',
+        },
+        { status: 403 },
+      );
+    }
+    const requestId = params.request_id as string;
+    const reqItem = dynamicCreatorRequests.find((r) => r.id === requestId);
+    if (!reqItem) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          code: 'NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+    if (reqItem.status !== 'PENDING') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'REQUEST_ALREADY_DECIDED',
+          detail: 'Yêu cầu này đã được quyết định trước đó.',
+        },
+        { status: 409 },
+      );
+    }
+    const body = (await request.json().catch(() => ({}))) as CreatorRequestDecision;
+    if (body.decision === 'REJECT' && (!body.note || !body.note.trim())) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'NOTE_REQUIRED',
+          detail: 'Lý do từ chối là bắt buộc.',
+        },
+        { status: 400 },
+      );
+    }
+    reqItem.status = body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    reqItem.decision_note = body.note?.trim() || null;
+    reqItem.decided_at = new Date().toISOString();
+    reqItem.decided_by = {
+      id: caller.id,
+      handle: caller.handle,
+      display_name: caller.display_name,
+      avatar_url: caller.avatar_url,
+    };
+
+    if (body.decision === 'APPROVE') {
+      if (!reqItem.user.roles.includes('creator')) {
+        reqItem.user.roles = [...reqItem.user.roles, 'creator'];
+      }
+      for (const u of Object.values(mockUsers)) {
+        if (u.id === reqItem.user.id && !u.roles.includes('creator')) {
+          u.roles = [...u.roles, 'creator'];
+        }
+      }
+      if (
+        currentUser &&
+        currentUser.id === reqItem.user.id &&
+        !currentUser.roles.includes('creator')
+      ) {
+        currentUser.roles = [...currentUser.roles, 'creator'];
+      }
+    }
+
+    return HttpResponse.json(reqItem);
   }),
 
   // --- Task U4: Audit Log ---
@@ -5235,6 +5706,66 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     return HttpResponse.json({
       items: items.slice(0, limit),
       next_cursor: null,
+    });
+  }),
+
+  http.get('*/v1/series', async ({ request }) => {
+    const url = new URL(request.url);
+    const videoId = url.searchParams.get('video_id');
+
+    if (!videoId) {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Bad Request',
+          status: 400,
+          code: 'BAD_REQUEST',
+        },
+        { status: 400 },
+      );
+    }
+
+    const currentPlaylists = getDynamicPlaylists();
+    const currentPlaylistItems = getDynamicPlaylistItems();
+    const matchingSeries: SeriesSummary[] = [];
+
+    for (const pl of currentPlaylists) {
+      if (pl.is_series && pl.visibility === 'PUBLIC') {
+        const items = currentPlaylistItems.filter((x) => x.playlist_id === pl.id);
+        const containsVideo =
+          items.some((it) => it.item.video_id === videoId) ||
+          (pl.id === mockSeriesPlaylist.id &&
+            mockSeriesEpisodes.some((ep) => ep.video_id === videoId));
+
+        if (containsVideo) {
+          const episodeCount =
+            pl.id === mockSeriesPlaylist.id
+              ? mockSeriesEpisodes.length
+              : items.length || pl.item_count;
+          const firstVideoId =
+            pl.id === mockSeriesPlaylist.id
+              ? mockSeriesEpisodes[0].video_id
+              : items[0]?.item.video_id || videoId;
+
+          matchingSeries.push({
+            playlist_id: pl.id,
+            title: pl.title,
+            description: pl.description || '',
+            owner: pl.owner,
+            episode_count: episodeCount,
+            first_video_id: firstVideoId,
+            updated_at: pl.updated_at,
+          });
+        }
+      }
+    }
+
+    if (matchingSeries.length === 0 && mockSeriesEpisodes.some((ep) => ep.video_id === videoId)) {
+      matchingSeries.push(mockSeriesSummary);
+    }
+
+    return HttpResponse.json({
+      items: matchingSeries.slice(0, 5),
     });
   }),
 

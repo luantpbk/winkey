@@ -6,7 +6,11 @@ import { TopBar } from './top-bar';
 import { Sidebar } from './sidebar';
 import { CinemaShell } from './cinema-shell';
 import { Footer } from './footer';
+import { BottomNav } from './bottom-nav';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
+import { CreatorSignupHintBanner } from '../auth/creator-signup-hint';
+import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
+import { useTvMode } from '../../lib/tv-mode';
 
 export function Shell({
   children,
@@ -18,6 +22,9 @@ export function Shell({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+
+  const { isTvMode } = useTvMode();
+  useSpatialNavigation(isTvMode);
 
   const isCinemaHome = pathname === '/' || pathname === '';
 
@@ -39,6 +46,7 @@ export function Shell({
     <div className="min-h-screen bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white text-gray-900 dark:text-gray-100 flex flex-col transition-colors">
       <TopBar onToggleSidebar={toggleSidebar} />
       <EmailVerificationBanner />
+      <CreatorSignupHintBanner />
       <div className="flex flex-1">
         <Sidebar
           collapsed={collapsed}
@@ -47,7 +55,7 @@ export function Shell({
           feedbackUrl={feedbackUrl}
         />
         <main
-          className={`flex-1 flex flex-col transition-all duration-200 min-h-[calc(100vh-56px)] overflow-x-hidden ${
+          className={`flex-1 flex flex-col transition-[margin-left] duration-200 min-h-[calc(100vh-56px)] overflow-x-hidden pb-16 md:pb-0 ${
             collapsed ? 'md:ml-[72px]' : 'md:ml-60'
           }`}
         >
@@ -55,6 +63,7 @@ export function Shell({
           <Footer feedbackUrl={feedbackUrl} />
         </main>
       </div>
+      <BottomNav />
     </div>
   );
 }

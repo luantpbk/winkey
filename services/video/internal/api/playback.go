@@ -45,6 +45,8 @@ type heartbeatSample struct {
 	ErrorCode     *string         `json:"error_code"`
 	Client        *string         `json:"client"`
 	Surface       json.RawMessage `json:"surface"` // distinguishes omitted from explicit null (not allowed by OpenAPI)
+	Codec         json.RawMessage `json:"codec"`
+	AV1Capable    json.RawMessage `json:"av1_capable"`
 	_             struct{}        `json:"-"`
 }
 
@@ -275,6 +277,22 @@ func validateSample(in heartbeatSample) (analytics.Sample, []httpx.FieldError) {
 			}
 		default:
 			bad("surface", "must be a playback surface from the contract")
+		}
+	}
+	if len(in.Codec) > 0 {
+		var codec string
+		if json.Unmarshal(in.Codec, &codec) == nil && (codec == "h264" || codec == "av1") {
+			s.Codec = &codec
+		} else {
+			bad("codec", "must be h264 or av1")
+		}
+	}
+	if len(in.AV1Capable) > 0 {
+		var capable bool
+		if json.Unmarshal(in.AV1Capable, &capable) == nil && string(in.AV1Capable) != "null" {
+			s.AV1Capable = &capable
+		} else {
+			bad("av1_capable", "must be a boolean")
 		}
 	}
 	if in.Client != nil {

@@ -33,6 +33,7 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
   let validateNotificationPage: any;
   let validateUnreadCount: any;
   let validateMarkNotificationsReadRequest: any;
+  let validateSeriesForVideo: any;
 
   const mockStore = createMockStore();
 
@@ -105,6 +106,9 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateMarkNotificationsReadRequest = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/MarkNotificationsReadRequest',
+    )!;
+    validateSeriesForVideo = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesForVideo',
     )!;
 
     // 3. Populate mock store
@@ -805,5 +809,28 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     });
     expect(limit0Res.statusCode).toBe(400);
     expect(validateProblem(limit0Res.json())).toBe(true);
+  });
+
+  it('CIN3 listSeriesForVideo contract: matches SeriesForVideo schema and Problem on 400', async () => {
+    // 1. Success response (200) with SeriesForVideo
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/series?video_id=${videoId}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const valid = validateSeriesForVideo(body);
+    if (!valid) {
+      console.error(validateSeriesForVideo.errors);
+    }
+    expect(valid).toBe(true);
+
+    // 2. Bad Request (400) matches Problem
+    const badRes = await app.inject({
+      method: 'GET',
+      url: '/v1/series?video_id=invalid-uuid',
+    });
+    expect(badRes.statusCode).toBe(400);
+    expect(validateProblem(badRes.json())).toBe(true);
   });
 });

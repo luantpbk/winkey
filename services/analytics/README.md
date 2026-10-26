@@ -38,6 +38,10 @@ view. It records only authenticated samples with a non-null arm, grouped by Asia
 one year. `sum(watched_ms) / uniqMerge(viewers)` across all surfaces gives watch time per active viewer for an arm/day;
 merging the viewer states avoids counting a viewer again when they use another surface.
 
+Migration `0003_codec.sql` (AV1-tel, ADR-048) adds nullable `codec` (`h264` | `av1`) and `av1_capable` columns; its
+header carries the two share queries (AV1-capable devices among starts, watch time served as AV1). Deploy this worker
+before the web player sends the fields; video-svc omits them while the client does not send them.
+
 Deploy this worker and its migration **before** R2-ab-v video-svc starts emitting the new fields: the previous worker's
 strict decoder terminates unknown fields. No new worker configuration or metrics are introduced. Integration fixtures
 run on ClickHouse 26.9 and 25.8, asserting exact daily rows, NULL/anonymous exclusion, nullable raw round-trips, timezone

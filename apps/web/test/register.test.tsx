@@ -133,6 +133,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
   });
 
   it('trims and includes invite_code in register payload when non-empty', async () => {
+    mockSearchParams = new URLSearchParams({ invite: '' });
     mockRegister.mockResolvedValue({ success: true });
     render(<RegisterPage />);
 
@@ -195,9 +196,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
 
     await waitFor(() => {
       const err = screen.getByTestId('invite-error-msg');
-      expect(err.textContent).toContain(
-        'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
-      );
+      expect(err.textContent).toContain('Bạn cần có mã mời để tạo tài khoản.');
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
@@ -248,9 +247,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
 
     await waitFor(() => {
       const err = screen.getByTestId('invite-error-msg');
-      expect(err.textContent).toContain(
-        'Winkey đang thử nghiệm kín. Bạn cần mã mời để tạo tài khoản.',
-      );
+      expect(err.textContent).toContain('Bạn cần có mã mời để tạo tài khoản.');
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
@@ -297,20 +294,23 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
   });
 
   it('Google button carries URL-encoded invite_code only when field is non-empty', () => {
+    mockSearchParams = new URLSearchParams({ invite: '' });
     render(<RegisterPage />);
 
     const checkbox = screen.getByTestId('terms-agreement-checkbox');
     fireEvent.click(checkbox);
 
     const googleBtn = screen.getByTestId('google-oauth-btn') as HTMLAnchorElement;
-    expect(googleBtn.getAttribute('href')).toBe('/v1/auth/oauth/google?return_to=/');
+    expect(googleBtn.getAttribute('href')).toBe(
+      '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1',
+    );
 
     // Fill invite code with special characters
     const inviteInput = screen.getByLabelText(/Mã mời/i);
     fireEvent.change(inviteInput, { target: { value: 'invite 123+alpha' } });
 
     expect(googleBtn.getAttribute('href')).toBe(
-      '/v1/auth/oauth/google?return_to=/&invite_code=invite%20123%2Balpha',
+      '/v1/auth/oauth/google?return_to=%2F%3Fwk_oauth%3D1&invite_code=invite%20123%2Balpha',
     );
   });
 

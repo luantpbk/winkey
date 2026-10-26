@@ -1022,6 +1022,81 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: combined, rowCount: combined.length };
       }
 
+      // Series for video query (CIN3: GET /v1/series?video_id=)
+      if (sql.includes('candidate_series') && sql.includes('series_metrics')) {
+        const targetVideoId = String(params[0]);
+        // 1. Find candidate series containing targetVideoId as a playable episode
+        const candidateSeries: typeof store.playlists = [];
+        for (const pi of store.playlist_items) {
+          if (pi.video_id !== targetVideoId) continue;
+          const pl = store.playlists.find((p) => p.id === pi.playlist_id);
+          if (!pl || !pl.is_series || pl.visibility !== 'PUBLIC') continue;
+          const v = store.videos.find((vid) => vid.id === targetVideoId);
+          if (!v || v.visibility !== 'PUBLIC' || v.hidden || v.owner_id !== pl.owner_id) continue;
+          if (!candidateSeries.some((p) => p.id === pl.id)) {
+            candidateSeries.push(pl);
+          }
+        }
+
+        // 2. Compute series_metrics for each candidate series
+        const resultRows: Array<{
+          id: string;
+          title: string;
+          description: string;
+          owner_id: string;
+          episode_count: number;
+          first_video_id: string;
+          updated_at: Date;
+          prof_id: string | null;
+          prof_handle: string | null;
+          prof_display_name: string | null;
+          prof_avatar_key: string | null;
+        }> = [];
+
+        for (const cs of candidateSeries) {
+          const playable = store.playlist_items
+            .filter((pi) => pi.playlist_id === cs.id)
+            .filter((pi) => {
+              const v = store.videos.find((vid) => vid.id === pi.video_id);
+              return v && v.visibility === 'PUBLIC' && !v.hidden && v.owner_id === cs.owner_id;
+            })
+            .sort((a, b) => a.position - b.position || a.video_id.localeCompare(b.video_id));
+
+          if (playable.length === 0) continue;
+
+          const maxAddedAt = playable.reduce(
+            (max, ep) => (ep.added_at > max ? ep.added_at : max),
+            playable[0].added_at,
+          );
+          const firstVideoId = playable[0].video_id;
+
+          const prof = store.public_profiles.find((p) => p.id === cs.owner_id);
+
+          resultRows.push({
+            id: cs.id,
+            title: cs.title,
+            description: cs.description,
+            owner_id: cs.owner_id,
+            episode_count: playable.length,
+            first_video_id: firstVideoId,
+            updated_at: maxAddedAt,
+            prof_id: prof ? prof.id : null,
+            prof_handle: prof ? prof.handle : null,
+            prof_display_name: prof ? prof.display_name : null,
+            prof_avatar_key: prof ? prof.avatar_key : null,
+          });
+        }
+
+        resultRows.sort((a, b) => {
+          const diff = b.updated_at.getTime() - a.updated_at.getTime();
+          if (diff !== 0) return diff;
+          return a.id.localeCompare(b.id);
+        });
+
+        const limited = resultRows.slice(0, 5);
+        return { rows: limited, rowCount: limited.length };
+      }
+
       // Playable episodes query for listSeriesEpisodes / getSeriesEpisode
       if (
         sql.includes('SELECT') &&

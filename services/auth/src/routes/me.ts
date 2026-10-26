@@ -1,12 +1,14 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'kysely';
+import { v7 as uuidv7 } from 'uuid';
 import { verifyAccessToken, type AccessTokenClaims } from '../crypto/jwt.js';
 import { verifyPassword, hashPassword } from '../crypto/passwords.js';
 import { getClearRefreshCookieOptions, REFRESH_COOKIE_NAME } from '../crypto/refresh.js';
 import {
   buildUpdateMeRateLimitKey,
   buildAccountActionRateLimitKeys,
+  buildCreatorRequestRateLimitKey,
   type RateLimiter,
 } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
@@ -39,6 +41,12 @@ const deleteMeSchema = z
   .object({
     confirm_handle: z.string().min(1),
     password: z.string().optional(),
+  })
+  .strict();
+
+const createCreatorRequestSchema = z
+  .object({
+    message: z.string().trim().min(10).max(1000),
   })
   .strict();
 
@@ -382,5 +390,145 @@ export const meRoute: FastifyPluginAsync<{
     reply.setCookie(REFRESH_COOKIE_NAME, '', getClearRefreshCookieOptions(env));
     request.log.info({ userId, op: 'deleteMe' }, 'User deleted account');
     return reply.status(204).send();
+  });
+
+  // 5. GET /v1/auth/me/creator-request (task ROLE1, ADR-046)
+  fastify.get('/v1/auth/me/creator-request', async (request, reply) => {
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
+
+    const requestRow = await db
+      .selectFrom('auth.creator_requests')
+      .selectAll()
+      .where('user_id', '=', userId)
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(1)
+      .executeTakeFirst();
+
+    if (!requestRow) {
+      throw ProblemError.notFound('No creator request found');
+    }
+
+    return reply.status(200).send({
+      id: requestRow.id,
+      status: requestRow.status,
+      message: requestRow.message,
+      decision_note: requestRow.decision_note ?? null,
+      created_at: new Date(requestRow.created_at).toISOString(),
+      decided_at: requestRow.decided_at ? new Date(requestRow.decided_at).toISOString() : null,
+    });
+  });
+
+  // 6. POST /v1/auth/me/creator-request (task ROLE1, ADR-046)
+  fastify.post('/v1/auth/me/creator-request', async (request, reply) => {
+    const claims = await extractBearerClaims(request, env);
+    const userId = claims.sub;
+
+    const parseResult = createCreatorRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const fieldErrors = parseResult.error.errors.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_ERROR');
+    }
+    const { message } = parseResult.data;
+
+    // Rate limit: 5 per user per day
+    await rateLimiter.consume({
+      key: buildCreatorRequestRateLimitKey(userId),
+      limit: 5,
+      windowSeconds: 86400,
+    });
+
+    const createdRequest = await db.transaction().execute(async (trx) => {
+      // Lock caller user row to prevent race conditions on submission
+      const user = await trx
+        .selectFrom('auth.users')
+        .select(['id', 'roles'])
+        .where('id', '=', userId)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!user) {
+        throw ProblemError.unauthorized('User not found');
+      }
+
+      // Conflict check 1: Already has creator role
+      if (user.roles.includes('creator')) {
+        throw ProblemError.conflict('User already has creator role', 'ALREADY_CREATOR');
+      }
+
+      // Latest request of caller
+      const latestRequest = await trx
+        .selectFrom('auth.creator_requests')
+        .selectAll()
+        .where('user_id', '=', userId)
+        .orderBy('created_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(1)
+        .executeTakeFirst();
+
+      // Conflict check 2: PENDING request exists
+      if (latestRequest && latestRequest.status === 'PENDING') {
+        throw ProblemError.conflict('A creator request is already pending', 'REQUEST_PENDING');
+      }
+
+      // Conflict check 3: REJECTED less than 24h ago
+      if (latestRequest && latestRequest.status === 'REJECTED' && latestRequest.decided_at) {
+        const decidedAtMs = new Date(latestRequest.decided_at).getTime();
+        const cooldownExpiresAtMs = decidedAtMs + 24 * 60 * 60 * 1000;
+        if (Date.now() < cooldownExpiresAtMs) {
+          const expiresAtIso = new Date(cooldownExpiresAtMs).toISOString();
+          throw new ProblemError({
+            status: 409,
+            title: 'Conflict',
+            code: 'REQUEST_COOLDOWN',
+            detail: `A new request can be submitted after ${expiresAtIso}`,
+          });
+        }
+      }
+
+      // Create PENDING request
+      const newId = uuidv7();
+      try {
+        const inserted = await trx
+          .insertInto('auth.creator_requests')
+          .values({
+            id: newId,
+            user_id: userId,
+            status: 'PENDING',
+            message,
+            decision_note: null,
+            decided_by: null,
+            decided_at: null,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+
+        return inserted;
+      } catch (err: unknown) {
+        const dbErr = err as { code?: string; constraint?: string };
+        if (dbErr.code === '23505' && dbErr.constraint === 'creator_requests_one_pending') {
+          throw ProblemError.conflict('A creator request is already pending', 'REQUEST_PENDING');
+        }
+        throw err;
+      }
+    });
+
+    // Logging: request id and user id, NEVER message!
+    request.log.info({ request_id: createdRequest.id, user_id: userId }, 'Creator request created');
+
+    return reply.status(201).send({
+      id: createdRequest.id,
+      status: createdRequest.status,
+      message: createdRequest.message,
+      decision_note: createdRequest.decision_note ?? null,
+      created_at: new Date(createdRequest.created_at).toISOString(),
+      decided_at: createdRequest.decided_at
+        ? new Date(createdRequest.decided_at).toISOString()
+        : null,
+    });
   });
 };

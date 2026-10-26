@@ -34,6 +34,7 @@ const (
 	cursorTrending      = "trending"
 	cursorSubscriptions = "subscriptions"
 	cursorHistory       = "history"
+	cursorAdminVideos   = "admin-videos"
 )
 
 // Cache-Control values of GET /v1/videos/{id} (video.v1.yaml).
@@ -109,6 +110,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Delete("/v1/videos/{video_id}/audio-tracks/{track_id}", h.deleteAudioTrack)
 		r.Put("/v1/videos/{video_id}/moderation", h.moderateVideo)
 		r.Get("/v1/studio/videos", h.listStudio)
+		r.Get("/v1/studio/admin/videos", h.adminListVideos)
 		r.Get("/v1/feed/subscriptions", h.subscriptionFeed)
 		r.Get("/v1/me/history", h.getWatchHistory)
 		r.Delete("/v1/me/history", h.clearWatchHistory)
@@ -121,6 +123,18 @@ func (h *Handler) Routes(r chi.Router) {
 func viewer(r *http.Request) domain.Viewer {
 	id, ok := httpx.IdentityFrom(r.Context())
 	return domain.ViewerFrom(id, ok)
+}
+
+// requireCreator enforces ROLE1 (ADR-046): managing videos needs the creator
+// role (admins have every role). It reads X-User-Roles only, before anything
+// is loaded, so the answer reveals nothing about the video.
+func requireCreator(w http.ResponseWriter, r *http.Request) bool {
+	if id, ok := httpx.IdentityFrom(r.Context()); ok && id.HasRole(httpx.RoleCreator) {
+		return true
+	}
+	httpx.WriteProblem(w, r, httpx.NewProblem(http.StatusForbidden, "CREATOR_ROLE_REQUIRED",
+		"managing videos needs the creator role"))
+	return false
 }
 
 // ---- GET /v1/videos ---------------------------------------------------------
@@ -258,6 +272,9 @@ type updateRequest struct {
 }
 
 func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	id, ok := videoID(r)
 	if !ok {
 		notFound(w, r)
@@ -466,6 +483,9 @@ var validStatuses = map[string]bool{
 }
 
 func (h *Handler) listStudio(w http.ResponseWriter, r *http.Request) {
+	if !requireCreator(w, r) {
+		return
+	}
 	q := r.URL.Query()
 	limit, ok := h.parseLimit(w, r, q)
 	if !ok {

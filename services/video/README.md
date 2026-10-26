@@ -12,6 +12,7 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | `PATCH /v1/videos/{id}` | required | Owner only. `title` 1-100, `description` ≤ 5000, `visibility`, `tags` (TAG1: ≤ 10 tags of ≤ 30 characters, normalized, `[]` clears); unknown fields and `{}` → 400. When the visibility **actually changes** it also enqueues `video.visibility_changed`: see *Events*. |
 | `DELETE /v1/videos/{id}` | required | Owner, moderator or admin. **One transaction**: delete the row (cascades to renditions and jobs) + enqueue `video.deleted` (`raw_bucket`, `raw_key`, `media_bucket`, `media_prefix = v/{id}/`). The transcoder's media janitor purges the objects. |
 | `GET /v1/studio/videos` | required | The caller's videos in every status, keyset on `(created_at DESC, id DESC)` (index `media.videos_owner_created`), optional `status` filter, `progress` from the latest transcode job (READY → 100), `thumbnail_url` when present. `private, no-store`. |
+| `GET /v1/studio/admin/videos` | moderator, admin | Every video of every owner in every status, visibility and moderation state (task ADMV1, ADR-047), newest first. Filters `q` (folded title substring), `status`, `visibility`, `moderation_state`, `owner_id`; the cursor is bound to them. `owner` is the `deleted_user` placeholder for inactive owners. `200 AdminVideoPage`, `400`, `401`, `403`. |
 | `PUT /v1/videos/{id}/moderation` | moderator, admin | Hide or restore a video (task S4): see *Moderation*. `200` Video with `moderation`, `400`, `401`, `403`, `404`. |
 | `POST /v1/videos/{id}/views` | optional | Report one qualified playback (task C3): see *View counter*. `202 {counted}`, `400`, `404`, `429`. |
 | `GET /internal/media-access/{id}` | none | **Infrastructure only** (task SEC1, ADR-017): nginx `auth_request`. `204` if the public may fetch the video media, `403` otherwise. See *Media access*. |
@@ -43,6 +44,8 @@ Video metadata, public feed, watch-page data and the creator's studio list. Impl
 | not READY (UPLOADING … FAILED) | **404** | 200 |
 | owner not ACTIVE (suspended/deleted) | **404** | 200 (placeholder owner `deleted_user`) |
 | **HIDDEN** by a moderator (any visibility) | **404** | 200, `Cache-Control: private, no-store` |
+
+**Creator role (ROLE1, ADR-046).** `PATCH /v1/videos/{id}`, the subtitle and audio-track routes, `GET /v1/studio/videos` and both studio stats routes first require `creator` in `X-User-Roles` (admins have every role): otherwise `403` `CREATOR_ROLE_REQUIRED`, decided from the header alone before anything is read. `DELETE /v1/videos/{id}` does not need it: an owner can always delete their own videos.
 
 A video the caller may not see is always **404, never 403**, so ids cannot be probed. PATCH and DELETE follow the same rule first (404), then answer **403** for a visible video the caller may not change. Identity comes only from `X-User-Id` / `X-User-Roles`; on the two optional routes a missing `X-User-Id` is an anonymous request and a malformed one is a 401.
 

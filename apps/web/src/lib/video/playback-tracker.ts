@@ -6,6 +6,8 @@ export interface PlaybackTrackerOptions {
   videoId: string;
   playbackId: string;
   surface?: PlaybackSample['surface'];
+  codec?: PlaybackSample['codec'];
+  av1Capable?: PlaybackSample['av1_capable'];
   enabled?: boolean;
   endpoint?: string;
   heartbeatIntervalMs?: number;
@@ -18,6 +20,8 @@ export class PlaybackTracker {
   public readonly videoId: string;
   public readonly playbackId: string;
   public readonly surface: PlaybackSample['surface'];
+  public codec?: PlaybackSample['codec'];
+  public av1Capable?: PlaybackSample['av1_capable'];
   public readonly enabled: boolean;
   private readonly endpoint: string;
   private readonly heartbeatIntervalMs: number;
@@ -64,6 +68,8 @@ export class PlaybackTracker {
     this.videoId = options.videoId;
     this.playbackId = options.playbackId;
     this.surface = options.surface ?? 'other';
+    this.codec = options.codec;
+    this.av1Capable = options.av1Capable;
 
     // Use literal process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false' so Next.js inlines it
     const envEnabled = process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false';
@@ -304,6 +310,23 @@ export class PlaybackTracker {
   }
 
   /**
+   * Sets the codec of the currently playing source (AV1-tel, ADR-048).
+   * 'av1' only when loading hls_av1_url, 'h264' when loading hls_url (including fallbacks).
+   */
+  public setCodec(codec?: PlaybackSample['codec']): void {
+    if (!this.enabled || this.hasEnded) return;
+    this.codec = codec;
+  }
+
+  /**
+   * Sets whether the device is capable of playing AV1 smoothly and power-efficiently (AV1-tel, ADR-048).
+   */
+  public setAv1Capable(capable?: PlaybackSample['av1_capable']): void {
+    if (!this.enabled || this.hasEnded) return;
+    this.av1Capable = capable;
+  }
+
+  /**
    * Called on playback completion ('ended').
    */
   public recordEnded(currentTimeSec?: number): void {
@@ -410,6 +433,13 @@ export class PlaybackTracker {
       client: 'web',
       surface: this.surface,
     };
+
+    if (this.codec !== undefined) {
+      sample.codec = this.codec;
+    }
+    if (this.av1Capable !== undefined) {
+      sample.av1_capable = this.av1Capable;
+    }
 
     if (kind === 'start' && extra?.startupMs !== undefined) {
       sample.startup_ms = Math.max(0, Math.min(600000, extra.startupMs));

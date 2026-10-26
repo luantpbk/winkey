@@ -3,31 +3,60 @@
 import React, { useState, useEffect } from 'react';
 import { notFound } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Flag, Users, History, ShieldCheck } from 'lucide-react';
+import { Flag, Users, History, ShieldCheck, Sparkles, Film } from 'lucide-react';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { computePermissions } from '../../../lib/auth';
+import { api } from '../../../lib/api-client';
 import { ModerationQueue } from '../../../components/admin/moderation-queue';
 import { UserManagement } from '../../../components/admin/user-management';
 import { AuditLogViewer } from '../../../components/admin/audit-log-viewer';
+import { CreatorRequestsViewer } from '../../../components/admin/creator-requests-viewer';
+import { AdminVideosViewer } from '../../../components/admin/admin-videos-viewer';
 
-type AdminTab = 'queue' | 'users' | 'audit';
+type AdminTab = 'queue' | 'videos' | 'users' | 'creator-requests' | 'audit';
 
 export default function AdminPage() {
   const t = useTranslations('admin');
-  const { isLoading, isAuthenticated, canAccessAdmin, isAdmin, isModerator } = useAuth();
+  const { isLoading, isAuthenticated, can: rawCan, user, isAdmin, isModerator } = useAuth();
+  const can = rawCan ?? computePermissions(user, isAuthenticated);
 
   const [activeTab, setActiveTab] = useState<AdminTab>('queue');
+  const [pendingCount, setPendingCount] = useState<number>(0);
 
-  // Route guard: if authenticated but neither moderator nor admin, trigger 404
-  if (!isLoading && (!isAuthenticated || !canAccessAdmin)) {
+  // Fetch pending creator requests count for admin badge
+  useEffect(() => {
+    if (can.adminOnly) {
+      api.auth
+        .GET('/v1/admin/creator-requests', {
+          params: { query: { status: 'PENDING' } },
+        })
+        .then(({ data }) => {
+          if (data) {
+            setPendingCount(data.pending_count);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [can.adminOnly]);
+
+  // Ensure document language is explicitly declared for accessibility audit
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = 'vi';
+    }
+  }, []);
+
+  // Route guard: if authenticated but not moderator or admin, trigger 404
+  if (!isLoading && (!isAuthenticated || !can.moderate)) {
     notFound();
   }
 
-  // If a moderator somehow selects 'audit', reset to 'queue'
+  // If a moderator somehow selects 'audit' or 'creator-requests', reset to 'queue'
   useEffect(() => {
-    if (!isAdmin && activeTab === 'audit') {
+    if (!can.adminOnly && (activeTab === 'audit' || activeTab === 'creator-requests')) {
       setActiveTab('queue');
     }
-  }, [isAdmin, activeTab]);
+  }, [can.adminOnly, activeTab]);
 
   if (isLoading) {
     return (
@@ -79,6 +108,19 @@ export default function AdminPage() {
         </button>
 
         <button
+          data-testid="admin-tab-videos"
+          onClick={() => setActiveTab('videos')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
+            activeTab === 'videos'
+              ? 'border-red-500 text-white bg-[#222]'
+              : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a]'
+          }`}
+        >
+          <Film className="h-4 w-4" />
+          <span>{t('nav.videos')}</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('users')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
             activeTab === 'users'
@@ -90,7 +132,30 @@ export default function AdminPage() {
           <span>{t('nav.users')}</span>
         </button>
 
-        {isAdmin && (
+        {can.adminOnly && (
+          <button
+            data-testid="admin-tab-creator-requests"
+            onClick={() => setActiveTab('creator-requests')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
+              activeTab === 'creator-requests'
+                ? 'border-red-500 text-white bg-[#222]'
+                : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-[#1a1a1a]'
+            }`}
+          >
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            <span>Yêu cầu sáng tạo</span>
+            {pendingCount > 0 && (
+              <span
+                data-testid="pending-creator-requests-badge"
+                className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white leading-none"
+              >
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        )}
+
+        {can.adminOnly && (
           <button
             onClick={() => setActiveTab('audit')}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-xl transition border-b-2 whitespace-nowrap ${
@@ -108,8 +173,12 @@ export default function AdminPage() {
       {/* Active Tab Content */}
       <div className="pt-2">
         {activeTab === 'queue' && <ModerationQueue />}
+        {activeTab === 'videos' && <AdminVideosViewer />}
         {activeTab === 'users' && <UserManagement />}
-        {activeTab === 'audit' && isAdmin && <AuditLogViewer />}
+        {activeTab === 'creator-requests' && can.adminOnly && (
+          <CreatorRequestsViewer onPendingCountChange={setPendingCount} />
+        )}
+        {activeTab === 'audit' && can.adminOnly && <AuditLogViewer />}
       </div>
     </div>
   );

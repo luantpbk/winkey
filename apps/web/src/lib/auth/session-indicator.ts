@@ -98,3 +98,36 @@ export function clearSessionProbed(): void {
   const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
   document.cookie = `${SESSION_PROBED_COOKIE}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${isSecure ? '; Secure' : ''}`;
 }
+
+/**
+ * Query marker added to the Google sign-in `return_to`. The OAuth callback sets only the HttpOnly
+ * refresh cookie, so without the marker a device that already probed (wk_session_probed) would never
+ * call /v1/auth/refresh after returning from Google (auth.v1 googleCallback: "the web app then calls
+ * /v1/auth/refresh").
+ */
+export const OAUTH_RETURN_PARAM = 'wk_oauth';
+
+/** Appends the OAuth-return marker to a relative path, keeping its query and hash. */
+export function withOAuthReturnMarker(path: string): string {
+  const hashIndex = path.indexOf('#');
+  const base = hashIndex === -1 ? path : path.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? '' : path.slice(hashIndex);
+  return `${base}${base.includes('?') ? '&' : '?'}${OAUTH_RETURN_PARAM}=1${hash}`;
+}
+
+/**
+ * When the current URL carries the OAuth-return marker, removes it from the address bar
+ * (replaceState, no new history entry) and returns true.
+ */
+export function consumeOAuthReturnMarker(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(OAUTH_RETURN_PARAM)) {
+    return false;
+  }
+  url.searchParams.delete(OAUTH_RETURN_PARAM);
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  return true;
+}

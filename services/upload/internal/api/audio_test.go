@@ -263,6 +263,12 @@ func TestAudioTrackOwnership(t *testing.T) {
 	if w := e.do("", "", "POST", "/v1/uploads/"+vid+"/audio-tracks", audioBody("en", "dub", mib)); w.Code != 401 {
 		t.Errorf("anonymous: %d", w.Code)
 	}
+	// ROLE1 (ADR-046): the owner without the creator role cannot add tracks.
+	w = e.do(e.owner, "viewer", "POST", "/v1/uploads/"+vid+"/audio-tracks", audioBody("en", "dub", mib))
+	check(t, spec, "POST", pathTracks, w)
+	if w.Code != 403 {
+		t.Errorf("owner without creator: %d", w.Code)
+	}
 }
 
 func TestAudioTrackAbortAndSizeMismatch(t *testing.T) {

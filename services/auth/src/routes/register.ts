@@ -92,7 +92,7 @@ export const registerRoute: FastifyPluginAsync<{
     const passwordHash = await hashPassword(password);
     const userId = uuidv7();
     const familyId = uuidv7();
-    const defaultRoles: Role[] = ['viewer', 'creator'];
+    const defaultRoles: Role[] = env.SIGNUP_ROLES.split(',') as Role[];
 
     const opaqueRefreshToken = generateRefreshToken();
     const tokenHash = hashRefreshToken(opaqueRefreshToken);

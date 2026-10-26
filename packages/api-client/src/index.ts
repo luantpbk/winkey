@@ -113,6 +113,12 @@ export type SetRolesRequest = AuthComponents['schemas']['SetRolesRequest'];
 export type SuspendUserRequest = AuthComponents['schemas']['SuspendUserRequest'];
 export type AuditEntry = AuthComponents['schemas']['AuditEntry'];
 export type AuditEntryPage = AuthComponents['schemas']['AuditEntryPage'];
+export type CreatorRequestStatus = AuthComponents['schemas']['CreatorRequestStatus'];
+export type CreateCreatorRequestRequest = AuthComponents['schemas']['CreateCreatorRequestRequest'];
+export type CreatorRequest = AuthComponents['schemas']['CreatorRequest'];
+export type AdminCreatorRequest = AuthComponents['schemas']['AdminCreatorRequest'];
+export type AdminCreatorRequestPage = AuthComponents['schemas']['AdminCreatorRequestPage'];
+export type CreatorRequestDecision = AuthComponents['schemas']['CreatorRequestDecision'];
 
 export type ReportTargetType = SocialComponents['schemas']['ReportTargetType'];
 export type ReportReason = SocialComponents['schemas']['ReportReason'];
@@ -128,6 +134,8 @@ export type ModerateCommentRequest = SocialComponents['schemas']['ModerateCommen
 
 export type ModerateVideoRequest = VideoComponents['schemas']['ModerateVideoRequest'];
 export type VideoModeration = VideoComponents['schemas']['VideoModeration'];
+export type AdminVideo = VideoComponents['schemas']['AdminVideo'];
+export type AdminVideoPage = VideoComponents['schemas']['AdminVideoPage'];
 
 export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string;

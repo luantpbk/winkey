@@ -936,6 +936,37 @@ paths:
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
 
+  /v1/series:
+    get:
+      tags: [cinema]
+      operationId: listSeriesForVideo
+      summary: Public series that contain a video as a playable episode (task CIN3, ADR-045). Optional auth.
+      description: |
+        Lets the watch page show the episode list when the link has no `?playlist=` (search, history, Google, a
+        shared link). Returns at most 5 series, newest `updated_at` first; clients use the first one and then call
+        `getSeriesEpisode`. Same rules as `listSeriesEpisodes`: only `PUBLIC` playlists with `is_series` whose
+        episode list contains `video_id` as a **playable** episode. An unknown, non-playable or non-episode video
+        is an empty list (never 404). `Cache-Control: public, max-age=60`.
+        Gateway: `/v1/series` already goes to social-svc.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: video_id
+          in: query
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The series containing the video (possibly empty).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesForVideo'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
   /v1/series/{playlist_id}/episodes:
     parameters:
       - $ref: '#/components/parameters/PlaylistId'
@@ -1541,6 +1572,17 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    SeriesForVideo:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/SeriesSummary'
 
     CinemaCatalogItem:
       oneOf:

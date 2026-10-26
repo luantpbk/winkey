@@ -54,6 +54,11 @@
     "episodesList": "Episode list",
     "episodeNumber": "Episode {number}",
     "currentEpisode": "Now playing",
+    "nextEpisodeIn": "Next episode in",
+    "cancel": "Cancel",
+    "playNow": "Play now",
+    "collapse": "Collapse",
+    "expand": "Expand",
     "editVideo": "Edit"
   },
   "channel": {
@@ -110,8 +115,8 @@
     "oauthUnavailable": "Google sign-in is temporarily unavailable",
     "accountSuspended": "Your account has been suspended.",
     "inviteCode": "Invite code",
-    "invitePlaceholder": "Beta invite code",
-    "inviteRequired": "Winkey is in closed beta. You need an invite code to create an account.",
+    "invitePlaceholder": "Invite code",
+    "inviteRequired": "An invite code is required to create an account.",
     "inviteInvalid": "Invalid or expired invite code.",
     "agreeTermsPrefix": "I agree to the ",
     "agreeTermsOfService": "Terms of Service",
@@ -410,6 +415,7 @@
     "unauthorizedDesc": "This panel is restricted to Administrators and Content Moderators.",
     "nav": {
       "queue": "Moderation Queue",
+      "videos": "Videos",
       "users": "Users",
       "audit": "Audit Log"
     },
@@ -667,7 +673,7 @@
   "library": {
     "title": "Library",
     "description": "Manage your playlists and series.",
-    "createPlaylist": "+ Create playlist",
+    "createPlaylist": "Create playlist",
     "emptyTitle": "You don't have any playlists yet.",
     "emptyDesc": "Create a playlist or series to organize your videos.",
     "public": "Public",
@@ -676,7 +682,7 @@
     "seriesBadge": "Series",
     "seriesCheckbox": "Series (group episodes into a series on the home page)",
     "seriesHint": "Series can only contain your own videos and must be Public to appear on the home page.",
-    "addMyVideos": "+ Add my videos",
+    "addMyVideos": "Add my videos",
     "selectMyVideos": "Add videos from Studio",
     "searchVideosPlaceholder": "Search by video title...",
     "addNVideos": "Add {count} videos",

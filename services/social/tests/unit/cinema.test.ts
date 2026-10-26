@@ -757,4 +757,233 @@ describe('Cinema Catalogue & Series Unit Tests (Task CIN2 / ADR-035)', () => {
       expect(typeof data.page_cursor).toBe('string');
     });
   });
+
+  describe('GET /v1/series (listSeriesForVideo - CIN3 / ADR-045)', () => {
+    it('returns 400 VALIDATION_ERROR when video_id query is missing', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/series',
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.title).toBe('Bad Request');
+    });
+
+    it('returns 400 VALIDATION_ERROR when video_id is malformed', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/series?video_id=not-a-uuid',
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('sets Cache-Control: public, max-age=60', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoA1}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('public, max-age=60');
+    });
+
+    it('returns 200 with empty items for unknown video (never 404)', async () => {
+      const unknownVid = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9999';
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${unknownVid}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ items: [] });
+    });
+
+    it('returns public series containing the video as a playable episode', async () => {
+      store.playlists.push({
+        id: series1,
+        owner_id: userA,
+        kind: 'REGULAR',
+        title: 'Thien Co Bien',
+        description: 'Phim bo co trang',
+        visibility: 'PUBLIC',
+        is_series: true,
+        item_count: 2,
+        created_at: new Date('2026-10-01T10:00:00Z'),
+        updated_at: new Date('2026-10-01T12:00:00Z'),
+      });
+      store.playlist_items.push(
+        {
+          playlist_id: series1,
+          video_id: videoA1,
+          position: 1048576,
+          added_at: new Date('2026-10-01T10:00:00Z'),
+        },
+        {
+          playlist_id: series1,
+          video_id: videoA2,
+          position: 2097152,
+          added_at: new Date('2026-10-01T12:00:00Z'),
+        },
+      );
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoA2}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0]).toEqual({
+        playlist_id: series1,
+        title: 'Thien Co Bien',
+        description: 'Phim bo co trang',
+        owner: {
+          id: userA,
+          handle: 'creator_a',
+          display_name: 'Creator A',
+          avatar_url: 'https://media.winkey.vn/avatars/a.jpg',
+        },
+        episode_count: 2,
+        first_video_id: videoA1,
+        updated_at: '2026-10-01T12:00:00.000Z',
+      });
+    });
+
+    it('excludes PRIVATE series and non-series playlists', async () => {
+      const privateSeriesId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9301';
+      const normalPlaylistId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9302';
+
+      store.playlists.push(
+        {
+          id: privateSeriesId,
+          owner_id: userA,
+          kind: 'REGULAR',
+          title: 'Private Series',
+          description: '',
+          visibility: 'PRIVATE',
+          is_series: true,
+          item_count: 1,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        {
+          id: normalPlaylistId,
+          owner_id: userA,
+          kind: 'REGULAR',
+          title: 'Normal Playlist',
+          description: '',
+          visibility: 'PUBLIC',
+          is_series: false,
+          item_count: 1,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+      );
+      store.playlist_items.push(
+        {
+          playlist_id: privateSeriesId,
+          video_id: videoA1,
+          position: 1048576,
+          added_at: new Date(),
+        },
+        {
+          playlist_id: normalPlaylistId,
+          video_id: videoA1,
+          position: 1048576,
+          added_at: new Date(),
+        },
+      );
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoA1}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().items).toHaveLength(0);
+    });
+
+    it('returns empty items if target video is hidden or private', async () => {
+      store.playlists.push({
+        id: series1,
+        owner_id: userA,
+        kind: 'REGULAR',
+        title: 'Hidden Video Series',
+        description: '',
+        visibility: 'PUBLIC',
+        is_series: true,
+        item_count: 2,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+      store.playlist_items.push(
+        {
+          playlist_id: series1,
+          video_id: videoAHidden,
+          position: 1048576,
+          added_at: new Date(),
+        },
+        {
+          playlist_id: series1,
+          video_id: videoAPrivate,
+          position: 2097152,
+          added_at: new Date(),
+        },
+      );
+
+      const resHidden = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoAHidden}`,
+      });
+      expect(resHidden.statusCode).toBe(200);
+      expect(resHidden.json().items).toHaveLength(0);
+
+      const resPrivate = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoAPrivate}`,
+      });
+      expect(resPrivate.statusCode).toBe(200);
+      expect(resPrivate.json().items).toHaveLength(0);
+    });
+
+    it('orders multiple series by updated_at DESC, then playlist_id ASC, limited to 5', async () => {
+      // Create 7 series containing videoA1 with different added_at
+      for (let i = 1; i <= 7; i++) {
+        const sId = `0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b950${i}`;
+        const addedHour = 10 + i; // s7 has the latest added_at
+        store.playlists.push({
+          id: sId,
+          owner_id: userA,
+          kind: 'REGULAR',
+          title: `Series ${i}`,
+          description: '',
+          visibility: 'PUBLIC',
+          is_series: true,
+          item_count: 1,
+          created_at: new Date(`2026-10-01T${addedHour}:00:00Z`),
+          updated_at: new Date(`2026-10-01T${addedHour}:00:00Z`),
+        });
+        store.playlist_items.push({
+          playlist_id: sId,
+          video_id: videoA1,
+          position: 1048576,
+          added_at: new Date(`2026-10-01T${addedHour}:00:00Z`),
+        });
+      }
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/series?video_id=${videoA1}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items;
+      expect(items).toHaveLength(5);
+      // Newest updated_at first: Series 7, 6, 5, 4, 3
+      expect(items[0].title).toBe('Series 7');
+      expect(items[1].title).toBe('Series 6');
+      expect(items[2].title).toBe('Series 5');
+      expect(items[3].title).toBe('Series 4');
+      expect(items[4].title).toBe('Series 3');
+    });
+  });
 });

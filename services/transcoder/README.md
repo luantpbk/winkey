@@ -246,6 +246,30 @@ Videos encoded before this change have muxed variants. Extra audio tracks do not
 
 It uses the worker's env file and needs no NATS: the running worker's outbox relay publishes `video.ready`. Transient failures are retried 3 times; a permanent one leaves the video `FAILED` like a normal job. Afterwards, run `av1-upgrade` to rebuild the AV1 sets. On gpu-01, see `deploy/gpu-01/README.md` section 10.
 
+### Storage inventory and garbage collection (`cmd/storage-gc`, STOR1)
+
+`storage-gc` lists the media and raw buckets, judges every object against the database and prints bytes per bucket and per category, stale multipart uploads and the largest videos. **By default it deletes nothing.**
+
+| Category | Meaning | Deletable |
+|---|---|---|
+| `media-current`, `media-av1-current`, `media-audio` | what playback uses | no |
+| `media-in-flight` | attempts of a video that is not `READY` (encode or re-encode in progress) | no |
+| `raw-source`, `raw-audio-pending` | raw sources still needed (re-encode, AV1 upgrade, pending audio) | no |
+| `recent`, `unknown` | younger than `-min-age` (default 48 h, minimum 24 h), or outside the documented layout | no |
+| `media-orphan-video`, `raw-orphan-video` | objects of a video row that no longer exists | yes |
+| `media-old-attempt` | `a{n}/` that is not the current attempt of a `READY` video | yes |
+| `media-old-av1` | `av1/{run}/` that is not the current AV1 set | yes |
+| `media-orphan-audio`, `raw-orphan-audio` | objects of an audio track that no longer exists | yes |
+| `raw-audio-processed` | raw audio of a `READY` track (only its HLS output is ever used again) | yes |
+
+```
+storage-gc                                   # report
+storage-gc -apply media-old-attempt          # delete one category
+storage-gc -apply all -abort-uploads         # every garbage category + stale multipart uploads
+```
+
+It uses the worker's env file (`DATABASE_URL`, `S3_*`). The database snapshot is read before the listing, and nothing younger than `-min-age` is judged, so encodes and uploads in progress are safe. The media janitor (`video.deleted`) removes the whole raw directory `{owner_id}/{video_id}/` since STOR1, including the raw sources of extra audio tracks.
+
 ## Audio tracks (MUX1, ADR-042)
 
 A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDeliver` unlimited, bounded by the job at 200 deliveries), encodes extra audio tracks on their own. The video is never re-encoded.
@@ -269,9 +293,17 @@ New videos are encoded in H.264 only. `av1-upgrade` (`cmd/av1-upgrade`, installe
 4. Upload to `v/{id}/av1/{uuidv7}/`: segments first, then the media playlists, the master last. The directory is outside `a{n}/`, so H.264 re-encodes keep it; deleting the video removes it with the rest of `v/{id}/`.
 5. `CommitAV1`, one transaction under the video row lock: the video must still be `READY`, the `codec='av1'` rows of `media.video_renditions` are replaced (`bitrate_kbps` = the AV1 ceiling), the audio group of the `READY` audio tracks is applied to the AV1 master (a new `master-{uuidv7}.m3u8` next to it, MUX1), and `hls_av1_master_key` is set. Lost race (deleted or re-encoding) or failure: the uploaded set is deleted. A set it replaced is deleted after the commit.
 
+**Top-N policy (AV1POL, ADR-048).** With `AV1_TOP_N=N`, each run first ranks every `READY` video by 7-day starts (then newest) and:
+
+1. **Sweeps**: deletes the leftover `v/{id}/av1/{run}/` directories of `READY` videos that have no AV1 set, i.e. sets dropped by an earlier run (and partial outputs).
+2. **Drops** the sets of videos ranked beyond `AV1_KEEP_TOP` (default `max(2N, N+5)`, the hysteresis that stops a video hovering around rank N from being encoded and dropped night after night). `DropAV1` clears `hls_av1_master_key` and the `codec='av1'` rows under the row lock; video-svc stops returning `hls_av1_url` within its 30 s cache. The objects stay until the **next** run's sweep, so a viewer who already loaded the AV1 master can finish.
+3. **Upgrades** only videos within the top N (still subject to `AV1_MIN_STARTS_7D` and `AV1_UPGRADE_LIMIT`).
+
+`AV1_TOP_N=all` (the default) keeps the original behaviour: no ranking, no drops, no sweep. `AV1_TOP_N=0` drops every set. Raising N (10, 100, …) or going back to `all` only needs the env change: the next run upgrades the newly eligible videos from their raw sources.
+
 From then on every audio-track change (`CompleteAudio` here, PATCH/DELETE in video-svc) rewrites both masters in the same transaction. video-svc returns the set as `Playback.hls_av1_url`. **Apply migration 000024 before deploying this version**, because `CompleteAudio` reads `hls_av1_master_key`.
 
-Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected= done= failed= lost_race= [would_do= dry_run=true] duration=`.
+Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected= done= failed= lost_race= dropped= swept= [would_do= dry_run=true] duration=`. The dry run also reports the drops and sweeps it would do.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -282,6 +314,8 @@ Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected
 | `HWACCEL_DECODE` | `true` | as the worker; `false` decodes on the CPU |
 | `AV1_MIN_STARTS_7D` | `50` | playback starts over 7 days; `0` = every READY video without an AV1 set, watched or not |
 | `AV1_UPGRADE_LIMIT` | `20` | videos per run, 1 to 1000 |
+| `AV1_TOP_N` | `all` | `all`, or the number of most watched `READY` videos that keep an AV1 set (AV1POL) |
+| `AV1_KEEP_TOP` | `0` = `max(2N, N+5)` | rank beyond which a set is dropped; must be ≥ `AV1_TOP_N` |
 | `AV1_CQ` | `35` (`media.DefaultAV1CQ`) | 1 to 63 |
 | `AV1_MAXRATE_PCT` | `85` (`media.DefaultAV1MaxratePct`) | 10 to 100 |
 | `SCRATCH_DIR` | `<os temp>/winkey-scratch` | one `av1-<video id>-*` directory per video, removed afterwards |
@@ -289,4 +323,4 @@ Exit code, summary line and dry run as `storyboard-backfill`: `summary: selected
 
 On gpu-01 it runs nightly as `winkey-av1-upgrade.service` / `.timer` (04:10 ICT, at most 3 h); install and dry-run steps in [`deploy/gpu-01/README.md`](deploy/gpu-01/README.md) section 9.
 
-Tests: `internal/av1up` runs the real ffmpeg with x264 in place of `av1_nvenc` (CI has no GPU) and checks the ladder, layout, upload order, ceilings, audio group, races and cleanup; `internal/store` checks the selection window, the commit and the double rewrite on Postgres.
+Tests: `internal/av1up` runs the real ffmpeg with x264 in place of `av1_nvenc` (CI has no GPU) and checks the ladder, layout, upload order, ceilings, audio group, races and cleanup; `internal/store` checks the selection window, the commit, the double rewrite, the ranking and `DropAV1` on Postgres; `policy_test.go` covers `AV1_TOP_N` parsing, the hysteresis and the plan.

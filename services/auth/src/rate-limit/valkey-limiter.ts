@@ -118,3 +118,7 @@ export function buildAccountActionRateLimitKeys(
     ipKey: `rl:${action}:ip:${ip}`,
   };
 }
+
+export function buildCreatorRequestRateLimitKey(userId: string): string {
+  return `rl:creator_request:user:${userId}`;
+}

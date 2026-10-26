@@ -18,6 +18,12 @@ export interface paths {
          *     `403` code `INVITE_INVALID`. Both are checked before any other conflict, so the response never reveals
          *     whether an email or handle exists. With `REGISTRATION_MODE=open` (default) `invite_code` is accepted
          *     and ignored. Existing accounts sign in normally in both modes.
+         *
+         *     Roles (task ROLE1, ADR-046): a new account — password or Google — gets `roles = [viewer]` only. Uploading and
+         *     managing videos need `creator`, granted by an admin through `createCreatorRequest` /
+         *     `adminDecideCreatorRequest` or `adminSetUserRoles`.
+         *     Local dev and test stacks (compose, systest, CI simulation) may run auth-svc with
+         *     `SIGNUP_ROLES=viewer,creator` so their seed accounts can upload; production never sets it (default `viewer`).
          */
         post: operations["register"];
         delete?: never;
@@ -116,6 +122,37 @@ export interface paths {
          *     The new handle takes effect immediately in `auth.public_profiles`; old `/@handle` URLs stop resolving.
          */
         patch: operations["updateMe"];
+        trace?: never;
+    };
+    "/v1/auth/me/creator-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your latest creator-upgrade request (task ROLE1, ADR-046).
+         * @description The most recent request of the signed-in user, whatever its status. None yet → `404`. The web client
+         *     polls this on the upgrade page; when it turns `APPROVED` while the access token still lacks `creator`,
+         *     it calls `refresh` once to get a token with the new role (approval never revokes sessions).
+         */
+        get: operations["getMyCreatorRequest"];
+        put?: never;
+        /**
+         * Ask an admin to grant the `creator` role (task ROLE1, ADR-046).
+         * @description Creates a `PENDING` request. Conflicts (`409`), checked in this order:
+         *     - the user already has `creator` → `ALREADY_CREATOR`;
+         *     - the user already has a `PENDING` request → `REQUEST_PENDING`;
+         *     - the latest request was `REJECTED` less than 24 h ago → `REQUEST_COOLDOWN` (the problem `detail`
+         *       says when a new request is possible).
+         *     Rate limited per user: 5 requests / day → `429`. Logs carry the request id and user id, never `message`.
+         */
+        post: operations["createCreatorRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/auth/me/password": {
@@ -440,6 +477,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/creator-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Creator-upgrade requests (admin only, task ROLE1, ADR-046).
+         * @description `status=PENDING` (default) is the review queue, oldest first. `APPROVED` / `REJECTED` list decided
+         *     requests, most recently decided first. `pending_count` is the total number of `PENDING` requests
+         *     whatever `status` is asked for (the admin tab badge). Moderators get `403`.
+         */
+        get: operations["adminListCreatorRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/creator-requests/{request_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a creator-upgrade request (admin only, task ROLE1, ADR-046).
+         * @description Only a `PENDING` request can be decided; otherwise `409` `REQUEST_ALREADY_DECIDED` (two admins racing:
+         *     exactly one wins). `REJECT` needs a `note` (shown to the user); `APPROVE` may have one.
+         *
+         *     `APPROVE`, in one transaction: the request becomes `APPROVED`; `creator` is added to the user's roles
+         *     (kept if already there); one `auth.audit_log` row `USER_ROLES_CHANGED` with details
+         *     `{from, to, creator_request_id}` is written when the roles actually change. Approval does **not**
+         *     revoke sessions: adding a role is safe to reach other services on the next refresh (≤ 15 min), and the
+         *     web client refreshes at once when it sees the approval. The user is not `ACTIVE` (suspended or
+         *     deleted) → `409` `USER_NOT_ACTIVE`, nothing changes.
+         *
+         *     `REJECT`: the request becomes `REJECTED` with the note; roles are untouched; no audit row (the request
+         *     row itself records who decided and when). Deciding your own request → `403` `CANNOT_MODERATE_TARGET`.
+         */
+        post: operations["adminDecideCreatorRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/audit-log": {
         parameters: {
             query?: never;
@@ -586,6 +678,38 @@ export interface components {
             };
             /** Format: date-time */
             created_at: string;
+        };
+        /** @enum {string} */
+        CreatorRequestStatus: "PENDING" | "APPROVED" | "REJECTED";
+        CreateCreatorRequestRequest: {
+            /** @description What the user wants to publish (shown to admins only). Trimmed before the length check. */
+            message: string;
+        };
+        CreatorRequest: {
+            id: components["schemas"]["Uuid"];
+            status: components["schemas"]["CreatorRequestStatus"];
+            message: string;
+            /** @description The admin's note; always present on `REJECTED`. */
+            decision_note: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at: string | null;
+        };
+        AdminCreatorRequest: components["schemas"]["CreatorRequest"] & {
+            user: components["schemas"]["AdminUser"];
+            decided_by: components["schemas"]["PublicProfile"] | null;
+        };
+        AdminCreatorRequestPage: {
+            items: components["schemas"]["AdminCreatorRequest"][];
+            next_cursor: string | null;
+            pending_count: number;
+        };
+        CreatorRequestDecision: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            /** @description Required for `REJECT`; trimmed. */
+            note?: string;
         };
         AuditEntryPage: {
             items: components["schemas"]["AuditEntry"][];
@@ -874,6 +998,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getMyCreatorRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatorRequest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createCreatorRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCreatorRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description The new request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatorRequest"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -1263,6 +1437,65 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUser"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    adminListCreatorRequests: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["CreatorRequestStatus"];
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCreatorRequestPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminDecideCreatorRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatorRequestDecision"];
+            };
+        };
+        responses: {
+            /** @description The request after the decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCreatorRequest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
