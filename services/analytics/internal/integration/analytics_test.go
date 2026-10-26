@@ -178,6 +178,8 @@ type sample struct {
 	errCode                                   *string
 	authenticated                             bool
 	surface, recoVariant                      *string
+	codec                                     *string
+	av1Capable                                *bool
 }
 
 func (sm sample) payload() []byte {
@@ -196,6 +198,12 @@ func (sm sample) payload() []byte {
 	}
 	if sm.recoVariant != nil {
 		d["reco_variant"] = sm.recoVariant
+	}
+	if sm.codec != nil {
+		d["codec"] = sm.codec
+	}
+	if sm.av1Capable != nil {
+		d["av1_capable"] = sm.av1Capable
 	}
 	b, _ := json.Marshal(map[string]any{"event_id": sm.id.String(), "type": "analytics.playback", "version": 1,
 		"occurred_at": sm.received.Format(time.RFC3339), "producer": "video-svc", "data": d})
@@ -381,14 +389,14 @@ func assertSums(t *testing.T, got, want map[hourKey]sums) {
 
 func TestMigrationsAreAppliedOnceAndTheSchemaIsThere(t *testing.T) {
 	s := startStack(t)
-	if got := s.migrate(); len(got) != 2 || got[0] != "0001_playback.sql" || got[1] != "0002_reco_ab.sql" {
+	if got := s.migrate(); len(got) != 3 || got[0] != "0001_playback.sql" || got[1] != "0002_reco_ab.sql" || got[2] != "0003_codec.sql" {
 		t.Fatalf("first start applied %v", got)
 	}
 	if got := s.migrate(); len(got) != 0 { // the second start is a no-op
 		t.Fatalf("second start applied %v", got)
 	}
 	var n uint64
-	if err := s.conn.QueryRow(context.Background(), `SELECT count() FROM winkey.schema_migrations`).Scan(&n); err != nil || n != 2 {
+	if err := s.conn.QueryRow(context.Background(), `SELECT count() FROM winkey.schema_migrations`).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("schema_migrations rows: %d %v", n, err)
 	}
 	for _, table := range []string{"playback_events", "video_qoe_hourly", "video_qoe_hourly_mv", "schema_migrations", "reco_ab_daily", "reco_ab_daily_mv"} {

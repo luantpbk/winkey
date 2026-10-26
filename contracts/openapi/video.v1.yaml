@@ -1720,6 +1720,18 @@ components:
             `trending`), the watch page column (`up_next`), search, the subscription feed, a channel page, a playlist,
             or `other` (direct link, notification, unknown). Same value on every sample of one playback; omitted
             by older clients (stored as unknown).
+        codec:
+          type: string
+          enum: [h264, av1]
+          description: |
+            Video codec of the master the player is playing (task AV1-tel, ADR-048): `av1` when it loaded
+            `hls_av1_url`, `h264` when it loaded `hls_url`. Omitted by older clients (stored as unknown).
+        av1_capable:
+          type: boolean
+          description: |
+            Whether this device can play the AV1 rendition smoothly and power-efficiently (the player's
+            `mediaCapabilities.decodingInfo` result, task AV1-tel, ADR-048), whatever the video offers. Same value on
+            every sample of one playback; omitted by older clients (stored as unknown).
 
     PlaybackHeartbeatResult:
       type: object

@@ -28,7 +28,7 @@ const (
 	UnknownVersion               // a version this code does not know: Term + metric (analytics are lossy by design)
 )
 
-// Row is one row of winkey.playback_events (0001_playback.sql and 0002_reco_ab.sql).
+// Row is one row of winkey.playback_events (0001_playback.sql, 0002_reco_ab.sql and 0003_codec.sql).
 type Row struct {
 	EventID       uuid.UUID
 	ReceivedAt    time.Time
@@ -52,6 +52,8 @@ type Row struct {
 	Country       *string // always null in v1
 	Surface       *string // nullable for older clients
 	RecoVariant   *string // reco | control; nullable outside the experiment
+	Codec         *string // h264 | av1; nullable for older clients
+	AV1Capable    *bool   // nullable for older clients
 }
 
 type envelope struct {
@@ -86,6 +88,8 @@ type data struct {
 	Country       *string `json:"country"`
 	Surface       *string `json:"surface"`
 	RecoVariant   *string `json:"reco_variant"`
+	Codec         *string `json:"codec"`
+	AV1Capable    *bool   `json:"av1_capable"`
 }
 
 var (
@@ -238,6 +242,10 @@ func Decode(payload []byte) (Row, Result) {
 	if d.RecoVariant != nil && *d.RecoVariant != "reco" && *d.RecoVariant != "control" {
 		return Row{}, Malformed
 	}
+	if d.Codec != nil && *d.Codec != "h264" && *d.Codec != "av1" {
+		return Row{}, Malformed
+	}
 	r.Surface, r.RecoVariant = d.Surface, d.RecoVariant
+	r.Codec, r.AV1Capable = d.Codec, d.AV1Capable
 	return r, OK
 }
