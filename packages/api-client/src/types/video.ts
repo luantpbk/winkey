@@ -915,6 +915,18 @@ export interface components {
              * @enum {string}
              */
             surface?: "for_you" | "latest" | "trending" | "up_next" | "search" | "subscriptions" | "channel" | "playlist" | "other";
+            /**
+             * @description Video codec of the master the player is playing (task AV1-tel, ADR-048): `av1` when it loaded
+             *     `hls_av1_url`, `h264` when it loaded `hls_url`. Omitted by older clients (stored as unknown).
+             * @enum {string}
+             */
+            codec?: "h264" | "av1";
+            /**
+             * @description Whether this device can play the AV1 rendition smoothly and power-efficiently (the player's
+             *     `mediaCapabilities.decodingInfo` result, task AV1-tel, ADR-048), whatever the video offers. Same value on
+             *     every sample of one playback; omitted by older clients (stored as unknown).
+             */
+            av1_capable?: boolean;
         };
         PlaybackHeartbeatResult: {
             /** @description Number of samples accepted from the batch. */

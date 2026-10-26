@@ -1408,3 +1408,13 @@ Hiện trạng code:
 - R2 giảm khoảng 2–2,5 GiB: 0,42 GiB rác cộng phần lớn 2,21 GiB AV1 của các video ngoài top 5.
 - Cache edge tập trung vào một bộ cho các video ít người xem. Video hot vẫn có AV1 cho máy hỗ trợ.
 - AV1 có thể mở rộng lại bất cứ lúc nào, vì file gốc vẫn còn.
+
+*Bổ sung 2026-10-26 (AV1-tel, đo tỷ lệ AV1).*
+- `PlaybackSample` và event `analytics.playback` có thêm hai field tuỳ chọn:
+  - `codec` (`h264` | `av1`): codec của master đang phát, tức URL player thực sự nạp (`hls_av1_url` hay `hls_url`), không phải codec player muốn dùng;
+  - `av1_capable` (boolean): kết quả `isAv1Supported()` của máy, kể cả khi video không có bộ AV1.
+- video-svc chỉ đưa hai field vào event khi client gửi (bỏ hẳn key, không gửi `null`). Nhờ vậy video-svc deploy trước hay sau worker đều an toàn; chỉ **player** phải đợi analytics-worker mới chạy trên gpu-01, vì worker cũ `DisallowUnknownFields` và sẽ `Term` event lạ.
+- ClickHouse `db/clickhouse/0003_codec.sql` thêm hai cột Nullable vào `playback_events`, vào cùng PR với worker. File này có sẵn hai câu truy vấn:
+  - tỷ lệ máy AV1 trên các lượt phát 7 ngày;
+  - tỷ lệ thời gian xem bằng AV1.
+- Ngưỡng tăng `AV1_TOP_N` vẫn như trên: `av1_capable_share` vượt khoảng 30–40%.
