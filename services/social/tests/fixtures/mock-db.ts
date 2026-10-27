@@ -43,6 +43,25 @@ export interface MockStore {
     subscriber_id: string;
     channel_id: string;
     created_at: Date;
+    created_at_micros?: string;
+  }>;
+  follow_requests: Array<{
+    requester_id: string;
+    target_id: string;
+    created_at: Date;
+    created_at_micros?: string;
+  }>;
+  blocks: Array<{
+    blocker_id: string;
+    blocked_id: string;
+    created_at: Date;
+    created_at_micros?: string;
+  }>;
+  mutes: Array<{
+    muter_id: string;
+    muted_id: string;
+    created_at: Date;
+    created_at_micros?: string;
   }>;
   outbox: Array<{
     id: string;
@@ -57,6 +76,10 @@ export interface MockStore {
     handle: string;
     display_name: string;
     avatar_key: string | null;
+    is_private?: boolean;
+    bio?: string | null;
+    links?: unknown;
+    banner_key?: string | null;
   }>;
   reports: Array<{
     id: string;
@@ -111,6 +134,9 @@ export function createMockStore(): MockStore {
     video_likes: [],
     channels: [],
     subscriptions: [],
+    follow_requests: [],
+    blocks: [],
+    mutes: [],
     outbox: [],
     public_profiles: [],
     reports: [],
@@ -390,8 +416,28 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
       if (
         sql.includes('DELETE FROM social.subscriptions') ||
-        sql.includes('delete from social.subscriptions')
+        sql.includes('delete from social.subscriptions') ||
+        sql.includes('DELETE FROM "social"."subscriptions"') ||
+        sql.includes('delete from "social"."subscriptions"')
       ) {
+        if (sql.includes('RETURNING') && (sql.includes('OR') || params.length >= 4)) {
+          const userA = String(params[0]);
+          const userB = String(params[1]);
+          const deleted: Array<{ subscriber_id: string; channel_id: string }> = [];
+          store.subscriptions = store.subscriptions.filter((s) => {
+            const matches =
+              (s.subscriber_id === userA && s.channel_id === userB) ||
+              (s.subscriber_id === userB && s.channel_id === userA);
+            if (matches) {
+              deleted.push({ subscriber_id: s.subscriber_id, channel_id: s.channel_id });
+              const ch = store.channels.find((c) => c.id === s.channel_id);
+              if (ch && ch.subscriber_count > 0) ch.subscriber_count -= 1;
+              return false;
+            }
+            return true;
+          });
+          return { rows: deleted, rowCount: deleted.length };
+        }
         const [subscriberId, channelId] = params as [string, string];
         const idx = store.subscriptions.findIndex(
           (s) => s.subscriber_id === subscriberId && s.channel_id === channelId,
@@ -400,6 +446,126 @@ export function createMockDb(store: MockStore = createMockStore()): {
           store.subscriptions.splice(idx, 1);
           const channel = store.channels.find((c) => c.id === channelId);
           if (channel && channel.subscriber_count > 0) channel.subscriber_count -= 1;
+          return { rows: [{ deleted: 1 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // 4b. FOLLOW REQUESTS
+      if (
+        sql.includes('insert into "social"."follow_requests"') ||
+        sql.includes('insert into social.follow_requests') ||
+        sql.includes('INSERT INTO social.follow_requests')
+      ) {
+        const [requesterId, targetId] = params as [string, string];
+        const existing = store.follow_requests.find(
+          (fr) => fr.requester_id === requesterId && fr.target_id === targetId,
+        );
+        if (!existing) {
+          store.follow_requests.push({
+            requester_id: requesterId,
+            target_id: targetId,
+            created_at: new Date(),
+          });
+          return { rows: [{ requester_id: requesterId, target_id: targetId }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (
+        sql.includes('delete from "social"."follow_requests"') ||
+        sql.includes('delete from social.follow_requests') ||
+        sql.includes('DELETE FROM social.follow_requests')
+      ) {
+        if (sql.includes('OR') || params.length >= 4) {
+          const userA = String(params[0]);
+          const userB = String(params[1]);
+          const initialLen = store.follow_requests.length;
+          store.follow_requests = store.follow_requests.filter(
+            (fr) =>
+              !(
+                (fr.requester_id === userA && fr.target_id === userB) ||
+                (fr.requester_id === userB && fr.target_id === userA)
+              ),
+          );
+          return { rows: [], rowCount: initialLen - store.follow_requests.length };
+        }
+        const [requesterId, targetId] = params as [string, string];
+        const idx = store.follow_requests.findIndex(
+          (fr) => fr.requester_id === requesterId && fr.target_id === targetId,
+        );
+        if (idx !== -1) {
+          const removed = store.follow_requests.splice(idx, 1)[0];
+          return { rows: [removed], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // 4c. BLOCKS
+      if (
+        sql.includes('insert into "social"."blocks"') ||
+        sql.includes('insert into social.blocks') ||
+        sql.includes('INSERT INTO social.blocks')
+      ) {
+        const [blockerId, blockedId] = params as [string, string];
+        const existing = store.blocks.find(
+          (b) => b.blocker_id === blockerId && b.blocked_id === blockedId,
+        );
+        if (!existing) {
+          store.blocks.push({
+            blocker_id: blockerId,
+            blocked_id: blockedId,
+            created_at: new Date(),
+          });
+          return { rows: [{ blocker_id: blockerId, blocked_id: blockedId }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (
+        sql.includes('delete from "social"."blocks"') ||
+        sql.includes('delete from social.blocks') ||
+        sql.includes('DELETE FROM social.blocks')
+      ) {
+        const [blockerId, blockedId] = params as [string, string];
+        const idx = store.blocks.findIndex(
+          (b) => b.blocker_id === blockerId && b.blocked_id === blockedId,
+        );
+        if (idx !== -1) {
+          store.blocks.splice(idx, 1);
+          return { rows: [{ deleted: 1 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      // 4d. MUTES
+      if (
+        sql.includes('insert into "social"."mutes"') ||
+        sql.includes('insert into social.mutes') ||
+        sql.includes('INSERT INTO social.mutes')
+      ) {
+        const [muterId, mutedId] = params as [string, string];
+        const existing = store.mutes.find((m) => m.muter_id === muterId && m.muted_id === mutedId);
+        if (!existing) {
+          store.mutes.push({
+            muter_id: muterId,
+            muted_id: mutedId,
+            created_at: new Date(),
+          });
+          return { rows: [{ muter_id: muterId, muted_id: mutedId }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (
+        sql.includes('delete from "social"."mutes"') ||
+        sql.includes('delete from social.mutes') ||
+        sql.includes('DELETE FROM social.mutes')
+      ) {
+        const [muterId, mutedId] = params as [string, string];
+        const idx = store.mutes.findIndex((m) => m.muter_id === muterId && m.muted_id === mutedId);
+        if (idx !== -1) {
+          store.mutes.splice(idx, 1);
           return { rows: [{ deleted: 1 }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
@@ -1178,6 +1344,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
       if (
         (sql.includes('from "social"."subscriptions"') ||
           sql.includes('from social.subscriptions')) &&
+        !sql.toLowerCase().includes('join') &&
         sql.includes('"channel_id" = $1') &&
         sql.includes('order by')
       ) {
@@ -1207,11 +1374,166 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: exists ? [{ one: 1 }] : [], rowCount: exists ? 1 : 0 };
       }
 
-      // List my subscriptions (joined with public_profiles)
+      // List my subscriptions / followers / following (joined with public_profiles)
       if (
-        sql.includes('from "social"."subscriptions"') &&
-        sql.includes('"auth"."public_profiles"')
+        (sql.includes('from "social"."subscriptions"') ||
+          sql.includes('from social.subscriptions')) &&
+        (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles'))
       ) {
+        if (sql.includes('"s"."channel_id" =') || sql.includes('s.channel_id =')) {
+          // List followers
+          const channelId = String(params[0]);
+          let matched = store.subscriptions.filter((s) => s.channel_id === channelId);
+
+          // Caller block check
+          const callerParam =
+            sql.includes('social.blocks') && params.length >= 3 ? String(params[1]) : undefined;
+          if (callerParam) {
+            matched = matched.filter(
+              (s) =>
+                !store.blocks.some(
+                  (b) =>
+                    (b.blocker_id === callerParam && b.blocked_id === s.subscriber_id) ||
+                    (b.blocker_id === s.subscriber_id && b.blocked_id === callerParam),
+                ),
+            );
+          }
+
+          if (sql.includes('s.created_at <') && sql.includes('s.subscriber_id <')) {
+            const dateParam = params.find(
+              (p): p is string =>
+                typeof p === 'string' &&
+                !isNaN(Date.parse(p)) &&
+                (p.includes('T') || p.includes(' ')),
+            );
+            const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date();
+            const uuidParams = params.filter(
+              (p): p is string =>
+                typeof p === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+                p !== channelId &&
+                p !== callerParam,
+            );
+            const cursorId = uuidParams[uuidParams.length - 1];
+            matched = matched.filter((s) => {
+              if (s.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+              if (
+                s.created_at.getTime() === cursorCreatedAt.getTime() &&
+                cursorId &&
+                s.subscriber_id < cursorId
+              )
+                return true;
+              return false;
+            });
+          }
+
+          matched.sort(
+            (a, b) =>
+              b.created_at.getTime() - a.created_at.getTime() ||
+              b.subscriber_id.localeCompare(a.subscriber_id),
+          );
+
+          const limitParam = params.find((p) => typeof p === 'number' && p > 0);
+          if (typeof limitParam === 'number') {
+            matched = matched.slice(0, limitParam);
+          }
+
+          const joined = matched
+            .map((s) => {
+              const p = store.public_profiles.find((prof) => prof.id === s.subscriber_id);
+              if (!p) return null;
+              return {
+                subscriber_id: s.subscriber_id,
+                followed_at: s.created_at,
+                followed_at_cursor: s.created_at_micros ?? s.created_at.toISOString(),
+                profile_id: p.id,
+                profile_handle: p.handle,
+                profile_display_name: p.display_name,
+                profile_avatar_key: p.avatar_key,
+              };
+            })
+            .filter(Boolean);
+
+          return { rows: joined, rowCount: joined.length };
+        }
+
+        if (sql.includes('followed_at')) {
+          // List following
+          const subscriberId = String(params[0]);
+          let matched = store.subscriptions.filter((s) => s.subscriber_id === subscriberId);
+
+          const callerParam =
+            sql.includes('social.blocks') && params.length >= 3 ? String(params[1]) : undefined;
+          if (callerParam) {
+            matched = matched.filter(
+              (s) =>
+                !store.blocks.some(
+                  (b) =>
+                    (b.blocker_id === callerParam && b.blocked_id === s.channel_id) ||
+                    (b.blocker_id === s.channel_id && b.blocked_id === callerParam),
+                ),
+            );
+          }
+
+          if (sql.includes('s.created_at <') && sql.includes('s.channel_id <')) {
+            const dateParam = params.find(
+              (p): p is string =>
+                typeof p === 'string' &&
+                !isNaN(Date.parse(p)) &&
+                (p.includes('T') || p.includes(' ')),
+            );
+            const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date();
+            const uuidParams = params.filter(
+              (p): p is string =>
+                typeof p === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+                p !== subscriberId &&
+                p !== callerParam,
+            );
+            const cursorId = uuidParams[uuidParams.length - 1];
+            matched = matched.filter((s) => {
+              if (s.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+              if (
+                s.created_at.getTime() === cursorCreatedAt.getTime() &&
+                cursorId &&
+                s.channel_id < cursorId
+              )
+                return true;
+              return false;
+            });
+          }
+
+          matched.sort(
+            (a, b) =>
+              b.created_at.getTime() - a.created_at.getTime() ||
+              b.channel_id.localeCompare(a.channel_id),
+          );
+
+          const limitParam = params.find((p) => typeof p === 'number' && p > 0);
+          if (typeof limitParam === 'number') {
+            matched = matched.slice(0, limitParam);
+          }
+
+          const joined = matched
+            .map((s) => {
+              const p = store.public_profiles.find((prof) => prof.id === s.channel_id);
+              if (!p) return null;
+              return {
+                channel_id: s.channel_id,
+                followed_at: s.created_at,
+                followed_at_cursor: s.created_at_micros ?? s.created_at.toISOString(),
+                profile_id: p.id,
+                profile_handle: p.handle,
+                profile_display_name: p.display_name,
+                profile_avatar_key: p.avatar_key,
+              };
+            })
+            .filter(Boolean);
+
+          return { rows: joined, rowCount: joined.length };
+        }
+
+        // List my subscriptions
         const subscriberId = String(params[0]);
         const matchedSubs = store.subscriptions.filter((s) => s.subscriber_id === subscriberId);
         const joined = matchedSubs
@@ -1232,6 +1554,289 @@ export function createMockDb(store: MockStore = createMockStore()): {
           .sort((a, b) => b!.subscribed_at.getTime() - a!.subscribed_at.getTime());
 
         return { rows: joined, rowCount: joined.length };
+      }
+
+      // Follow requests queries
+      if (
+        /from\s+("?social"?\.)?"?follow_requests"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?notifications"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?subscriptions"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?comments"?/i.test(sql)
+      ) {
+        if (sql.includes('count(*)::int')) {
+          if (sql.includes('requester_id =') && !sql.includes('target_id =')) {
+            const requesterId = String(params[0]);
+            const count = store.follow_requests.filter(
+              (fr) => fr.requester_id === requesterId,
+            ).length;
+            return { rows: [{ count }], rowCount: 1 };
+          }
+          const targetId = String(params[0]);
+          let matched = store.follow_requests.filter((fr) => fr.target_id === targetId);
+          // Filter inactive profiles and blocks if caller blocks
+          matched = matched.filter((fr) => {
+            const p = store.public_profiles.find((prof) => prof.id === fr.requester_id);
+            if (!p) return false;
+            if (
+              store.blocks.some(
+                (b) =>
+                  (b.blocker_id === targetId && b.blocked_id === fr.requester_id) ||
+                  (b.blocker_id === fr.requester_id && b.blocked_id === targetId),
+              )
+            ) {
+              return false;
+            }
+            return true;
+          });
+          return { rows: [{ count: matched.length }], rowCount: 1 };
+        }
+
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
+          const targetId = String(params[0]);
+          let matched = store.follow_requests.filter((fr) => fr.target_id === targetId);
+          matched = matched.filter((fr) => {
+            const p = store.public_profiles.find((prof) => prof.id === fr.requester_id);
+            if (!p) return false;
+            if (
+              store.blocks.some(
+                (b) =>
+                  (b.blocker_id === targetId && b.blocked_id === fr.requester_id) ||
+                  (b.blocker_id === fr.requester_id && b.blocked_id === targetId),
+              )
+            ) {
+              return false;
+            }
+            return true;
+          });
+
+          if (sql.includes('fr.created_at <') && sql.includes('fr.requester_id <')) {
+            const dateParam = params.find(
+              (p): p is string =>
+                typeof p === 'string' &&
+                !isNaN(Date.parse(p)) &&
+                (p.includes('T') || p.includes(' ')),
+            );
+            const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date();
+            const uuidParams = params.filter(
+              (p): p is string =>
+                typeof p === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+                p !== targetId,
+            );
+            const cursorId = uuidParams[uuidParams.length - 1];
+            matched = matched.filter((fr) => {
+              if (fr.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+              if (
+                fr.created_at.getTime() === cursorCreatedAt.getTime() &&
+                cursorId &&
+                fr.requester_id < cursorId
+              )
+                return true;
+              return false;
+            });
+          }
+
+          matched.sort(
+            (a, b) =>
+              b.created_at.getTime() - a.created_at.getTime() ||
+              b.requester_id.localeCompare(a.requester_id),
+          );
+
+          const limitParam = params.find((p) => typeof p === 'number' && p > 0);
+          if (typeof limitParam === 'number') {
+            matched = matched.slice(0, limitParam);
+          }
+
+          const joined = matched
+            .map((fr) => {
+              const p = store.public_profiles.find((prof) => prof.id === fr.requester_id);
+              if (!p) return null;
+              return {
+                requester_id: fr.requester_id,
+                requested_at: fr.created_at,
+                requested_at_cursor: fr.created_at_micros ?? fr.created_at.toISOString(),
+                profile_id: p.id,
+                profile_handle: p.handle,
+                profile_display_name: p.display_name,
+                profile_avatar_key: p.avatar_key,
+              };
+            })
+            .filter(Boolean);
+
+          return { rows: joined, rowCount: joined.length };
+        }
+
+        // Single check
+        const [requesterId, targetId] = params as [string, string];
+        const exists = store.follow_requests.some(
+          (fr) => fr.requester_id === requesterId && fr.target_id === targetId,
+        );
+        return { rows: exists ? [{ one: 1 }] : [], rowCount: exists ? 1 : 0 };
+      }
+
+      // Blocks queries
+      if (
+        /from\s+("?social"?\.)?"?blocks"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?notifications"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?subscriptions"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?comments"?/i.test(sql)
+      ) {
+        if (sql.includes('count(*)::int')) {
+          const blockerId = String(params[0]);
+          const count = store.blocks.filter((b) => b.blocker_id === blockerId).length;
+          return { rows: [{ count }], rowCount: 1 };
+        }
+
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
+          const blockerId = String(params[0]);
+          let matched = store.blocks.filter((b) => b.blocker_id === blockerId);
+
+          if (sql.includes('b.created_at <') && sql.includes('b.blocked_id <')) {
+            const dateParam = params.find(
+              (p): p is string =>
+                typeof p === 'string' &&
+                !isNaN(Date.parse(p)) &&
+                (p.includes('T') || p.includes(' ')),
+            );
+            const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date();
+            const uuidParams = params.filter(
+              (p): p is string =>
+                typeof p === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+                p !== blockerId,
+            );
+            const cursorId = uuidParams[uuidParams.length - 1];
+            matched = matched.filter((b) => {
+              if (b.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+              if (
+                b.created_at.getTime() === cursorCreatedAt.getTime() &&
+                cursorId &&
+                b.blocked_id < cursorId
+              )
+                return true;
+              return false;
+            });
+          }
+
+          matched.sort(
+            (a, b) =>
+              b.created_at.getTime() - a.created_at.getTime() ||
+              b.blocked_id.localeCompare(a.blocked_id),
+          );
+
+          const limitParam = params.find((p) => typeof p === 'number' && p > 0);
+          if (typeof limitParam === 'number') {
+            matched = matched.slice(0, limitParam);
+          }
+
+          const joined = matched
+            .map((b) => {
+              const p = store.public_profiles.find((prof) => prof.id === b.blocked_id);
+              if (!p) return null;
+              return {
+                blocked_id: b.blocked_id,
+                since: b.created_at,
+                since_cursor: b.created_at_micros ?? b.created_at.toISOString(),
+                profile_id: p.id,
+                profile_handle: p.handle,
+                profile_display_name: p.display_name,
+                profile_avatar_key: p.avatar_key,
+              };
+            })
+            .filter(Boolean);
+
+          return { rows: joined, rowCount: joined.length };
+        }
+
+        // Single / either-way check
+        const [userA, userB] = params as [string, string];
+        const isEitherWay = sql.includes('OR') || sql.includes('or');
+        const exists = store.blocks.some(
+          (b) =>
+            (b.blocker_id === userA && b.blocked_id === userB) ||
+            (isEitherWay && b.blocker_id === userB && b.blocked_id === userA),
+        );
+        return { rows: exists ? [{ blocked: 1, one: 1 }] : [], rowCount: exists ? 1 : 0 };
+      }
+
+      // Mutes queries
+      if (
+        /from\s+("?social"?\.)?"?mutes"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?notifications"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?subscriptions"?/i.test(sql) &&
+        !/from\s+("?social"?\.)?"?comments"?/i.test(sql)
+      ) {
+        if (sql.includes('count(*)::int')) {
+          const muterId = String(params[0]);
+          const count = store.mutes.filter((m) => m.muter_id === muterId).length;
+          return { rows: [{ count }], rowCount: 1 };
+        }
+
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
+          const muterId = String(params[0]);
+          let matched = store.mutes.filter((m) => m.muter_id === muterId);
+
+          if (sql.includes('m.created_at <') && sql.includes('m.muted_id <')) {
+            const dateParam = params.find(
+              (p): p is string =>
+                typeof p === 'string' &&
+                !isNaN(Date.parse(p)) &&
+                (p.includes('T') || p.includes(' ')),
+            );
+            const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date();
+            const uuidParams = params.filter(
+              (p): p is string =>
+                typeof p === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+                p !== muterId,
+            );
+            const cursorId = uuidParams[uuidParams.length - 1];
+            matched = matched.filter((m) => {
+              if (m.created_at.getTime() < cursorCreatedAt.getTime()) return true;
+              if (
+                m.created_at.getTime() === cursorCreatedAt.getTime() &&
+                cursorId &&
+                m.muted_id < cursorId
+              )
+                return true;
+              return false;
+            });
+          }
+
+          matched.sort(
+            (a, b) =>
+              b.created_at.getTime() - a.created_at.getTime() ||
+              b.muted_id.localeCompare(a.muted_id),
+          );
+
+          const limitParam = params.find((p) => typeof p === 'number' && p > 0);
+          if (typeof limitParam === 'number') {
+            matched = matched.slice(0, limitParam);
+          }
+
+          const joined = matched
+            .map((m) => {
+              const p = store.public_profiles.find((prof) => prof.id === m.muted_id);
+              if (!p) return null;
+              return {
+                muted_id: m.muted_id,
+                since: m.created_at,
+                since_cursor: m.created_at_micros ?? m.created_at.toISOString(),
+                profile_id: p.id,
+                profile_handle: p.handle,
+                profile_display_name: p.display_name,
+                profile_avatar_key: p.avatar_key,
+              };
+            })
+            .filter(Boolean);
+
+          return { rows: joined, rowCount: joined.length };
+        }
+
+        // Single check
+        const [muterId, mutedId] = params as [string, string];
+        const exists = store.mutes.some((m) => m.muter_id === muterId && m.muted_id === mutedId);
+        return { rows: exists ? [{ muted: 1, one: 1 }] : [], rowCount: exists ? 1 : 0 };
       }
 
       // Reports: Select duplicate OPEN report
@@ -1520,13 +2125,33 @@ export function createMockDb(store: MockStore = createMockStore()): {
           }
           const p = store.public_profiles.find((prof) => prof.id === n.actor_id);
           if (!p) return false;
+          if (
+            store.blocks.some(
+              (b) =>
+                (b.blocker_id === userId && b.blocked_id === n.actor_id) ||
+                (b.blocker_id === n.actor_id && b.blocked_id === userId),
+            )
+          ) {
+            return false;
+          }
           return true;
         });
 
         if (sql.includes('n.created_at <') && sql.includes('n.id <')) {
-          // Cursor params: params contains [userId, cursorCreatedAt, cursorCreatedAt, cursorId, limit]
-          const cursorCreatedAt = new Date(String(params[1]));
-          const cursorId = String(params[3]);
+          const dateParam = params.find(
+            (p): p is string =>
+              typeof p === 'string' &&
+              !isNaN(Date.parse(p)) &&
+              (p.includes('T') || p.includes(' ')),
+          );
+          const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date(String(params[1]));
+          const uuidParams = params.filter(
+            (p): p is string =>
+              typeof p === 'string' &&
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p) &&
+              p !== userId,
+          );
+          const cursorId = uuidParams[uuidParams.length - 1] ?? String(params[3]);
           matched = matched.filter((n) => {
             if (n.created_at.getTime() < cursorCreatedAt.getTime()) return true;
             if (n.created_at.getTime() === cursorCreatedAt.getTime() && n.id < cursorId)
