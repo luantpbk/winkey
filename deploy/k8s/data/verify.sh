@@ -93,6 +93,17 @@ echo "  PASS: analytics_svc SELECT on media.videos was denied (Permission Denied
 echo "Test 3.8: media_svc can read analytics.video_daily..."
 kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE media_svc; SELECT count(*) FROM analytics.video_daily;" >/dev/null
 echo "  PASS: media_svc queried analytics.video_daily."
+
+echo "Test 3.9: auth_svc can read media.ready_images (SOC-1b)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE auth_svc; SELECT count(*) FROM media.ready_images;" >/dev/null
+echo "  PASS: auth_svc queried media.ready_images."
+
+echo "Test 3.10: auth_svc CANNOT read media.images (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE auth_svc; SELECT count(*) FROM media.images;" >/dev/null 2>&1; then
+    echo "ERROR: auth_svc was able to SELECT from media.images!" >&2
+    exit 1
+fi
+echo "  PASS: auth_svc SELECT on media.images was denied (Permission Denied)."
 echo "SUCCESS: Database RBAC and isolation rules verified."
 
 
@@ -305,6 +316,21 @@ if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats sub --count=1 "\$JS
     exit 1
 fi
 echo "  PASS: transcoder user blocked from SOCIAL advisories (Permissions Violation)."
+
+echo "Test 5.21: upload user publishes to media.image_uploaded (SOC-1b)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "media.image_uploaded" "test-image-upload" --server="nats://upload:${UPLOAD_PWD}@nats:4222"' >/dev/null
+echo "  PASS: upload user published to media.image_uploaded."
+
+echo "Test 5.22: transcoder user subscribes to media.image_uploaded (SOC-1b)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
+  nats sub --count=1 "media.image_uploaded" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222" > /tmp/sub_img.log 2>&1 &
+  SUB_PID=$!
+  sleep 1
+  nats pub "media.image_uploaded" "test-img-sub" --server="nats://upload:${UPLOAD_PWD}@nats:4222" >/dev/null
+  wait $SUB_PID
+  grep -q "test-img-sub" /tmp/sub_img.log
+'
+echo "  PASS: transcoder user subscribed and received message from media.image_uploaded."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
