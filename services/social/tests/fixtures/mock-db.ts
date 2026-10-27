@@ -1566,13 +1566,13 @@ export function createMockDb(store: MockStore = createMockStore()): {
         if (sql.includes('count(*)::int')) {
           if (sql.includes('requester_id =') && !sql.includes('target_id =')) {
             const requesterId = String(params[0]);
-            const count = store.follow_requests.filter((fr) => fr.requester_id === requesterId).length;
+            const count = store.follow_requests.filter(
+              (fr) => fr.requester_id === requesterId,
+            ).length;
             return { rows: [{ count }], rowCount: 1 };
           }
           const targetId = String(params[0]);
-          let matched = store.follow_requests.filter(
-            (fr) => fr.target_id === targetId,
-          );
+          let matched = store.follow_requests.filter((fr) => fr.target_id === targetId);
           // Filter inactive profiles and blocks if caller blocks
           matched = matched.filter((fr) => {
             const p = store.public_profiles.find((prof) => prof.id === fr.requester_id);
@@ -1591,10 +1591,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           return { rows: [{ count: matched.length }], rowCount: 1 };
         }
 
-        if (
-          sql.includes('"auth"."public_profiles"') ||
-          sql.includes('auth.public_profiles')
-        ) {
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
           const targetId = String(params[0]);
           let matched = store.follow_requests.filter((fr) => fr.target_id === targetId);
           matched = matched.filter((fr) => {
@@ -1690,10 +1687,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           return { rows: [{ count }], rowCount: 1 };
         }
 
-        if (
-          sql.includes('"auth"."public_profiles"') ||
-          sql.includes('auth.public_profiles')
-        ) {
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
           const blockerId = String(params[0]);
           let matched = store.blocks.filter((b) => b.blocker_id === blockerId);
 
@@ -1778,10 +1772,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           return { rows: [{ count }], rowCount: 1 };
         }
 
-        if (
-          sql.includes('"auth"."public_profiles"') ||
-          sql.includes('auth.public_profiles')
-        ) {
+        if (sql.includes('"auth"."public_profiles"') || sql.includes('auth.public_profiles')) {
           const muterId = String(params[0]);
           let matched = store.mutes.filter((m) => m.muter_id === muterId);
 
@@ -2149,7 +2140,9 @@ export function createMockDb(store: MockStore = createMockStore()): {
         if (sql.includes('n.created_at <') && sql.includes('n.id <')) {
           const dateParam = params.find(
             (p): p is string =>
-              typeof p === 'string' && !isNaN(Date.parse(p)) && (p.includes('T') || p.includes(' ')),
+              typeof p === 'string' &&
+              !isNaN(Date.parse(p)) &&
+              (p.includes('T') || p.includes(' ')),
           );
           const cursorCreatedAt = dateParam ? new Date(dateParam) : new Date(String(params[1]));
           const uuidParams = params.filter(

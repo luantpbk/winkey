@@ -80,6 +80,11 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateSeriesEpisodePage: any;
   let validateSeriesEpisodeContext: any;
   let validateSeriesForVideo: any;
+  let validateSubscriptionState: any;
+  let validateFollowPage: any;
+  let validateFollowRequestPage: any;
+  let validateRelationship: any;
+  let validateRelationPage: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -163,6 +168,21 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     )!;
     validateSeriesForVideo = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesForVideo',
+    )!;
+    validateSubscriptionState = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SubscriptionState',
+    )!;
+    validateFollowPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FollowPage',
+    )!;
+    validateFollowRequestPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FollowRequestPage',
+    )!;
+    validateRelationship = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Relationship',
+    )!;
+    validateRelationPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
     )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
@@ -3647,5 +3667,322 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(planText).toMatch(
       /Index (Only )?Scan using playlist_items_(video|pkey) on playlist_items/,
     );
+  }, 120_000);
+
+  it('handles follow request -> approve, bidirectional block cascade & interactions, and followers pagination on real PostgreSQL 17 (Task SOC-1b)', async () => {
+    if (!app || !pool) return;
+
+    // 1. Seed users: private channel owner, requester/follower, and block target
+    const privOwnerId = uuidv7();
+    const reqUserId = uuidv7();
+    const follower2Id = uuidv7();
+    const follower3Id = uuidv7();
+    const strangerId = uuidv7();
+    const blockerId = uuidv7();
+    const blockedId = uuidv7();
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status, is_private)
+      VALUES
+        ('${privOwnerId}', 'priv@winkey.vn', 'priv_owner', 'Private Owner', 'ACTIVE', true),
+        ('${reqUserId}', 'req@winkey.vn', 'req_user', 'Requester User', 'ACTIVE', false),
+        ('${follower2Id}', 'f2@winkey.vn', 'follower_two', 'Follower Two', 'ACTIVE', false),
+        ('${follower3Id}', 'f3@winkey.vn', 'follower_three', 'Follower Three', 'ACTIVE', false),
+        ('${strangerId}', 'stranger_priv@winkey.vn', 'stranger_priv', 'Stranger Priv', 'ACTIVE', false),
+        ('${blockerId}', 'blocker@winkey.vn', 'blocker_user', 'Blocker User', 'ACTIVE', false),
+        ('${blockedId}', 'blocked@winkey.vn', 'blocked_user', 'Blocked User', 'ACTIVE', false)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+    // --- A. FOLLOW REQUEST -> APPROVE LIFECYCLE ---
+    // 1. reqUserId requests to follow private channel privOwnerId
+    const subReqRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${privOwnerId}/subscription`,
+      headers: { 'x-user-id': reqUserId },
+    });
+    expect(subReqRes.statusCode).toBe(200);
+    const subReqBody = subReqRes.json();
+    expect(validateSubscriptionState(subReqBody)).toBe(true);
+    expect(subReqBody).toEqual({
+      channel_id: privOwnerId,
+      subscribed: false,
+      requested: true,
+      created_at: null,
+    });
+
+    // Verify row in social.follow_requests
+    const frDb = await pool.query(
+      'SELECT * FROM social.follow_requests WHERE requester_id = $1 AND target_id = $2',
+      [reqUserId, privOwnerId],
+    );
+    expect(frDb.rowCount).toBe(1);
+
+    // Verify FOLLOW_REQUEST notification created for privOwnerId
+    const notifFr = await pool.query(
+      "SELECT * FROM social.notifications WHERE user_id = $1 AND kind = 'FOLLOW_REQUEST' AND actor_id = $2",
+      [privOwnerId, reqUserId],
+    );
+    expect(notifFr.rowCount).toBe(1);
+
+    // 2. privOwnerId lists follow requests
+    const listFrRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/follow-requests',
+      headers: { 'x-user-id': privOwnerId },
+    });
+    expect(listFrRes.statusCode).toBe(200);
+    const listFrBody = listFrRes.json();
+    expect(validateFollowRequestPage(listFrBody)).toBe(true);
+    expect(listFrBody.pending_count).toBe(1);
+    expect(listFrBody.items).toHaveLength(1);
+    expect(listFrBody.items[0].user_id).toBe(reqUserId);
+
+    // 3. privOwnerId approves follow request
+    const approveRes = await app.inject({
+      method: 'POST',
+      url: `/v1/me/follow-requests/${reqUserId}/decision`,
+      headers: { 'x-user-id': privOwnerId },
+      payload: { decision: 'APPROVE' },
+    });
+    expect(approveRes.statusCode).toBe(204);
+
+    // Verify request deleted from social.follow_requests
+    const frAfterApprove = await pool.query(
+      'SELECT * FROM social.follow_requests WHERE requester_id = $1 AND target_id = $2',
+      [reqUserId, privOwnerId],
+    );
+    expect(frAfterApprove.rowCount).toBe(0);
+
+    // Verify subscription created
+    const subAfterApprove = await pool.query(
+      'SELECT * FROM social.subscriptions WHERE subscriber_id = $1 AND channel_id = $2',
+      [reqUserId, privOwnerId],
+    );
+    expect(subAfterApprove.rowCount).toBe(1);
+
+    // Verify outbox event social.subscription.changed emitted
+    const outboxApprove = await pool.query(
+      `SELECT * FROM social.outbox_events 
+       WHERE event_type = 'social.subscription.changed' 
+         AND payload->'data'->>'channel_id' = $1 
+         AND payload->'data'->>'subscriber_id' = $2`,
+      [privOwnerId, reqUserId],
+    );
+    expect(outboxApprove.rowCount).toBe(1);
+    expect(outboxApprove.rows[0].payload.data.subscribed).toBe(true);
+    expect(validateSubChanged(outboxApprove.rows[0].payload)).toBe(true);
+
+    // Verify FOLLOW_REQUEST_APPROVED notification created for requester
+    const notifApproved = await pool.query(
+      "SELECT * FROM social.notifications WHERE user_id = $1 AND kind = 'FOLLOW_REQUEST_APPROVED' AND actor_id = $2",
+      [reqUserId, privOwnerId],
+    );
+    expect(notifApproved.rowCount).toBe(1);
+
+    // Verify NEW_SUBSCRIBER notification created for channel owner
+    const notifNewSub = await pool.query(
+      "SELECT * FROM social.notifications WHERE user_id = $1 AND kind = 'NEW_SUBSCRIBER' AND actor_id = $2",
+      [privOwnerId, reqUserId],
+    );
+    expect(notifNewSub.rowCount).toBe(1);
+
+    // --- B. FOLLOWERS LIST & KEYSET PAGINATION ---
+    // Insert follower2 and follower3 as subscribers with staggered timestamps
+    await pool.query(`
+      INSERT INTO social.subscriptions (subscriber_id, channel_id, created_at)
+      VALUES
+        ('${follower2Id}', '${privOwnerId}', NOW() - INTERVAL '5 minutes'),
+        ('${follower3Id}', '${privOwnerId}', NOW() - INTERVAL '10 minutes')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // 1. Stranger caller on private channel -> 403 PRIVATE_ACCOUNT
+    const strangerFollowersRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${privOwnerId}/followers`,
+      headers: { 'x-user-id': strangerId },
+    });
+    expect(strangerFollowersRes.statusCode).toBe(403);
+    expect(strangerFollowersRes.json().code).toBe('PRIVATE_ACCOUNT');
+    expect(validateProblem(strangerFollowersRes.json())).toBe(true);
+
+    // 2. privOwnerId (owner) queries page 1 (limit=2)
+    const followersP1Res = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${privOwnerId}/followers?limit=2`,
+      headers: { 'x-user-id': privOwnerId },
+    });
+    expect(followersP1Res.statusCode).toBe(200);
+    const followersP1Body = followersP1Res.json();
+    expect(validateFollowPage(followersP1Body)).toBe(true);
+    expect(followersP1Body.items).toHaveLength(2);
+    expect(followersP1Body.next_cursor).toBeTruthy();
+
+    // 3. privOwnerId queries page 2 with cursor
+    const followersP2Res = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${privOwnerId}/followers?limit=2&cursor=${encodeURIComponent(followersP1Body.next_cursor)}`,
+      headers: { 'x-user-id': privOwnerId },
+    });
+    expect(followersP2Res.statusCode).toBe(200);
+    const followersP2Body = followersP2Res.json();
+    expect(validateFollowPage(followersP2Body)).toBe(true);
+    expect(followersP2Body.items).toHaveLength(1);
+    expect(followersP2Body.next_cursor).toBeNull();
+
+    // Verify all 3 followers accounted for
+    const allFollowerIds = [
+      ...followersP1Body.items.map((i: any) => i.user.id),
+      ...followersP2Body.items.map((i: any) => i.user.id),
+    ];
+    expect(allFollowerIds).toContain(reqUserId);
+    expect(allFollowerIds).toContain(follower2Id);
+    expect(allFollowerIds).toContain(follower3Id);
+
+    // --- C. BIDIRECTIONAL BLOCK CASCADE & INTERACTIONS ---
+    // 1. Setup mutual subscriptions between blockerId and blockedId
+    await pool.query(`
+      INSERT INTO social.subscriptions (subscriber_id, channel_id)
+      VALUES
+        ('${blockerId}', '${blockedId}'),
+        ('${blockedId}', '${blockerId}')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // Clean outbox events for blocker/blocked channels
+    await pool.query(`
+      DELETE FROM social.outbox_events
+      WHERE event_type = 'social.subscription.changed'
+        AND (payload->'data'->>'channel_id' = '${blockerId}' OR payload->'data'->>'channel_id' = '${blockedId}')
+    `);
+
+    // 2. blockerId blocks blockedId
+    const relBefore = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${blockedId}/relationship`,
+      headers: { 'x-user-id': blockerId },
+    });
+    expect(relBefore.statusCode).toBe(200);
+    expect(validateRelationship(relBefore.json())).toBe(true);
+
+    const blockRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/me/blocks/${blockedId}`,
+      headers: { 'x-user-id': blockerId },
+    });
+    expect(blockRes.statusCode).toBe(204);
+
+    const listBlocksRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/blocks',
+      headers: { 'x-user-id': blockerId },
+    });
+    expect(listBlocksRes.statusCode).toBe(200);
+    expect(validateRelationPage(listBlocksRes.json())).toBe(true);
+    expect(listBlocksRes.json().items.some((i: any) => i.user_id === blockedId)).toBe(true);
+
+    // Verify mutual subscriptions deleted in DB
+    const subsCheck = await pool.query(
+      `SELECT * FROM social.subscriptions 
+       WHERE (subscriber_id = $1 AND channel_id = $2) 
+          OR (subscriber_id = $2 AND channel_id = $1)`,
+      [blockerId, blockedId],
+    );
+    expect(subsCheck.rowCount).toBe(0);
+
+    // Verify outbox events emitted for BOTH directions
+    const blockOutbox = await pool.query(
+      `SELECT * FROM social.outbox_events
+       WHERE event_type = 'social.subscription.changed'
+         AND (payload->'data'->>'channel_id' = $1 OR payload->'data'->>'channel_id' = $2)`,
+      [blockerId, blockedId],
+    );
+    expect(blockOutbox.rowCount).toBe(2);
+    for (const row of blockOutbox.rows) {
+      expect(row.payload.data.subscribed).toBe(false);
+      expect(validateSubChanged(row.payload)).toBe(true);
+    }
+
+    // 3. Blocked user attempting to subscribe returns 404
+    const blockedSubRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/channels/${blockerId}/subscription`,
+      headers: { 'x-user-id': blockedId },
+    });
+    expect(blockedSubRes.statusCode).toBe(404);
+    expect(validateProblem(blockedSubRes.json())).toBe(true);
+
+    // 4. Blocked user attempting to comment returns 403 INTERACTION_BLOCKED
+    const blockerVidId = uuidv7();
+    await pool.query(`
+      INSERT INTO social.videos (id, owner_id, visibility, hidden)
+      VALUES ('${blockerVidId}', '${blockerId}', 'PUBLIC', false)
+      ON CONFLICT DO NOTHING;
+    `);
+
+    const commentBlockRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${blockerVidId}/comments`,
+      headers: { 'x-user-id': blockedId },
+      payload: { body: 'Blocked comment attempt' },
+    });
+    expect(commentBlockRes.statusCode).toBe(403);
+    expect(commentBlockRes.json().code).toBe('INTERACTION_BLOCKED');
+    expect(validateProblem(commentBlockRes.json())).toBe(true);
+
+    // 5. Bidirectional comment visibility hiding on a neutral public video
+    const neutralOwnerId = uuidv7();
+    const neutralVidId = uuidv7();
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES ('${neutralOwnerId}', 'neutral@winkey.vn', 'neutral_creator', 'Neutral Creator', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+      INSERT INTO social.videos (id, owner_id, visibility, hidden)
+      VALUES ('${neutralVidId}', '${neutralOwnerId}', 'PUBLIC', false)
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // Blocker posts a comment
+    const commentByBlockerRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${neutralVidId}/comments`,
+      headers: { 'x-user-id': blockerId },
+      payload: { body: 'Comment by blocker user' },
+    });
+    expect(commentByBlockerRes.statusCode).toBe(201);
+    const commentByBlockerId = commentByBlockerRes.json().id;
+
+    // Blocked user posts a comment
+    const commentByBlockedRes = await app.inject({
+      method: 'POST',
+      url: `/v1/videos/${neutralVidId}/comments`,
+      headers: { 'x-user-id': blockedId },
+      payload: { body: 'Comment by blocked user' },
+    });
+    expect(commentByBlockedRes.statusCode).toBe(201);
+    const commentByBlockedId = commentByBlockedRes.json().id;
+
+    // When blockerId lists comments: commentByBlockedId is HIDDEN
+    const blockerFeedRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${neutralVidId}/comments`,
+      headers: { 'x-user-id': blockerId },
+    });
+    expect(blockerFeedRes.statusCode).toBe(200);
+    const blockerFeedIds = blockerFeedRes.json().items.map((c: any) => c.id);
+    expect(blockerFeedIds).toContain(commentByBlockerId);
+    expect(blockerFeedIds).not.toContain(commentByBlockedId);
+
+    // When blockedId lists comments: commentByBlockerId is HIDDEN
+    const blockedFeedRes = await app.inject({
+      method: 'GET',
+      url: `/v1/videos/${neutralVidId}/comments`,
+      headers: { 'x-user-id': blockedId },
+    });
+    expect(blockedFeedRes.statusCode).toBe(200);
+    const blockedFeedIds = blockedFeedRes.json().items.map((c: any) => c.id);
+    expect(blockedFeedIds).toContain(commentByBlockedId);
+    expect(blockedFeedIds).not.toContain(commentByBlockerId);
   }, 120_000);
 });

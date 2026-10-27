@@ -446,117 +446,114 @@ export const relationshipsRoute: FastifyPluginAsync<RelationshipsRouteOptions> =
   });
 
   // 5. Block a user (idempotent PUT)
-  fastify.put<{ Params: { user_id: string } }>(
-    '/v1/me/blocks/:user_id',
-    async (request, reply) => {
-      const { user_id } = request.params;
+  fastify.put<{ Params: { user_id: string } }>('/v1/me/blocks/:user_id', async (request, reply) => {
+    const { user_id } = request.params;
 
-      if (!isValidUuid(user_id)) {
-        throw ProblemError.badRequest('Invalid user ID', undefined, 'INVALID_ID');
-      }
+    if (!isValidUuid(user_id)) {
+      throw ProblemError.badRequest('Invalid user ID', undefined, 'INVALID_ID');
+    }
 
-      const caller = requireAuth(request);
+    const caller = requireAuth(request);
 
-      if (caller.userId === user_id) {
-        throw ProblemError.badRequest('Cannot block yourself', undefined, 'CANNOT_BLOCK_SELF');
-      }
+    if (caller.userId === user_id) {
+      throw ProblemError.badRequest('Cannot block yourself', undefined, 'CANNOT_BLOCK_SELF');
+    }
 
-      // Rate limit: 60 block/mute changes per hour
-      await rateLimiter.consume({
-        key: buildRelationshipChangeRateLimitKey(caller.userId),
-        limit: 60,
-        windowSeconds: 3600,
-      });
+    // Rate limit: 60 block/mute changes per hour
+    await rateLimiter.consume({
+      key: buildRelationshipChangeRateLimitKey(caller.userId),
+      limit: 60,
+      windowSeconds: 3600,
+    });
 
-      // Target must be an active profile
-      const target = await db
-        .selectFrom('auth.public_profiles')
-        .select('id')
-        .where('id', '=', user_id)
-        .executeTakeFirst();
+    // Target must be an active profile
+    const target = await db
+      .selectFrom('auth.public_profiles')
+      .select('id')
+      .where('id', '=', user_id)
+      .executeTakeFirst();
 
-      if (!target) {
-        throw ProblemError.notFound('User not found', 'USER_NOT_FOUND');
-      }
+    if (!target) {
+      throw ProblemError.notFound('User not found', 'USER_NOT_FOUND');
+    }
 
-      // Check if already blocking
-      const alreadyBlocking = await db
-        .selectFrom('social.blocks')
-        .select(sql`1`.as('one'))
-        .where('blocker_id', '=', caller.userId)
-        .where('blocked_id', '=', user_id)
-        .executeTakeFirst();
+    // Check if already blocking
+    const alreadyBlocking = await db
+      .selectFrom('social.blocks')
+      .select(sql`1`.as('one'))
+      .where('blocker_id', '=', caller.userId)
+      .where('blocked_id', '=', user_id)
+      .executeTakeFirst();
 
-      if (!alreadyBlocking) {
-        // Enforce limit: 1000 blocks per user
-        const countRes = await sql<{ count: number }>`
+    if (!alreadyBlocking) {
+      // Enforce limit: 1000 blocks per user
+      const countRes = await sql<{ count: number }>`
           SELECT count(*)::int AS count
           FROM social.blocks
           WHERE blocker_id = ${caller.userId}::uuid
         `.execute(db);
-        const count = Number(countRes.rows[0]?.count ?? 0);
-        if (count >= 1000) {
-          throw ProblemError.conflict('Block limit reached (maximum 1000)', 'LIMIT_REACHED');
-        }
+      const count = Number(countRes.rows[0]?.count ?? 0);
+      if (count >= 1000) {
+        throw ProblemError.conflict('Block limit reached (maximum 1000)', 'LIMIT_REACHED');
       }
+    }
 
-      await db.transaction().execute(async (trx) => {
-        // Delete subscriptions both ways
-        const deletedSubs = await sql<{ subscriber_id: string; channel_id: string }>`
+    await db.transaction().execute(async (trx) => {
+      // Delete subscriptions both ways
+      const deletedSubs = await sql<{ subscriber_id: string; channel_id: string }>`
           DELETE FROM social.subscriptions
           WHERE (subscriber_id = ${caller.userId} AND channel_id = ${user_id})
              OR (subscriber_id = ${user_id} AND channel_id = ${caller.userId})
           RETURNING subscriber_id, channel_id
         `.execute(trx);
 
-        // For each removed subscription, write outbox event so video feed stays synced
-        for (const sub of deletedSubs.rows) {
-          const channelRow = await trx
-            .selectFrom('social.channels')
-            .select('subscriber_count')
-            .where('id', '=', sub.channel_id)
-            .executeTakeFirst();
-          const subscriberCount = channelRow ? Number(channelRow.subscriber_count) : 0;
+      // For each removed subscription, write outbox event so video feed stays synced
+      for (const sub of deletedSubs.rows) {
+        const channelRow = await trx
+          .selectFrom('social.channels')
+          .select('subscriber_count')
+          .where('id', '=', sub.channel_id)
+          .executeTakeFirst();
+        const subscriberCount = channelRow ? Number(channelRow.subscriber_count) : 0;
 
-          await enqueue(
-            trx,
-            'social',
-            'social.subscription.changed',
-            {
-              subscriber_id: sub.subscriber_id,
-              channel_id: sub.channel_id,
-              subscribed: false,
-              subscriber_count: subscriberCount,
-            },
-            { producer: 'social-svc', version: 1 },
-          );
-        }
+        await enqueue(
+          trx,
+          'social',
+          'social.subscription.changed',
+          {
+            subscriber_id: sub.subscriber_id,
+            channel_id: sub.channel_id,
+            subscribed: false,
+            subscriber_count: subscriberCount,
+          },
+          { producer: 'social-svc', version: 1 },
+        );
+      }
 
-        // Delete follow requests both ways
-        await trx
-          .deleteFrom('social.follow_requests')
-          .where((eb) =>
-            eb.or([
-              eb.and([eb('requester_id', '=', caller.userId), eb('target_id', '=', user_id)]),
-              eb.and([eb('requester_id', '=', user_id), eb('target_id', '=', caller.userId)]),
-            ]),
-          )
-          .execute();
+      // Delete follow requests both ways
+      await trx
+        .deleteFrom('social.follow_requests')
+        .where((eb) =>
+          eb.or([
+            eb.and([eb('requester_id', '=', caller.userId), eb('target_id', '=', user_id)]),
+            eb.and([eb('requester_id', '=', user_id), eb('target_id', '=', caller.userId)]),
+          ]),
+        )
+        .execute();
 
-        // Insert block
-        await trx
-          .insertInto('social.blocks')
-          .values({
-            blocker_id: caller.userId,
-            blocked_id: user_id,
-          })
-          .onConflict((oc) => oc.doNothing())
-          .execute();
-      });
+      // Insert block
+      await trx
+        .insertInto('social.blocks')
+        .values({
+          blocker_id: caller.userId,
+          blocked_id: user_id,
+        })
+        .onConflict((oc) => oc.doNothing())
+        .execute();
+    });
 
-      return reply.status(204).send();
-    },
-  );
+    return reply.status(204).send();
+  });
 
   // 6. Unblock a user (idempotent DELETE)
   fastify.delete<{ Params: { user_id: string } }>(
