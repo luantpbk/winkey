@@ -15,17 +15,32 @@ import type { Env } from '../config/env.js';
 import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
+import type { Redis } from 'ioredis';
+import { getKeyring } from '../crypto/keyring.js';
+import { buildVietnameseDeviceLabel } from '../security/ua-label.js';
+import { createSession, extractCountry } from '../security/sessions.js';
+import { recordSecurityEvent } from '../security/events.js';
+import { checkUserMfaEnabled, computeEffectiveRoles } from '../security/staff-rules.js';
+import { verifyTurnstileToken } from '../security/turnstile.js';
+import {
+  createMfaChallenge,
+  getFailedLoginAttempts,
+  recordFailedLoginAttempt,
+  clearFailedLoginAttempts,
+} from '../security/mfa.js';
 
 const loginBodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  turnstile_token: z.string().optional(),
 });
 
 export const loginRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
   rateLimiter: RateLimiter;
-}> = async (fastify, { db, env, rateLimiter }) => {
+  redis?: Redis | null;
+}> = async (fastify, { db, env, rateLimiter, redis }) => {
   fastify.post('/v1/auth/login', async (request, reply) => {
     // 1. Validate request body
     const parseResult = loginBodySchema.safeParse(request.body);
@@ -37,8 +52,30 @@ export const loginRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_FAILED');
     }
 
-    const { email, password } = parseResult.data;
+    const { email, password, turnstile_token } = parseResult.data;
     const clientIp = request.ip || '127.0.0.1';
+
+    // Captcha check if 3+ failed logins in the last 15 minutes
+    if (env.TURNSTILE_SECRET) {
+      const failedCount = await getFailedLoginAttempts(redis, clientIp, email);
+      if (failedCount >= 3) {
+        if (!turnstile_token) {
+          throw ProblemError.badRequest(
+            'Captcha verification required',
+            undefined,
+            'CAPTCHA_REQUIRED',
+          );
+        }
+        const validCaptcha = await verifyTurnstileToken({
+          secret: env.TURNSTILE_SECRET,
+          token: turnstile_token,
+          ip: clientIp,
+        });
+        if (!validCaptcha) {
+          throw ProblemError.badRequest('Invalid captcha token', undefined, 'CAPTCHA_INVALID');
+        }
+      }
+    }
 
     // 2. Rate limiting: 5/min per IP+email AND 20/min per IP
     const { ipEmailKey, ipKey } = buildLoginRateLimitKeys(clientIp, email);
@@ -53,12 +90,14 @@ export const loginRoute: FastifyPluginAsync<{
       .executeTakeFirst();
 
     if (!user || user.status === 'DELETED' || !user.password_hash) {
+      await recordFailedLoginAttempt(redis, clientIp, email);
       throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
     // 4. Verify password
     const isValid = await verifyPassword(user.password_hash, password);
     if (!isValid) {
+      await recordFailedLoginAttempt(redis, clientIp, email);
       throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
@@ -103,6 +142,9 @@ export const loginRoute: FastifyPluginAsync<{
       throw ProblemError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
+    // Password verified: clear failed attempt counter
+    await clearFailedLoginAttempts(redis, clientIp, email);
+
     // 5. Rehash on login if parameters changed
     if (needsRehash(user.password_hash)) {
       const newHash = await hashPassword(password);
@@ -113,12 +155,64 @@ export const loginRoute: FastifyPluginAsync<{
         .execute();
     }
 
-    // 6. Generate refresh token & session family
+    // Check if account has 2FA (TOTP or Passkey)
+    const hasMfa = await checkUserMfaEnabled(db, user.id, user.totp_enabled_at);
+    if (hasMfa) {
+      const methods: ('totp' | 'passkey' | 'recovery_code')[] = [];
+      if (user.totp_enabled_at) {
+        methods.push('totp');
+      }
+
+      const passkeyCountRow = await db
+        .selectFrom('auth.passkeys')
+        .select((eb) => eb.fn.count<number>('id').as('count'))
+        .where('user_id', '=', user.id)
+        .executeTakeFirst();
+      const passkeyCount = Number(passkeyCountRow?.count ?? 0);
+      if (passkeyCount > 0) {
+        methods.push('passkey');
+      }
+
+      const unusedRecovery = await db
+        .selectFrom('auth.recovery_codes')
+        .select('id')
+        .where('user_id', '=', user.id)
+        .where('used_at', 'is', null)
+        .executeTakeFirst();
+      if (unusedRecovery) {
+        methods.push('recovery_code');
+      }
+
+      const mfaToken = await createMfaChallenge(redis, user.id, 'pwd');
+
+      return reply.status(200).send({
+        mfa_required: true,
+        mfa_token: mfaToken,
+        methods,
+        expires_in: 300,
+      });
+    }
+
+    // Non-MFA sign-in: create session and issue tokens
     const familyId = uuidv7();
     const tokenId = uuidv7();
     const opaqueRefreshToken = generateRefreshToken();
     const tokenHash = hashRefreshToken(opaqueRefreshToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const ua = request.headers['user-agent'] || null;
+    const deviceLabel = buildVietnameseDeviceLabel(ua);
+    const country = extractCountry(request, env);
+    const keyring = getKeyring(env);
+    const ipHash = keyring.hashIp(clientIp);
+
+    await createSession(db, {
+      id: familyId,
+      userId: user.id,
+      deviceLabel,
+      country,
+      ipHash,
+      amr: ['pwd'],
+    });
 
     await db
       .insertInto('auth.refresh_tokens')
@@ -129,22 +223,38 @@ export const loginRoute: FastifyPluginAsync<{
         token_hash: tokenHash,
         parent_id: null,
         expires_at: expiresAt,
-        user_agent: request.headers['user-agent'] || null,
-        ip: clientIp,
+        user_agent: ua,
+        ip: null, // ADR-049: no longer write IP in clear
       })
       .execute();
 
-    // 7. Issue access JWT
+    // Compute effective roles based on STAFF_MFA_REQUIRED
+    const { effectiveRoles, staffRolesPendingMfa } = computeEffectiveRoles(
+      user.roles,
+      false,
+      env.STAFF_MFA_REQUIRED,
+    );
+
+    // Issue access JWT
     const { token: accessToken, expiresIn } = await issueAccessToken(
-      { id: user.id, roles: user.roles },
+      { id: user.id, roles: effectiveRoles },
       familyId,
       env,
     );
 
-    // 8. Set wk_rt cookie
+    // Record SIGN_IN event
+    await recordSecurityEvent(db, {
+      userId: user.id,
+      kind: 'SIGN_IN',
+      sessionId: familyId,
+      deviceLabel,
+      country,
+    });
+
+    // Set wk_rt cookie
     reply.setCookie(REFRESH_COOKIE_NAME, opaqueRefreshToken, getRefreshCookieOptions(env));
 
-    // 9. Format response
+    // Format response
     return reply.status(200).send({
       access_token: accessToken,
       token_type: 'Bearer',
@@ -156,7 +266,9 @@ export const loginRoute: FastifyPluginAsync<{
         handle: user.handle,
         display_name: user.display_name,
         avatar_url: user.avatar_key ? `${env.MEDIA_BASE_URL}/${user.avatar_key}` : null,
-        roles: user.roles,
+        roles: effectiveRoles,
+        staff_roles_pending_mfa: staffRolesPendingMfa,
+        mfa_enabled: false,
         created_at: new Date(user.created_at).toISOString(),
       },
     });

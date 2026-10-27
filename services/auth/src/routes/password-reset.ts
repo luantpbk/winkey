@@ -6,9 +6,12 @@ import type { Database } from '../db/types.js';
 import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import type { RevocationService } from '../revocation/revocation.js';
+import type { Redis } from 'ioredis';
 import { ProblemError } from '../errors/problem.js';
 import { hashPassword } from '../crypto/passwords.js';
 import { generateEmailToken, hashEmailToken, isValidTokenFormat } from '../tokens/email-tokens.js';
+import { isPasswordBreached } from '../security/hibp.js';
+import { recordSecurityEvent } from '../security/events.js';
 
 const forgotPasswordSchema = z
   .object({
@@ -33,7 +36,8 @@ export const passwordResetRoute: FastifyPluginAsync<{
   env: Env;
   rateLimiter: RateLimiter;
   revocationService: RevocationService;
-}> = async (fastify, { db, env, rateLimiter, revocationService }) => {
+  redis?: Redis | null;
+}> = async (fastify, { db, env, rateLimiter, revocationService, redis }) => {
   // 1. POST /v1/auth/password/forgot (requestPasswordReset)
   fastify.post('/v1/auth/password/forgot', async (request, reply) => {
     const started = process.hrtime.bigint();
@@ -153,6 +157,18 @@ export const passwordResetRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Invalid or expired token', undefined, 'INVALID_TOKEN');
     }
 
+    // Password breach check (HaveIBeenPwned k-anonymity)
+    if (env.PASSWORD_BREACH_CHECK) {
+      const breached = await isPasswordBreached(new_password, redis, true);
+      if (breached) {
+        throw ProblemError.badRequest(
+          'This password was found in a data breach. Please choose a different password.',
+          undefined,
+          'PASSWORD_BREACHED',
+        );
+      }
+    }
+
     const tokenHash = hashEmailToken(token);
     // Hash password with argon2id BEFORE opening transaction to avoid holding locks
     const newPasswordHash = await hashPassword(new_password);
@@ -225,6 +241,18 @@ export const passwordResetRoute: FastifyPluginAsync<{
         .where('user_id', '=', user.id)
         .where('revoked_at', 'is', null)
         .execute();
+
+      await trx
+        .updateTable('auth.sessions')
+        .set({ revoked_at: txNow, revoke_reason: 'PASSWORD_CHANGED' })
+        .where('user_id', '=', user.id)
+        .where('revoked_at', 'is', null)
+        .execute();
+
+      await recordSecurityEvent(trx, {
+        userId: user.id,
+        kind: 'PASSWORD_RESET',
+      });
 
       await trx
         .insertInto('auth.mail_queue')

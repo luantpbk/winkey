@@ -37,7 +37,10 @@ describe('refresh crypto & cookie settings', () => {
     const prodEnv = getEnv({
       JWT_PRIVATE_KEY: keys.privateKey,
       NODE_ENV: 'production',
+      VALKEY_URL: 'redis://localhost:6379',
       COOKIE_SECRET: 'super-secure-production-cookie-secret-min-32-chars-long!',
+      TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+      SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
     });
 
     const cookieOpts = getRefreshCookieOptions(prodEnv);
@@ -52,6 +55,9 @@ describe('refresh crypto & cookie settings', () => {
     const devEnv = getEnv({
       JWT_PRIVATE_KEY: keys.privateKey,
       NODE_ENV: 'development',
+      VALKEY_URL: 'redis://localhost:6379',
+      TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+      SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
     });
     const devCookieOpts = getRefreshCookieOptions(devEnv);
     expect(devCookieOpts.secure).toBe(false);

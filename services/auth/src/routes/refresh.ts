@@ -14,6 +14,8 @@ import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RevocationService } from '../revocation/revocation.js';
 import { authRefreshCounter } from '../metrics.js';
+import { touchSession } from '../security/sessions.js';
+import { checkUserMfaEnabled, computeEffectiveRoles } from '../security/staff-rules.js';
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '').toLowerCase();
@@ -53,9 +55,17 @@ export const refreshRoute: FastifyPluginAsync<{
         throw ProblemError.unauthorized('Invalid refresh token');
       }
 
-      // Expired or revoked token
+      // Check session table
+      const session = await trx
+        .selectFrom('auth.sessions')
+        .select(['id', 'revoked_at'])
+        .where('id', '=', token.family_id)
+        .forUpdate()
+        .executeTakeFirst();
+
+      // Expired or revoked token or revoked session
       const isExpired = new Date(token.expires_at).getTime() <= Date.now();
-      const isRevoked = token.revoked_at != null;
+      const isRevoked = token.revoked_at != null || (session && session.revoked_at != null);
 
       if (isExpired || isRevoked) {
         throw ProblemError.unauthorized('Refresh token is expired or revoked');
@@ -103,6 +113,13 @@ export const refreshRoute: FastifyPluginAsync<{
             .where('revoked_at', 'is', null)
             .execute();
 
+          await trx
+            .updateTable('auth.sessions')
+            .set({ revoked_at: now, revoke_reason: 'REUSE_DETECTED' })
+            .where('id', '=', token.family_id)
+            .where('revoked_at', 'is', null)
+            .execute();
+
           return {
             kind: 'reuse' as const,
             familyId: token.family_id,
@@ -110,8 +127,15 @@ export const refreshRoute: FastifyPluginAsync<{
             tokenId: token.id,
           };
         }
-      } else {
-        // Mark current token rotated
+      }
+
+      // Normal rotation or Grace retry: generate new child refresh token
+      const newOpaqueToken = generateRefreshToken();
+      const newTokenHash = hashRefreshToken(newOpaqueToken);
+      const newChildId = uuidv7();
+
+      if (!isGraceRetry) {
+        // Mark current token as rotated
         await trx
           .updateTable('auth.refresh_tokens')
           .set({ rotated_at: now })
@@ -119,12 +143,7 @@ export const refreshRoute: FastifyPluginAsync<{
           .execute();
       }
 
-      // Issue child refresh token with the same family_id
-      const newOpaqueToken = generateRefreshToken();
-      const newTokenHash = hashRefreshToken(newOpaqueToken);
-      const newChildId = uuidv7();
-      const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
+      // Insert new child refresh token (stop writing ip)
       await trx
         .insertInto('auth.refresh_tokens')
         .values({
@@ -133,19 +152,20 @@ export const refreshRoute: FastifyPluginAsync<{
           family_id: token.family_id,
           token_hash: newTokenHash,
           parent_id: token.id,
-          expires_at: newExpiresAt,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           user_agent: request.headers['user-agent'] || null,
-          ip: request.ip || '127.0.0.1',
+          ip: null, // ADR-049: no longer write IP in clear
         })
         .execute();
 
-      // Fetch user data
+      // Read user details
       const user = await trx
         .selectFrom('auth.users')
         .selectAll()
         .where('id', '=', token.user_id)
         .executeTakeFirst();
 
+      // Auto-lift expired suspension if needed
       if (
         user &&
         user.status === 'SUSPENDED' &&
@@ -221,9 +241,20 @@ export const refreshRoute: FastifyPluginAsync<{
       );
     }
 
-    // 4. Issue new access token
+    // Touch session (throttled to at most once per minute)
+    await touchSession(db, (revocationService as any).redis ?? null, result.familyId);
+
+    // Compute effective roles based on MFA status
+    const hasMfa = await checkUserMfaEnabled(db, result.user.id, result.user.totp_enabled_at);
+    const { effectiveRoles, staffRolesPendingMfa } = computeEffectiveRoles(
+      result.user.roles,
+      hasMfa,
+      env.STAFF_MFA_REQUIRED,
+    );
+
+    // 4. Issue new access token with effective roles
     const { token: accessToken, expiresIn } = await issueAccessToken(
-      { id: result.user.id, roles: result.user.roles },
+      { id: result.user.id, roles: effectiveRoles },
       result.familyId,
       env,
     );
@@ -245,7 +276,9 @@ export const refreshRoute: FastifyPluginAsync<{
         avatar_url: result.user.avatar_key
           ? `${env.MEDIA_BASE_URL}/${result.user.avatar_key}`
           : null,
-        roles: result.user.roles,
+        roles: effectiveRoles,
+        staff_roles_pending_mfa: staffRolesPendingMfa,
+        mfa_enabled: hasMfa,
         created_at: new Date(result.user.created_at).toISOString(),
       },
     });

@@ -4,6 +4,9 @@ import { envSchema } from '../../src/config/env.js';
 describe('envSchema COOKIE_SECRET validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
 
   it('provides dev default COOKIE_SECRET in development/test', () => {
@@ -63,6 +66,9 @@ describe('envSchema COOKIE_SECRET validation', () => {
 describe('envSchema REGISTRATION_MODE and INVITE_CODES validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
 
   it('defaults REGISTRATION_MODE to open with empty inviteCodeDigests', () => {
@@ -161,6 +167,9 @@ describe('envSchema REGISTRATION_MODE and INVITE_CODES validation', () => {
 describe('envSchema REFRESH_REUSE_GRACE validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
 
   it('defaults REFRESH_REUSE_GRACE to 30', () => {
@@ -220,6 +229,9 @@ describe('envSchema REFRESH_REUSE_GRACE validation', () => {
 describe('envSchema SIGNUP_ROLES validation (ADR-046, task ROLE1)', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
 
   it('defaults SIGNUP_ROLES to viewer', () => {
@@ -254,5 +266,96 @@ describe('envSchema SIGNUP_ROLES validation (ADR-046, task ROLE1)', () => {
       });
       expect(res.success).toBe(false);
     }
+  });
+});
+
+describe('envSchema SOC-1a account security configuration (ADR-049)', () => {
+  const validBase = {
+    JWT_PRIVATE_KEY: 'test-key',
+    NODE_ENV: 'production' as const,
+    VALKEY_URL: 'redis://localhost:6379',
+    COOKIE_SECRET: 'super-secure-production-cookie-secret-min-32-chars-long!',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
+  };
+
+  it('fails in production when TOTP_ENCRYPTION_KEYS is missing or empty', () => {
+    const res = envSchema.safeParse({
+      ...validBase,
+      TOTP_ENCRYPTION_KEYS: '',
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it('fails in production when TOTP_ENCRYPTION_KEYS is malformed (not 32 bytes base64)', () => {
+    const res = envSchema.safeParse({
+      ...validBase,
+      TOTP_ENCRYPTION_KEYS: 'k1:short-key',
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it('fails in production when SESSION_IP_SALT is under 32 bytes', () => {
+    const res = envSchema.safeParse({
+      ...validBase,
+      SESSION_IP_SALT: 'too-short',
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it('accepts multi-key keyring with comma separation in production', () => {
+    const k2 = Buffer.alloc(32, 2).toString('base64');
+    const parsed = envSchema.parse({
+      ...validBase,
+      TOTP_ENCRYPTION_KEYS: `k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=,k2:${k2}`,
+    });
+    expect(parsed.TOTP_ENCRYPTION_KEYS).toContain('k2:');
+  });
+
+  it('defaults STAFF_MFA_REQUIRED to true and TRUSTED_COUNTRY_HEADER to CF-IPCountry', () => {
+    const parsed = envSchema.parse({
+      ...validBase,
+    });
+    expect(parsed.STAFF_MFA_REQUIRED).toBe(true);
+    expect(parsed.TRUSTED_COUNTRY_HEADER).toBe('CF-IPCountry');
+    expect(parsed.PASSWORD_BREACH_CHECK).toBe(false);
+  });
+
+  it('allows missing TOTP_ENCRYPTION_KEYS in test mode with fallback', () => {
+    const parsed = envSchema.parse({
+      JWT_PRIVATE_KEY: 'test-key',
+      NODE_ENV: 'test',
+    });
+    expect(parsed.TOTP_ENCRYPTION_KEYS).toBeDefined();
+    expect(parsed.SESSION_IP_SALT).toBeDefined();
+  });
+
+  it('fails in production and development when VALKEY_URL is missing', () => {
+    const { VALKEY_URL: _, ...withoutValkey } = validBase;
+    const resProd = envSchema.safeParse({
+      ...withoutValkey,
+      NODE_ENV: 'production',
+    });
+    expect(resProd.success).toBe(false);
+    if (!resProd.success) {
+      expect(resProd.error.issues.some((i) => i.path.includes('VALKEY_URL'))).toBe(true);
+    }
+
+    const resDev = envSchema.safeParse({
+      ...withoutValkey,
+      NODE_ENV: 'development',
+    });
+    expect(resDev.success).toBe(false);
+    if (!resDev.success) {
+      expect(resDev.error.issues.some((i) => i.path.includes('VALKEY_URL'))).toBe(true);
+    }
+  });
+
+  it('provides default VALKEY_URL in test mode', () => {
+    const parsed = envSchema.parse({
+      JWT_PRIVATE_KEY: 'test-key',
+      NODE_ENV: 'test',
+    });
+    expect(parsed.VALKEY_URL).toBe('redis://localhost:6379');
   });
 });
