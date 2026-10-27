@@ -432,9 +432,6 @@ importers:
       '@types/pg':
         specifier: ^8.11.11
         version: 8.23.1
-      '@types/ua-parser-js':
-        specifier: ^0.7.39
-        version: 0.7.39
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
@@ -1815,9 +1812,6 @@ packages:
 
   '@types/statuses@2.0.6':
     resolution: {integrity: sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==}
-
-  '@types/ua-parser-js@0.7.39':
-    resolution: {integrity: sha512-P/oDfpofrdtF5xw433SPALpdSchtJmY7nsJItf8h3KXqOslkbySh8zq4dSWXH2oTjRvJ5PczVEoCZPow6GicLg==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -5038,8 +5032,6 @@ snapshots:
       '@types/node': 18.19.130
 
   '@types/statuses@2.0.6': {}
-
-  '@types/ua-parser-js@0.7.39': {}
 
   '@types/unist@2.0.11': {}
 
