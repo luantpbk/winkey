@@ -368,14 +368,27 @@ export class VideoProjectionConsumer {
 
       while (true) {
         let query = trx
-          .selectFrom('social.subscriptions')
-          .select('subscriber_id')
-          .where('channel_id', '=', ownerId)
-          .orderBy('subscriber_id', 'asc')
+          .selectFrom('social.subscriptions as s')
+          .select('s.subscriber_id')
+          .where('s.channel_id', '=', ownerId)
+          .where(
+            sql<boolean>`NOT EXISTS (
+              SELECT 1 FROM social.mutes m
+              WHERE m.muter_id = s.subscriber_id AND m.muted_id = ${ownerId}
+            )`,
+          )
+          .where(
+            sql<boolean>`NOT EXISTS (
+              SELECT 1 FROM social.blocks b
+              WHERE (b.blocker_id = s.subscriber_id AND b.blocked_id = ${ownerId})
+                 OR (b.blocker_id = ${ownerId} AND b.blocked_id = s.subscriber_id)
+            )`,
+          )
+          .orderBy('s.subscriber_id', 'asc')
           .limit(pageSize);
 
         if (lastSubscriberId) {
-          query = query.where('subscriber_id', '>', lastSubscriberId);
+          query = query.where('s.subscriber_id', '>', lastSubscriberId);
         }
 
         const subscribers = await query.execute();

@@ -76,10 +76,38 @@ export interface PublicProfilesTable {
   handle: string;
   display_name: string;
   avatar_key: string | null;
+  bio?: string | null;
+  links?: unknown;
+  banner_key?: string | null;
+  is_private?: boolean;
+  created_at?: Generated<Date>;
+}
+
+export interface FollowRequestsTable {
+  requester_id: string;
+  target_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface BlocksTable {
+  blocker_id: string;
+  blocked_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface MutesTable {
+  muter_id: string;
+  muted_id: string;
+  created_at: Generated<Date>;
 }
 
 export type NotificationKind =
-  'VIDEO_PUBLISHED' | 'VIDEO_COMMENT' | 'COMMENT_REPLY' | 'NEW_SUBSCRIBER';
+  | 'VIDEO_PUBLISHED'
+  | 'VIDEO_COMMENT'
+  | 'COMMENT_REPLY'
+  | 'NEW_SUBSCRIBER'
+  | 'FOLLOW_REQUEST'
+  | 'FOLLOW_REQUEST_APPROVED';
 
 export interface NotificationsTable {
   id: string;
@@ -121,6 +149,9 @@ export interface Database {
   'social.video_likes': VideoLikesTable;
   'social.channels': ChannelsTable;
   'social.subscriptions': SubscriptionsTable;
+  'social.follow_requests': FollowRequestsTable;
+  'social.blocks': BlocksTable;
+  'social.mutes': MutesTable;
   'social.reports': ReportsTable;
   'social.notifications': NotificationsTable;
   'social.playlists': PlaylistsTable;
@@ -164,7 +195,52 @@ export interface LikeStateDto {
 export interface SubscriptionStateDto {
   channel_id: string;
   subscribed: boolean;
+  requested?: boolean;
   subscriber_count: number;
+}
+
+export interface FollowItemDto {
+  user: PublicProfileDto;
+  followed_at: string;
+}
+
+export interface FollowPageDto {
+  items: FollowItemDto[];
+  next_cursor: string | null;
+}
+
+export interface FollowRequestDto {
+  requester: PublicProfileDto;
+  requested_at: string;
+}
+
+export interface FollowRequestPageDto {
+  items: FollowRequestDto[];
+  next_cursor: string | null;
+  pending_count: number;
+}
+
+export interface FollowRequestDecisionDto {
+  decision: 'APPROVE' | 'REJECT';
+}
+
+export interface RelationshipDto {
+  user_id: string;
+  following: boolean;
+  follow_requested: boolean;
+  followed_by: boolean;
+  blocking: boolean;
+  muting: boolean;
+}
+
+export interface RelationItemDto {
+  user: PublicProfileDto;
+  since: string;
+}
+
+export interface RelationPageDto {
+  items: RelationItemDto[];
+  next_cursor: string | null;
 }
 
 export interface SubscriptionItemDto {

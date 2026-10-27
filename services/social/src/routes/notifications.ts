@@ -90,7 +90,14 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
       .where(
         sql<boolean>`(n.video_id IS NULL OR (v.id IS NOT NULL AND v.hidden = false AND v.visibility <> 'PRIVATE'))`,
       )
-      .where(sql<boolean>`(n.comment_id IS NULL OR (c.id IS NOT NULL AND c.status = 'VISIBLE'))`);
+      .where(sql<boolean>`(n.comment_id IS NULL OR (c.id IS NOT NULL AND c.status = 'VISIBLE'))`)
+      .where(
+        sql<boolean>`NOT EXISTS (
+          SELECT 1 FROM social.blocks b
+          WHERE (b.blocker_id = ${caller.userId} AND b.blocked_id = n.actor_id)
+             OR (b.blocker_id = n.actor_id AND b.blocked_id = ${caller.userId})
+        )`,
+      );
 
     if (unreadOnly) {
       query = query.where('n.read_at', 'is', null);
@@ -171,6 +178,11 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
           AND n.read_at IS NULL
           AND (n.video_id IS NULL OR (v.id IS NOT NULL AND v.hidden = false AND v.visibility <> 'PRIVATE'))
           AND (n.comment_id IS NULL OR (c.id IS NOT NULL AND c.status = 'VISIBLE'))
+          AND NOT EXISTS (
+            SELECT 1 FROM social.blocks b
+            WHERE (b.blocker_id = ${caller.userId}::uuid AND b.blocked_id = n.actor_id)
+               OR (b.blocker_id = n.actor_id AND b.blocked_id = ${caller.userId}::uuid)
+          )
         LIMIT 101
       ) sub
     `.execute(db);

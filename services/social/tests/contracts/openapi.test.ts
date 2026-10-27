@@ -34,6 +34,10 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
   let validateUnreadCount: any;
   let validateMarkNotificationsReadRequest: any;
   let validateSeriesForVideo: any;
+  let validateFollowPage: any;
+  let validateFollowRequestPage: any;
+  let validateRelationship: any;
+  let validateRelationPage: any;
 
   const mockStore = createMockStore();
 
@@ -109,6 +113,18 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateSeriesForVideo = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/SeriesForVideo',
+    )!;
+    validateFollowPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FollowPage',
+    )!;
+    validateFollowRequestPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FollowRequestPage',
+    )!;
+    validateRelationship = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Relationship',
+    )!;
+    validateRelationPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
     )!;
 
     // 3. Populate mock store
@@ -832,5 +848,93 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     });
     expect(badRes.statusCode).toBe(400);
     expect(validateProblem(badRes.json())).toBe(true);
+  });
+
+  it('SOC-1b Subscriptions & Follow Requests contracts: matches SubscriptionState, FollowPage, FollowRequestPage schemas', async () => {
+    // 1. SubscriptionState schema on getSubscription
+    const subRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${channelId}/subscription`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(subRes.statusCode).toBe(200);
+    const subBody = subRes.json();
+    const validSub = validateSubscriptionState(subBody);
+    if (!validSub) console.error('SubscriptionState errors:', validateSubscriptionState.errors);
+    expect(validSub).toBe(true);
+
+    // 2. FollowPage schema on listFollowers
+    const followersRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${channelId}/followers`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(followersRes.statusCode).toBe(200);
+    const followersBody = followersRes.json();
+    const validFollowers = validateFollowPage(followersBody);
+    if (!validFollowers) console.error('FollowPage errors:', validateFollowPage.errors);
+    expect(validFollowers).toBe(true);
+
+    // 3. FollowPage schema on listFollowing
+    const followingRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${channelId}/following`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(followingRes.statusCode).toBe(200);
+    const followingBody = followingRes.json();
+    const validFollowing = validateFollowPage(followingBody);
+    if (!validFollowing) console.error('FollowPage errors:', validateFollowPage.errors);
+    expect(validFollowing).toBe(true);
+
+    // 4. FollowRequestPage schema on listFollowRequests
+    const reqRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/follow-requests',
+      headers: { 'x-user-id': channelId },
+    });
+    expect(reqRes.statusCode).toBe(200);
+    const reqBody = reqRes.json();
+    const validReq = validateFollowRequestPage(reqBody);
+    if (!validReq) console.error('FollowRequestPage errors:', validateFollowRequestPage.errors);
+    expect(validReq).toBe(true);
+  });
+
+  it('SOC-1b Relationships, Blocks & Mutes contracts: matches Relationship, RelationPage schemas', async () => {
+    // 1. Relationship schema on getRelationship
+    const relRes = await app.inject({
+      method: 'GET',
+      url: `/v1/channels/${channelId}/relationship`,
+      headers: { 'x-user-id': authorId },
+    });
+    expect(relRes.statusCode).toBe(200);
+    const relBody = relRes.json();
+    const validRel = validateRelationship(relBody);
+    if (!validRel) console.error('Relationship errors:', validateRelationship.errors);
+    expect(validRel).toBe(true);
+
+    // 2. RelationPage schema on listMyBlocks
+    const blocksRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/blocks',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(blocksRes.statusCode).toBe(200);
+    const blocksBody = blocksRes.json();
+    const validBlocks = validateRelationPage(blocksBody);
+    if (!validBlocks) console.error('RelationPage (blocks) errors:', validateRelationPage.errors);
+    expect(validBlocks).toBe(true);
+
+    // 3. RelationPage schema on listMyMutes
+    const mutesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/me/mutes',
+      headers: { 'x-user-id': authorId },
+    });
+    expect(mutesRes.statusCode).toBe(200);
+    const mutesBody = mutesRes.json();
+    const validMutes = validateRelationPage(mutesBody);
+    if (!validMutes) console.error('RelationPage (mutes) errors:', validateRelationPage.errors);
+    expect(validMutes).toBe(true);
   });
 });
