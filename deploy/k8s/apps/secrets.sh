@@ -56,22 +56,26 @@ else
     echo "  Secret auth-secrets already exists." >&2
 
     # SOC-1a (ADR-049): check and add missing account security keys idempotently
+    # Note: secrets are piped via stdin to prevent exposing key material in host process tables (ps)
     if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.TOTP_ENCRYPTION_KEYS}' 2>/dev/null | grep -q .; then
         TOTP_KEY=$(openssl rand -base64 32)
         TOTP_ENCRYPTION_KEYS="k1:${TOTP_KEY}"
-        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"TOTP_ENCRYPTION_KEYS\":\"${TOTP_ENCRYPTION_KEYS}\"}}"
+        printf '{"stringData":{"TOTP_ENCRYPTION_KEYS":"%s"}}' "$TOTP_ENCRYPTION_KEYS" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Added TOTP_ENCRYPTION_KEYS to existing auth-secrets (IMPORTANT: back up this key to vault!)." >&2
     fi
 
     if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.SESSION_IP_SALT}' 2>/dev/null | grep -q .; then
         SESSION_IP_SALT=$(openssl rand -base64 32)
-        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"SESSION_IP_SALT\":\"${SESSION_IP_SALT}\"}}"
+        printf '{"stringData":{"SESSION_IP_SALT":"%s"}}' "$SESSION_IP_SALT" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Added SESSION_IP_SALT to existing auth-secrets." >&2
     fi
 
     if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.WEBAUTHN_USER_HANDLE_KEY}' 2>/dev/null | grep -q .; then
         WEBAUTHN_USER_HANDLE_KEY=$(openssl rand -base64 32)
-        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"WEBAUTHN_USER_HANDLE_KEY\":\"${WEBAUTHN_USER_HANDLE_KEY}\"}}"
+        printf '{"stringData":{"WEBAUTHN_USER_HANDLE_KEY":"%s"}}' "$WEBAUTHN_USER_HANDLE_KEY" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Added WEBAUTHN_USER_HANDLE_KEY to existing auth-secrets." >&2
     fi
 fi
@@ -84,7 +88,8 @@ if [ -z "$EXISTING_INVITE_CODES" ]; then
     read -r -s INVITE_CODES || true
     echo >&2
     if [ -n "${INVITE_CODES:-}" ]; then
-        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"INVITE_CODES\":\"${INVITE_CODES}\"}}"
+        printf '{"stringData":{"INVITE_CODES":"%s"}}' "$INVITE_CODES" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Configured INVITE_CODES in auth-secrets." >&2
     fi
 fi
@@ -183,7 +188,8 @@ else
     echo "  Secret video-secrets already exists." >&2
     if ! kubectl get secret video-secrets -n "$NAMESPACE" -o jsonpath='{.data.ANALYTICS_VIEWER_SALT}' 2>/dev/null | grep -q .; then
         ANALYTICS_VIEWER_SALT=$(gen_secret 32)
-        kubectl patch secret video-secrets -n "$NAMESPACE" -p "{\"data\":{\"ANALYTICS_VIEWER_SALT\":\"$(echo -n "$ANALYTICS_VIEWER_SALT" | base64 -w0)\"}}"
+        printf '{"data":{"ANALYTICS_VIEWER_SALT":"%s"}}' "$(echo -n "$ANALYTICS_VIEWER_SALT" | base64 -w0)" | \
+          kubectl patch secret video-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Added ANALYTICS_VIEWER_SALT to existing video-secrets." >&2
     fi
 fi

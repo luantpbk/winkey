@@ -60,6 +60,10 @@ deploy/k8s/apps/
 
 ## 3. Apply Order & Installation
 
+> [!IMPORTANT]
+> **Strict Execution Order**: Step 1 (`secrets.sh`) **MUST** be run **before** Step 2 (`kubectl apply -k deploy/k8s/apps`).
+> With SOC-1a (ADR-049), `auth-svc` defines mandatory `secretKeyRef` entries (`TOTP_ENCRYPTION_KEYS`, `SESSION_IP_SALT`, `WEBAUTHN_USER_HANDLE_KEY`) in `auth-secrets`. If `secrets.sh` has not provisioned or patched these keys, the auth pod will fail to start with `CreateContainerConfigError`.
+
 ### Step 1: Generate Secrets
 Ensure the data plane secrets (`winkey-pg-auth-svc`, `winkey-pg-media-svc`, `winkey-pg-social-svc`, `nats-auth`, `valkey-auth`, `garage-key-upload-svc`) exist. Then run:
 ```bash
