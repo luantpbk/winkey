@@ -120,4 +120,13 @@ Trạng thái: ✅ xong · 🟡 đang làm · ⏳ chờ phụ thuộc · ⬜ ch�
 | V5a-b | Tạo bù storyboard cho video READY chưa có (video cũ hoặc bước storyboard từng lỗi): CLI `storyboard-backfill` trong transcoder, dùng lại code V5a, an toàn khi chạy lại. [Brief](prompts/sonnet-2_V5ab_storyboard-backfill.md) · ✅ #155 | Sonnet 2 | V5a ✅ |
 | V5b | Phụ đề WebVTT do chủ video tải lên (ADR-018): migration 000010, `putSubtitle`/`deleteSubtitle`, `Playback.subtitles`. [Brief](prompts/sonnet_V5b_subtitles.md) · ✅ (#91) | Sonnet |
 | V5c | Auto-caption (Whisper trên gpu-01) ghi track `source = AUTO`; chờ quyết định ngân sách GPU (ADR-018) | Opus (thiết kế) + Sonnet |
-| LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm | **Bạn** (+ tư vấn pháp lý) |
+| LEGAL | Rà soát nghĩa vụ pháp lý trước khi mở public tại Việt Nam (nền tảng có nội dung do người dùng tạo, ví dụ Nghị định 147/2024/NĐ-CP): đăng ký/giấy phép, xác thực tài khoản, gỡ nội dung vi phạm. **Mở rộng 2026-10-27:** giấy phép mạng xã hội, xác thực số điện thoại, nhắn tin/gọi E2EE (ADR-049 mục 10) | **Bạn** (+ tư vấn pháp lý) |
+
+### P5 — Mạng xã hội giải trí (ADR-049)
+| ID | Task | Owner | Phụ thuộc |
+|---|---|---|---|
+| SOC-1 | **Bảo mật tài khoản + hồ sơ + ảnh xã hội**: 2FA TOTP + mã khôi phục, passkey, bắt buộc 2FA cho moderator/admin, danh sách phiên/thiết bị, cảnh báo đăng nhập lạ, step-up, Turnstile, audit log; hồ sơ (ảnh bìa, giới thiệu, liên kết), tài khoản riêng tư + yêu cầu theo dõi, chặn/tắt tiếng; pipeline ảnh WebP (xoá EXIF, xoá file gốc) · ⬜ | Kiến trúc sư (contract, migration, upload-svc, transcoder) → Antigravity 3, 1, 4, 2 | — |
+| SOC-2 | **Bài đăng + bảng tin**: chữ/ảnh/video ngắn (720p+360p, nén mạnh), gắn video Winkey, reaction, chia sẻ lại, @nhắc tên, #hashtag, bình luận bài, bảng tin "Đang theo dõi" + "Khám phá" · ⬜ | Kiến trúc sư → Antigravity 3, 1, 4, 2 | SOC-1 |
+| SOC-3 | **Nhắn tin E2EE** 1-1 + nhóm (tối đa 50): spike chọn thư viện (vodozemac/libsignal, WASM), `chat-svc` mới, khoá theo thiết bị, mã an toàn, sao lưu khoá tuỳ chọn, tệp mã hoá hết hạn 30 ngày, lời mời nhắn tin · ⬜ | Kiến trúc sư + Antigravity 1 (spike) → Antigravity 3, 1, 4, 2 | SOC-1 |
+| SOC-4 | **Gọi thoại/video**: 1-1 WebRTC P2P + coturn; nhóm (8 video / 20 thoại) qua LiveKit SFU E2EE · ⬜ | Kiến trúc sư → Antigravity 3, 1, 2, 4 | SOC-3 |
+| SOC-5 | **Watch party**: phòng xem chung đồng bộ, chat phòng, gọi thoại trong phòng, tối đa 20 người · ⬜ | Kiến trúc sư → Antigravity 3, 1, 4 | SOC-4 |
