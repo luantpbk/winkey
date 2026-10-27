@@ -632,7 +632,9 @@
       "VIDEO_PUBLISHED": "{actor} vừa đăng video mới",
       "VIDEO_COMMENT": "{actor} đã bình luận về video của bạn",
       "COMMENT_REPLY": "{actor} đã trả lời bình luận của bạn",
-      "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn"
+      "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn",
+      "FOLLOW_REQUEST": "{actor} đã gửi yêu cầu theo dõi bạn",
+      "FOLLOW_REQUEST_APPROVED": "{actor} đã chấp nhận yêu cầu theo dõi của bạn"
     }
   },
   "playlist": {
