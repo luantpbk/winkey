@@ -1,0 +1,16 @@
+{
+  "event_id": "019a2f10-1c2d-7e3f-8a4b-5c6d7e8f9a01",
+  "type": "media.image_uploaded",
+  "version": 1,
+  "occurred_at": "2026-10-27T10:30:00Z",
+  "producer": "upload-svc",
+  "data": {
+    "image_id": "019a2f10-1c2d-7e3f-8a4b-5c6d7e8f9a11",
+    "owner_id": "0192f5e0-0000-7000-8000-000000000001",
+    "purpose": "AVATAR",
+    "raw_bucket": "winkey-raw",
+    "raw_key": "0192f5e0-0000-7000-8000-000000000001/images/019a2f10-1c2d-7e3f-8a4b-5c6d7e8f9a11",
+    "size_bytes": 2400000,
+    "content_type": "image/jpeg"
+  }
+}
