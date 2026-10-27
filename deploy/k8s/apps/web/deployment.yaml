@@ -49,6 +49,8 @@ spec:
               value: ''
             - name: FEEDBACK_URL
               value: ''
+            - name: NEXT_PUBLIC_TURNSTILE_SITE_KEY
+              value: ''
           resources:
             requests:
               cpu: 50m
