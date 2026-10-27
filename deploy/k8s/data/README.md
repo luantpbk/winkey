@@ -131,7 +131,7 @@ Per `contracts/events/README.md`:
 
 | Stream | Subjects | Storage | Retention | Discard | Max Age | Max Bytes | Duplication Window |
 |---|---|---|---|---|---|---|---|
-| `VIDEO` | `video.>` | File | Limits | Old | 7d | Unlimited | 2m |
+| `VIDEO` | `video.>`, `media.>` | File | Limits | Old | 7d | Unlimited | 2m |
 | `USER` | `user.>` | File | Limits | Old | 7d | Unlimited | 2m |
 | `SOCIAL` | `social.>` | File | Limits | Old | 7d | Unlimited | 2m |
 | `DLQ` | `dlq.>` | File | Limits | Old | 30d | Unlimited | 2m |
@@ -142,8 +142,8 @@ Per `contracts/events/README.md`:
 | Service User | Publish Permissions | Subscribe Permissions |
 |---|---|---|
 | `auth` | `user.>`, `_INBOX.>`, `$JS.API.>` | `_INBOX.>` |
-| `upload` | `video.uploaded`, `_INBOX.>`, `$JS.API.>` | `rt.video.*.progress`, `_INBOX.>` |
-| `transcoder` | `video.ready`, `video.failed`, `rt.video.*.progress`, `dlq.video.uploaded`, `_INBOX.>`, `$JS.API.>` | `video.uploaded`, `_INBOX.>` |
+| `upload` | `video.uploaded`, `media.image_uploaded`, `_INBOX.>`, `$JS.API.>` | `rt.video.*.progress`, `_INBOX.>` |
+| `transcoder` | `video.ready`, `video.failed`, `rt.video.*.progress`, `dlq.video.uploaded`, `_INBOX.>`, `$JS.API.>`, `$JS.ACK.VIDEO.transcoder.>`, `$JS.ACK.VIDEO.transcoder-images.>`, `$JS.ACK.VIDEO.media-janitor.>`, `$JS.ACK.DLQ.replay-dlq.>` | `video.uploaded`, `media.image_uploaded`, `_INBOX.>`, `$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder`, `$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder-images` |
 | `video` | `video.deleted`, `video.moderated`, `video.visibility_changed`, `analytics.>`, `_INBOX.>`, `$JS.API.>` | `social.video.like_changed`, `social.subscription.changed`, `_INBOX.>` |
 | `social` | `social.comment.created`, `social.video.like_changed`, `social.subscription.changed`, `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.deleted`, `video.moderated`, `_INBOX.>` |
 | `realtime` | `_INBOX.>`, `$JS.API.>` | `video.ready`, `video.failed`, `social.comment.created`, `social.video.like_changed`, `rt.video.*.progress`, `_INBOX.>` |
