@@ -203,3 +203,60 @@ func (t Tools) EncodeAudioHLS(ctx context.Context, input, outDir string, duratio
 	}
 	return nil
 }
+
+// ProbeImage runs ffprobe on a still image (SOC-1b) and applies the image limits. A file ffprobe cannot
+// read is INVALID_INPUT.
+func (t Tools) ProbeImage(ctx context.Context, path string) (media.ImageInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var out bytes.Buffer
+	var errTail tailBuffer
+	cmd := exec.CommandContext(ctx, t.FFprobe, media.BuildProbeArgs(path)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
+	cmd.Stdout, cmd.Stderr = &out, &errTail
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return media.ImageInfo{}, ctx.Err()
+		}
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return media.ImageInfo{}, &media.InvalidInputError{Msg: "the file is not a readable image"}
+		}
+		return media.ImageInfo{}, &EncoderError{Op: "ffprobe", Err: err, Tail: errTail.String()}
+	}
+	return media.ParseImageProbe(out.Bytes())
+}
+
+// EncodeWebP writes one WebP (media.BuildWebPArgs) within 2 minutes. A decoder failure on input that passed
+// SniffImage and ProbeImage is reported as *media.InvalidInputError: the file is corrupt, retrying cannot help.
+func (t Tools) EncodeWebP(ctx context.Context, input, output, filter string, alpha bool) error {
+	rctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(rctx, t.FFmpeg, media.BuildWebPArgs(input, output, filter, alpha)...) // #nosec G204 -- operator-configured executable; argument builder permits local files only, no shell.
+	var errTail tailBuffer
+	cmd.Stderr = &errTail
+	cmd.Stdout = io.Discard
+	cmd.WaitDelay = 10 * time.Second
+	err := cmd.Run()
+	switch {
+	case err == nil:
+		return nil
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case errors.Is(rctx.Err(), context.DeadlineExceeded):
+		return &TimeoutError{After: "2m"}
+	default:
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return &media.InvalidInputError{Msg: "the image could not be decoded"}
+		}
+		return &EncoderError{Op: "ffmpeg webp", Err: err, Tail: errTail.String()}
+	}
+}
+
+// HasWebPEncoder reports whether the configured ffmpeg has libwebp (checked once at start-up).
+func (t Tools) HasWebPEncoder(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, t.FFmpeg, media.BuildEncoderCheckArgs()...).Output() // #nosec G204 -- operator-configured executable and constant arguments; no shell.
+	return err == nil && bytes.Contains(out, []byte(" libwebp "))
+}

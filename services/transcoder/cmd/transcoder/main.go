@@ -25,6 +25,7 @@ import (
 	"github.com/luantpbk/winkey/libs/go/s3x"
 	"github.com/luantpbk/winkey/services/transcoder/internal/audio"
 	"github.com/luantpbk/winkey/services/transcoder/internal/config"
+	"github.com/luantpbk/winkey/services/transcoder/internal/image"
 	"github.com/luantpbk/winkey/services/transcoder/internal/job"
 	"github.com/luantpbk/winkey/services/transcoder/internal/media"
 	"github.com/luantpbk/winkey/services/transcoder/internal/objects"
@@ -149,6 +150,18 @@ func run(cfg config.Config, log *slog.Logger) error {
 		MediaBucket: cfg.S3MediaBucket, WorkDir: cfg.ScratchDir, Log: log,
 	}}
 
+	// SOC-1b (ADR-049): social images → WebP. Needs libwebp in the configured ffmpeg; without it the image
+	// consumer does not start (images stay PROCESSING until a fixed worker picks them up).
+	var imageConsumer *image.Consumer
+	if tools.HasWebPEncoder(ctx) {
+		imageConsumer = &image.Consumer{JS: js, Log: log, Job: &image.Job{
+			Store: &store.Postgres{Pool: pool}, Objects: s3, Media: tools,
+			MediaBucket: cfg.S3MediaBucket, WorkDir: cfg.ScratchDir, Log: log,
+		}}
+	} else {
+		log.Error("ffmpeg has no libwebp encoder: the image consumer is disabled", "ffmpeg", tools.FFmpeg)
+	}
+
 	// The watcher must be subscribed before the consumer starts pulling: the
 	// max-deliveries advisory is emitted when a puller asks for messages.
 	if err := watcher.Start(ctx); err != nil {
@@ -156,7 +169,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	}
 
 	var wg sync.WaitGroup
-	errs := make(chan error, 7)
+	errs := make(chan error, 8)
 	start := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
@@ -176,6 +189,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 	start("outbox relay", func() error { return relay.Run(ctx) })
 	start("consumer", func() error { return consumer.Run(ctx) })
 	start("audio consumer", func() error { return audioConsumer.Run(ctx) })
+	if imageConsumer != nil {
+		start("image consumer", func() error { return imageConsumer.Run(ctx) })
+	}
 	start("media janitor", func() error { return janitor.Run(ctx) })
 	start("max-deliveries watcher", func() error { return watcher.Run(ctx) })
 	start("stuck-job reconciler", func() error { return reconciler.Run(ctx) })
