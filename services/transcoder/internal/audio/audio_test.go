@@ -120,6 +120,11 @@ func TestProcessEncodesUploadsAndRewritesMaster(t *testing.T) {
 		t.Fatalf("output: playlist %v %q, init %v, %d segments", ok, pl.Data, okInit, segs)
 	}
 
+	// The raw upload is gone once the track is READY (only the HLS output is used).
+	if _, ok := e.objs.Get(e.track.RawBucket, e.track.RawKey); ok {
+		t.Fatal("raw audio kept after the track became READY")
+	}
+
 	// The master: a new key next to the old one, with the audio group pointing at the track.
 	if !strings.HasPrefix(e.store.master, "v/"+e.track.VideoID.String()+"/a1/hls/master-") {
 		t.Fatalf("master key %q", e.store.master)
@@ -144,6 +149,9 @@ func TestProcessRejectsWrongDurationAndBadFiles(t *testing.T) {
 	if len(e.store.failures) != 1 || e.store.failures[0].Reason != ReasonDurationMismatch || e.store.failures[0].Retryable ||
 		!strings.Contains(e.store.failures[0].Message, "8.50 s") || len(e.store.completed) != 0 {
 		t.Fatalf("failures %+v", e.store.failures)
+	}
+	if _, ok := e.objs.Get(e.track.RawBucket, e.track.RawKey); !ok {
+		t.Fatal("raw audio of a FAILED track deleted")
 	}
 
 	e = newEnv(t, tools)
