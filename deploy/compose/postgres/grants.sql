@@ -47,3 +47,14 @@ GRANT USAGE ON SCHEMA analytics TO media_svc;
 GRANT SELECT ON analytics.video_daily TO media_svc;
 -- ... and SELECT strictly on the recommendation tables (task R2, ADR-028)
 GRANT SELECT ON analytics.video_coview, analytics.viewer_history TO media_svc;
+
+-- 6. auth_svc needs SELECT on media.ready_images for avatar/banner validation (SOC-1b, ADR-049)
+GRANT USAGE ON SCHEMA media TO auth_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'media' AND viewname = 'ready_images') THEN
+        GRANT SELECT ON media.ready_images TO auth_svc;
+    END IF;
+END
+$$;
+

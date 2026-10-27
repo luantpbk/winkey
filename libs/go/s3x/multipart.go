@@ -45,6 +45,23 @@ func (c *Client) PresignUploadPart(ctx context.Context, bucket, key, uploadID st
 	return out.URL, nil
 }
 
+// PresignPut returns a URL a client can PUT one whole object to, signed for the PUBLIC endpoint. The signature
+// covers Content-Type and Content-Length, so the upload must send exactly contentType and size (a larger or
+// different file is refused by the server). It needs Config.PublicEndpoint (ErrNoPublicEndpoint otherwise).
+// Nothing is sent to the server.
+func (c *Client) PresignPut(ctx context.Context, bucket, key, contentType string, size int64, ttl time.Duration) (string, error) {
+	if c.presign == nil {
+		return "", ErrNoPublicEndpoint
+	}
+	out, err := c.presign.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket: &bucket, Key: &key, ContentType: &contentType, ContentLength: &size,
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("s3x: presign put: %w", err)
+	}
+	return out.URL, nil
+}
+
 // CompleteMultipart assembles the parts, which must be in ascending part
 // number order. Errors wrap ErrNoSuchUpload or ErrInvalidPart when the server
 // says so.

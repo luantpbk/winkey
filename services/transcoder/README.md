@@ -270,6 +270,30 @@ storage-gc -apply all -abort-uploads         # every garbage category + stale mu
 
 It uses the worker's env file (`DATABASE_URL`, `S3_*`). The database snapshot is read before the listing, and nothing younger than `-min-age` is judged, so encodes and uploads in progress are safe. The media janitor (`video.deleted`) removes the whole raw directory `{owner_id}/{video_id}/` since STOR1, including the raw sources of extra audio tracks.
 
+## Social images (SOC-1b, ADR-049)
+
+Durable `transcoder-images` on `media.image_uploaded` (stream `VIDEO`, subject `media.>`), one message at a time:
+1. `BeginImage`: only a `PROCESSING` row is handled (anything else is acked).
+2. Download the raw object (≤ 20 MiB). The **file bytes** decide the format: JPEG, PNG, WebP or AVIF. GIF, APNG, animated WebP and AVIF sequences are refused.
+3. `ffprobe`: exactly one still image, ≤ 8000 px a side and ≤ 40 MP.
+4. JPEG EXIF orientation is read in Go and applied with `transpose`/`flip` filters (`-noautorotate`, so ffmpeg never rotates twice).
+5. Two `libwebp` encodes (quality 72, `-map_metadata -1`, alpha kept for PNG/WebP with alpha):
+   - `AVATAR`: 400², thumb 96²;
+   - `BANNER`: 1500×500, thumb 600×200 (centre-cropped);
+   - `POST`: fits 1600 px, thumb 400 px, never upscaled.
+6. Upload `i/{owner}/{image}/thumb.webp`, then `image.webp`, both immutable.
+7. `CompleteImage` (`READY` + keys, size, bytes), then the raw object is deleted.
+
+Invalid input → `FAILED INVALID_INPUT` and the raw object is deleted. A transient error is retried every 20 s, up to 15 deliveries, then `FAILED STORAGE_ERROR|INTERNAL`. At start-up the worker checks `ffmpeg -encoders` for `libwebp`; without it the image consumer does not start and an error is logged (images wait in `PROCESSING`).
+
+`storage-gc` categories:
+- kept: `media-image`, `raw-image-pending`;
+- deletable:
+  - `media-orphan-image`;
+  - `image-unreferenced`: a READY avatar or banner that no active profile uses; its row is deleted too;
+  - `raw-image-processed`;
+  - `raw-orphan-image`.
+
 ## Audio tracks (MUX1, ADR-042)
 
 A second consumer, `transcoder-audio` (filter `video.audio_uploaded`, `MaxDeliver` unlimited, bounded by the job at 200 deliveries), encodes extra audio tracks on their own. The video is never re-encoded.

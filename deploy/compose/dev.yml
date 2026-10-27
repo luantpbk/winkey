@@ -304,6 +304,14 @@ services:
   #     VALKEY_URL: redis://valkey:6379
   #     MAIL_TRANSPORT: smtp
   #     SMTP_URL: smtp://mailpit:1025
+  #     TOTP_ENCRYPTION_KEYS: ${TOTP_ENCRYPTION_KEYS:-k1:MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=}
+  #     SESSION_IP_SALT: ${SESSION_IP_SALT:-dev-session-ip-salt-min-32-chars-long!}
+  #     WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
+  #     WEBAUTHN_ORIGINS: ${WEBAUTHN_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080}
+  #     WEBAUTHN_USER_HANDLE_KEY: ${WEBAUTHN_USER_HANDLE_KEY:-dev-webauthn-user-handle-key-min-32!}
+  #     STAFF_MFA_REQUIRED: ${STAFF_MFA_REQUIRED:-true}
+  #     PASSWORD_BREACH_CHECK: "false"
+  #     TURNSTILE_SECRET: ""
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
@@ -318,6 +326,7 @@ services:
   #   environment:
   #     DATABASE_URL: postgres://media_svc:media_svc@postgres:5432/winkey?sslmode=disable
   #     NATS_URL: nats://nats:4222
+  #     MEDIA_BASE_URL: http://localhost:8081
   #     S3_ENDPOINT: http://garage:3900
   #     S3_PUBLIC_ENDPOINT: http://localhost:3900
   #   depends_on:

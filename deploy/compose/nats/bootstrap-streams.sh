@@ -20,13 +20,17 @@ fi
 
 create_or_update_stream() {
     NAME="$1"
-    SUBJECT="$2"
+    SUBJECTS="$2"
     AGE="$3"
     MAX_BYTES="${4:--1}"
+    case "$SUBJECTS" in
+        \[*\]) ;;
+        *) SUBJECTS="[\"${SUBJECTS}\"]" ;;
+    esac
     cat <<EOF > "/tmp/${NAME}.json"
 {
   "name": "${NAME}",
-  "subjects": ["${SUBJECT}"],
+  "subjects": ${SUBJECTS},
   "retention": "limits",
   "max_consumers": -1,
   "max_msgs": -1,
@@ -47,8 +51,8 @@ EOF
     fi
 }
 
-# VIDEO stream: video.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
-create_or_update_stream "VIDEO" "video.>" 604800000000000
+# VIDEO stream: video.> and media.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
+create_or_update_stream "VIDEO" '["video.>", "media.>"]' 604800000000000
 
 # USER stream: user.> file storage, 1 replica, max age 7d (604800s), dupe window 2m (120s)
 create_or_update_stream "USER" "user.>" 604800000000000

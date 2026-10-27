@@ -55,7 +55,7 @@ func TestHLSOutputWithRealFFmpeg(t *testing.T) {
 			var last float64
 			err = tools.RunHLS(ctx, media.HLSPlan{
 				Input: src, OutDir: out, Encoder: media.EncoderX264, X264Preset: "ultrafast",
-				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec,
 			}, info.DurationSec, func(p float64) { last = p })
 			if err != nil {
 				t.Fatal(err)
@@ -122,7 +122,7 @@ func TestCappedCRFWithRealFFmpeg(t *testing.T) {
 		out := filepath.Join(dir, mode, "hls")
 		err := tools.RunHLS(ctx, media.HLSPlan{
 			Input: src, OutDir: out, Encoder: media.EncoderX264, X264Preset: "ultrafast",
-			RateControl: mode, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+			RateControl: mode, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec,
 		}, info.DurationSec, func(float64) {})
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
@@ -135,9 +135,19 @@ func TestCappedCRFWithRealFFmpeg(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, v := range media.ParseMaster(string(raw)) {
-			// ffmpeg writes BANDWIDTH as peak video rate x 1.1 plus audio.
-			if ceiling := (rs[i].MaxrateK*11/10 + 128) * 1000; v.Bandwidth > ceiling+1000 {
-				t.Errorf("%s %s: BANDWIDTH %d above the -maxrate ceiling %d", mode, rs[i].Name, v.Bandwidth, ceiling)
+			// BANDWIDTH must stay within what the VBV settings allow. ffmpeg 6 wrote -maxrate x 1.1 + audio;
+			// ffmpeg 7 (the pinned build of the images, CI and gpu-01) writes the measured peak segment rate,
+			// which VBV bounds by maxrate + bufsize / segment length (4 s). Both fit this ceiling, +10% for
+			// container overhead as before.
+			maxrate := rs[i].MaxrateK
+			if mode == media.RateControlCappedCRF {
+				maxrate = rs[i].TargetK // the capped ceiling (media.BuildHLSArgs)
+			}
+			if ceiling := ((maxrate+rs[i].BufsizeK/4)*11/10 + 128) * 1000; v.Bandwidth > ceiling+1000 {
+				t.Errorf("%s %s: BANDWIDTH %d above the VBV ceiling %d", mode, rs[i].Name, v.Bandwidth, ceiling)
+			}
+			if v.Bandwidth < 128_000 {
+				t.Errorf("%s %s: BANDWIDTH %d is not a plausible variant rate", mode, rs[i].Name, v.Bandwidth)
 			}
 		}
 		var total int64

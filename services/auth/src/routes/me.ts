@@ -13,9 +13,15 @@ import {
 } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
-import type { Database, Role } from '../db/types.js';
+import type { Database, ProfileLink, Role } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RevocationService } from '../revocation/revocation.js';
+import {
+  normalizeBio,
+  validateProfileLinks,
+  resolveReadyImageKey,
+  areLinksEqual,
+} from '../security/profile-validation.js';
 
 const updateMeSchema = z
   .object({
@@ -24,11 +30,26 @@ const updateMeSchema = z
       .string()
       .regex(/^[A-Za-z0-9_.]{3,30}$/, 'Invalid handle format')
       .optional(),
+    bio: z.string().max(300).nullable().optional(),
+    links: z.array(z.any()).max(5).optional(),
+    avatar_image_id: z.string().nullable().optional(),
+    banner_image_id: z.string().nullable().optional(),
+    is_private: z.boolean().optional(),
   })
   .strict()
-  .refine((data) => data.display_name !== undefined || data.handle !== undefined, {
-    message: 'At least one field must be provided',
-  });
+  .refine(
+    (data) =>
+      data.display_name !== undefined ||
+      data.handle !== undefined ||
+      data.bio !== undefined ||
+      data.links !== undefined ||
+      data.avatar_image_id !== undefined ||
+      data.banner_image_id !== undefined ||
+      data.is_private !== undefined,
+    {
+      message: 'At least one field must be provided',
+    },
+  );
 
 const changePasswordSchema = z
   .object({
@@ -72,12 +93,27 @@ function formatUser(
     handle: string;
     display_name: string;
     avatar_key: string | null;
+    bio?: string | null;
+    links?: ProfileLink[] | string | null;
+    banner_key?: string | null;
+    is_private?: boolean | null;
     roles: Role[];
     password_hash?: string | null;
     created_at: Date | string;
   },
   env: Env,
 ) {
+  let parsedLinks: ProfileLink[] = [];
+  if (Array.isArray(user.links)) {
+    parsedLinks = user.links;
+  } else if (typeof user.links === 'string') {
+    try {
+      parsedLinks = JSON.parse(user.links);
+    } catch {
+      parsedLinks = [];
+    }
+  }
+
   return {
     id: user.id,
     email: user.email,
@@ -85,6 +121,10 @@ function formatUser(
     handle: user.handle,
     display_name: user.display_name,
     avatar_url: user.avatar_key ? `${env.MEDIA_BASE_URL}/${user.avatar_key}` : null,
+    bio: user.bio ?? null,
+    links: parsedLinks,
+    banner_url: user.banner_key ? `${env.MEDIA_BASE_URL}/${user.banner_key}` : null,
+    is_private: Boolean(user.is_private),
     roles: user.roles,
     has_password: user.password_hash != null,
     created_at: new Date(user.created_at).toISOString(),
@@ -129,7 +169,12 @@ export const meRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_FAILED');
     }
 
-    const { display_name, handle } = parseResult.data;
+    const { display_name, handle, bio, links, avatar_image_id, banner_image_id, is_private } =
+      parseResult.data;
+
+    // Validate links with WHATWG URL parser if provided -> throws 400 LINK_INVALID on error
+    const validatedLinks = links !== undefined ? validateProfileLinks(links) : undefined;
+    const normalizedBio = normalizeBio(bio);
 
     const user = await db
       .selectFrom('auth.users')
@@ -141,11 +186,43 @@ export const meRoute: FastifyPluginAsync<{
       throw ProblemError.unauthorized('User not found or inactive');
     }
 
+    // Resolve avatar and banner keys from media.ready_images if provided -> throws 400 IMAGE_INVALID on error
+    const resolvedAvatarKey = await resolveReadyImageKey(db, avatar_image_id, userId, 'AVATAR');
+    const resolvedBannerKey = await resolveReadyImageKey(db, banner_image_id, userId, 'BANNER');
+
+    // Parse current user links for accurate comparison
+    let currentLinks: ProfileLink[] = [];
+    if (Array.isArray(user.links)) {
+      currentLinks = user.links;
+    } else if (typeof user.links === 'string') {
+      try {
+        currentLinks = JSON.parse(user.links);
+      } catch {
+        currentLinks = [];
+      }
+    }
+
     // No-op check: if provided values match current values, return 200 without DB write or rate limit hit
     const isDisplayNameUnchanged = display_name === undefined || display_name === user.display_name;
     const isHandleUnchanged = handle === undefined || handle === user.handle;
+    const isBioUnchanged = normalizedBio === undefined || normalizedBio === (user.bio ?? null);
+    const isLinksUnchanged =
+      validatedLinks === undefined || areLinksEqual(validatedLinks, currentLinks);
+    const isAvatarUnchanged =
+      resolvedAvatarKey === undefined || resolvedAvatarKey === user.avatar_key;
+    const isBannerUnchanged =
+      resolvedBannerKey === undefined || resolvedBannerKey === user.banner_key;
+    const isPrivateUnchanged = is_private === undefined || is_private === Boolean(user.is_private);
 
-    if (isDisplayNameUnchanged && isHandleUnchanged) {
+    if (
+      isDisplayNameUnchanged &&
+      isHandleUnchanged &&
+      isBioUnchanged &&
+      isLinksUnchanged &&
+      isAvatarUnchanged &&
+      isBannerUnchanged &&
+      isPrivateUnchanged
+    ) {
       return reply.status(200).send(formatUser(user, env));
     }
 
@@ -157,13 +234,20 @@ export const meRoute: FastifyPluginAsync<{
     });
 
     try {
+      const updateFields: Record<string, unknown> = {
+        updated_at: new Date(),
+      };
+      if (display_name !== undefined) updateFields.display_name = display_name;
+      if (handle !== undefined) updateFields.handle = handle;
+      if (normalizedBio !== undefined) updateFields.bio = normalizedBio;
+      if (validatedLinks !== undefined) updateFields.links = JSON.stringify(validatedLinks);
+      if (resolvedAvatarKey !== undefined) updateFields.avatar_key = resolvedAvatarKey;
+      if (resolvedBannerKey !== undefined) updateFields.banner_key = resolvedBannerKey;
+      if (is_private !== undefined) updateFields.is_private = is_private;
+
       const updated = await db
         .updateTable('auth.users')
-        .set({
-          ...(display_name !== undefined ? { display_name } : {}),
-          ...(handle !== undefined ? { handle } : {}),
-          updated_at: new Date(),
-        })
+        .set(updateFields)
         .where('id', '=', userId)
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -349,6 +433,10 @@ export const meRoute: FastifyPluginAsync<{
           password_hash: null,
           email_verified_at: null,
           avatar_key: null,
+          bio: null,
+          links: JSON.stringify([]),
+          banner_key: null,
+          is_private: false,
           status: 'DELETED',
           suspended_until: null,
           suspension_reason: null,
