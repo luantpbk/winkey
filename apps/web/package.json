@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack -p 3000",
+    "prebuild": "node ./scripts/gen-realtime-validator.mjs",
     "build": "next build",
+    "gen:realtime-validator": "node ./scripts/gen-realtime-validator.mjs",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
