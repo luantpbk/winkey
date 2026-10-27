@@ -15,6 +15,8 @@ export interface paths {
          * Post a comment or a reply. Emits `social.comment.created`.
          * @description `parent_id` must be a top-level, non-deleted comment on the same video (only two levels).
          *     Rate limit per user: 10 comments per minute (`429` with `Retry-After`).
+         *     SOC-1b: a block between the caller and the video owner, or (for a reply) the parent comment's author, in
+         *     either direction → `403` code `INTERACTION_BLOCKED`.
          */
         post: operations["createComment"];
         delete?: never;
@@ -124,10 +126,18 @@ export interface paths {
         /**
          * Subscribe (idempotent). Emits `social.subscription.changed` when the state changes.
          * @description The channel must be an active profile in `auth.public_profiles`; subscribing to yourself is `400`.
+         *
+         *     SOC-1b: a block between the caller and the channel (either direction) → `404`. A **private** channel the
+         *     caller does not follow yet: a follow request is created instead (idempotent), the channel gets a
+         *     `FOLLOW_REQUEST` notification, the response has `subscribed = false, requested = true`, and no event is
+         *     emitted. At most 200 pending outgoing requests per user (`409` code `LIMIT_REACHED`).
          */
         put: operations["subscribe"];
         post?: never;
-        /** Unsubscribe (idempotent). Emits `social.subscription.changed` when the state changes. */
+        /**
+         * Unsubscribe (idempotent). Emits `social.subscription.changed` when the state changes.
+         * @description Also cancels the caller's pending follow request to this channel (SOC-1b).
+         */
         delete: operations["unsubscribe"];
         options?: never;
         head?: never;
@@ -146,6 +156,205 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels/{channel_id}/followers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Users who follow the channel, newest first (task SOC-1b). Optional auth.
+         * @description A private channel: only the owner and its approved followers may read it; anyone else → `403` code
+         *     `PRIVATE_ACCOUNT`. Users without an active profile and users in a block relation with the caller are left
+         *     out. Unknown channel → empty page.
+         */
+        get: operations["listFollowers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels/{channel_id}/following": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Channels the user follows, newest first (task SOC-1b). Optional auth.
+         * @description Same visibility and filtering rules as `listFollowers`.
+         */
+        get: operations["listFollowing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels/{channel_id}/relationship": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The caller's relationship to another user (task SOC-1b).
+         * @description Never reveals whether the other user blocks the caller. Asking about yourself → `400`.
+         */
+        get: operations["getRelationship"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/follow-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pending follow requests to the caller, newest first (task SOC-1b).
+         * @description Requesters without an active profile or in a block relation are left out.
+         */
+        get: operations["listFollowRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/follow-requests/{requester_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requester_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a follow request (task SOC-1b).
+         * @description No pending request from that user → `404`. `APPROVE`: in one transaction the request becomes a
+         *     subscription (`social.subscription.changed` through the outbox, `NEW_SUBSCRIBER` notification to the
+         *     caller as for a normal subscription) and the requester gets `FOLLOW_REQUEST_APPROVED`. `REJECT`: the
+         *     request is deleted; the requester is not notified and may ask again.
+         */
+        post: operations["decideFollowRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users the caller blocks, newest first (task SOC-1b). */
+        get: operations["listMyBlocks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/blocks/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Block a user (idempotent, task SOC-1b).
+         * @description The target must be an active profile (`404` otherwise); yourself → `400`. Effects are in the tag
+         *     description; everything happens in one transaction.
+         */
+        put: operations["blockUser"];
+        post?: never;
+        /** Unblock a user (idempotent, task SOC-1b). Removed subscriptions are not restored. */
+        delete: operations["unblockUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users the caller mutes, newest first (task SOC-1b). */
+        get: operations["listMyMutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/mutes/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mute a user (idempotent, task SOC-1b).
+         * @description The target must be an active profile (`404` otherwise); yourself → `400`.
+         */
+        put: operations["muteUser"];
+        post?: never;
+        /** Unmute a user (idempotent, task SOC-1b). */
+        delete: operations["unmuteUser"];
         options?: never;
         head?: never;
         patch?: never;
@@ -637,6 +846,11 @@ export interface components {
         SubscriptionState: {
             channel_id: components["schemas"]["Uuid"];
             subscribed: boolean;
+            /**
+             * @description The caller has a pending follow request to this private channel (SOC-1b). Sent by every SOC-1b server;
+             *     clients treat a missing value as false.
+             */
+            requested?: boolean;
             subscriber_count: number;
         };
         Subscription: {
@@ -654,9 +868,12 @@ export interface components {
          *     `VIDEO_COMMENT` — someone left a top-level comment on your video (`video_id`, `comment_id`).
          *     `COMMENT_REPLY` — someone replied to your comment (`video_id`, `comment_id` = the reply).
          *     `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
+         *     `FOLLOW_REQUEST` — someone asked to follow your private account (SOC-1b; only the first time per requester).
+         *     `FOLLOW_REQUEST_APPROVED` — your follow request was approved (actor = the account you now follow).
+         *     No notification is created between users in a block relation, or for a muter from a muted actor.
          * @enum {string}
          */
-        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER";
+        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER" | "FOLLOW_REQUEST" | "FOLLOW_REQUEST_APPROVED";
         Notification: {
             id: components["schemas"]["Uuid"];
             kind: components["schemas"]["NotificationKind"];
@@ -866,6 +1083,48 @@ export interface components {
             next_video_id: components["schemas"]["Uuid"] | null;
             page_cursor: string | null;
         };
+        FollowItem: {
+            user: components["schemas"]["PublicProfile"];
+            /** Format: date-time */
+            followed_at: string;
+        };
+        FollowPage: {
+            items: components["schemas"]["FollowItem"][];
+            next_cursor: string | null;
+        };
+        FollowRequest: {
+            requester: components["schemas"]["PublicProfile"];
+            /** Format: date-time */
+            requested_at: string;
+        };
+        FollowRequestPage: {
+            items: components["schemas"]["FollowRequest"][];
+            next_cursor: string | null;
+            pending_count: number;
+        };
+        FollowRequestDecision: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+        };
+        Relationship: {
+            user_id: components["schemas"]["Uuid"];
+            following: boolean;
+            /** @description The caller has a pending request to this user. */
+            follow_requested: boolean;
+            followed_by: boolean;
+            /** @description The caller blocks this user. */
+            blocking: boolean;
+            muting: boolean;
+        };
+        RelationItem: {
+            user: components["schemas"]["PublicProfile"];
+            /** Format: date-time */
+            since: string;
+        };
+        RelationPage: {
+            items: components["schemas"]["RelationItem"][];
+            next_cursor: string | null;
+        };
         /**
          * Format: uuid
          * @description UUIDv7 generated by the owning service.
@@ -933,6 +1192,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Authenticated but not allowed. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Resource is in a state that does not allow this operation. */
         Conflict: {
             headers: {
@@ -952,20 +1220,13 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Authenticated but not allowed. */
-        Forbidden: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
     };
     parameters: {
         CommentId: components["schemas"]["Uuid"];
         /** @description User id of the channel owner. */
         ChannelId: components["schemas"]["Uuid"];
+        /** @description User id of the other user. */
+        RelationUserId: components["schemas"]["Uuid"];
         PlaylistId: components["schemas"]["Uuid"];
         VideoId: components["schemas"]["Uuid"];
         /** @description Opaque cursor copied from `next_cursor` of the previous page. */
@@ -1034,6 +1295,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
@@ -1348,6 +1610,292 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listFollowers: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listFollowing: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getRelationship: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Relationship flags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Relationship"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listFollowRequests: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowRequestPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    decideFollowRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requester_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowRequestDecision"];
+            };
+        };
+        responses: {
+            /** @description Decided. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMyBlocks: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    blockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Blocked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    unblockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Not blocked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listMyMutes: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    muteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Muted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    unmuteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Not muted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     listNotifications: {

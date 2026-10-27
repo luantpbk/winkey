@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/luantpbk/winkey/libs/go/s3x"
@@ -102,5 +103,22 @@ func run(cfg config.Config, cats map[storagegc.Category]bool, abort bool, minAge
 	}
 	n, bytes, err := report.Delete(ctx, s3c.SDK(), cats, abort, cfg.S3RawBucket)
 	fmt.Printf("summary: deleted_objects=%d deleted_bytes=%d aborted_uploads=%v\n", n, bytes, abort && err == nil)
-	return err
+	if err != nil {
+		return err
+	}
+	// image-unreferenced: the rows go too, so the image can never be chosen again (SOC-1b).
+	if cats[storagegc.ImageUnreferenced] {
+		seen := map[uuid.UUID]bool{}
+		var ids []uuid.UUID
+		for _, o := range report.Selected(map[storagegc.Category]bool{storagegc.ImageUnreferenced: true}) {
+			if id, ok := storagegc.ImageID(o.Key); ok && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		rows, err := storagegc.DeleteUnreferencedImages(ctx, pool, ids)
+		fmt.Printf("summary: deleted_image_rows=%d\n", rows)
+		return err
+	}
+	return nil
 }

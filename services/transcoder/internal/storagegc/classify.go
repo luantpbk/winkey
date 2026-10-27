@@ -5,6 +5,7 @@
 // directory of hls_master_key), v/{video}/av1/{run}/... (AV1 set, current one = directory of
 // hls_av1_master_key), v/{video}/audio/{track}/... (extra audio tracks, MUX1), v/{video}/subtitles/...
 // Raw bucket layout: {owner}/{video}/source and {owner}/{video}/audio/{track}/source.
+// Social images (SOC-1b): media i/{owner}/{image}/{image,thumb}.webp, raw {owner}/images/{image}.
 package storagegc
 
 import (
@@ -26,6 +27,8 @@ const (
 	MediaInFlight   Category = "media-in-flight"   // attempt of a video that is not READY yet
 	RawSource       Category = "raw-source"        // source of a live video (re-encode, AV1 upgrade)
 	RawAudioLive    Category = "raw-audio-pending" // raw audio of a track that is not READY yet
+	MediaImage      Category = "media-image"       // WebP of a READY image that is a post image or a current avatar/banner
+	RawImageLive    Category = "raw-image-pending" // raw image not processed yet (UPLOADING / PROCESSING)
 	Recent          Category = "recent"            // younger than the age guard: never judged
 	Unknown         Category = "unknown"           // outside the documented layout: never deleted
 
@@ -37,11 +40,16 @@ const (
 	RawOrphanVideo    Category = "raw-orphan-video"    // raw files of a video that no longer exists
 	RawOrphanAudio    Category = "raw-orphan-audio"    // raw audio of a track that no longer exists
 	RawAudioProcessed Category = "raw-audio-processed" // raw audio of a READY track (the HLS output is all that is used)
+	MediaOrphanImage  Category = "media-orphan-image"  // i/{owner}/{image}/ of an image that is gone or not READY
+	ImageUnreferenced Category = "image-unreferenced"  // READY avatar/banner no profile uses any more (row deleted too)
+	RawImageProcessed Category = "raw-image-processed" // raw image of a READY or FAILED image
+	RawOrphanImage    Category = "raw-orphan-image"    // raw image without a row
 )
 
 // Deletable lists the garbage categories, in report order.
 var Deletable = []Category{MediaOrphanVideo, MediaOldAttempt, MediaOldAV1, MediaOrphanAudio,
-	RawOrphanVideo, RawOrphanAudio, RawAudioProcessed}
+	RawOrphanVideo, RawOrphanAudio, RawAudioProcessed,
+	MediaOrphanImage, ImageUnreferenced, RawImageProcessed, RawOrphanImage}
 
 // IsDeletable reports whether c is one of the garbage categories.
 func IsDeletable(c Category) bool {
@@ -67,6 +75,35 @@ type Video struct {
 // Snapshot is the database state the objects are judged against.
 type Snapshot struct {
 	videos map[uuid.UUID]*Video
+	images map[uuid.UUID]Image
+	inUse  map[string]bool // avatar_key / banner_key of active profiles
+}
+
+// Image is the part of a media.images row the classification needs.
+type Image struct {
+	ID, Owner uuid.UUID
+	Purpose   string
+	Status    string
+	ImageKey  string
+}
+
+// SetImages adds the social images and the image keys active profiles use (SOC-1b).
+func (s *Snapshot) SetImages(images []Image, inUse map[string]bool) {
+	s.images = make(map[uuid.UUID]Image, len(images))
+	for _, i := range images {
+		s.images[i.ID] = i
+	}
+	s.inUse = inUse
+}
+
+// ImageID returns the image id of an i/{owner}/{image}/ media key.
+func ImageID(key string) (uuid.UUID, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) < 4 || parts[0] != "i" {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(parts[2])
+	return id, err == nil && id.String() == parts[2]
 }
 
 // NewSnapshot indexes the videos and their audio tracks (track id → status).
@@ -118,6 +155,9 @@ func (s *Snapshot) ClassifyMedia(key string, modified, now time.Time, minAge tim
 		return Recent
 	}
 	parts := strings.Split(key, "/")
+	if len(parts) >= 4 && parts[0] == "i" {
+		return s.classifyImage(parts)
+	}
 	if len(parts) < 3 || parts[0] != "v" {
 		return Unknown
 	}
@@ -157,6 +197,25 @@ func (s *Snapshot) ClassifyMedia(key string, modified, now time.Time, minAge tim
 	}
 }
 
+func (s *Snapshot) classifyImage(parts []string) Category {
+	id, err := uuid.Parse(parts[2])
+	if err != nil || id.String() != parts[2] {
+		return Unknown
+	}
+	img, ok := s.images[id]
+	switch {
+	case !ok || img.Owner.String() != parts[1]:
+		return MediaOrphanImage
+	case img.Status == "PROCESSING":
+		return MediaInFlight
+	case img.Status != "READY":
+		return MediaOrphanImage
+	case img.Purpose != "POST" && !s.inUse[img.ImageKey]:
+		return ImageUnreferenced
+	}
+	return MediaImage
+}
+
 // ClassifyRaw judges one object of the raw bucket.
 func (s *Snapshot) ClassifyRaw(key string, modified, now time.Time, minAge time.Duration) Category {
 	if now.Sub(modified) < minAge {
@@ -168,6 +227,21 @@ func (s *Snapshot) ClassifyRaw(key string, modified, now time.Time, minAge time.
 	}
 	if _, err := uuid.Parse(parts[0]); err != nil {
 		return Unknown
+	}
+	if len(parts) == 3 && parts[1] == "images" {
+		iid, err := uuid.Parse(parts[2])
+		if err != nil {
+			return Unknown
+		}
+		img, ok := s.images[iid]
+		switch {
+		case !ok || img.Owner.String() != parts[0]:
+			return RawOrphanImage
+		case img.Status == "READY" || img.Status == "FAILED":
+			return RawImageProcessed
+		default:
+			return RawImageLive
+		}
 	}
 	id, err := uuid.Parse(parts[1])
 	if err != nil || id.String() != parts[1] {

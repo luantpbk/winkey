@@ -204,11 +204,21 @@ paths:
     patch:
       tags: [auth]
       operationId: updateMe
-      summary: Edit your own display name and/or handle (task A3).
+      summary: Edit your own profile (tasks A3, SOC-1b).
       description: |
         At least one field. A handle that another account uses (case-insensitive) → `409` `HANDLE_TAKEN`.
         Sending the current value again is a no-op (`200`). Rate limited per user: 10 changes / hour → `429`.
         The new handle takes effect immediately in `auth.public_profiles`; old `/@handle` URLs stop resolving.
+
+        Profile fields (SOC-1b, ADR-049):
+        - `bio`: trimmed; empty string or `null` clears it. Rendered as plain text only.
+        - `links`: replaces the whole list (≤ 5). Each `url` must be `https://`, ≤ 200 chars, without credentials
+          (`user:pass@`); otherwise `400` code `LINK_INVALID`. Labels are trimmed.
+        - `avatar_image_id` / `banner_image_id`: an image from `media.ready_images` owned by the caller with purpose
+          `AVATAR` / `BANNER` (upload-svc `createImageUpload`); otherwise `400` code `IMAGE_INVALID`. auth-svc copies
+          its `image_key` into `avatar_key` / `banner_key`. `null` removes the avatar / banner.
+        - `is_private`: see social-svc `subscribe` for what a private account changes. Turning it off does not
+          approve pending follow requests; they stay until the owner decides.
       security:
         - bearerAuth: []
       requestBody:
@@ -1132,6 +1142,9 @@ paths:
       tags: [users]
       operationId: getUserByHandle
       summary: Public profile (channel header).
+      description: |
+        SOC-1b: also returns the profile fields. Follower counts, the caller's relationship and blocks come from
+        social-svc (`getSubscription`, `getRelationship`). A private account's profile header is still public.
       security: []
       parameters:
         - name: handle
@@ -1146,7 +1159,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: './common.yaml#/components/schemas/PublicProfile'
+                $ref: '#/components/schemas/UserProfile'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
@@ -1514,6 +1527,20 @@ components:
         mfa_enabled:
           type: boolean
           description: The account has TOTP or at least one passkey (task SOC-1a).
+        bio:
+          type: [string, 'null']
+          maxLength: 300
+          description: SOC-1b.
+        links:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/ProfileLink'
+        banner_url:
+          type: [string, 'null']
+          format: uri
+        is_private:
+          type: boolean
         staff_roles_pending_mfa:
           type: array
           description: |
@@ -1537,6 +1564,24 @@ components:
         handle:
           type: string
           pattern: '^[A-Za-z0-9_.]{3,30}$'
+        bio:
+          type: [string, 'null']
+          maxLength: 300
+        links:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/ProfileLink'
+        avatar_image_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        banner_image_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        is_private:
+          type: boolean
 
     ChangePasswordRequest:
       type: object
@@ -2184,3 +2229,42 @@ components:
             $ref: '#/components/schemas/SecurityEvent'
         next_cursor:
           type: [string, 'null']
+
+    ProfileLink:
+      type: object
+      additionalProperties: false
+      required: [url, label]
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 200
+        label:
+          type: string
+          minLength: 1
+          maxLength: 30
+
+    UserProfile:
+      description: A public profile with the SOC-1b fields (`getUserByHandle`).
+      allOf:
+        - $ref: './common.yaml#/components/schemas/PublicProfile'
+        - type: object
+          description: Sent by every SOC-1b server; clients treat missing fields as empty / false.
+          properties:
+            bio:
+              type: [string, 'null']
+              maxLength: 300
+            links:
+              type: array
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/ProfileLink'
+            banner_url:
+              type: [string, 'null']
+              format: uri
+            is_private:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time

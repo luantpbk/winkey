@@ -35,16 +35,49 @@ if ! kubectl get secret auth-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     NATS_URL="nats://auth:${NATS_AUTH_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
 
+    # SOC-1a (ADR-049): account security secrets
+    TOTP_KEY=$(openssl rand -base64 32)
+    TOTP_ENCRYPTION_KEYS="k1:${TOTP_KEY}"
+    SESSION_IP_SALT=$(openssl rand -base64 32)
+    WEBAUTHN_USER_HANDLE_KEY=$(openssl rand -base64 32)
+
     kubectl create secret generic auth-secrets -n "$NAMESPACE" \
       --from-literal=DATABASE_URL="$DATABASE_URL" \
       --from-literal=NATS_URL="$NATS_URL" \
       --from-literal=VALKEY_URL="$VALKEY_URL" \
       --from-literal=JWT_PRIVATE_KEY="$RSA_KEY" \
       --from-literal=JWT_KID="winkey-auth-key-1" \
-      --from-literal=COOKIE_SECRET="$COOKIE_SECRET"
+      --from-literal=COOKIE_SECRET="$COOKIE_SECRET" \
+      --from-literal=TOTP_ENCRYPTION_KEYS="$TOTP_ENCRYPTION_KEYS" \
+      --from-literal=SESSION_IP_SALT="$SESSION_IP_SALT" \
+      --from-literal=WEBAUTHN_USER_HANDLE_KEY="$WEBAUTHN_USER_HANDLE_KEY"
     echo "  Created secret auth-secrets." >&2
 else
     echo "  Secret auth-secrets already exists." >&2
+
+    # SOC-1a (ADR-049): check and add missing account security keys idempotently
+    # Note: secrets are piped via stdin to prevent exposing key material in host process tables (ps)
+    if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.TOTP_ENCRYPTION_KEYS}' 2>/dev/null | grep -q .; then
+        TOTP_KEY=$(openssl rand -base64 32)
+        TOTP_ENCRYPTION_KEYS="k1:${TOTP_KEY}"
+        printf '{"stringData":{"TOTP_ENCRYPTION_KEYS":"%s"}}' "$TOTP_ENCRYPTION_KEYS" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+        echo "  Added TOTP_ENCRYPTION_KEYS to existing auth-secrets (IMPORTANT: back up this key to vault!)." >&2
+    fi
+
+    if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.SESSION_IP_SALT}' 2>/dev/null | grep -q .; then
+        SESSION_IP_SALT=$(openssl rand -base64 32)
+        printf '{"stringData":{"SESSION_IP_SALT":"%s"}}' "$SESSION_IP_SALT" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+        echo "  Added SESSION_IP_SALT to existing auth-secrets." >&2
+    fi
+
+    if ! kubectl get secret auth-secrets -n "$NAMESPACE" -o jsonpath='{.data.WEBAUTHN_USER_HANDLE_KEY}' 2>/dev/null | grep -q .; then
+        WEBAUTHN_USER_HANDLE_KEY=$(openssl rand -base64 32)
+        printf '{"stringData":{"WEBAUTHN_USER_HANDLE_KEY":"%s"}}' "$WEBAUTHN_USER_HANDLE_KEY" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+        echo "  Added WEBAUTHN_USER_HANDLE_KEY to existing auth-secrets." >&2
+    fi
 fi
 
 # Closed-beta invite codes (ADR-034, task BETA1)
@@ -55,7 +88,8 @@ if [ -z "$EXISTING_INVITE_CODES" ]; then
     read -r -s INVITE_CODES || true
     echo >&2
     if [ -n "${INVITE_CODES:-}" ]; then
-        kubectl patch secret auth-secrets -n "$NAMESPACE" -p "{\"stringData\":{\"INVITE_CODES\":\"${INVITE_CODES}\"}}"
+        printf '{"stringData":{"INVITE_CODES":"%s"}}' "$INVITE_CODES" | \
+          kubectl patch secret auth-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Configured INVITE_CODES in auth-secrets." >&2
     fi
 fi
@@ -103,6 +137,23 @@ else
     fi
 fi
 
+echo "==> Ensuring auth-turnstile secret exists (SOC-1a)..."
+if kubectl get secret auth-turnstile -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "  Secret auth-turnstile already exists." >&2
+else
+    echo -n "Enter TURNSTILE_SECRET (leave blank to skip / disable captcha): " >&2
+    TURNSTILE_SECRET=""
+    read -r -s TURNSTILE_SECRET || true
+    echo >&2
+    if [ -n "${TURNSTILE_SECRET:-}" ]; then
+        kubectl create secret generic auth-turnstile -n "$NAMESPACE" \
+          --from-literal=TURNSTILE_SECRET="$TURNSTILE_SECRET"
+        echo "  Created secret auth-turnstile." >&2
+    else
+        echo "  TURNSTILE_SECRET empty; skipping creation of secret auth-turnstile (optional)." >&2
+    fi
+fi
+
 echo "==> [3/6] Ensuring upload-secrets exists..."
 if ! kubectl get secret upload-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
@@ -137,7 +188,8 @@ else
     echo "  Secret video-secrets already exists." >&2
     if ! kubectl get secret video-secrets -n "$NAMESPACE" -o jsonpath='{.data.ANALYTICS_VIEWER_SALT}' 2>/dev/null | grep -q .; then
         ANALYTICS_VIEWER_SALT=$(gen_secret 32)
-        kubectl patch secret video-secrets -n "$NAMESPACE" -p "{\"data\":{\"ANALYTICS_VIEWER_SALT\":\"$(echo -n "$ANALYTICS_VIEWER_SALT" | base64 -w0)\"}}"
+        printf '{"data":{"ANALYTICS_VIEWER_SALT":"%s"}}' "$(echo -n "$ANALYTICS_VIEWER_SALT" | base64 -w0)" | \
+          kubectl patch secret video-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Added ANALYTICS_VIEWER_SALT to existing video-secrets." >&2
     fi
 fi

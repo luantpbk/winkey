@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -51,7 +52,62 @@ func Load(ctx context.Context, pool *pgxpool.Pool) (*Snapshot, error) {
 		}
 		tracks[vid][tid] = status
 	}
-	return NewSnapshot(videos, tracks), rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	snap := NewSnapshot(videos, tracks)
+	images, inUse, err := loadImages(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+	snap.SetImages(images, inUse)
+	return snap, nil
+}
+
+// loadImages reads media.images and the image keys of active profiles (auth.public_profiles, SOC-1b).
+func loadImages(ctx context.Context, pool *pgxpool.Pool) ([]Image, map[string]bool, error) {
+	rows, err := pool.Query(ctx, `SELECT id, owner_id, purpose::text, status::text, coalesce(image_key, '') FROM media.images`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load images: %w", err)
+	}
+	images, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Image, error) {
+		var i Image
+		err := r.Scan(&i.ID, &i.Owner, &i.Purpose, &i.Status, &i.ImageKey)
+		return i, err
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("load images: %w", err)
+	}
+	rows, err = pool.Query(ctx, `
+		SELECT avatar_key FROM auth.public_profiles WHERE avatar_key IS NOT NULL
+		UNION SELECT banner_key FROM auth.public_profiles WHERE banner_key IS NOT NULL`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load profile image keys: %w", err)
+	}
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, nil, fmt.Errorf("load profile image keys: %w", err)
+	}
+	inUse := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		inUse[k] = true
+	}
+	return images, inUse, nil
+}
+
+// DeleteUnreferencedImages removes the rows of images whose objects were deleted as image-unreferenced, so
+// auth-svc can never pick them again. Re-checks READY and that no active profile uses the key.
+func DeleteUnreferencedImages(ctx context.Context, pool *pgxpool.Pool, ids []uuid.UUID) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tag, err := pool.Exec(ctx, `
+		DELETE FROM media.images i WHERE i.id = ANY($1) AND i.status = 'READY' AND i.purpose <> 'POST'
+		AND NOT EXISTS (SELECT 1 FROM auth.public_profiles p WHERE p.avatar_key = i.image_key OR p.banner_key = i.image_key)`, ids)
+	if err != nil {
+		return 0, fmt.Errorf("delete unreferenced images: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // Object is one listed object and its verdict.

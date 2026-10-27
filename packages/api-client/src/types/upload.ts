@@ -74,6 +74,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an image upload — returns one presigned PUT URL (task SOC-1b).
+         * @description Creates the `media.images` row (`UPLOADING`) and a presigned `PUT` (TTL 15 min) on the public raw-bucket
+         *     endpoint for `{owner_id}/images/{image_id}`. The signature covers `Content-Type` and `Content-Length`, so
+         *     the browser must send exactly `content_type` and `size_bytes`.
+         */
+        post: operations["createImageUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/images/{image_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: components["parameters"]["ImageId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * An image of the caller and its processing state (task SOC-1b).
+         * @description Another user's image → `404`.
+         */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/images/{image_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: components["parameters"]["ImageId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark an image uploaded; processing starts (task SOC-1b).
+         * @description The image must be the caller's and `UPLOADING` (`409` code `INVALID_STATE` otherwise; `404` if unknown).
+         *     upload-svc checks with `HEAD` that the object exists and its size equals `size_bytes` (`409` code
+         *     `UPLOAD_INCOMPLETE` otherwise), then in one transaction sets `PROCESSING` and writes `media.image_uploaded`
+         *     to the outbox. Idempotent for an image already `PROCESSING`, `READY` or `FAILED` (returns it as is).
+         */
+        post: operations["completeImageUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/uploads/{video_id}/audio-tracks": {
         parameters: {
             query?: never;
@@ -237,6 +306,52 @@ export interface components {
             progress: number;
             error: string | null;
         };
+        /** @enum {string} */
+        ImagePurpose: "AVATAR" | "BANNER" | "POST";
+        CreateImageUploadRequest: {
+            purpose: components["schemas"]["ImagePurpose"];
+            /**
+             * @description Advisory; the transcoder trusts only ffprobe.
+             * @enum {string}
+             */
+            content_type: "image/jpeg" | "image/png" | "image/webp" | "image/avif";
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        CreateImageUploadResponse: {
+            image_id: components["schemas"]["Uuid"];
+            /** Format: uri */
+            upload_url: string;
+            /** @description Headers the `PUT` must send exactly (`Content-Type`; browsers set `Content-Length` themselves). */
+            upload_headers: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            expires_at: string;
+        };
+        /** @enum {string} */
+        ImageStatus: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
+        Image: {
+            id: components["schemas"]["Uuid"];
+            purpose: components["schemas"]["ImagePurpose"];
+            status: components["schemas"]["ImageStatus"];
+            /**
+             * Format: uri
+             * @description Public URL of `image.webp` once READY.
+             */
+            url: string | null;
+            /** Format: uri */
+            thumb_url: string | null;
+            width: number | null;
+            height: number | null;
+            /**
+             * @description Set when FAILED. `INVALID_INPUT` means the file is not a usable still image.
+             * @enum {string|null}
+             */
+            error: "INVALID_INPUT" | "STORAGE_ERROR" | "INTERNAL" | null;
+            /** Format: date-time */
+            created_at: string;
+        };
         /**
          * @description Until task SEC1 (signed cookies) ships, PRIVATE/UNLISTED only affect listings and API reads;
          *     media URLs are unguessable but not access-controlled.
@@ -346,6 +461,7 @@ export interface components {
         };
     };
     parameters: {
+        ImageId: components["schemas"]["Uuid"];
         TrackId: components["schemas"]["Uuid"];
         VideoId: components["schemas"]["Uuid"];
     };
@@ -494,6 +610,91 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    createImageUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateImageUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Upload started. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateImageUploadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Image quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`). */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: components["parameters"]["ImageId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Image"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    completeImageUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                image_id: components["parameters"]["ImageId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Image"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
