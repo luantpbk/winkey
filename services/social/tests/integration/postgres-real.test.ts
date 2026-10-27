@@ -3763,8 +3763,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     // Verify outbox event social.subscription.changed emitted
     const outboxApprove = await pool.query(
-      `SELECT * FROM social.outbox_events 
-       WHERE event_type = 'social.subscription.changed' 
+      `SELECT * FROM social.outbox 
+       WHERE subject = 'social.subscription.changed' 
          AND payload->'data'->>'channel_id' = $1 
          AND payload->'data'->>'subscriber_id' = $2`,
       [privOwnerId, reqUserId],
@@ -3852,8 +3852,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     // Clean outbox events for blocker/blocked channels
     await pool.query(`
-      DELETE FROM social.outbox_events
-      WHERE event_type = 'social.subscription.changed'
+      DELETE FROM social.outbox
+      WHERE subject = 'social.subscription.changed'
         AND (payload->'data'->>'channel_id' = '${blockerId}' OR payload->'data'->>'channel_id' = '${blockedId}')
     `);
 
@@ -3893,8 +3893,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     // Verify outbox events emitted for BOTH directions
     const blockOutbox = await pool.query(
-      `SELECT * FROM social.outbox_events
-       WHERE event_type = 'social.subscription.changed'
+      `SELECT * FROM social.outbox
+       WHERE subject = 'social.subscription.changed'
          AND (payload->'data'->>'channel_id' = $1 OR payload->'data'->>'channel_id' = $2)`,
       [blockerId, blockedId],
     );
