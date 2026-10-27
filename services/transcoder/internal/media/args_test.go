@@ -51,6 +51,25 @@ func TestGoldenX264Portrait(t *testing.T) {
 func TestGoldenX264Silent(t *testing.T) {
 	golden(t, "x264_silent", BuildHLSArgs(plan(EncoderX264, 1920, 1080, false)))
 }
+
+// A known duration bounds the silent track instead of -shortest, whose cut point depends on
+// muxer timing (segment count and bytes changed between identical runs on ffmpeg 7.1).
+func TestSilentTrackBoundedByDuration(t *testing.T) {
+	p := plan(EncoderX264, 1920, 1080, false)
+	p.DurationSec = 12.0004
+	joined := strings.Join(BuildHLSArgs(p), " ")
+	if !strings.Contains(joined, "-f lavfi -t 12.000 -i anullsrc=") {
+		t.Errorf("silent input not bounded by duration: %s", joined)
+	}
+	if strings.Contains(joined, "-shortest") {
+		t.Errorf("-shortest kept with a known duration: %s", joined)
+	}
+	p.HasAudio = true
+	if joined := strings.Join(BuildHLSArgs(p), " "); strings.Contains(joined, "anullsrc") || strings.Contains(joined, " -t ") {
+		t.Errorf("source audio must not get a silent input or -t: %s", joined)
+	}
+}
+
 func TestGoldenNVENCSingle(t *testing.T) {
 	golden(t, "nvenc_single_360p", BuildHLSArgs(plan(EncoderNVENC, 640, 360, true)))
 }

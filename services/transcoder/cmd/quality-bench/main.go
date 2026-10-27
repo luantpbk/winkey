@@ -147,7 +147,7 @@ func main() {
 			plan := media.HLSPlan{
 				Input: src, OutDir: out, Encoder: *encoder, X264Preset: *preset,
 				RateControl: st.mode, X264CRF: st.level, NVENCCQ: st.level,
-				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: true,
+				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec, NoHWDecode: true,
 			}
 			encFF := *ffmpeg
 			if st.mode == settingAV1 {
