@@ -70,6 +70,8 @@ configMapGenerator:
       - migrations/000026_watch_history.down.sql
       - migrations/000027_creator_requests.up.sql
       - migrations/000027_creator_requests.down.sql
+      - migrations/000028_account_security.up.sql
+      - migrations/000028_account_security.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

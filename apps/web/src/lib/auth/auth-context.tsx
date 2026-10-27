@@ -112,6 +112,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (response.ok && data) {
+        if (!('access_token' in data)) {
+          // SOC-1a: the second-factor step (completeMfaLogin) comes with the web brief; until then it is an error.
+          return {
+            success: false,
+            error: {
+              type: '/problems/mfa-required',
+              title: 'Cần xác thực hai lớp',
+              status: 401,
+              detail: 'Tài khoản này cần mã xác thực hai lớp.',
+            },
+          };
+        }
         tokenStore.set(data.access_token);
         setSessionIndicator();
         setSessionProbed();

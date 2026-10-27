@@ -1597,3 +1597,40 @@ Nhắn tin E2EE và gọi E2EE có thể ảnh hưởng tới nghĩa vụ cung c
   Phim giữ nguyên.
 - Lịch sử tin nhắn có thể mất nếu người dùng không bật sao lưu khoá. Moderator không đọc được tin nhắn. Hai điều này là đánh đổi có chủ ý để có E2EE.
 - Khối lượng lớn nhất thuộc Antigravity 3 (auth, social, chat, realtime). Thứ tự trong mỗi đợt: contract và migration (kiến trúc sư) → backend → web → system test → deploy.
+
+*Bổ sung 2026-10-27 (SOC-1a, bảo mật tài khoản).* Đợt SOC-1 chia làm hai:
+- **SOC-1a:** bảo mật tài khoản, làm trước.
+- **SOC-1b:** hồ sơ, tài khoản riêng tư, chặn/tắt tiếng, pipeline ảnh xã hội.
+
+Contract SOC-1a nằm trong `auth.v1.yaml` (tag `security`); migration `000028_account_security`. Chi tiết chốt thêm so với mục 3:
+- **Phiên = refresh family.** Bảng `auth.sessions` (id = `sid`) giữ:
+  - nhãn thiết bị (từ User-Agent);
+  - quốc gia: từ header `CF-IPCountry`, chỉ tin khi request đi qua proxy tin cậy; không có thì NULL;
+  - `ip_hash` = HMAC(`SESSION_IP_SALT`, ip);
+  - `amr` (cách đăng nhập), `step_up_at`, lý do thu hồi.
+  auth-svc thôi ghi `refresh_tokens.ip`.
+- **Đăng nhập khi có yếu tố thứ hai:**
+  - `login` trả `MfaChallenge` (`mfa_token` 5 phút, 5 lần thử) thay vì token;
+  - Google callback đặt cookie `wk_mfa` rồi chuyển tới `/login/2fa`, token không bao giờ nằm trong URL;
+  - `completeMfaLogin` nhận TOTP, mã khôi phục hoặc passkey;
+  - đăng nhập bằng passkey (`passkeyLogin`) không cần bước 2.
+- **Quyền moderator/admin cần 2FA:** với `STAFF_MFA_REQUIRED=true` (mặc định), access token của tài khoản chưa bật 2FA không mang `moderator`/`admin`; `User.staff_roles_pending_mfa` cho web biết để nhắc. Admin hiện tại (user) cần bật 2FA ngay sau khi deploy, nếu không sẽ tạm mất trang quản trị.
+- **Tắt yếu tố thứ hai cuối cùng:** xoá mã khôi phục và thu hồi mọi phiên khác.
+- **Bí mật TOTP:**
+  - mã hoá AES-256-GCM bằng khoá trong `TOTP_ENCRYPTION_KEYS` (nhiều khoá, có id, để xoay khoá);
+  - lúc đang thiết lập (chưa xác nhận) chỉ nằm trong Valkey 10 phút;
+  - không bao giờ trả lại lần thứ hai.
+- **Passkey:**
+  - không yêu cầu attestation; bắt buộc user verification;
+  - user handle = HMAC của user id (không lộ user id);
+  - challenge dùng một lần, sống 2 phút;
+  - bộ đếm chữ ký giảm thì từ chối.
+- **Cảnh báo đăng nhập lạ:** mail `NEW_SIGN_IN` khi không có phiên nào trong 90 ngày cùng `ip_hash` và nhãn thiết bị. Liên kết "Không phải tôi" (token `SESSION_REPORT`, 7 ngày) thu hồi phiên đó.
+- **Step-up 10 phút** bằng mật khẩu, TOTP, passkey hoặc mã email (cho tài khoản chỉ đăng nhập Google).
+- **Mật khẩu bị lộ** (`PASSWORD_BREACH_CHECK`): lỗi hoặc chậm quá 1,5 s thì vẫn cho qua, không chặn người dùng vì lỗi mạng.
+- **Thứ tự rollout:**
+  1. migration;
+  2. auth-svc (với `STAFF_MFA_REQUIRED=false`);
+  3. web;
+  4. user bật 2FA cho tài khoản admin;
+  5. đặt `STAFF_MFA_REQUIRED=true`.
