@@ -120,10 +120,20 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Edit your own display name and/or handle (task A3).
+         * Edit your own profile (tasks A3, SOC-1b).
          * @description At least one field. A handle that another account uses (case-insensitive) → `409` `HANDLE_TAKEN`.
          *     Sending the current value again is a no-op (`200`). Rate limited per user: 10 changes / hour → `429`.
          *     The new handle takes effect immediately in `auth.public_profiles`; old `/@handle` URLs stop resolving.
+         *
+         *     Profile fields (SOC-1b, ADR-049):
+         *     - `bio`: trimmed; empty string or `null` clears it. Rendered as plain text only.
+         *     - `links`: replaces the whole list (≤ 5). Each `url` must be `https://`, ≤ 200 chars, without credentials
+         *       (`user:pass@`); otherwise `400` code `LINK_INVALID`. Labels are trimmed.
+         *     - `avatar_image_id` / `banner_image_id`: an image from `media.ready_images` owned by the caller with purpose
+         *       `AVATAR` / `BANNER` (upload-svc `createImageUpload`); otherwise `400` code `IMAGE_INVALID`. auth-svc copies
+         *       its `image_key` into `avatar_key` / `banner_key`. `null` removes the avatar / banner.
+         *     - `is_private`: see social-svc `subscribe` for what a private account changes. Turning it off does not
+         *       approve pending follow requests; they stay until the owner decides.
          */
         patch: operations["updateMe"];
         trace?: never;
@@ -775,7 +785,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Public profile (channel header). */
+        /**
+         * Public profile (channel header).
+         * @description SOC-1b: also returns the profile fields. Follower counts, the caller's relationship and blocks come from
+         *     social-svc (`getSubscription`, `getRelationship`). A private account's profile header is still public.
+         */
         get: operations["getUserByHandle"];
         put?: never;
         post?: never;
@@ -987,6 +1001,12 @@ export interface components {
             has_password?: boolean;
             /** @description The account has TOTP or at least one passkey (task SOC-1a). */
             mfa_enabled?: boolean;
+            /** @description SOC-1b. */
+            bio?: string | null;
+            links?: components["schemas"]["ProfileLink"][];
+            /** Format: uri */
+            banner_url?: string | null;
+            is_private?: boolean;
             /**
              * @description Roles the account holds but that are left out of its access tokens until it enables a second factor
              *     (`STAFF_MFA_REQUIRED`, SOC-1a). Empty for most users. `roles` lists only the effective roles.
@@ -998,6 +1018,11 @@ export interface components {
         UpdateMeRequest: {
             display_name?: string;
             handle?: string;
+            bio?: string | null;
+            links?: components["schemas"]["ProfileLink"][];
+            avatar_image_id?: components["schemas"]["Uuid"] | null;
+            banner_image_id?: components["schemas"]["Uuid"] | null;
+            is_private?: boolean;
         };
         ChangePasswordRequest: {
             current_password?: string;
@@ -1281,6 +1306,21 @@ export interface components {
         SecurityEventPage: {
             items: components["schemas"]["SecurityEvent"][];
             next_cursor: string | null;
+        };
+        ProfileLink: {
+            /** Format: uri */
+            url: string;
+            label: string;
+        };
+        /** @description A public profile with the SOC-1b fields (`getUserByHandle`). */
+        UserProfile: components["schemas"]["PublicProfile"] & {
+            bio?: string | null;
+            links?: components["schemas"]["ProfileLink"][];
+            /** Format: uri */
+            banner_url?: string | null;
+            is_private?: boolean;
+            /** Format: date-time */
+            created_at?: string;
         };
         /**
          * Format: uuid
@@ -2348,7 +2388,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicProfile"];
+                    "application/json": components["schemas"]["UserProfile"];
                 };
             };
             404: components["responses"]["NotFound"];

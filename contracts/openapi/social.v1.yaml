@@ -45,7 +45,36 @@ tags:
   - name: likes
     description: Video likes.
   - name: subscriptions
-    description: Channel subscriptions.
+    description: |
+      Channel subscriptions ("theo dõi"). Every user is a channel.
+
+      Private accounts (task SOC-1b, ADR-049): `auth.public_profiles.is_private`. Subscribing to a private account
+      you do not follow yet creates a **follow request** instead (`requested = true`); the owner approves or
+      rejects it with `decideFollowRequest`. A private account's followers and following lists are visible only
+      to the owner and its approved followers. Its videos keep their own visibility rules; its posts (SOC-2)
+      follow the account. Becoming private keeps existing followers; becoming public does not approve pending
+      requests.
+  - name: relationships
+    description: |
+      Blocks, mutes and the caller's relationship to another user (task SOC-1b, ADR-049). Gateway: `/v1/me/blocks`,
+      `/v1/me/mutes` and `/v1/me/follow-requests` go to social-svc.
+
+      **Block** (either direction is enforced, the blocked user is never told):
+      - creating a block removes subscriptions and follow requests in both directions (each removed subscription
+        emits `social.subscription.changed`);
+      - the blocked user cannot subscribe to or request to follow the blocker (`404`, as if the account did not
+        exist), and cannot comment on or reply under the blocker's videos or comments (`403` code
+        `INTERACTION_BLOCKED`);
+      - comment lists, replies, followers / following lists and notifications hide users in a block relation with
+        the signed-in caller (both directions);
+      - no notification is created between the two users.
+
+      **Mute**: the muted user's actions create no notification for the muter; SOC-2 feeds hide their posts. The
+      muted user is not told and nothing else changes.
+
+      Limits: 1000 blocks and 1000 mutes per user (`409` code `LIMIT_REACHED`). Rate limit: 60 block / mute
+      changes per hour (`429`). Other services that must honour blocks (SOC-3 chat, realtime) read
+      `social.blocks` through a grant; it is not an event.
   - name: moderation
     description: |
       User reports and the moderation queue (task A2). Reading and resolving reports needs `moderator` or
@@ -108,6 +137,8 @@ paths:
       description: |
         `parent_id` must be a top-level, non-deleted comment on the same video (only two levels).
         Rate limit per user: 10 comments per minute (`429` with `Retry-After`).
+        SOC-1b: a block between the caller and the video owner, or (for a reply) the parent comment's author, in
+        either direction → `403` code `INTERACTION_BLOCKED`.
       security:
         - bearerAuth: []
       requestBody:
@@ -132,6 +163,8 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
         '409':
@@ -344,7 +377,13 @@ paths:
       tags: [subscriptions]
       operationId: subscribe
       summary: Subscribe (idempotent). Emits `social.subscription.changed` when the state changes.
-      description: The channel must be an active profile in `auth.public_profiles`; subscribing to yourself is `400`.
+      description: |
+        The channel must be an active profile in `auth.public_profiles`; subscribing to yourself is `400`.
+
+        SOC-1b: a block between the caller and the channel (either direction) → `404`. A **private** channel the
+        caller does not follow yet: a follow request is created instead (idempotent), the channel gets a
+        `FOLLOW_REQUEST` notification, the response has `subscribed = false, requested = true`, and no event is
+        emitted. At most 200 pending outgoing requests per user (`409` code `LIMIT_REACHED`).
       security:
         - bearerAuth: []
       responses:
@@ -366,6 +405,7 @@ paths:
       tags: [subscriptions]
       operationId: unsubscribe
       summary: Unsubscribe (idempotent). Emits `social.subscription.changed` when the state changes.
+      description: Also cancels the caller's pending follow request to this channel (SOC-1b).
       security:
         - bearerAuth: []
       responses:
@@ -401,6 +441,261 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/channels/{channel_id}/followers:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [subscriptions]
+      operationId: listFollowers
+      summary: Users who follow the channel, newest first (task SOC-1b). Optional auth.
+      description: |
+        A private channel: only the owner and its approved followers may read it; anyone else → `403` code
+        `PRIVATE_ACCOUNT`. Users without an active profile and users in a block relation with the caller are left
+        out. Unknown channel → empty page.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/channels/{channel_id}/following:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [subscriptions]
+      operationId: listFollowing
+      summary: Channels the user follows, newest first (task SOC-1b). Optional auth.
+      description: Same visibility and filtering rules as `listFollowers`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/channels/{channel_id}/relationship:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [relationships]
+      operationId: getRelationship
+      summary: The caller's relationship to another user (task SOC-1b).
+      description: |
+        Never reveals whether the other user blocks the caller. Asking about yourself → `400`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Relationship flags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Relationship'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/follow-requests:
+    get:
+      tags: [subscriptions]
+      operationId: listFollowRequests
+      summary: Pending follow requests to the caller, newest first (task SOC-1b).
+      description: Requesters without an active profile or in a block relation are left out.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowRequestPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/follow-requests/{requester_id}/decision:
+    parameters:
+      - name: requester_id
+        in: path
+        required: true
+        schema:
+          $ref: './common.yaml#/components/schemas/Uuid'
+    post:
+      tags: [subscriptions]
+      operationId: decideFollowRequest
+      summary: Approve or reject a follow request (task SOC-1b).
+      description: |
+        No pending request from that user → `404`. `APPROVE`: in one transaction the request becomes a
+        subscription (`social.subscription.changed` through the outbox, `NEW_SUBSCRIBER` notification to the
+        caller as for a normal subscription) and the requester gets `FOLLOW_REQUEST_APPROVED`. `REJECT`: the
+        request is deleted; the requester is not notified and may ask again.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowRequestDecision'
+      responses:
+        '204':
+          description: Decided.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/me/blocks:
+    get:
+      tags: [relationships]
+      operationId: listMyBlocks
+      summary: Users the caller blocks, newest first (task SOC-1b).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/blocks/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/RelationUserId'
+    put:
+      tags: [relationships]
+      operationId: blockUser
+      summary: Block a user (idempotent, task SOC-1b).
+      description: |
+        The target must be an active profile (`404` otherwise); yourself → `400`. Effects are in the tag
+        description; everything happens in one transaction.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Blocked.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [relationships]
+      operationId: unblockUser
+      summary: Unblock a user (idempotent, task SOC-1b). Removed subscriptions are not restored.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Not blocked.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/me/mutes:
+    get:
+      tags: [relationships]
+      operationId: listMyMutes
+      summary: Users the caller mutes, newest first (task SOC-1b).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/mutes/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/RelationUserId'
+    put:
+      tags: [relationships]
+      operationId: muteUser
+      summary: Mute a user (idempotent, task SOC-1b).
+      description: The target must be an active profile (`404` otherwise); yourself → `400`.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Muted.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [relationships]
+      operationId: unmuteUser
+      summary: Unmute a user (idempotent, task SOC-1b).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Not muted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/notifications:
     get:
@@ -1050,6 +1345,13 @@ components:
       description: User id of the channel owner.
       schema:
         $ref: './common.yaml#/components/schemas/Uuid'
+    RelationUserId:
+      name: user_id
+      in: path
+      required: true
+      description: User id of the other user.
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
     PlaylistId:
       name: playlist_id
       in: path
@@ -1168,6 +1470,11 @@ components:
           $ref: './common.yaml#/components/schemas/Uuid'
         subscribed:
           type: boolean
+        requested:
+          type: boolean
+          description: |
+            The caller has a pending follow request to this private channel (SOC-1b). Sent by every SOC-1b server;
+            clients treat a missing value as false.
         subscriber_count:
           type: integer
           minimum: 0
@@ -1201,7 +1508,10 @@ components:
         `VIDEO_COMMENT` — someone left a top-level comment on your video (`video_id`, `comment_id`).
         `COMMENT_REPLY` — someone replied to your comment (`video_id`, `comment_id` = the reply).
         `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
-      enum: [VIDEO_PUBLISHED, VIDEO_COMMENT, COMMENT_REPLY, NEW_SUBSCRIBER]
+        `FOLLOW_REQUEST` — someone asked to follow your private account (SOC-1b; only the first time per requester).
+        `FOLLOW_REQUEST_APPROVED` — your follow request was approved (actor = the account you now follow).
+        No notification is created between users in a block relation, or for a muter from a muted actor.
+      enum: [VIDEO_PUBLISHED, VIDEO_COMMENT, COMMENT_REPLY, NEW_SUBSCRIBER, FOLLOW_REQUEST, FOLLOW_REQUEST_APPROVED]
 
     Notification:
       type: object
@@ -1677,4 +1987,102 @@ components:
             - $ref: './common.yaml#/components/schemas/Uuid'
             - type: 'null'
         page_cursor:
+          type: [string, 'null']
+
+    FollowItem:
+      type: object
+      additionalProperties: false
+      required: [user, followed_at]
+      properties:
+        user:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        followed_at:
+          type: string
+          format: date-time
+
+    FollowPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FollowItem'
+        next_cursor:
+          type: [string, 'null']
+
+    FollowRequest:
+      type: object
+      additionalProperties: false
+      required: [requester, requested_at]
+      properties:
+        requester:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        requested_at:
+          type: string
+          format: date-time
+
+    FollowRequestPage:
+      type: object
+      required: [items, next_cursor, pending_count]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FollowRequest'
+        next_cursor:
+          type: [string, 'null']
+        pending_count:
+          type: integer
+          minimum: 0
+
+    FollowRequestDecision:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+
+    Relationship:
+      type: object
+      additionalProperties: false
+      required: [user_id, following, follow_requested, followed_by, blocking, muting]
+      properties:
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        following:
+          type: boolean
+        follow_requested:
+          type: boolean
+          description: The caller has a pending request to this user.
+        followed_by:
+          type: boolean
+        blocking:
+          type: boolean
+          description: The caller blocks this user.
+        muting:
+          type: boolean
+
+    RelationItem:
+      type: object
+      additionalProperties: false
+      required: [user, since]
+      properties:
+        user:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        since:
+          type: string
+          format: date-time
+
+    RelationPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RelationItem'
+        next_cursor:
           type: [string, 'null']
