@@ -16,7 +16,10 @@ import (
 // S3 implements domain.Storage on an s3x.Client.
 type S3 struct{ c *s3x.Client }
 
-var _ domain.Storage = (*S3)(nil)
+var (
+	_ domain.Storage      = (*S3)(nil)
+	_ domain.ImageStorage = (*S3)(nil)
+)
 
 // New wraps the client. It must have been built with a PublicEndpoint, or
 // PresignPart fails with s3x.ErrNoPublicEndpoint.
@@ -28,6 +31,10 @@ func (s *S3) CreateMultipart(ctx context.Context, bucket, key, contentType strin
 
 func (s *S3) PresignPart(ctx context.Context, bucket, key, uploadID string, part int32, ttl time.Duration) (string, error) {
 	return s.c.PresignUploadPart(ctx, bucket, key, uploadID, part, ttl)
+}
+
+func (s *S3) PresignPut(ctx context.Context, bucket, key, contentType string, size int64, ttl time.Duration) (string, error) {
+	return s.c.PresignPut(ctx, bucket, key, contentType, size, ttl)
 }
 
 func (s *S3) CompleteMultipart(ctx context.Context, bucket, key, uploadID string, parts []domain.Part) error {

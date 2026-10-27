@@ -15,31 +15,31 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 
 ## Environment Variables
 
-| Variable | Description | Default / Example |
-|---|---|---|
-| `NODE_ENV` | Runtime environment (`development`, `production`, `test`) | `development` |
-| `HTTP_PORT` | Port for the HTTP server to listen on | `8001` |
-| `DATABASE_URL` | PostgreSQL connection string (must connect as role `auth_svc`) | `postgres://auth_svc:auth_svc@localhost:5432/winkey?sslmode=disable` |
-| `NATS_URL` | NATS JetStream server URL | `nats://localhost:4222` |
-| `VALKEY_URL` | Valkey (Redis) connection string for rate limiting | `redis://localhost:6379` |
-| `JWT_PRIVATE_KEY` | RSA private key (PEM format, PKCS#8) for signing access tokens | (required) |
-| `JWT_KID` | Key identifier for the active RSA key | `winkey-auth-key-1` |
-| `JWT_PREVIOUS_PUBLIC_KEY` | Optional previous RSA public key (PEM format, SPKI) during rotation | (optional) |
-| `JWT_ISSUER` | Issuer URI for token claims (`iss`) | `https://winkey.vn` |
-| `PUBLIC_ORIGIN` | Public website origin used to enforce CORS/Origin security on `/refresh` and `/logout` | `https://winkey.vn` |
-| `MEDIA_BASE_URL` | Base URL for avatars and static media | `https://media.winkey.vn` |
-| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | (optional for local dev) |
-| `GOOGLE_CLIENT_SECRET`| Google OAuth Client Secret | (optional for local dev) |
-| `GOOGLE_REDIRECT_URI` | Google OAuth Redirect Callback URI | `https://winkey.vn/v1/auth/oauth/google/callback` |
-| `COOKIE_SECRET` | Secret key used to sign temporary OAuth session state cookies | (minimum 32 characters) |
-| `TRUST_PROXY_CIDRS` | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution | `10.42.0.0/16,127.0.0.1` |
-| `MAIL_TRANSPORT` | Outbound email transport mechanism (`smtp` or `log`, ADR-026) | `log` |
-| `SMTP_URL` | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`) | `smtp://user:pass@localhost:1025` |
-| `MAIL_FROM` | RFC 5322 From address used for outbound authentication emails | `Winkey <no-reply@winkey.vn>` |
-| `REGISTRATION_MODE` | Account registration mode (`open` or `invite`, task BETA1, ADR-034) | `open` |
-| `INVITE_CODES` | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes) | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678` |
-| `REFRESH_REUSE_GRACE` | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s) | `30` |
-| `SIGNUP_ROLES` | Default roles for new signups (`viewer` or `viewer,creator`, task ROLE1, ADR-046; service fails to start on other values) | `viewer` |
+| Variable                  | Description                                                                                                               | Default / Example                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `NODE_ENV`                | Runtime environment (`development`, `production`, `test`)                                                                 | `development`                                                        |
+| `HTTP_PORT`               | Port for the HTTP server to listen on                                                                                     | `8001`                                                               |
+| `DATABASE_URL`            | PostgreSQL connection string (must connect as role `auth_svc`)                                                            | `postgres://auth_svc:auth_svc@localhost:5432/winkey?sslmode=disable` |
+| `NATS_URL`                | NATS JetStream server URL                                                                                                 | `nats://localhost:4222`                                              |
+| `VALKEY_URL`              | Valkey (Redis) connection string for rate limiting                                                                        | `redis://localhost:6379`                                             |
+| `JWT_PRIVATE_KEY`         | RSA private key (PEM format, PKCS#8) for signing access tokens                                                            | (required)                                                           |
+| `JWT_KID`                 | Key identifier for the active RSA key                                                                                     | `winkey-auth-key-1`                                                  |
+| `JWT_PREVIOUS_PUBLIC_KEY` | Optional previous RSA public key (PEM format, SPKI) during rotation                                                       | (optional)                                                           |
+| `JWT_ISSUER`              | Issuer URI for token claims (`iss`)                                                                                       | `https://winkey.vn`                                                  |
+| `PUBLIC_ORIGIN`           | Public website origin used to enforce CORS/Origin security on `/refresh` and `/logout`                                    | `https://winkey.vn`                                                  |
+| `MEDIA_BASE_URL`          | Base URL for avatars and static media                                                                                     | `https://media.winkey.vn`                                            |
+| `GOOGLE_CLIENT_ID`        | Google OAuth Client ID                                                                                                    | (optional for local dev)                                             |
+| `GOOGLE_CLIENT_SECRET`    | Google OAuth Client Secret                                                                                                | (optional for local dev)                                             |
+| `GOOGLE_REDIRECT_URI`     | Google OAuth Redirect Callback URI                                                                                        | `https://winkey.vn/v1/auth/oauth/google/callback`                    |
+| `COOKIE_SECRET`           | Secret key used to sign temporary OAuth session state cookies                                                             | (minimum 32 characters)                                              |
+| `TRUST_PROXY_CIDRS`       | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution                                       | `10.42.0.0/16,127.0.0.1`                                             |
+| `MAIL_TRANSPORT`          | Outbound email transport mechanism (`smtp` or `log`, ADR-026)                                                             | `log`                                                                |
+| `SMTP_URL`                | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`)                                                                 | `smtp://user:pass@localhost:1025`                                    |
+| `MAIL_FROM`               | RFC 5322 From address used for outbound authentication emails                                                             | `Winkey <no-reply@winkey.vn>`                                        |
+| `REGISTRATION_MODE`       | Account registration mode (`open` or `invite`, task BETA1, ADR-034)                                                       | `open`                                                               |
+| `INVITE_CODES`            | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes)            | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678`    |
+| `REFRESH_REUSE_GRACE`     | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s)                                      | `30`                                                                 |
+| `SIGNUP_ROLES`            | Default roles for new signups (`viewer` or `viewer,creator`, task ROLE1, ADR-046; service fails to start on other values) | `viewer`                                                             |
 
 ---
 
@@ -48,6 +48,7 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 RS256 keys rotate smoothly without invalidating currently active access tokens:
 
 ### 1. Generating a New Key Pair
+
 ```bash
 # Generate a new 2048-bit RSA private key (PKCS#8)
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private_new.pem
@@ -57,7 +58,8 @@ openssl pkey -in private_new.pem -pubout -out public_new.pem
 ```
 
 ### 2. Zero-Downtime Rotation Steps
-1. **Prepare rotation:** Set `JWT_PREVIOUS_PUBLIC_KEY` to the contents of the *currently active public key*.
+
+1. **Prepare rotation:** Set `JWT_PREVIOUS_PUBLIC_KEY` to the contents of the _currently active public key_.
 2. **Promote new key:** Update `JWT_PRIVATE_KEY` to the new private key and assign a new `JWT_KID` (e.g. `winkey-auth-key-2`).
 3. **Deploy:** Restart or redeploy `auth-svc`.
    - `auth-svc` now issues new JWTs with the new key (`JWT_KID`).
@@ -70,6 +72,7 @@ openssl pkey -in private_new.pem -pubout -out public_new.pem
 ## Rate Limiting
 
 Rate limiting is enforced via Valkey (sliding window counter):
+
 - **Login:** Maximum 5 requests/minute per (IP + email) AND 20 requests/minute per IP.
 - **Register:** Maximum 5 requests/hour per IP.
 - **Profile Updates (`PATCH /v1/auth/me`):** Maximum 10 changes/hour per user ID.
@@ -80,12 +83,12 @@ Rate limiting is enforced via Valkey (sliding window counter):
 
 ## Account Self-Service (Task A3)
 
-| Endpoint | Method | Security | Description |
-|---|---|---|---|
-| `/v1/auth/me` | `GET` | Bearer | Returns the authenticated `User` record including `has_password: boolean`. |
-| `/v1/auth/me` | `PATCH` | Bearer | Edits `display_name` (1-50 chars) and/or `handle` (`^[A-Za-z0-9_.]{3,30}$`). Case-insensitive collision maps to `409` `HANDLE_TAKEN` via DB unique violation. Same values return `200` without a DB write. Rate limited to 10 changes/hour per user ID. Updates immediately reflect in `auth.public_profiles`. |
-| `/v1/auth/me/password` | `PUT` | Bearer | Sets or changes account password. Accounts with a password require `current_password` (verified with argon2id, mismatch yields `403` `INVALID_CREDENTIALS`). OAuth-only accounts must omit `current_password` (if provided -> `400`) and set their first password. In the same transaction, revokes all refresh token families except the family matching the request's `wk_rt` cookie (other devices logged out; current session preserved). Rate limited like login. Returns `204`. |
-| `/v1/auth/me` | `DELETE` | Bearer | Anonymizes and deletes account. Requires `confirm_handle` (case-insensitive match, else `400` `CONFIRMATION_MISMATCH`) and `password` if account has a password (`403` `INVALID_CREDENTIALS` if invalid). Protected by `LAST_ADMIN` transaction advisory lock (`pg_advisory_xact_lock(hashtext('auth.last_admin'))`); sole admin receives `409` `LAST_ADMIN`. In a single transaction with `SELECT ... FOR UPDATE`: scrubs user row (`email = deleted+<id>@invalid.winkey.vn`, `handle = d_<28 hex>` [exactly 30 chars], `display_name = 'Deleted user'`, `status = 'DELETED'`, NULLs for passwords, avatar, suspension), deletes `auth.oauth_identities`, and revokes all refresh tokens. Clears `wk_rt` cookie (Max-Age=0) and returns `204`. The previous email and handle become immediately available for new registrations. |
+| Endpoint               | Method   | Security | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/auth/me`          | `GET`    | Bearer   | Returns the authenticated `User` record including `has_password: boolean`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `/v1/auth/me`          | `PATCH`  | Bearer   | Edits `display_name` (1-50 chars), `handle` (`^[A-Za-z0-9_.]{3,30}$`), `bio` (trimmed, <= 300 chars, empty -> NULL), `links` (<= 5 items, https only, no credentials, 1-30 char label, 400 `LINK_INVALID`), `avatar_image_id` / `banner_image_id` (from `media.ready_images` owned by caller with purpose `AVATAR` / `BANNER`, 400 `IMAGE_INVALID`, null clears), and `is_private` (boolean). Case-insensitive handle collision maps to `409` `HANDLE_TAKEN`. Same values return `200` without a DB write or rate limit consumption. Rate limited to 10 changes/hour per user ID. Updates immediately reflect in `auth.public_profiles`.                                                                                                                                                                                          |
+| `/v1/auth/me/password` | `PUT`    | Bearer   | Sets or changes account password. Accounts with a password require `current_password` (verified with argon2id, mismatch yields `403` `INVALID_CREDENTIALS`). OAuth-only accounts must omit `current_password` (if provided -> `400`) and set their first password. In the same transaction, revokes all refresh token families except the family matching the request's `wk_rt` cookie (other devices logged out; current session preserved). Rate limited like login. Returns `204`.                                                                                                                                                                                                                                                                                                                                             |
+| `/v1/auth/me`          | `DELETE` | Bearer   | Anonymizes and deletes account. Requires `confirm_handle` (case-insensitive match, else `400` `CONFIRMATION_MISMATCH`) and `password` if account has a password (`403` `INVALID_CREDENTIALS` if invalid). Protected by `LAST_ADMIN` transaction advisory lock (`pg_advisory_xact_lock(hashtext('auth.last_admin'))`); sole admin receives `409` `LAST_ADMIN`. In a single transaction with `SELECT ... FOR UPDATE`: scrubs user row (`email = deleted+<id>@invalid.winkey.vn`, `handle = d_<28 hex>` [exactly 30 chars], `display_name = 'Deleted user'`, `status = 'DELETED'`, NULLs for passwords, avatar, suspension), deletes `auth.oauth_identities`, and revokes all refresh tokens. Clears `wk_rt` cookie (Max-Age=0) and returns `204`. The previous email and handle become immediately available for new registrations. |
 
 ---
 
@@ -93,14 +96,14 @@ Rate limiting is enforced via Valkey (sliding window counter):
 
 ### RBAC Matrix
 
-| Endpoint | Roles Allowed | Notes |
-|---|---|---|
-| `GET /v1/admin/users` | `moderator`, `admin` | Prefix search on email/handle, trigram search on `display_name`, status & role filters, cursor pagination. |
-| `GET /v1/admin/users/{user_id}` | `moderator`, `admin` | Returns detailed `AdminUser` record. |
-| `PUT /v1/admin/users/{user_id}/roles` | `admin` only | Cannot modify self or another admin. Transactionally audited as `USER_ROLES_CHANGED`. No-op writes nothing. |
-| `PUT /v1/admin/users/{user_id}/suspension` | `moderator`, `admin` | Moderator cannot suspend moderator or admin. Nobody can suspend self or an admin. Immediately revokes all refresh tokens. Transactionally audited as `USER_SUSPENDED`. |
-| `DELETE /v1/admin/users/{user_id}/suspension` | `moderator`, `admin` | Moderator cannot unsuspend moderator or admin. Idempotent: lifting active status returns 200 without audit row. |
-| `GET /v1/admin/audit-log` | `admin` only | Lists admin audit records newest-first with actor profiles, supports optional `target_user_id` query filter and cursor pagination. |
+| Endpoint                                      | Roles Allowed        | Notes                                                                                                                                                                  |
+| --------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/admin/users`                         | `moderator`, `admin` | Prefix search on email/handle, trigram search on `display_name`, status & role filters, cursor pagination.                                                             |
+| `GET /v1/admin/users/{user_id}`               | `moderator`, `admin` | Returns detailed `AdminUser` record.                                                                                                                                   |
+| `PUT /v1/admin/users/{user_id}/roles`         | `admin` only         | Cannot modify self or another admin. Transactionally audited as `USER_ROLES_CHANGED`. No-op writes nothing.                                                            |
+| `PUT /v1/admin/users/{user_id}/suspension`    | `moderator`, `admin` | Moderator cannot suspend moderator or admin. Nobody can suspend self or an admin. Immediately revokes all refresh tokens. Transactionally audited as `USER_SUSPENDED`. |
+| `DELETE /v1/admin/users/{user_id}/suspension` | `moderator`, `admin` | Moderator cannot unsuspend moderator or admin. Idempotent: lifting active status returns 200 without audit row.                                                        |
+| `GET /v1/admin/audit-log`                     | `admin` only         | Lists admin audit records newest-first with actor profiles, supports optional `target_user_id` query filter and cursor pagination.                                     |
 
 ### Suspension Lifecycle & Security
 
@@ -119,10 +122,10 @@ Rate limiting is enforced via Valkey (sliding window counter):
 
 Both key types use a TTL of **960 seconds** (15-minute access token lifespan + 60-second clock skew window):
 
-| Key Pattern | Value | Trigger Actions | Semantics |
-|---|---|---|---|
-| `auth:revoked:sid:{sid}` | `"1"` | `POST /v1/auth/logout`<br>`POST /v1/auth/refresh` (reuse detected)<br>`PUT /v1/auth/me/password` (other families) | Invalidate all access tokens issued under this refresh-token family (`sid`). |
-| `auth:revoked:user:{userId}` | Unix timestamp (seconds) | `PUT /v1/admin/users/:id/suspension`<br>`PUT /v1/admin/users/:id/roles` (when changed)<br>`DELETE /v1/auth/me` | Invalidate all access tokens for this user where `iat <= cutoff`. Updated atomically via Lua script to guarantee the cutoff is never lowered. |
+| Key Pattern                  | Value                    | Trigger Actions                                                                                                   | Semantics                                                                                                                                     |
+| ---------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth:revoked:sid:{sid}`     | `"1"`                    | `POST /v1/auth/logout`<br>`POST /v1/auth/refresh` (reuse detected)<br>`PUT /v1/auth/me/password` (other families) | Invalidate all access tokens issued under this refresh-token family (`sid`).                                                                  |
+| `auth:revoked:user:{userId}` | Unix timestamp (seconds) | `PUT /v1/admin/users/:id/suspension`<br>`PUT /v1/admin/users/:id/roles` (when changed)<br>`DELETE /v1/auth/me`    | Invalidate all access tokens for this user where `iat <= cutoff`. Updated atomically via Lua script to guarantee the cutoff is never lowered. |
 
 ### Post-Commit Execution & Reliability
 
@@ -144,18 +147,18 @@ Both key types use a TTL of **960 seconds** (15-minute access token lifespan + 6
 
 Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
-| `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
-| `auth_revocation_write_total` | Counter | `result="ok"`, `result="error"` | Tracks revocation key write attempts to Valkey. |
-| `auth_verify_revocation_check_total` | Counter | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`. |
-| `auth_refresh_total` | Counter | `result="grace_retry"` | Tracks token refresh attempts partitioned by outcome (including grace period retries). |
-| `auth_mail_sent_total` | Counter | `template` | Total successfully sent outbound emails by template (`VERIFY_EMAIL`, `RESET_PASSWORD`, `PASSWORD_CHANGED`). |
-| `auth_mail_failed_total` | Counter | `template` | Total failed outbound email delivery attempts by template. |
-| `auth_mail_dead_total` | Counter | None | Total emails abandoned after 8 failed delivery attempts. |
-| `auth_mail_queue_pending` | Gauge | None | Number of pending outbound emails currently in `auth.mail_queue`. |
-| Standard Node.js runtime metrics | Various | `service="auth-svc"` | Default Node metrics (CPU, heap, event loop lag, etc.). |
+| Metric                               | Type      | Labels                                              | Description                                                                                                 |
+| ------------------------------------ | --------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `http_requests_total`                | Counter   | `method`, `route`, `status`                         | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded).             |
+| `http_request_duration_seconds`      | Histogram | `method`, `route`, `status`                         | HTTP request latency histogram in seconds (buckets match Go services).                                      |
+| `auth_revocation_write_total`        | Counter   | `result="ok"`, `result="error"`                     | Tracks revocation key write attempts to Valkey.                                                             |
+| `auth_verify_revocation_check_total` | Counter   | `result="ok"`, `result="revoked"`, `result="error"` | Tracks revocation check results on `/v1/auth/verify`.                                                       |
+| `auth_refresh_total`                 | Counter   | `result="grace_retry"`                              | Tracks token refresh attempts partitioned by outcome (including grace period retries).                      |
+| `auth_mail_sent_total`               | Counter   | `template`                                          | Total successfully sent outbound emails by template (`VERIFY_EMAIL`, `RESET_PASSWORD`, `PASSWORD_CHANGED`). |
+| `auth_mail_failed_total`             | Counter   | `template`                                          | Total failed outbound email delivery attempts by template.                                                  |
+| `auth_mail_dead_total`               | Counter   | None                                                | Total emails abandoned after 8 failed delivery attempts.                                                    |
+| `auth_mail_queue_pending`            | Gauge     | None                                                | Number of pending outbound emails currently in `auth.mail_queue`.                                           |
+| Standard Node.js runtime metrics     | Various   | `service="auth-svc"`                                | Default Node metrics (CPU, heap, event loop lag, etc.).                                                     |
 
 ---
 
@@ -163,12 +166,12 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 
 ### Endpoints
 
-| Endpoint | Method | Security | Description |
-|---|---|---|---|
-| `/v1/auth/password/forgot` | `POST` | None | Initiates password reset. Always returns `202 Accepted` with empty body. If email belongs to an `ACTIVE` user, stores a 1-hour reset token in `auth.email_tokens` and queues a `RESET_PASSWORD` mail. Max 3 requests/hour per user (extra requests return 202 without queuing). Rate limited per IP like login (`429`). |
-| `/v1/auth/password/reset` | `POST` | None | Sets new password with a valid `RESET_PASSWORD` token. In one transaction: updates argon2id password, marks all unused reset tokens of the user used, marks `email_verified_at = now()` if NULL, revokes all refresh token families, and queues `PASSWORD_CHANGED` mail. Dispatches Valkey revocation (`revocationService.revokeUser`) after commit. Re-using or expired token returns `400` `INVALID_TOKEN`. Returns `204`. |
-| `/v1/auth/email/verification` | `POST` | Bearer | Resends email verification link (48-hour token) for authenticated user. If already verified, returns `409` `EMAIL_ALREADY_VERIFIED`. Maximum 3 requests/hour per user; exceeding returns `429` with `Retry-After`. Mail locale honors `Accept-Language` (`en*` → English, else Vietnamese). Returns `202`. |
-| `/v1/auth/email/verify` | `POST` | None | Confirms email address with `VERIFY_EMAIL` token. In one transaction: marks token used and sets `email_verified_at = now()`. Invalid/expired/used token returns `400` `INVALID_TOKEN`. Returns `204`. |
+| Endpoint                      | Method | Security | Description                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/auth/password/forgot`    | `POST` | None     | Initiates password reset. Always returns `202 Accepted` with empty body. If email belongs to an `ACTIVE` user, stores a 1-hour reset token in `auth.email_tokens` and queues a `RESET_PASSWORD` mail. Max 3 requests/hour per user (extra requests return 202 without queuing). Rate limited per IP like login (`429`).                                                                                                      |
+| `/v1/auth/password/reset`     | `POST` | None     | Sets new password with a valid `RESET_PASSWORD` token. In one transaction: updates argon2id password, marks all unused reset tokens of the user used, marks `email_verified_at = now()` if NULL, revokes all refresh token families, and queues `PASSWORD_CHANGED` mail. Dispatches Valkey revocation (`revocationService.revokeUser`) after commit. Re-using or expired token returns `400` `INVALID_TOKEN`. Returns `204`. |
+| `/v1/auth/email/verification` | `POST` | Bearer   | Resends email verification link (48-hour token) for authenticated user. If already verified, returns `409` `EMAIL_ALREADY_VERIFIED`. Maximum 3 requests/hour per user; exceeding returns `429` with `Retry-After`. Mail locale honors `Accept-Language` (`en*` → English, else Vietnamese). Returns `202`.                                                                                                                   |
+| `/v1/auth/email/verify`       | `POST` | None     | Confirms email address with `VERIFY_EMAIL` token. In one transaction: marks token used and sets `email_verified_at = now()`. Invalid/expired/used token returns `400` `INVALID_TOKEN`. Returns `204`.                                                                                                                                                                                                                        |
 
 ### Security & Token Storage
 
@@ -197,27 +200,27 @@ Under open registration, all new accounts (password or Google sign-up) are creat
 
 ### Endpoints
 
-| Endpoint | Method | Security | Description |
-|---|---|---|---|
-| `/v1/auth/me/creator-request` | `GET` | Bearer | Returns the caller's latest request (`created_at DESC, id DESC`), or `404` if none. Polled by web client on upgrade page. |
-| `/v1/auth/me/creator-request` | `POST` | Bearer | Submits a `PENDING` request. `message` is trimmed then validated (10–1000 chars, else `400 VALIDATION_ERROR`). Rate limited to 5 requests/user/day (`429`). Evaluates conflicts in strict order: (1) already has `creator` → `409 ALREADY_CREATOR`; (2) existing `PENDING` request → `409 REQUEST_PENDING`; (3) latest request `REJECTED` < 24h ago → `409 REQUEST_COOLDOWN` (detail contains ISO time when eligible). Logs `request_id` and `user_id`, never `message`. Returns `201`. |
-| `/v1/admin/creator-requests` | `GET` | Bearer (admin) | Lists upgrade requests. Admin only (`moderator` and `viewer` receive `403`). Optional `status` query defaults to `PENDING`. `PENDING` is ordered oldest-first (`created_at ASC, id ASC`); `APPROVED` and `REJECTED` are ordered newest-first (`decided_at DESC, id DESC`). Keyset cursor pagination. Each item contains `user` (`AdminUser`) and `decided_by` (`PublicProfile` or null). Response carries `pending_count` (total pending requests regardless of `status` query filter). |
+| Endpoint                                   | Method | Security       | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------ | ------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/auth/me/creator-request`              | `GET`  | Bearer         | Returns the caller's latest request (`created_at DESC, id DESC`), or `404` if none. Polled by web client on upgrade page.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/v1/auth/me/creator-request`              | `POST` | Bearer         | Submits a `PENDING` request. `message` is trimmed then validated (10–1000 chars, else `400 VALIDATION_ERROR`). Rate limited to 5 requests/user/day (`429`). Evaluates conflicts in strict order: (1) already has `creator` → `409 ALREADY_CREATOR`; (2) existing `PENDING` request → `409 REQUEST_PENDING`; (3) latest request `REJECTED` < 24h ago → `409 REQUEST_COOLDOWN` (detail contains ISO time when eligible). Logs `request_id` and `user_id`, never `message`. Returns `201`.                                                                                                                                                                                                                                                                                                                                               |
+| `/v1/admin/creator-requests`               | `GET`  | Bearer (admin) | Lists upgrade requests. Admin only (`moderator` and `viewer` receive `403`). Optional `status` query defaults to `PENDING`. `PENDING` is ordered oldest-first (`created_at ASC, id ASC`); `APPROVED` and `REJECTED` are ordered newest-first (`decided_at DESC, id DESC`). Keyset cursor pagination. Each item contains `user` (`AdminUser`) and `decided_by` (`PublicProfile` or null). Response carries `pending_count` (total pending requests regardless of `status` query filter).                                                                                                                                                                                                                                                                                                                                               |
 | `/v1/admin/creator-requests/{id}/decision` | `POST` | Bearer (admin) | Decides a request in a single transaction with `SELECT ... FOR UPDATE`. Admin only (`403`). Unknown id → `404`. Request not `PENDING` → `409 REQUEST_ALREADY_DECIDED`. Caller's own request → `403 CANNOT_MODERATE_TARGET`.<br>• `REJECT`: Requires `note` (1–500 chars trimmed, else `400`). Sets `status = 'REJECTED'`, `decision_note`, `decided_by`, `decided_at`. Roles untouched, no audit row.<br>• `APPROVE`: User not `ACTIVE` → `409 USER_NOT_ACTIVE`. Otherwise adds `creator` to `roles` (kept if already present), sets `status = 'APPROVED'`. Writes one `USER_ROLES_CHANGED` audit row with `{from, to, creator_request_id}` only if roles actually mutated. **Does NOT revoke sessions**; new roles take effect on next token refresh (or immediate refresh by web client). Returns `200` with `AdminCreatorRequest`. |
 
 ### Error Codes Reference
 
-| Error Code | HTTP Status | Meaning |
-|---|---|---|
-| `VALIDATION_ERROR` | `400` | Input validation failed (`message` length / missing `note` on reject). |
-| `FORBIDDEN` | `403` | Caller lacks `admin` role for admin endpoints. |
-| `CANNOT_MODERATE_TARGET` | `403` | Admin attempted to decide their own creator request. |
-| `NOT_FOUND` | `404` | Creator request or user not found. |
-| `ALREADY_CREATOR` | `409` | User already holds the `creator` role. |
-| `REQUEST_PENDING` | `409` | User already has an open `PENDING` request. |
-| `REQUEST_COOLDOWN` | `409` | Previous request rejected < 24 hours ago. |
-| `REQUEST_ALREADY_DECIDED` | `409` | Request was already approved or rejected. |
-| `USER_NOT_ACTIVE` | `409` | User account is suspended or deleted upon approval attempt. |
-| `RATE_LIMIT_EXCEEDED` | `429` | Daily creator request submission limit exceeded (5/day). |
+| Error Code                | HTTP Status | Meaning                                                                |
+| ------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `VALIDATION_ERROR`        | `400`       | Input validation failed (`message` length / missing `note` on reject). |
+| `FORBIDDEN`               | `403`       | Caller lacks `admin` role for admin endpoints.                         |
+| `CANNOT_MODERATE_TARGET`  | `403`       | Admin attempted to decide their own creator request.                   |
+| `NOT_FOUND`               | `404`       | Creator request or user not found.                                     |
+| `ALREADY_CREATOR`         | `409`       | User already holds the `creator` role.                                 |
+| `REQUEST_PENDING`         | `409`       | User already has an open `PENDING` request.                            |
+| `REQUEST_COOLDOWN`        | `409`       | Previous request rejected < 24 hours ago.                              |
+| `REQUEST_ALREADY_DECIDED` | `409`       | Request was already approved or rejected.                              |
+| `USER_NOT_ACTIVE`         | `409`       | User account is suspended or deleted upon approval attempt.            |
+| `RATE_LIMIT_EXCEEDED`     | `429`       | Daily creator request submission limit exceeded (5/day).               |
 
 ---
 
@@ -239,5 +242,3 @@ pnpm --dir services/auth build
 # Start production server
 pnpm --dir services/auth start
 ```
-
-

@@ -190,6 +190,7 @@ jobs:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
+      # Same pinned static build as sim.yml (#459) and the transcoder images: apt-get install ffmpeg took > 30 min.
       - name: Cache ffmpeg (transcoder real-media tests)
         id: cache-ffmpeg
         if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
@@ -200,7 +201,7 @@ jobs:
             /home/runner/.local/bin/ffprobe
           key: ffmpeg-static-7.1.5-c1e6caf4
 
-      - name: Install ffmpeg (transcoder real-media tests)
+      - name: FFmpeg (transcoder real-media tests)
         if: steps.gate.outputs.run == 'true' && steps.present.outputs.yes == 'true' && matrix.module == 'services/transcoder'
         run: |
           if [ "${{ steps.cache-ffmpeg.outputs.cache-hit }}" != "true" ]; then

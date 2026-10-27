@@ -13,13 +13,17 @@ import (
 // Janitor aborts multipart uploads and deletes rows stuck in UPLOADING for
 // longer than StaleAfter (index media.videos_stale_uploads), audio tracks included.
 type Janitor struct {
-	Store      domain.Store
-	Audio      domain.AudioStore // nil skips the audio tracks (MUX1)
-	Storage    domain.Storage
-	Log        *slog.Logger
-	Interval   time.Duration // default 10m
-	StaleAfter time.Duration // default 24h
-	BatchSize  int           // default 100
+	Store domain.Store
+	Audio domain.AudioStore // nil skips the audio tracks (MUX1)
+	// Images and ImageStorage sweep social images left UPLOADING longer than ImageStaleAfter (SOC-1b); nil skips.
+	Images          domain.ImageStore
+	ImageStorage    domain.ImageStorage
+	ImageStaleAfter time.Duration // default 1h
+	Storage         domain.Storage
+	Log             *slog.Logger
+	Interval        time.Duration // default 10m
+	StaleAfter      time.Duration // default 24h
+	BatchSize       int           // default 100
 
 	// Upload ledger retention (UQ1-b): rows older than LedgerRetention are deleted, at most
 	// LedgerBatch per statement, until none are left. The database refuses rows younger than 25 h.
@@ -89,7 +93,41 @@ func (j *Janitor) Sweep(ctx context.Context) (int, error) {
 		}
 	}
 	n, aerr := j.sweepAudio(ctx)
-	return deleted + n, errors.Join(perr, aerr)
+	m, ierr := j.sweepImages(ctx)
+	return deleted + n + m, errors.Join(perr, aerr, ierr)
+}
+
+// sweepImages deletes images stuck in UPLOADING: the object (if the PUT happened) and the row.
+func (j *Janitor) sweepImages(ctx context.Context) (int, error) {
+	if j.Images == nil {
+		return 0, nil
+	}
+	if j.ImageStaleAfter <= 0 {
+		j.ImageStaleAfter = time.Hour
+	}
+	stale, err := j.Images.StaleImageUploads(ctx, j.ImageStaleAfter, j.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, img := range stale {
+		if ctx.Err() != nil {
+			break
+		}
+		if err := j.ImageStorage.DeleteObject(ctx, img.RawBucket, img.RawKey); err != nil && !errors.Is(err, domain.ErrNoSuchObject) {
+			j.Log.WarnContext(ctx, "delete stale image object failed", "image_id", img.ID, "error", err)
+			continue
+		}
+		ok, err := j.Images.DeleteUploadingImage(ctx, img.ID)
+		if err != nil {
+			j.Log.WarnContext(ctx, "delete stale image failed", "image_id", img.ID, "error", err)
+			continue
+		}
+		if ok {
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 // sweepAudio does the same for audio tracks stuck in UPLOADING.

@@ -106,6 +106,37 @@ spec:
                   name: auth-secrets
                   key: INVITE_CODES
                   optional: true
+            - name: TOTP_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: TOTP_ENCRYPTION_KEYS
+            - name: SESSION_IP_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: SESSION_IP_SALT
+            - name: WEBAUTHN_USER_HANDLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: WEBAUTHN_USER_HANDLE_KEY
+            - name: TURNSTILE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-turnstile
+                  key: TURNSTILE_SECRET
+                  optional: true
+            - name: WEBAUTHN_RP_ID
+              value: 'winkey.vn'
+            - name: WEBAUTHN_ORIGINS
+              value: 'https://winkey.vn,https://www.winkey.vn'
+            - name: PASSWORD_BREACH_CHECK
+              value: 'true'
+            - name: STAFF_MFA_REQUIRED
+              value: 'false'
+            - name: TRUSTED_COUNTRY_HEADER
+              value: 'CF-IPCountry'
           resources:
             requests:
               cpu: 30m
