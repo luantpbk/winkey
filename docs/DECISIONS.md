@@ -1420,3 +1420,180 @@ Hiện trạng code:
 - Ngưỡng tăng `AV1_TOP_N` vẫn như trên: `av1_capable_share` vượt khoảng 30–40%.
 
 *Bổ sung 2026-10-27 (file gốc âm thanh).* Job âm thanh (MUX1) xoá file gốc âm thanh ngay khi track READY: sau đó chỉ bản HLS được dùng, kể cả khi video được encode lại. File gốc của track FAILED vẫn giữ. File gốc video vẫn giữ, vì `av1-upgrade` cần nó. Nếu lần xoá thất bại, `storage-gc` vẫn báo file đó trong nhóm `raw-audio-processed`.
+
+### ADR-049 — Mạng xã hội giải trí: hồ sơ, bảng tin, bảo mật tài khoản, nhắn tin E2EE, gọi thoại/video, xem chung (SOC)
+
+*Bối cảnh (2026-10-27).*
+- User muốn Winkey thêm một mạng xã hội giải trí đầy đủ, chuyên nghiệp, hiệu suất cao và bảo mật. User đã chọn (2026-10-27):
+  - S1: hồ sơ và bảng tin;
+  - S2: bảo mật tài khoản;
+  - S3: nhắn tin, có **mã hoá đầu-cuối (E2EE)**;
+  - S5: watch party (xem chung);
+  - thêm gọi thoại và gọi video.
+- Video và ảnh của mạng xã hội phải **nén mạnh hơn** để tiết kiệm dung lượng. Phim và video của creator **giữ nguyên chất lượng hiện tại**.
+- Đã có sẵn:
+  - bình luận có trả lời, thích, theo dõi kênh (`social.subscriptions`), thông báo (N1/N2), playlist;
+  - báo cáo và kiểm duyệt (S4/M1), realtime WebSocket với ticket (`realtime-svc`);
+  - phân quyền viewer/creator/moderator/admin (ADR-046), refresh token theo family với phát hiện dùng lại (ADR-019).
+- Hạ tầng: một edge OCI (k3s, 4 core / 12 GB arm64), gpu-01 (NVENC, ClickHouse, vault), R2 khoảng 8,6 GiB. Không có ngân sách cho dịch vụ trả phí lớn.
+- "Bảo mật tuyệt đối" không tồn tại. Mục tiêu là bảo mật theo chuẩn ngành, có kiểm chứng: test, rate limit, audit log, ít dữ liệu nhất có thể.
+
+*Quyết định.*
+
+**1. Chia đợt.** Mỗi đợt dùng được ngay khi xong. Đợt sau dựa vào đợt trước.
+
+| Đợt | Nội dung | Phụ thuộc |
+|---|---|---|
+| SOC-1 | **S2 bảo mật tài khoản** + **hồ sơ** (ảnh bìa, giới thiệu, liên kết, tài khoản riêng tư, yêu cầu theo dõi, chặn/tắt tiếng) + **pipeline ảnh xã hội** | — |
+| SOC-2 | **Bài đăng và bảng tin**: chữ, ảnh (tối đa 10), video ngắn, gắn video/phim Winkey; reaction; chia sẻ lại; @nhắc tên, #hashtag; bình luận bài đăng; bảng tin "Đang theo dõi" và "Khám phá" | SOC-1 |
+| SOC-3 | **Nhắn tin E2EE** 1-1 và nhóm (tối đa 50), tệp đính kèm mã hoá, lời mời nhắn tin từ người lạ | SOC-1 (thiết bị + 2FA) |
+| SOC-4 | **Gọi thoại / video** 1-1 (WebRTC P2P qua TURN), rồi gọi nhóm (tối đa 8 người có video) qua SFU | SOC-3 (khoá E2EE, danh bạ chặn) |
+| SOC-5 | **Watch party**: xem chung đồng bộ, chat phòng, gọi thoại trong phòng | SOC-4 (SFU), realtime |
+
+Mỗi đợt có ADR bổ sung riêng, gồm contract, migration và brief. Phần dưới đây là các nguyên tắc chung mà các ADR bổ sung phải tuân theo.
+
+**2. Phân chia dịch vụ (giữ ranh giới hiện tại).**
+- `auth-svc` (Antigravity 3):
+  - 2FA TOTP, passkey (WebAuthn), danh sách thiết bị và phiên;
+  - xác thực lại (step-up) cho thao tác nhạy cảm, cảnh báo đăng nhập lạ;
+  - trường hồ sơ mở rộng trong `auth.public_profiles`;
+  - cờ `is_private`.
+- `social-svc` (Antigravity 3): yêu cầu theo dõi, chặn/tắt tiếng, bài đăng, reaction, hashtag, mention, chia sẻ lại, bảng tin, bình luận bài đăng (dùng lại mô hình bình luận hiện có, `target_type`).
+- `chat-svc` **mới** (Node, Antigravity 3):
+  - chỉ chuyển tiếp và lưu ciphertext;
+  - giữ khoá công khai của thiết bị (prekey bundle);
+  - quản lý hội thoại, thành viên và lời mời.
+  Tách khỏi social-svc vì dữ liệu, mức độ nhạy cảm và tải khác hẳn. Database riêng schema `chat`, role riêng.
+- `realtime-svc` (Antigravity 3): thêm room `chat:{conversation}`, `call:{id}`, `party:{id}`; chuyển tín hiệu WebRTC (signaling); đồng hồ máy chủ cho watch party.
+- `upload-svc` + `transcoder` (kiến trúc sư): pipeline media xã hội (mục 4).
+- Hạ tầng mới (Antigravity 2):
+  - `coturn` (TURN/STUN) trên edge;
+  - **LiveKit** SFU (mã nguồn mở, Go, có E2EE qua insertable streams) cho gọi nhóm và watch party, bắt đầu ở SOC-4.
+  Cả hai build đa kiến trúc hoặc dùng image chính thức có arm64.
+- Web (Antigravity 1): toàn bộ UI. System test (Antigravity 4): persona mới cho từng đợt.
+- Danh tính: vẫn chỉ tin `X-User-Id` / `X-User-Roles` từ gateway. WebSocket vẫn dùng ticket. Không parse JWT ngoài auth-svc.
+- Sự kiện xã hội vẫn đi qua outbox (ADR-008). **Tin nhắn E2EE không đi qua outbox hay JetStream dạng đọc được**: chat-svc ghi ciphertext vào database, rồi chỉ báo "có tin mới" (không có nội dung) qua realtime.
+
+**3. Bảo mật tài khoản (SOC-1, bắt buộc trước khi có nhắn tin).**
+- **2FA TOTP** (RFC 6238, chu kỳ 30 s, cho lệch ±1 bước):
+  - secret mã hoá khi lưu bằng khoá ứng dụng (AES-256-GCM, khoá lấy từ env, có `key_id` để xoay khoá);
+  - 10 mã khôi phục dùng một lần (chỉ lưu hash Argon2id);
+  - chống dùng lại cùng mã trong cùng chu kỳ.
+- **Passkey (WebAuthn)**: đăng nhập không mật khẩu và làm yếu tố thứ hai. Mỗi tài khoản tối đa 10 passkey. Đúng `rp_id` = `winkey.vn`.
+- **Bắt buộc 2FA** cho moderator và admin: chưa bật 2FA thì không dùng được quyền đó.
+- **Danh sách phiên/thiết bị:**
+  - mỗi refresh family hiển thị loại thiết bị (từ User-Agent), quốc gia (từ IP lúc đăng nhập) và lần dùng cuối;
+  - **không lưu IP rõ**, chỉ lưu quốc gia và hash IP có salt (dùng để phát hiện "thiết bị mới");
+  - người dùng thu hồi được từng phiên hoặc tất cả.
+- **Cảnh báo đăng nhập lạ**: email khi đăng nhập từ thiết bị hoặc quốc gia mới; liên kết "Không phải tôi" thu hồi phiên đó.
+- **Xác thực lại (step-up, 10 phút)** trước các thao tác:
+  - đổi email/mật khẩu, tắt 2FA, xoá passkey;
+  - xoá tài khoản, xuất khoá E2EE.
+- **Chống lạm dụng:**
+  - giới hạn tần suất theo tài khoản và IP cho đăng nhập, đăng ký, đăng bài, gửi tin, gửi lời mời theo dõi/nhắn tin;
+  - Cloudflare Turnstile (miễn phí) khi đăng ký và sau nhiều lần đăng nhập sai;
+  - mật khẩu bị lộ kiểm tra bằng k-anonymity (Pwned Passwords range API, chỉ gửi 5 ký tự đầu của SHA-1), nếu API lỗi thì bỏ qua.
+- **Audit log bảo mật**: bật/tắt 2FA, thêm/xoá passkey, đăng nhập mới, thu hồi phiên, đổi email/mật khẩu. Người dùng xem được log của mình; giữ 1 năm.
+- **Web:**
+  - CSP chặt (nonce, không `unsafe-inline` cho script);
+  - `Trusted Types` khi khả thi; HSTS preload;
+  - cookie `__Host-`;
+  - nội dung người dùng chỉ render dạng text hoặc qua sanitizer (không HTML tự do).
+
+**4. Media xã hội nén mạnh (phim không đổi).**
+- Mỗi media có `purpose`: `film` (video hiện tại, giữ nguyên ladder, AV1 top N, giữ file gốc) | `social_image` | `social_video` | `avatar` | `banner`.
+- **Ảnh** (`social_image`, `avatar`, `banner`) xử lý trên gpu-01 bằng FFmpeg/libwebp:
+  - xoá toàn bộ EXIF/metadata (GPS);
+  - xoay theo orientation;
+  - cạnh dài tối đa 1600 px (bài đăng), 2048×768 (ảnh bìa), 400 px (avatar) và một bản thumbnail 320 px;
+  - **WebP chất lượng khoảng 72**; chặn ảnh động trừ GIF ngắn (chuyển sang video).
+  - Mục tiêu khoảng 150–300 KB mỗi ảnh bài đăng.
+  - **Xoá file gốc ngay khi xử lý xong.**
+- **Video xã hội** (`social_video`):
+  - tối đa 3 phút (cấu hình được);
+  - chỉ 2 rendition H.264 **720p và 360p**, CRF cao hơn phim (capped CRF, mục tiêu khoảng 1,2 Mbps ở 720p), AAC 96 kbps;
+  - không làm bộ AV1, không storyboard;
+  - **xoá file gốc khi READY.**
+  - Mục tiêu khoảng 10 MB mỗi phút.
+- **Nén trước ở trình duyệt**: resize ảnh trước khi upload để tiết kiệm băng thông. Server vẫn luôn xử lý lại, không tin file client.
+- **Tệp trong tin nhắn E2EE**:
+  - server **không thể nén** vì chỉ thấy ciphertext, nên trình duyệt nén trước rồi mới mã hoá (ảnh WebP khoảng 1600 px, video giới hạn kích thước);
+  - mã hoá AES-256-GCM khoá ngẫu nhiên mỗi tệp, khoá gửi trong tin nhắn E2EE;
+  - tệp đính kèm **hết hạn sau 30 ngày** (cấu hình được) để giới hạn dung lượng.
+- Bucket: dùng `winkey-media` cho media xã hội công khai (đường dẫn `s/{owner}/{media}/`). Bucket riêng `winkey-chat` cho ciphertext tin nhắn, có lifecycle rule xoá sau 30 ngày.
+- `storage-gc` thêm category cho các prefix mới.
+
+**5. Nhắn tin E2EE (SOC-3).**
+- **Không tự viết thuật toán mật mã.** Dùng thư viện đã được kiểm toán độc lập:
+  - ứng viên chính: **vodozemac** (Rust, triển khai Olm = Double Ratchet cho 1-1 và Megolm = sender key cho nhóm, được Least Authority kiểm toán năm 2022) biên dịch sang WebAssembly;
+  - phương án dự phòng: **libsignal**.
+  - Trước khi viết contract SOC-3, làm **spike** (kiến trúc sư + Antigravity 1) để chọn thư viện, đo kích thước WASM và kiểm tra hỗ trợ trình duyệt.
+- **Mô hình thiết bị:**
+  - mỗi thiết bị (trình duyệt) có khoá định danh riêng, sinh và giữ ở trình duyệt (IndexedDB, khoá không xuất được qua WebCrypto khi có thể);
+  - server chỉ giữ khoá công khai và one-time prekey.
+  - Tin nhắn mã hoá cho **từng thiết bị** của người nhận và các thiết bị khác của người gửi.
+- **Xác minh:**
+  - mã an toàn (safety number / QR) để hai người tự so;
+  - cảnh báo trong hội thoại khi khoá thiết bị của bên kia thay đổi hoặc có thiết bị mới.
+- **Lịch sử trên thiết bị mới**: sao lưu khoá **tuỳ chọn**, mã hoá bằng cụm mật khẩu khôi phục do người dùng đặt (Argon2id phía client). Server chỉ giữ blob đã mã hoá. Quên cụm mật khẩu thì mất lịch sử; đó là đặc tính, không phải lỗi.
+- **Server thấy gì:**
+  - thấy siêu dữ liệu: ai nhắn với ai, lúc nào, kích thước;
+  - không thấy nội dung tin nhắn, tệp, tên nhóm (tên nhóm cũng mã hoá).
+  - Thông báo đẩy và chuông thông báo không chứa nội dung.
+- **Chống lạm dụng khi không đọc được nội dung:**
+  - người lạ phải gửi "lời mời nhắn tin", người nhận chấp nhận mới nhận tin;
+  - chặn và tắt tiếng; giới hạn tần suất;
+  - **báo cáo** = người nhận tự gửi kèm bản giải mã của các tin bị báo cáo (moderator chỉ thấy những gì người báo cáo gửi).
+  - Admin **không thể** đọc tin nhắn. Điều này được ghi rõ trong chính sách quyền riêng tư.
+- Tin nhắn trong hàng đợi (người nhận offline) giữ ciphertext tối đa 30 ngày.
+
+**6. Gọi thoại / video (SOC-4).**
+- **1-1:**
+  - WebRTC P2P, signaling qua realtime-svc;
+  - DTLS-SRTP mã hoá sẵn; vân tay DTLS được ký trong kênh E2EE của SOC-3 để chống người ở giữa (MITM) qua signaling.
+  - TURN `coturn` trên edge với thông tin đăng nhập tạm (REST API, HMAC, sống 10 phút), chỉ relay, chặn relay tới dải IP nội bộ.
+- **Nhóm (tối đa 8 người có video, 20 người chỉ thoại):** LiveKit SFU trên edge, bật E2EE (insertable streams; khoá phân phối qua Megolm của nhóm chat). Trình duyệt không hỗ trợ insertable streams thì không vào được cuộc gọi nhóm E2EE (báo rõ).
+- Không ghi âm/ghi hình phía server.
+- Băng thông relay của edge có giới hạn. Có metric và giới hạn số cuộc gọi đồng thời (cấu hình được).
+
+**7. Watch party (SOC-5).**
+- Phòng `party:{id}` trong realtime-svc. Chủ phòng (hoặc người được giao quyền) điều khiển phát, dừng, tua.
+- Server giữ trạng thái chuẩn `{video_id, playing, position_ms, server_ts}`. Client chỉnh lệch hơn 500 ms bằng tốc độ phát, lệch hơn 3 s thì tua.
+- Chỉ phát được video người xem có quyền xem (PUBLIC/UNLISTED, hoặc PRIVATE của chính chủ phòng với thành viên được mời). Mỗi thành viên vẫn tự lấy URL đã ký của mình.
+- Chat trong phòng: **không E2EE** (phòng có thể đông, cần kiểm duyệt). Có rate limit và báo cáo. Tin nhắn mất khi phòng đóng.
+- Gọi thoại trong phòng dùng LiveKit (mục 6).
+- Tối đa 20 người mỗi phòng lúc đầu.
+
+**8. Bảng tin (SOC-2).**
+- Fan-out khi đọc từ PostgreSQL:
+  - bài của những người đang theo dõi, keyset theo `(created_at, id)`;
+  - cache trang đầu trong Valkey 30 s.
+  Ở quy mô hiện tại không cần fan-out khi ghi.
+- "Khám phá" xếp hạng bài công khai bằng điểm tương tác có suy giảm theo thời gian, tính lại định kỳ (giống trending ADR-020).
+- Bài của tài khoản riêng tư chỉ người theo dõi đã được duyệt thấy. Người bị chặn không thấy bài, hồ sơ, không nhắn tin, không gọi được. Quan hệ chặn có hiệu lực ở mọi dịch vụ.
+
+**9. Hiệu suất.**
+- Mọi danh sách phân trang bằng cursor; mọi truy vấn bảng tin có index phù hợp và test EXPLAIN trong CI cho các truy vấn chính.
+- Mục tiêu p95 trên edge hiện tại:
+  - bảng tin dưới 150 ms;
+  - gửi tin nhắn (server nhận ciphertext) dưới 100 ms;
+  - thiết lập cuộc gọi 1-1 dưới 3 s.
+- Antigravity 4 thêm kịch bản tải cho từng đợt.
+
+**10. Pháp lý (user chịu trách nhiệm, cần tư vấn luật).**
+Mạng xã hội tại Việt Nam có nghĩa vụ nặng hơn trang video, cần xác nhận trước khi mở công khai các tính năng SOC:
+- giấy phép mạng xã hội;
+- xác thực tài khoản (số điện thoại) theo Nghị định 147/2024/NĐ-CP;
+- thời hạn gỡ nội dung vi phạm;
+- lưu trữ và cung cấp thông tin.
+
+Nhắn tin E2EE và gọi E2EE có thể ảnh hưởng tới nghĩa vụ cung cấp thông tin. Kiến trúc sư không đưa ra tư vấn pháp lý. Task `LEGAL` mở rộng thêm phạm vi SOC. Có thể triển khai và kiểm thử trên beta kín trong lúc chờ.
+
+*Hệ quả.*
+- Thêm `chat-svc`, `coturn`, LiveKit; edge cần theo dõi CPU, RAM và băng thông. Gọi nhóm và watch party có video sẽ là phần tốn tài nguyên nhất.
+- R2 tăng chậm nhờ:
+  - nén mạnh, xoá file gốc của media xã hội;
+  - tệp chat hết hạn sau 30 ngày.
+  Phim giữ nguyên.
+- Lịch sử tin nhắn có thể mất nếu người dùng không bật sao lưu khoá. Moderator không đọc được tin nhắn. Hai điều này là đánh đổi có chủ ý để có E2EE.
+- Khối lượng lớn nhất thuộc Antigravity 3 (auth, social, chat, realtime). Thứ tự trong mỗi đợt: contract và migration (kiến trúc sư) → backend → web → system test → deploy.
