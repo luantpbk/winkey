@@ -3,6 +3,11 @@ import type { Generated, ColumnType } from 'kysely';
 export type Role = 'viewer' | 'creator' | 'moderator' | 'admin';
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'DELETED';
 
+export interface ProfileLink {
+  url: string;
+  label: string;
+}
+
 export interface UsersTable {
   id: string;
   email: string;
@@ -11,6 +16,10 @@ export interface UsersTable {
   handle: string;
   display_name: string;
   avatar_key: string | null;
+  bio: string | null;
+  links: ColumnType<ProfileLink[], string | ProfileLink[] | undefined, string | ProfileLink[]>;
+  banner_key: string | null;
+  is_private: ColumnType<boolean, boolean | undefined, boolean>;
   roles: Role[];
   status: ColumnType<UserStatus, UserStatus | undefined, UserStatus>;
   suspended_until: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
@@ -66,6 +75,43 @@ export interface PublicProfilesTable {
   handle: string;
   display_name: string;
   avatar_key: string | null;
+  bio: string | null;
+  links: ColumnType<ProfileLink[], string | ProfileLink[] | undefined, string | ProfileLink[]>;
+  banner_key: string | null;
+  is_private: boolean;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+}
+
+export type ImagePurpose = 'AVATAR' | 'BANNER' | 'POST';
+export type ImageStatus = 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';
+
+export interface ReadyImagesTable {
+  id: string;
+  owner_id: string;
+  purpose: ImagePurpose;
+  image_key: string;
+  thumb_key: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface ImagesTable {
+  id: string;
+  owner_id: string;
+  purpose: ImagePurpose;
+  status: ImageStatus;
+  content_type: string;
+  size_bytes: number | bigint;
+  raw_bucket: string;
+  raw_key: string;
+  image_key: string | null;
+  thumb_key: string | null;
+  width: number | null;
+  height: number | null;
+  output_bytes: number | bigint | null;
+  error: string | null;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  updated_at: ColumnType<Date, string | Date | undefined, string | Date>;
 }
 
 export type EmailTokenPurpose = 'VERIFY_EMAIL' | 'RESET_PASSWORD';
@@ -126,4 +172,6 @@ export interface Database {
   'auth.email_tokens': EmailTokensTable;
   'auth.mail_queue': MailQueueTable;
   'auth.creator_requests': CreatorRequestsTable;
+  'media.ready_images': ReadyImagesTable;
+  'media.images': ImagesTable;
 }
