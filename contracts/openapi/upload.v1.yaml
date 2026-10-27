@@ -18,6 +18,11 @@ info:
     a `video.audio_uploaded` event; the transcoder encodes only that audio, never the video again. Format rules:
     `docs/specs/media-package-v1.md`.
 
+    Images (task SOC-1b, ADR-049 §4): avatars, banners and post images use a single presigned `PUT` (≤ 20 MiB)
+    under `/v1/images`. Completing one writes a `media.image_uploaded` event; the transcoder converts it to WebP
+    (metadata stripped, orientation applied), deletes the raw file and marks the image `READY` or `FAILED`.
+    Clients poll `getImage` (every 1–2 s, at most 60 s). Videos keep their own flow and quality.
+
     Limits: `size_bytes` ≤ 20 GiB. `part_size = max(16 MiB, ceil(size_bytes / 10000))` rounded up to
     a whole MiB, so `part_count` ≤ 10,000. Abandoned uploads (`UPLOADING` > 24h) are aborted by a janitor.
 
@@ -41,6 +46,19 @@ servers:
 tags:
   - name: uploads
     description: Direct-to-storage multipart uploads.
+  - name: images
+    description: |
+      Social images (SOC-1b). Any signed-in user may upload (no `creator` role needed). Quotas, for every caller
+      without role `admin`: at most `IMAGE_MAX_PENDING` (default 5) images in `UPLOADING` or `PROCESSING`, and
+      `IMAGE_DAILY_COUNT` (default 60) images started in the last 24 hours → `429` code `UPLOAD_QUOTA_EXCEEDED`
+      with `Retry-After`. Abandoned uploads (`UPLOADING` > 1 h) are deleted by the janitor.
+
+      Outputs (WebP, quality ≈ 72), keys in the media bucket under `i/{owner_id}/{image_id}/`:
+      - `AVATAR`: centre-cropped to a square, `image.webp` 400×400, `thumb.webp` 96×96;
+      - `BANNER`: centre-cropped to 3:1, `image.webp` 1500×500, `thumb.webp` 600×200;
+      - `POST`: long edge ≤ 1600 px (never upscaled), `thumb.webp` long edge ≤ 400 px.
+      Inputs larger than 40 megapixels or 8000 px on a side, animated images and anything ffprobe does not read as a
+      single still image fail with `INVALID_INPUT`.
 security:
   - bearerAuth: []
 paths:
@@ -163,6 +181,90 @@ paths:
                 $ref: '#/components/schemas/UploadStatus'
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/images:
+    post:
+      tags: [images]
+      operationId: createImageUpload
+      summary: Start an image upload — returns one presigned PUT URL (task SOC-1b).
+      description: |
+        Creates the `media.images` row (`UPLOADING`) and a presigned `PUT` (TTL 15 min) on the public raw-bucket
+        endpoint for `{owner_id}/images/{image_id}`. The signature covers `Content-Type` and `Content-Length`, so
+        the browser must send exactly `content_type` and `size_bytes`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateImageUploadRequest'
+      responses:
+        '201':
+          description: Upload started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateImageUploadResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          description: Image quota exceeded (code `UPLOAD_QUOTA_EXCEEDED`).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
+
+  /v1/images/{image_id}:
+    parameters:
+      - $ref: '#/components/parameters/ImageId'
+    get:
+      tags: [images]
+      operationId: getImage
+      summary: An image of the caller and its processing state (task SOC-1b).
+      description: Another user's image → `404`.
+      responses:
+        '200':
+          description: The image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/images/{image_id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ImageId'
+    post:
+      tags: [images]
+      operationId: completeImageUpload
+      summary: Mark an image uploaded; processing starts (task SOC-1b).
+      description: |
+        The image must be the caller's and `UPLOADING` (`409` code `INVALID_STATE` otherwise; `404` if unknown).
+        upload-svc checks with `HEAD` that the object exists and its size equals `size_bytes` (`409` code
+        `UPLOAD_INCOMPLETE` otherwise), then in one transaction sets `PROCESSING` and writes `media.image_uploaded`
+        to the outbox. Idempotent for an image already `PROCESSING`, `READY` or `FAILED` (returns it as is).
+      responses:
+        '202':
+          description: Processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
         '404':
@@ -298,6 +400,12 @@ paths:
 
 components:
   parameters:
+    ImageId:
+      name: image_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
     TrackId:
       name: track_id
       in: path
@@ -469,3 +577,79 @@ components:
           description: Transcoding progress of the latest job; 0 before processing starts.
         error:
           type: [string, 'null']
+
+    ImagePurpose:
+      type: string
+      enum: [AVATAR, BANNER, POST]
+
+    CreateImageUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, content_type, size_bytes]
+      properties:
+        purpose:
+          $ref: '#/components/schemas/ImagePurpose'
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, image/avif]
+          description: Advisory; the transcoder trusts only ffprobe.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 20971520
+
+    CreateImageUploadResponse:
+      type: object
+      additionalProperties: false
+      required: [image_id, upload_url, upload_headers, expires_at]
+      properties:
+        image_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        upload_url:
+          type: string
+          format: uri
+        upload_headers:
+          type: object
+          description: Headers the `PUT` must send exactly (`Content-Type`; browsers set `Content-Length` themselves).
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    ImageStatus:
+      type: string
+      enum: [UPLOADING, PROCESSING, READY, FAILED]
+
+    Image:
+      type: object
+      additionalProperties: false
+      required: [id, purpose, status, url, thumb_url, width, height, error, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        purpose:
+          $ref: '#/components/schemas/ImagePurpose'
+        status:
+          $ref: '#/components/schemas/ImageStatus'
+        url:
+          type: [string, 'null']
+          format: uri
+          description: Public URL of `image.webp` once READY.
+        thumb_url:
+          type: [string, 'null']
+          format: uri
+        width:
+          type: [integer, 'null']
+          minimum: 1
+        height:
+          type: [integer, 'null']
+          minimum: 1
+        error:
+          type: [string, 'null']
+          enum: [INVALID_INPUT, STORAGE_ERROR, INTERNAL, null]
+          description: Set when FAILED. `INVALID_INPUT` means the file is not a usable still image.
+        created_at:
+          type: string
+          format: date-time

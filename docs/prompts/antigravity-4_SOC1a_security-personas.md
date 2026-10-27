@@ -21,8 +21,6 @@ Branch: `agent/ag4/soc1a-security-personas` from `origin/main`.
    - sign in from two browser contexts;
    - context A lists 2 sessions and revokes B;
    - B's next navigation is signed out (refresh → 401).
-4. **`staff-mfa`:**
-   - the seeded admin without 2FA (systest runs `STAFF_MFA_REQUIRED=true`) sees the banner and no admin UI, and admin API calls return `403`;
-   - after enabling TOTP and a refresh, the admin UI is back.
+4. **No `staff-mfa` persona.** The sim stack runs `STAFF_MFA_REQUIRED=false`, because its seeded staff accounts (`sim_mod`) have no second factor and other personas need their roles. AG3's auth-svc integration tests cover the staff rule. Do not change that default in `systest/`.
 
 Add the personas to the sim matrix and keep each one under 30 s. No sleeps; wait on UI or network conditions.

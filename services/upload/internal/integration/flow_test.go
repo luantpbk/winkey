@@ -48,7 +48,13 @@ type stack struct {
 func start(t *testing.T) *stack { return startQuota(t, quota.Limits{}) }
 
 // startQuota is start with the upload quota limits of ADR-027 (zero fields: no limit).
-func startQuota(t *testing.T, limits quota.Limits) *stack {
+func startQuota(t *testing.T, limits quota.Limits) *stack { return startWith(t, limits, nil) }
+
+// testMediaBase is the MEDIA_BASE_URL of the image routes in these tests.
+const testMediaBase = "https://media.test"
+
+// startWith also mounts /v1/images (SOC-1b) when images is not nil.
+func startWith(t *testing.T, limits quota.Limits, images *api.ImageLimits) *stack {
 	t.Helper()
 	pg := testkit.StartPostgres(t)
 	ns := testkit.StartNATS(t)
@@ -68,6 +74,9 @@ func startQuota(t *testing.T, limits quota.Limits) *stack {
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	flaky := &flakyStorage{Storage: stor}
 	h := &api.Handler{Store: st, Audio: st, Storage: flaky, RawBucket: testkit.RawBucket, Log: log, Quota: limits}
+	if images != nil {
+		h.Images = &api.Images{Store: st, Storage: stor, MediaBaseURL: testMediaBase, Limits: *images}
+	}
 	r := httpx.NewRouter("upload-test", log)
 	h.Routes(r)
 	srv := httptest.NewServer(r)

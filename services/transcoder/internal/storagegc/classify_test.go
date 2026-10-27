@@ -116,3 +116,57 @@ func TestSelectedOnlyReturnsChosenGarbage(t *testing.T) {
 		t.Fatalf("totals %v %v", r.ByCat, r.ByBucket)
 	}
 }
+
+func TestClassifyImages(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-72 * time.Hour)
+	owner := uuid.MustParse("0192f5e0-0000-7000-8000-000000000001")
+	mk := func(n int, purpose, status string) Image {
+		id := uuid.MustParse("019a2f10-0000-7000-8000-00000000000" + string(rune('0'+n)))
+		return Image{ID: id, Owner: owner, Purpose: purpose, Status: status,
+			ImageKey: "i/" + owner.String() + "/" + id.String() + "/image.webp"}
+	}
+	avatarInUse, avatarOld := mk(1, "AVATAR", "READY"), mk(2, "AVATAR", "READY")
+	post, failed, processing := mk(3, "POST", "READY"), mk(4, "POST", "FAILED"), mk(5, "BANNER", "PROCESSING")
+	gone := uuid.MustParse("019a2f10-0000-7000-8000-000000000009")
+	s := NewSnapshot(nil, nil)
+	s.SetImages([]Image{avatarInUse, avatarOld, post, failed, processing}, map[string]bool{avatarInUse.ImageKey: true})
+
+	media := func(i uuid.UUID, file string) string { return "i/" + owner.String() + "/" + i.String() + "/" + file }
+	raw := func(i uuid.UUID) string { return owner.String() + "/images/" + i.String() }
+	cases := map[string]struct {
+		got, want Category
+	}{
+		"avatar in use":      {s.ClassifyMedia(media(avatarInUse.ID, "thumb.webp"), old, now, 48*time.Hour), MediaImage},
+		"replaced avatar":    {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), old, now, 48*time.Hour), ImageUnreferenced},
+		"post":               {s.ClassifyMedia(media(post.ID, "image.webp"), old, now, 48*time.Hour), MediaImage},
+		"failed outputs":     {s.ClassifyMedia(media(failed.ID, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
+		"processing outputs": {s.ClassifyMedia(media(processing.ID, "image.webp"), old, now, 48*time.Hour), MediaInFlight},
+		"no row":             {s.ClassifyMedia(media(gone, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
+		"recent replaced":    {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), now.Add(-time.Hour), now, 48*time.Hour), Recent},
+		"raw ready":          {s.ClassifyRaw(raw(post.ID), old, now, 48*time.Hour), RawImageProcessed},
+		"raw failed":         {s.ClassifyRaw(raw(failed.ID), old, now, 48*time.Hour), RawImageProcessed},
+		"raw processing":     {s.ClassifyRaw(raw(processing.ID), old, now, 48*time.Hour), RawImageLive},
+		"raw no row":         {s.ClassifyRaw(raw(gone), old, now, 48*time.Hour), RawOrphanImage},
+		"raw bad id":         {s.ClassifyRaw(owner.String()+"/images/nope", old, now, 48*time.Hour), Unknown},
+		"media other owner":  {s.ClassifyMedia("i/"+uuid.NewString()+"/"+post.ID.String()+"/image.webp", old, now, 48*time.Hour), MediaOrphanImage},
+	}
+	for name, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s: got %s want %s", name, c.got, c.want)
+		}
+	}
+	if id, ok := ImageID(media(post.ID, "image.webp")); !ok || id != post.ID {
+		t.Fatal("ImageID")
+	}
+	for _, c := range []Category{MediaOrphanImage, ImageUnreferenced, RawImageProcessed, RawOrphanImage} {
+		if !IsDeletable(c) {
+			t.Errorf("%s must be deletable", c)
+		}
+	}
+	for _, c := range []Category{MediaImage, RawImageLive} {
+		if IsDeletable(c) {
+			t.Errorf("%s must be kept", c)
+		}
+	}
+}

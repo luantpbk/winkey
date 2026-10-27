@@ -72,6 +72,8 @@ configMapGenerator:
       - migrations/000027_creator_requests.down.sql
       - migrations/000028_account_security.up.sql
       - migrations/000028_account_security.down.sql
+      - migrations/000029_profiles_privacy_images.up.sql
+      - migrations/000029_profiles_privacy_images.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

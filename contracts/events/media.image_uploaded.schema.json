@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://winkey.vn/contracts/events/media.image_uploaded.schema.json",
+  "title": "media.image_uploaded v1",
+  "description": "A social image (task SOC-1b, ADR-049 §4) is fully uploaded; WebP conversion may start. Producer: upload-svc (outbox). Consumer: transcoder (deletes the raw object, sets media.images READY or FAILED).",
+  "type": "object",
+  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "properties": {
+    "type": { "const": "media.image_uploaded" },
+    "version": { "const": 1 },
+    "data": {
+      "type": "object",
+      "required": ["image_id", "owner_id", "purpose", "raw_bucket", "raw_key", "size_bytes", "content_type"],
+      "additionalProperties": false,
+      "properties": {
+        "image_id": { "type": "string", "format": "uuid" },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "purpose": { "enum": ["AVATAR", "BANNER", "POST"] },
+        "raw_bucket": { "type": "string" },
+        "raw_key": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 1, "maximum": 20971520 },
+        "content_type": { "enum": ["image/jpeg", "image/png", "image/webp", "image/avif"] }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	libconfig "github.com/luantpbk/winkey/libs/go/config"
@@ -30,6 +31,12 @@ type Config struct {
 	MaxConcurrent int   `env:"UPLOAD_MAX_CONCURRENT" default:"3"`        // 1..50
 	DailyCount    int   `env:"UPLOAD_DAILY_COUNT" default:"20"`          // 1..10000
 	DailyBytes    int64 `env:"UPLOAD_DAILY_BYTES" default:"53687091200"` // >= 20 GiB: one max-size file always fits
+
+	// Social images (SOC-1b). Empty MEDIA_BASE_URL leaves /v1/images unmounted.
+	MediaBaseURL    string        `env:"MEDIA_BASE_URL"`
+	ImageMaxPending int           `env:"IMAGE_MAX_PENDING" default:"5"`  // 1..50
+	ImageDailyCount int           `env:"IMAGE_DAILY_COUNT" default:"60"` // 1..10000
+	ImageStaleAfter time.Duration `env:"IMAGE_STALE_AFTER" default:"1h"`
 }
 
 // Quota limits (inclusive ranges).
@@ -56,6 +63,15 @@ func (c Config) Validate() error {
 	}
 	if c.DailyCount < 1 || c.DailyCount > DailyCountMax {
 		errs = append(errs, fmt.Errorf("UPLOAD_DAILY_COUNT must be between 1 and %d", DailyCountMax))
+	}
+	if c.ImageMaxPending < 1 || c.ImageMaxPending > MaxConcurrentMax {
+		errs = append(errs, fmt.Errorf("IMAGE_MAX_PENDING must be between 1 and %d", MaxConcurrentMax))
+	}
+	if c.ImageDailyCount < 1 || c.ImageDailyCount > DailyCountMax {
+		errs = append(errs, fmt.Errorf("IMAGE_DAILY_COUNT must be between 1 and %d", DailyCountMax))
+	}
+	if c.MediaBaseURL != "" && !strings.HasPrefix(c.MediaBaseURL, "https://") && !strings.HasPrefix(c.MediaBaseURL, "http://") {
+		errs = append(errs, errors.New("MEDIA_BASE_URL must be an absolute http(s) URL"))
 	}
 	if c.DailyBytes < DailyBytesMin {
 		errs = append(errs, fmt.Errorf("UPLOAD_DAILY_BYTES must be at least %d (20 GiB, so one maximum-size file always fits)", int64(DailyBytesMin)))

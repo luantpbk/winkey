@@ -1634,3 +1634,30 @@ Contract SOC-1a nằm trong `auth.v1.yaml` (tag `security`); migration `000028_a
   3. web;
   4. user bật 2FA cho tài khoản admin;
   5. đặt `STAFF_MFA_REQUIRED=true`.
+
+*Bổ sung 2026-10-27 (SOC-1b, hồ sơ, riêng tư, chặn, ảnh).* Contract trong `auth.v1.yaml`, `social.v1.yaml`, `upload.v1.yaml` và sự kiện `media.image_uploaded`; migration `000029_profiles_privacy_images`.
+- **Hồ sơ** (auth-svc):
+  - giới thiệu tối đa 300 ký tự, chỉ hiển thị dạng text;
+  - tối đa 5 liên kết, chỉ `https://`;
+  - ảnh đại diện và ảnh bìa chọn bằng `avatar_image_id` / `banner_image_id`: phải là ảnh READY của chính người dùng, đúng mục đích, kiểm tra qua view `media.ready_images`;
+  - cờ `is_private`.
+  `auth.public_profiles` có thêm các cột này.
+- **Tài khoản riêng tư** (social-svc):
+  - theo dõi một tài khoản riêng tư sẽ tạo yêu cầu theo dõi; chủ tài khoản duyệt hoặc từ chối;
+  - danh sách người theo dõi và đang theo dõi chỉ chủ tài khoản và người theo dõi đã duyệt xem được;
+  - video vẫn theo quyền hiển thị riêng của từng video.
+- **Chặn và tắt tiếng:**
+  - chặn có hiệu lực hai chiều: xoá theo dõi và yêu cầu theo dõi của cả hai bên; không theo dõi, bình luận hay nhận thông báo của nhau; ẩn khỏi danh sách bình luận và người theo dõi;
+  - người bị chặn không được báo; theo dõi thì nhận `404` như tài khoản không tồn tại;
+  - tắt tiếng chỉ chặn thông báo (và bài đăng ở SOC-2).
+  - Dịch vụ khác (chat, realtime) đọc `social.blocks` qua grant, không qua sự kiện.
+- **Ảnh:**
+  - upload-svc cấp một URL `PUT` ký sẵn (tối đa 20 MiB, chữ ký gồm `Content-Type` và `Content-Length`) vào `winkey-raw` `{owner}/images/{id}`;
+  - transcoder chuyển ảnh sang WebP (bảng kích thước trong tag `images`), xoay theo EXIF, xoá metadata, rồi xoá file gốc;
+  - ảnh nằm trong `winkey-media` `i/{owner}/{id}/`, công khai như avatar hiện tại;
+  - chặn ảnh động, ảnh trên 40 MP hoặc cạnh trên 8000 px.
+  - Sự kiện đi trên stream `VIDEO` (thêm subject `media.>`).
+  - Phần upload-svc và transcoder do kiến trúc sư làm.
+- **Dọn ảnh cũ:**
+  - ảnh đại diện hoặc ảnh bìa bị thay, và ảnh bài đăng không còn bài nào dùng (SOC-2), được `storage-gc` xử lý bằng nhóm mới `image-unreferenced`, sau 48 giờ, đối chiếu với `auth.public_profiles`;
+  - ảnh FAILED và upload bỏ dở được janitor xoá.
