@@ -31,7 +31,12 @@ func Streams() []jetstream.StreamConfig {
 		}
 	}
 	return []jetstream.StreamConfig{
-		cfg("VIDEO", "video.>", 7*24*time.Hour),
+		// media.> (SOC-1b, media.image_uploaded) shares the VIDEO stream.
+		func() jetstream.StreamConfig {
+			c := cfg("VIDEO", "video.>", 7*24*time.Hour)
+			c.Subjects = append(c.Subjects, "media.>")
+			return c
+		}(),
 		cfg("USER", "user.>", 7*24*time.Hour),
 		cfg("SOCIAL", "social.>", 7*24*time.Hour),
 		cfg("DLQ", "dlq.>", 30*24*time.Hour),
