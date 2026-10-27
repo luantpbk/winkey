@@ -13,6 +13,9 @@ Direct-to-storage multipart uploads. Implements [`contracts/openapi/upload.v1.ya
 | `DELETE /v1/uploads/{id}` | 409 unless `UPLOADING`; aborts the multipart upload and deletes the row. |
 | `POST /v1/uploads/{id}/audio-tracks` | Extra audio track of the caller's video (MUX1, ADR-042; `docs/specs/media-package-v1.md`). Same transaction as `createUpload`: quota check, then a per-video lock under which a ninth track is `409 TOO_MANY_AUDIO_TRACKS` and a second (`lang`, `kind`) `409 AUDIO_TRACK_EXISTS`, then the `media.video_audio_tracks` row (`raw_key = {owner_id}/{video_id}/audio/{track_id}/source`), a ledger row keyed by the track id, and the multipart upload. `is_default: true` clears the flag on the video's other tracks. Audio types only, ≤ 4 GiB. |
 | `POST …/audio-tracks/{track_id}/parts`, `…/complete`, `DELETE …/audio-tracks/{track_id}` | As for a video. `complete` enqueues `video.audio_uploaded` in the flip transaction and answers 202 with the `AudioTrack`; a size mismatch sets the track `FAILED` with `error = SIZE_MISMATCH`. Only `UPLOADING` tracks can be aborted here; video-svc deletes the others. |
+| `POST /v1/images` | Social image (SOC-1b, ADR-049): any signed-in user. Validates purpose / type / size (≤ 20 MiB), presigns ONE `PUT` (TTL 15 min, `Content-Type` and `Content-Length` signed) for `{owner_id}/images/{image_id}`, then inserts the `media.images` row (`UPLOADING`) under the owner's image-quota lock (`IMAGE_MAX_PENDING`, `IMAGE_DAILY_COUNT`; admins exempt; `429 UPLOAD_QUOTA_EXCEEDED`). Mounted only when `MEDIA_BASE_URL` is set. |
+| `POST /v1/images/{id}/complete` | Owner only (404 otherwise). `HeadObject` must find exactly `size_bytes` (409 `UPLOAD_INCOMPLETE`), then one transaction: `UPLOADING→PROCESSING` + `media.image_uploaded` in the outbox. Idempotent once past `UPLOADING`. |
+| `GET /v1/images/{id}` | Owner only. `url` / `thumb_url` = `MEDIA_BASE_URL` + the transcoder's keys once `READY`. |
 
 Non-owners, unknown ids and malformed ids all get **404**, never 403. Identity comes only from `X-User-Id` / `X-User-Roles`.
 
@@ -61,6 +64,10 @@ The answer is `429`, `application/problem+json`, `code = UPLOAD_QUOTA_EXCEEDED`,
 | `UPLOAD_MAX_CONCURRENT` | `3` | most videos in status `UPLOADING` per owner, 1..50 |
 | `UPLOAD_DAILY_COUNT` | `20` | most uploads started per owner in 24 h, 1..10000 |
 | `UPLOAD_DAILY_BYTES` | `53687091200` (50 GiB) | most `size_bytes` started per owner in 24 h, at least 20 GiB so one maximum-size file always fits |
+| `MEDIA_BASE_URL` | empty | public base of the media bucket (as auth-svc); empty leaves `/v1/images` unmounted |
+| `IMAGE_MAX_PENDING` | `5` | most images in `UPLOADING` / `PROCESSING` per owner, 1..50 |
+| `IMAGE_DAILY_COUNT` | `60` | most images started per owner in 24 h, 1..10000 |
+| `IMAGE_STALE_AFTER` | `1h` | the janitor deletes images still `UPLOADING` after this (object + row) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Tracing is a no-op when unset |
 
 Probes: `GET /healthz`, `GET /readyz` (PostgreSQL, NATS, S3 bucket), `GET /metrics`.

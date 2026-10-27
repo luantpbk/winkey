@@ -88,6 +88,16 @@ func run(cfg config.Config, log *slog.Logger) error {
 	jan := &janitor.Janitor{
 		Store: st, Audio: st, Storage: s3, Log: log,
 		Interval: cfg.JanitorInterval, StaleAfter: cfg.StaleAfter,
+		Images: st, ImageStorage: s3, ImageStaleAfter: cfg.ImageStaleAfter,
+	}
+	var images *api.Images
+	if cfg.MediaBaseURL != "" {
+		images = &api.Images{
+			Store: st, Storage: s3, MediaBaseURL: cfg.MediaBaseURL,
+			Limits: api.ImageLimits{MaxPending: cfg.ImageMaxPending, DailyCount: cfg.ImageDailyCount},
+		}
+	} else {
+		log.Info("MEDIA_BASE_URL is empty: /v1/images is not served")
 	}
 
 	health := obs.NewHealth()
@@ -103,7 +113,7 @@ func run(cfg config.Config, log *slog.Logger) error {
 	router := httpx.NewRouter(service, log)
 	health.Mount(router)
 	(&api.Handler{
-		Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log, Audio: st,
+		Store: st, Storage: s3, RawBucket: cfg.S3RawBucket, Log: log, Audio: st, Images: images,
 		Quota: quota.Limits{MaxConcurrent: cfg.MaxConcurrent, DailyCount: cfg.DailyCount, DailyBytes: cfg.DailyBytes},
 	}).Routes(router)
 
