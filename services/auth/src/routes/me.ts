@@ -16,6 +16,10 @@ import type { Env } from '../config/env.js';
 import type { Database, Role } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RevocationService } from '../revocation/revocation.js';
+import type { Redis } from 'ioredis';
+import { checkUserMfaEnabled, computeEffectiveRoles } from '../security/staff-rules.js';
+import { isPasswordBreached } from '../security/hibp.js';
+import { recordSecurityEvent } from '../security/events.js';
 
 const updateMeSchema = z
   .object({
@@ -77,6 +81,9 @@ function formatUser(
     created_at: Date | string;
   },
   env: Env,
+  hasMfa = false,
+  staffRolesPendingMfa: Role[] = [],
+  effectiveRoles?: Role[],
 ) {
   return {
     id: user.id,
@@ -85,7 +92,9 @@ function formatUser(
     handle: user.handle,
     display_name: user.display_name,
     avatar_url: user.avatar_key ? `${env.MEDIA_BASE_URL}/${user.avatar_key}` : null,
-    roles: user.roles,
+    roles: effectiveRoles ?? user.roles,
+    staff_roles_pending_mfa: staffRolesPendingMfa,
+    mfa_enabled: hasMfa,
     has_password: user.password_hash != null,
     created_at: new Date(user.created_at).toISOString(),
   };
@@ -96,7 +105,8 @@ export const meRoute: FastifyPluginAsync<{
   env: Env;
   rateLimiter: RateLimiter;
   revocationService: RevocationService;
-}> = async (fastify, { db, env, rateLimiter, revocationService }) => {
+  redis?: Redis | null;
+}> = async (fastify, { db, env, rateLimiter, revocationService, redis }) => {
   // 1. GET /v1/auth/me
   fastify.get('/v1/auth/me', async (request, reply) => {
     const claims = await extractBearerClaims(request, env);
@@ -112,7 +122,16 @@ export const meRoute: FastifyPluginAsync<{
       throw ProblemError.unauthorized('User not found or inactive');
     }
 
-    return reply.status(200).send(formatUser(user, env));
+    const hasMfa = await checkUserMfaEnabled(db, user.id, user.totp_enabled_at);
+    const { effectiveRoles, staffRolesPendingMfa } = computeEffectiveRoles(
+      user.roles,
+      hasMfa,
+      env.STAFF_MFA_REQUIRED,
+    );
+
+    return reply
+      .status(200)
+      .send(formatUser(user, env, hasMfa, staffRolesPendingMfa, effectiveRoles));
   });
 
   // 2. PATCH /v1/auth/me (updateMe)
@@ -141,12 +160,21 @@ export const meRoute: FastifyPluginAsync<{
       throw ProblemError.unauthorized('User not found or inactive');
     }
 
+    const hasMfa = await checkUserMfaEnabled(db, user.id, user.totp_enabled_at);
+    const { effectiveRoles, staffRolesPendingMfa } = computeEffectiveRoles(
+      user.roles,
+      hasMfa,
+      env.STAFF_MFA_REQUIRED,
+    );
+
     // No-op check: if provided values match current values, return 200 without DB write or rate limit hit
     const isDisplayNameUnchanged = display_name === undefined || display_name === user.display_name;
     const isHandleUnchanged = handle === undefined || handle === user.handle;
 
     if (isDisplayNameUnchanged && isHandleUnchanged) {
-      return reply.status(200).send(formatUser(user, env));
+      return reply
+        .status(200)
+        .send(formatUser(user, env, hasMfa, staffRolesPendingMfa, effectiveRoles));
     }
 
     // Rate limit: 10 changes per hour per user ID
@@ -169,7 +197,9 @@ export const meRoute: FastifyPluginAsync<{
         .executeTakeFirstOrThrow();
 
       request.log.info({ userId, op: 'updateMe' }, 'User updated profile');
-      return reply.status(200).send(formatUser(updated, env));
+      return reply
+        .status(200)
+        .send(formatUser(updated, env, hasMfa, staffRolesPendingMfa, effectiveRoles));
     } catch (err: unknown) {
       const dbErr = err as { code?: string; constraint?: string };
       if (dbErr.code === '23505' || dbErr.constraint === 'users_handle_key') {
@@ -231,6 +261,17 @@ export const meRoute: FastifyPluginAsync<{
       }
     }
 
+    if (env.PASSWORD_BREACH_CHECK) {
+      const breached = await isPasswordBreached(new_password, redis, true);
+      if (breached) {
+        throw ProblemError.badRequest(
+          'This password was found in a data breach. Please choose a different password.',
+          undefined,
+          'PASSWORD_BREACHED',
+        );
+      }
+    }
+
     const newHash = await hashPassword(new_password);
 
     const revokedFamilyIds = await db.transaction().execute(async (trx) => {
@@ -253,6 +294,20 @@ export const meRoute: FastifyPluginAsync<{
         .where('family_id', '!=', currentFamilyId)
         .returning('family_id')
         .execute();
+
+      await trx
+        .updateTable('auth.sessions')
+        .set({ revoked_at: now, revoke_reason: 'PASSWORD_CHANGED' })
+        .where('user_id', '=', userId)
+        .where('revoked_at', 'is', null)
+        .where('id', '!=', currentFamilyId)
+        .execute();
+
+      await recordSecurityEvent(trx, {
+        userId,
+        kind: 'PASSWORD_CHANGED',
+        sessionId: currentFamilyId,
+      });
 
       return Array.from(new Set(revokedRows.map((r) => r.family_id)));
     });
@@ -378,6 +433,14 @@ export const meRoute: FastifyPluginAsync<{
       await trx
         .updateTable('auth.refresh_tokens')
         .set({ revoked_at: now })
+        .where('user_id', '=', user.id)
+        .where('revoked_at', 'is', null)
+        .execute();
+
+      // Revoke all sessions
+      await trx
+        .updateTable('auth.sessions')
+        .set({ revoked_at: now, revoke_reason: 'DELETED' })
         .where('user_id', '=', user.id)
         .where('revoked_at', 'is', null)
         .execute();

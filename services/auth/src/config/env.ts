@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 export const envSchema = z
   .object({
-    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    NODE_ENV: z
+      .enum(['development', 'production', 'test'])
+      .default((process.env.NODE_ENV as 'development' | 'production' | 'test') || 'development'),
     HTTP_PORT: z.coerce.number().default(8001),
     DATABASE_URL: z
       .string()
@@ -54,8 +56,89 @@ export const envSchema = z
 
     // Sign-up default roles (ADR-046, task ROLE1: only 'viewer' or 'viewer,creator' accepted)
     SIGNUP_ROLES: z.enum(['viewer', 'viewer,creator']).default('viewer'),
+
+    // SOC-1a Account Security (ADR-049)
+    TOTP_ENCRYPTION_KEYS: z.string().optional(),
+    SESSION_IP_SALT: z.string().optional(),
+    STAFF_MFA_REQUIRED: z
+      .preprocess((val) => {
+        if (val === undefined || val === '') return true;
+        if (typeof val === 'string') return val.toLowerCase() === 'true';
+        return Boolean(val);
+      }, z.boolean())
+      .default(true),
+    TURNSTILE_SECRET: z.string().optional(),
+    PASSWORD_BREACH_CHECK: z
+      .preprocess((val) => {
+        if (val === undefined || val === '') return false;
+        if (typeof val === 'string') return val.toLowerCase() === 'true';
+        return Boolean(val);
+      }, z.boolean())
+      .default(false),
+    TRUSTED_COUNTRY_HEADER: z.string().default('CF-IPCountry'),
+    WEBAUTHN_RP_ID: z.string().default('winkey.vn'),
+    WEBAUTHN_ORIGINS: z.string().default('https://winkey.vn,https://www.winkey.vn'),
+    WEBAUTHN_USER_HANDLE_KEY: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    // Validate TOTP_ENCRYPTION_KEYS unless in test mode
+    if (data.NODE_ENV !== 'test') {
+      if (!data.TOTP_ENCRYPTION_KEYS || data.TOTP_ENCRYPTION_KEYS.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'TOTP_ENCRYPTION_KEYS is required',
+          path: ['TOTP_ENCRYPTION_KEYS'],
+        });
+      } else {
+        const pairs = data.TOTP_ENCRYPTION_KEYS.split(',')
+          .map((p) => p.trim())
+          .filter(Boolean);
+        if (pairs.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'TOTP_ENCRYPTION_KEYS must contain at least one key',
+            path: ['TOTP_ENCRYPTION_KEYS'],
+          });
+        } else {
+          for (const pair of pairs) {
+            const [keyId, b64] = pair.split(':');
+            if (!keyId || !b64) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `TOTP_ENCRYPTION_KEYS pair '${pair}' is malformed (expected id:base64)`,
+                path: ['TOTP_ENCRYPTION_KEYS'],
+              });
+              break;
+            }
+            const buf = Buffer.from(b64, 'base64');
+            if (buf.byteLength !== 32) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `TOTP_ENCRYPTION_KEYS key '${keyId}' must decode to exactly 32 bytes (got ${buf.byteLength})`,
+                path: ['TOTP_ENCRYPTION_KEYS'],
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      if (!data.SESSION_IP_SALT || Buffer.byteLength(data.SESSION_IP_SALT, 'utf8') < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SESSION_IP_SALT must be at least 32 bytes',
+          path: ['SESSION_IP_SALT'],
+        });
+      }
+    } else {
+      // Provide fallback for tests if not set
+      if (!data.TOTP_ENCRYPTION_KEYS) {
+        data.TOTP_ENCRYPTION_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`;
+      }
+      if (!data.SESSION_IP_SALT) {
+        data.SESSION_IP_SALT = 'test_salt_at_least_32_bytes_long_1234567890';
+      }
+    }
     if (data.MAIL_TRANSPORT === 'smtp' && !data.SMTP_URL) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

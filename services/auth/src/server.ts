@@ -14,6 +14,7 @@ import { healthRoute } from './routes/health.js';
 import { adminRoute } from './routes/admin.js';
 import { passwordResetRoute } from './routes/password-reset.js';
 import { emailVerificationRoute } from './routes/email-verification.js';
+import { securityRoute } from './routes/security.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
@@ -67,6 +68,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'body.reason',
           'body.invite_code',
           'body.message',
+          'body.code',
+          'body.secret',
+          'body.recovery_code',
+          'body.mfa_token',
+          'body.turnstile_token',
+          'body.credential',
           'password',
           'current_password',
           'new_password',
@@ -76,6 +83,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           'reason',
           'invite_code',
           'message',
+          'code',
+          'secret',
+          'recovery_code',
+          'recovery_codes',
+          'mfa_token',
+          'turnstile_token',
+          'credential',
           'suspension_reason',
           'access_token',
           'refresh_token',
@@ -130,17 +144,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   // Register routes
-  await app.register(registerRoute, { db, env, rateLimiter });
-  await app.register(loginRoute, { db, env, rateLimiter });
+  await app.register(registerRoute, { db, env, rateLimiter, redis: options.redis });
+  await app.register(loginRoute, { db, env, rateLimiter, redis: options.redis });
   await app.register(refreshRoute, { db, env, revocationService });
   await app.register(logoutRoute, { db, env, revocationService });
-  await app.register(meRoute, { db, env, rateLimiter, revocationService });
+  await app.register(meRoute, { db, env, rateLimiter, revocationService, redis: options.redis });
+  await app.register(securityRoute, {
+    db,
+    env,
+    rateLimiter,
+    revocationService,
+    redis: options.redis,
+  });
   await app.register(verifyRoute, { env, revocationService });
   await app.register(jwksRoute, { env });
   await app.register(usersRoute, { db, env });
-  await app.register(oauthRoute, { db, env, tokenExchanger: options.googleTokenExchanger });
+  await app.register(oauthRoute, {
+    db,
+    env,
+    tokenExchanger: options.googleTokenExchanger,
+    redis: options.redis,
+  });
   await app.register(adminRoute, { db, env, revocationService });
-  await app.register(passwordResetRoute, { db, env, rateLimiter, revocationService });
+  await app.register(passwordResetRoute, {
+    db,
+    env,
+    rateLimiter,
+    revocationService,
+    redis: options.redis,
+  });
   await app.register(emailVerificationRoute, { db, env, rateLimiter });
   await app.register(healthRoute, {
     db,

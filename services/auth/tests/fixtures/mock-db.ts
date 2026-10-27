@@ -1,4 +1,5 @@
 import { Kysely, PostgresDialect } from 'kysely';
+import { v7 as uuidv7 } from 'uuid';
 import type { Database, Role, UserStatus } from '../../src/db/types.js';
 
 export interface MockStore {
@@ -14,6 +15,10 @@ export interface MockStore {
     status: UserStatus;
     suspended_until: Date | null;
     suspension_reason: string | null;
+    totp_secret_enc?: Buffer | null;
+    totp_key_id?: string | null;
+    totp_last_step?: bigint | null;
+    totp_enabled_at?: Date | null;
     created_at: Date;
     updated_at: Date;
   }>;
@@ -87,6 +92,51 @@ export interface MockStore {
     decided_at: Date | null;
     created_at: Date;
   }>;
+  sessions: Array<{
+    id: string;
+    user_id: string;
+    family_id: string;
+    device_label: string | null;
+    country: string | null;
+    ip_hash: Buffer | null;
+    amr: string[];
+    step_up_at: Date | null;
+    last_used_at: Date;
+    revoked_at: Date | null;
+    revoke_reason: string | null;
+    created_at: Date;
+    expires_at: Date;
+  }>;
+  recovery_codes: Array<{
+    id: string;
+    user_id: string;
+    code_hash: string;
+    created_at: Date;
+    used_at: Date | null;
+  }>;
+  passkeys: Array<{
+    id: string;
+    user_id: string;
+    name: string;
+    credential_id: Buffer;
+    public_key: Buffer;
+    sign_count: number;
+    transports: string[];
+    backup_eligible: boolean;
+    backup_state: boolean;
+    created_at: Date;
+    last_used_at: Date;
+  }>;
+  security_events: Array<{
+    id: string;
+    user_id: string;
+    kind: string;
+    session_id: string | null;
+    details: any;
+    ip_hash: Buffer | null;
+    country: string | null;
+    created_at: Date;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -99,6 +149,10 @@ export function createMockStore(): MockStore {
     email_tokens: [],
     mail_queue: [],
     creator_requests: [],
+    sessions: [],
+    recovery_codes: [],
+    passkeys: [],
+    security_events: [],
   };
 }
 
@@ -821,6 +875,34 @@ export function createMockDb(store: MockStore = createMockStore()): {
             user.roles = params[parseInt(matchRoles[1], 10) - 1];
           }
 
+          const matchTotpSecret = sql.match(/"totp_secret_enc"\s*=\s*\$(\d+)/);
+          if (matchTotpSecret) {
+            user.totp_secret_enc = params[parseInt(matchTotpSecret[1], 10) - 1];
+          }
+          const matchTotpKey = sql.match(/"totp_key_id"\s*=\s*\$(\d+)/);
+          if (matchTotpKey) {
+            user.totp_key_id = params[parseInt(matchTotpKey[1], 10) - 1];
+          }
+          const matchTotpEnabled = sql.match(/"totp_enabled_at"\s*=\s*\$(\d+)/);
+          if (matchTotpEnabled) {
+            const val = params[parseInt(matchTotpEnabled[1], 10) - 1];
+            user.totp_enabled_at = val ? new Date(val) : null;
+          }
+          const matchTotpStep = sql.match(/"totp_last_step"\s*=\s*\$(\d+)/);
+          if (matchTotpStep) {
+            const rawStep = params[parseInt(matchTotpStep[1], 10) - 1];
+            if (rawStep == null) {
+              user.totp_last_step = null;
+            } else {
+              const stepVal = BigInt(rawStep);
+              // Replay protection atomic check: WHERE totp_last_step IS NULL OR totp_last_step < $step
+              if (user.totp_last_step != null && user.totp_last_step >= stepVal) {
+                return { rows: [], rowCount: 0 };
+              }
+              user.totp_last_step = stepVal;
+            }
+          }
+
           user.updated_at = new Date();
           updatedCount++;
         }
@@ -828,6 +910,242 @@ export function createMockDb(store: MockStore = createMockStore()): {
           return { rows: user ? [user] : [], rowCount: updatedCount };
         }
         return { rows: [], rowCount: updatedCount };
+      }
+
+      // 11. SESSIONS
+      if (sql.includes('insert into "auth"."sessions"')) {
+        const colMatch = sql.match(/insert into "auth"."sessions"\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+        const session = {
+          id: colMap['id'] ?? uuidv7(),
+          user_id: colMap['user_id'] ?? params[0],
+          family_id: colMap['family_id'] ?? params[1],
+          device_label: colMap['device_label'] ?? null,
+          country: colMap['country'] ?? null,
+          ip_hash: colMap['ip_hash'] ?? null,
+          amr: colMap['amr'] ?? ['pwd'],
+          step_up_at: colMap['step_up_at'] ? new Date(colMap['step_up_at']) : null,
+          last_used_at: colMap['last_used_at'] ? new Date(colMap['last_used_at']) : new Date(),
+          revoked_at: colMap['revoked_at'] ? new Date(colMap['revoked_at']) : null,
+          revoke_reason: colMap['revoke_reason'] ?? null,
+          created_at: colMap['created_at'] ? new Date(colMap['created_at']) : new Date(),
+          expires_at: colMap['expires_at']
+            ? new Date(colMap['expires_at'])
+            : new Date(Date.now() + 30 * 86400000),
+        };
+        store.sessions.push(session);
+        return { rows: [session], rowCount: 1 };
+      }
+
+      if (sql.includes('select') && sql.includes('"auth"."sessions"')) {
+        let matching = [...store.sessions];
+        if (sql.includes('"user_id" =')) {
+          const uIdx = sql.indexOf('"user_id" =');
+          const m = sql.slice(uIdx).match(/"user_id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const uid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.user_id === uid);
+          }
+        }
+        if (sql.includes('"id" =')) {
+          const m = sql.match(/"id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const sid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.id === sid);
+          }
+        }
+        if (sql.includes('"id" !=') || sql.includes('"id" <>')) {
+          const m = sql.match(/"id"\s*(?:!=|<>)\s*\$(\d+)/);
+          if (m) {
+            const sid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.id !== sid);
+          }
+        }
+        if (sql.includes('"family_id" =')) {
+          const m = sql.match(/"family_id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const fid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.family_id === fid);
+          }
+        }
+        if (sql.includes('"revoked_at" is null')) {
+          matching = matching.filter((s) => s.revoked_at === null);
+        }
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      if (sql.includes('update "auth"."sessions"')) {
+        let updatedCount = 0;
+        let matching = [...store.sessions];
+        if (sql.includes('"id" =')) {
+          const m = sql.match(/"id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const sid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.id === sid);
+          }
+        }
+        if (sql.includes('"id" !=') || sql.includes('"id" <>')) {
+          const m = sql.match(/"id"\s*(?:!=|<>)\s*\$(\d+)/);
+          if (m) {
+            const sid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.id !== sid);
+          }
+        }
+        if (sql.includes('"family_id" =')) {
+          const m = sql.match(/"family_id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const fid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.family_id === fid);
+          }
+        }
+        if (sql.includes('"user_id" =')) {
+          const m = sql.match(/"user_id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const uid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.user_id === uid);
+          }
+        }
+        if (sql.includes('"id" !=') || sql.includes('"id" <>')) {
+          const m = sql.match(/"id"\s*(?:!=|<>)\s*\$(\d+)/);
+          if (m) {
+            const sid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((s) => s.id !== sid);
+          }
+        }
+        if (sql.includes('"revoked_at" is null')) {
+          matching = matching.filter((s) => s.revoked_at === null);
+        }
+
+        const matchStepUpAt = sql.match(/"step_up_at"\s*=\s*\$(\d+)/);
+        const matchLastUsedAt = sql.match(/"last_used_at"\s*=\s*\$(\d+)/);
+        const matchRevokedAt = sql.match(/"revoked_at"\s*=\s*\$(\d+)/);
+        const matchRevokeReason = sql.match(/"revoke_reason"\s*=\s*\$(\d+)/);
+
+        for (const s of matching) {
+          if (matchStepUpAt) {
+            s.step_up_at = params[parseInt(matchStepUpAt[1], 10) - 1]
+              ? new Date(params[parseInt(matchStepUpAt[1], 10) - 1])
+              : new Date();
+          }
+          if (matchLastUsedAt) {
+            s.last_used_at = params[parseInt(matchLastUsedAt[1], 10) - 1]
+              ? new Date(params[parseInt(matchLastUsedAt[1], 10) - 1])
+              : new Date();
+          }
+          if (matchRevokedAt) {
+            s.revoked_at = params[parseInt(matchRevokedAt[1], 10) - 1]
+              ? new Date(params[parseInt(matchRevokedAt[1], 10) - 1])
+              : new Date();
+          }
+          if (matchRevokeReason) {
+            s.revoke_reason = String(params[parseInt(matchRevokeReason[1], 10) - 1]);
+          }
+          updatedCount++;
+        }
+        return { rows: matching, rowCount: updatedCount };
+      }
+
+      // 12. RECOVERY CODES
+      if (sql.includes('insert into "auth"."recovery_codes"')) {
+        const colMatch = sql.match(/insert into "auth"."recovery_codes"\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+        const rec = {
+          id: colMap['id'] ?? uuidv7(),
+          user_id: colMap['user_id'] ?? params[1] ?? params[0],
+          code_hash: colMap['code_hash'] ?? params[2] ?? params[1],
+          created_at: colMap['created_at'] ? new Date(colMap['created_at']) : new Date(),
+          used_at: colMap['used_at'] ? new Date(colMap['used_at']) : null,
+        };
+        store.recovery_codes.push(rec);
+        return { rows: [rec], rowCount: 1 };
+      }
+
+      if (sql.includes('select') && sql.includes('"auth"."recovery_codes"')) {
+        let matching = [...store.recovery_codes];
+        if (sql.includes('"user_id" =')) {
+          const uIdx = sql.indexOf('"user_id" =');
+          const m = sql.slice(uIdx).match(/"user_id"\s*=\s*\$(\d+)/);
+          if (m) {
+            const uid = String(params[parseInt(m[1], 10) - 1]);
+            matching = matching.filter((r) => r.user_id === uid);
+          }
+        }
+        if (sql.includes('"used_at" is null')) {
+          matching = matching.filter((r) => r.used_at === null);
+        }
+        if (sql.includes('count(')) {
+          return { rows: [{ cnt: matching.length, count: matching.length }], rowCount: 1 };
+        }
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      if (sql.includes('update "auth"."recovery_codes"')) {
+        let updatedCount = 0;
+        const idMatch = sql.match(/"id"\s*=\s*\$(\d+)/);
+        if (idMatch) {
+          const id = params[parseInt(idMatch[1], 10) - 1];
+          const row = store.recovery_codes.find((r) => r.id === id);
+          if (row) {
+            row.used_at = new Date();
+            updatedCount = 1;
+          }
+        }
+        return { rows: [], rowCount: updatedCount };
+      }
+
+      if (sql.includes('delete from "auth"."recovery_codes"')) {
+        const uid = params[0];
+        const before = store.recovery_codes.length;
+        store.recovery_codes = store.recovery_codes.filter((r) => r.user_id !== uid);
+        return { rows: [], rowCount: before - store.recovery_codes.length };
+      }
+
+      // 13. PASSKEYS
+      if (sql.includes('select') && sql.includes('"auth"."passkeys"')) {
+        let matching = [...store.passkeys];
+        if (sql.includes('"user_id" =')) {
+          matching = matching.filter((p) => p.user_id === params[0]);
+        }
+        if (sql.includes('count(')) {
+          return { rows: [{ count: matching.length }], rowCount: 1 };
+        }
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      // 14. SECURITY EVENTS
+      if (sql.includes('insert into "auth"."security_events"')) {
+        const colMatch = sql.match(/insert into "auth"."security_events"\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+        const event = {
+          id: colMap['id'] ?? uuidv7(),
+          user_id: colMap['user_id'] ?? params[0],
+          kind: colMap['kind'] ?? params[1],
+          session_id: colMap['session_id'] ?? null,
+          details: colMap['details'] ?? {},
+          ip_hash: colMap['ip_hash'] ?? null,
+          country: colMap['country'] ?? null,
+          created_at: colMap['created_at'] ? new Date(colMap['created_at']) : new Date(),
+        };
+        store.security_events.push(event);
+        return { rows: [event], rowCount: 1 };
       }
 
       // Default fallback

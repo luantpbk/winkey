@@ -33,6 +33,12 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
   let validateAdminCreatorRequest: ValidateFunction;
   let validateAdminCreatorRequestPage: ValidateFunction;
   let validateCreatorRequestDecision: ValidateFunction;
+  let validateMfaChallenge: ValidateFunction;
+  let validateTotpSetup: ValidateFunction;
+  let validateTotpConfirmResult: ValidateFunction;
+  let validateRecoveryCodes: ValidateFunction;
+  let validateSecuritySummary: ValidateFunction;
+  let validateSessionList: ValidateFunction;
 
   beforeAll(async () => {
     // 1. Load OpenAPI contracts
@@ -105,6 +111,24 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     )!;
     validateCreatorRequestDecision = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/CreatorRequestDecision',
+    )!;
+    validateMfaChallenge = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/MfaChallenge',
+    )!;
+    validateTotpSetup = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/TotpSetup',
+    )!;
+    validateTotpConfirmResult = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/TotpConfirmResult',
+    )!;
+    validateRecoveryCodes = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/RecoveryCodes',
+    )!;
+    validateSecuritySummary = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/SecuritySummary',
+    )!;
+    validateSessionList = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/SessionList',
     )!;
 
     // 3. Build test app
@@ -570,5 +594,105 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
       pending_count: 5,
     };
     expect(validateAdminCreatorRequestPage(samplePage)).toBe(true);
+  });
+
+  it('verifies SOC-1a Account Security schemas against auth.v1.yaml contracts', async () => {
+    // 1. MfaChallenge validation
+    const sampleChallenge = {
+      mfa_required: true,
+      mfa_token: 'mfa_tok_018f6c38892f763493883490715e2197',
+      methods: ['totp', 'recovery_code'],
+      expires_in: 300,
+    };
+    expect(validateMfaChallenge(sampleChallenge)).toBe(true);
+
+    // 2. TotpSetup and TotpConfirmResult validation
+    const sampleTotpSetup = {
+      setup_id: '018f6c38-892f-7634-9388-3490715e2197',
+      secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+      otpauth_uri:
+        'otpauth://totp/Winkey:alice?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Winkey&algorithm=SHA1&digits=6&period=30',
+      expires_at: new Date(Date.now() + 600_000).toISOString(),
+    };
+    expect(validateTotpSetup(sampleTotpSetup)).toBe(true);
+
+    const sampleTotpConfirm = {
+      recovery_codes: [
+        'abc23-def42',
+        'abc23-def43',
+        'abc23-def44',
+        'abc23-def45',
+        'abc23-def46',
+        'abc23-def47',
+        'abc23-def48',
+        'abc23-def49',
+        'abc23-def52',
+        'abc23-def53',
+      ],
+    };
+    expect(validateTotpConfirmResult(sampleTotpConfirm)).toBe(true);
+
+    // 3. RecoveryCodes validation
+    const sampleRecoveryCodes = {
+      recovery_codes: [
+        'abc23-def42',
+        'abc23-def43',
+        'abc23-def44',
+        'abc23-def45',
+        'abc23-def46',
+        'abc23-def47',
+        'abc23-def48',
+        'abc23-def49',
+        'abc23-def52',
+        'abc23-def53',
+      ],
+    };
+    expect(validateRecoveryCodes(sampleRecoveryCodes)).toBe(true);
+
+    // 4. SecuritySummary validation
+    const sampleSecuritySummary = {
+      mfa_enabled: true,
+      totp_enabled: true,
+      passkey_count: 0,
+      recovery_codes_remaining: 10,
+      has_password: true,
+      step_up_until: new Date(Date.now() + 600_000).toISOString(),
+      staff_roles_pending_mfa: [],
+    };
+    expect(validateSecuritySummary(sampleSecuritySummary)).toBe(true);
+
+    // 5. SessionList validation
+    const sampleSessionList = {
+      items: [
+        {
+          id: '018f6c38-892f-7634-9388-3490715e2197',
+          device_label: 'Chrome trên Windows',
+          country: 'VN',
+          current: true,
+          created_at: new Date().toISOString(),
+          last_used_at: new Date().toISOString(),
+          methods: ['pwd'],
+        },
+      ],
+    };
+    expect(validateSessionList(sampleSessionList)).toBe(true);
+
+    // 6. User schema validation with mfa_enabled and staff_roles_pending_mfa
+    const sampleUser = {
+      id: '018f6c38-892f-7634-9388-3490715e2198',
+      email: 'bob@example.com',
+      email_verified: true,
+      handle: 'bob',
+      display_name: 'Bob',
+      avatar_url: null,
+      roles: ['viewer'],
+      status: 'ACTIVE',
+      suspended_until: null,
+      suspension_reason: null,
+      created_at: new Date().toISOString(),
+      mfa_enabled: false,
+      staff_roles_pending_mfa: ['admin'],
+    };
+    expect(validateUser(sampleUser)).toBe(true);
   });
 });

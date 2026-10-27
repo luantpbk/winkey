@@ -17,6 +17,10 @@ export interface UsersTable {
   suspension_reason: string | null;
   created_at: ColumnType<Date, string | Date | undefined, never>;
   updated_at: ColumnType<Date, string | Date | undefined, string | Date>;
+  totp_secret_enc: Buffer | null;
+  totp_key_id: string | null;
+  totp_enabled_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  totp_last_step: ColumnType<number | null, number | null | undefined, number | null>;
 }
 
 export type AuditAction = 'USER_ROLES_CHANGED' | 'USER_SUSPENDED' | 'USER_UNSUSPENDED';
@@ -68,7 +72,7 @@ export interface PublicProfilesTable {
   avatar_key: string | null;
 }
 
-export type EmailTokenPurpose = 'VERIFY_EMAIL' | 'RESET_PASSWORD';
+export type EmailTokenPurpose = 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'SESSION_REPORT';
 
 export interface EmailTokensTable {
   id: string;
@@ -81,7 +85,7 @@ export interface EmailTokensTable {
   used_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
 }
 
-export type MailTemplate = 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED';
+export type MailTemplate = 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED' | 'NEW_SIGN_IN';
 export type MailLocale = 'vi' | 'en';
 
 export interface MailQueueTable {
@@ -116,6 +120,83 @@ export interface CreatorRequestsTable {
   created_at: ColumnType<Date, string | Date | undefined, never>;
 }
 
+export interface RecoveryCodesTable {
+  id: string;
+  user_id: string;
+  code_hash: string;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  used_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+}
+
+export interface PasskeysTable {
+  id: string;
+  user_id: string;
+  credential_id: Buffer;
+  public_key: Buffer;
+  sign_count: ColumnType<number, number | undefined, number>;
+  transports: string[];
+  aaguid: string | null;
+  backup_eligible: boolean;
+  backup_state: boolean;
+  name: string;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  last_used_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+}
+
+export type SessionRevokeReason =
+  | 'LOGOUT'
+  | 'USER_REVOKED'
+  | 'REVOKE_OTHERS'
+  | 'REUSE_DETECTED'
+  | 'PASSWORD_CHANGED'
+  | 'SUSPENDED'
+  | 'DELETED'
+  | 'REPORTED'
+  | 'MFA_DISABLED'
+  | 'EXPIRED';
+
+export interface SessionsTable {
+  id: string;
+  user_id: string;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+  last_used_at: ColumnType<Date, string | Date | undefined, string | Date>;
+  device_label: string | null;
+  country: string | null;
+  ip_hash: Buffer | null;
+  amr: string[];
+  step_up_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  revoked_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
+  revoke_reason: SessionRevokeReason | null;
+}
+
+export type SecurityEventKind =
+  | 'SIGN_IN'
+  | 'SIGN_IN_NEW_DEVICE'
+  | 'MFA_FAILED'
+  | 'TOTP_ENABLED'
+  | 'TOTP_DISABLED'
+  | 'RECOVERY_CODES_GENERATED'
+  | 'RECOVERY_CODE_USED'
+  | 'PASSKEY_ADDED'
+  | 'PASSKEY_REMOVED'
+  | 'SESSION_REVOKED'
+  | 'OTHER_SESSIONS_REVOKED'
+  | 'SESSION_REPORTED'
+  | 'PASSWORD_CHANGED'
+  | 'PASSWORD_RESET'
+  | 'STEP_UP';
+
+export interface SecurityEventsTable {
+  id: string;
+  user_id: string;
+  kind: SecurityEventKind;
+  session_id: string | null;
+  device_label: string | null;
+  country: string | null;
+  details: unknown;
+  created_at: ColumnType<Date, string | Date | undefined, never>;
+}
+
 export interface Database {
   'auth.users': UsersTable;
   'auth.oauth_identities': OAuthIdentitiesTable;
@@ -126,4 +207,8 @@ export interface Database {
   'auth.email_tokens': EmailTokensTable;
   'auth.mail_queue': MailQueueTable;
   'auth.creator_requests': CreatorRequestsTable;
+  'auth.recovery_codes': RecoveryCodesTable;
+  'auth.passkeys': PasskeysTable;
+  'auth.sessions': SessionsTable;
+  'auth.security_events': SecurityEventsTable;
 }

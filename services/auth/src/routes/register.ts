@@ -19,6 +19,14 @@ import type { Env } from '../config/env.js';
 import type { Database, Role } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
+import type { Redis } from 'ioredis';
+import { getKeyring } from '../crypto/keyring.js';
+import { buildVietnameseDeviceLabel } from '../security/ua-label.js';
+import { extractCountry } from '../security/sessions.js';
+import { recordSecurityEvent } from '../security/events.js';
+import { computeEffectiveRoles } from '../security/staff-rules.js';
+import { verifyTurnstileToken } from '../security/turnstile.js';
+import { isPasswordBreached } from '../security/hibp.js';
 
 const registerBodySchema = z.object({
   email: z.string().email().max(254),
@@ -26,13 +34,15 @@ const registerBodySchema = z.object({
   handle: z.string().regex(/^[A-Za-z0-9_.]{3,30}$/),
   display_name: z.string().min(1).max(50),
   invite_code: z.string().min(1).max(64).optional(),
+  turnstile_token: z.string().optional(),
 });
 
 export const registerRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
   rateLimiter: RateLimiter;
-}> = async (fastify, { db, env, rateLimiter }) => {
+  redis?: Redis | null;
+}> = async (fastify, { db, env, rateLimiter, redis }) => {
   fastify.post('/v1/auth/register', async (request, reply) => {
     // 1. Rate limiting: 5/hour per IP
     const clientIp = request.ip || '127.0.0.1';
@@ -52,7 +62,39 @@ export const registerRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Validation failed', fieldErrors, 'VALIDATION_FAILED');
     }
 
-    const { email, password, handle, display_name, invite_code } = parseResult.data;
+    const { email, password, handle, display_name, invite_code, turnstile_token } =
+      parseResult.data;
+
+    // Captcha validation if TURNSTILE_SECRET is set
+    if (env.TURNSTILE_SECRET) {
+      if (!turnstile_token) {
+        throw ProblemError.badRequest(
+          'Captcha verification required',
+          undefined,
+          'CAPTCHA_REQUIRED',
+        );
+      }
+      const validCaptcha = await verifyTurnstileToken({
+        secret: env.TURNSTILE_SECRET,
+        token: turnstile_token,
+        ip: clientIp,
+      });
+      if (!validCaptcha) {
+        throw ProblemError.badRequest('Invalid captcha token', undefined, 'CAPTCHA_INVALID');
+      }
+    }
+
+    // Password breach check (HaveIBeenPwned k-anonymity)
+    if (env.PASSWORD_BREACH_CHECK) {
+      const breached = await isPasswordBreached(password, redis, true);
+      if (breached) {
+        throw ProblemError.badRequest(
+          'This password was found in a data breach. Please choose a different password.',
+          undefined,
+          'PASSWORD_BREACHED',
+        );
+      }
+    }
 
     // 2b. Validate closed-beta invite code BEFORE any database lookup (ADR-034, Task BETA1)
     const inviteResult = checkInvite(env, invite_code);
@@ -99,7 +141,13 @@ export const registerRoute: FastifyPluginAsync<{
     const tokenId = uuidv7();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    // 5. In ONE transaction, insert auth.users, auth.outbox and auth.refresh_tokens
+    const ua = request.headers['user-agent'] || null;
+    const deviceLabel = buildVietnameseDeviceLabel(ua);
+    const country = extractCountry(request, env);
+    const keyring = getKeyring(env);
+    const ipHash = keyring.hashIp(clientIp);
+
+    // 5. In ONE transaction, insert auth.users, auth.outbox, auth.refresh_tokens, auth.sessions, auth.security_events
     let createdUser: {
       id: string;
       email: string;
@@ -137,6 +185,24 @@ export const registerRoute: FastifyPluginAsync<{
           ])
           .executeTakeFirstOrThrow();
 
+        // Create initial session in auth.sessions
+        await trx
+          .insertInto('auth.sessions')
+          .values({
+            id: familyId,
+            user_id: userRow.id,
+            device_label: deviceLabel,
+            country,
+            ip_hash: ipHash,
+            amr: ['pwd'],
+            created_at: new Date(),
+            last_used_at: new Date(),
+            step_up_at: null,
+            revoked_at: null,
+            revoke_reason: null,
+          })
+          .execute();
+
         // Atomic outbox insertion for domain event
         await enqueue(
           trx,
@@ -150,7 +216,7 @@ export const registerRoute: FastifyPluginAsync<{
           { producer: 'auth-svc', version: 1 },
         );
 
-        // Insert initial refresh token in family
+        // Insert initial refresh token in family (stop writing ip)
         await trx
           .insertInto('auth.refresh_tokens')
           .values({
@@ -160,10 +226,19 @@ export const registerRoute: FastifyPluginAsync<{
             token_hash: tokenHash,
             parent_id: null,
             expires_at: expiresAt,
-            user_agent: request.headers['user-agent'] || null,
-            ip: clientIp,
+            user_agent: ua,
+            ip: null, // ADR-049: no longer write IP in clear
           })
           .execute();
+
+        // Record initial security event
+        await recordSecurityEvent(trx, {
+          userId: userRow.id,
+          kind: 'SIGN_IN',
+          sessionId: familyId,
+          deviceLabel,
+          country,
+        });
 
         // Queue VERIFY_EMAIL mail & one-time token (task A6, ADR-026)
         const acceptLang = request.headers['accept-language'];
@@ -224,9 +299,16 @@ export const registerRoute: FastifyPluginAsync<{
       throw err;
     }
 
-    // 6. Generate access token (RS256, 15 min)
+    // Compute effective roles
+    const { effectiveRoles, staffRolesPendingMfa } = computeEffectiveRoles(
+      createdUser.roles,
+      false,
+      env.STAFF_MFA_REQUIRED,
+    );
+
+    // 6. Generate access token (RS256, 15 min) with effective roles
     const { token: accessToken, expiresIn } = await issueAccessToken(
-      { id: createdUser.id, roles: createdUser.roles },
+      { id: createdUser.id, roles: effectiveRoles },
       familyId,
       env,
     );
@@ -250,7 +332,12 @@ export const registerRoute: FastifyPluginAsync<{
       access_token: accessToken,
       token_type: 'Bearer',
       expires_in: expiresIn,
-      user: createdUser,
+      user: {
+        ...createdUser,
+        roles: effectiveRoles,
+        staff_roles_pending_mfa: staffRolesPendingMfa,
+        mfa_enabled: false,
+      },
     });
   });
 };
