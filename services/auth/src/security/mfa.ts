@@ -4,13 +4,12 @@ import type { Redis } from 'ioredis';
 export interface MfaChallengeData {
   userId: string;
   firstFactor: 'pwd' | 'google';
-  attempts: number;
 }
 
 export interface PendingTotpSetupData {
   userId: string;
-  secret: string;
-  attempts: number;
+  encryptedSecret: string;
+  keyId: string;
 }
 
 const memoryStore = new Map<string, { value: string; expiresAt: number }>();
@@ -33,6 +32,33 @@ function delFromMemory(key: string): void {
   memoryStore.delete(key);
 }
 
+const ATTEMPTS_LUA = `
+local key = KEYS[1]
+local attemptsKey = KEYS[2]
+local maxAttempts = tonumber(ARGV[1])
+
+local raw = redis.call('GET', key)
+if not raw then
+  return {0, ''}
+end
+
+local attempt = redis.call('INCR', attemptsKey)
+if attempt == 1 then
+  local ttl = redis.call('TTL', key)
+  if ttl > 0 then
+    redis.call('EXPIRE', attemptsKey, ttl)
+  end
+end
+
+if attempt > maxAttempts then
+  redis.call('DEL', key)
+  redis.call('DEL', attemptsKey)
+  return {-1, ''}
+end
+
+return {attempt, raw}
+`;
+
 export function generateMfaToken(): string {
   return randomBytes(32).toString('base64url');
 }
@@ -44,15 +70,17 @@ export async function createMfaChallenge(
 ): Promise<string> {
   const mfaToken = generateMfaToken();
   const key = `mfa:chal:${mfaToken}`;
+  const attemptsKey = `mfa:chal:${mfaToken}:attempts`;
   const data: MfaChallengeData = {
     userId,
     firstFactor,
-    attempts: 0,
   };
   if (redis) {
     await redis.set(key, JSON.stringify(data), 'EX', 300); // 5 minutes
+    await redis.del(attemptsKey);
   } else {
     setInMemory(key, JSON.stringify(data), 300);
+    delFromMemory(attemptsKey);
   }
   return mfaToken;
 }
@@ -62,34 +90,32 @@ export async function consumeMfaChallenge(
   mfaToken: string,
 ): Promise<{ valid: boolean; data?: MfaChallengeData; exhausted?: boolean }> {
   const key = `mfa:chal:${mfaToken}`;
-  const raw = redis ? await redis.get(key) : getFromMemory(key);
-  if (!raw) {
-    return { valid: false };
-  }
+  const attemptsKey = `mfa:chal:${mfaToken}:attempts`;
 
-  const data = JSON.parse(raw) as MfaChallengeData;
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(key);
-    else delFromMemory(key);
-    return { valid: false, exhausted: true };
-  }
-
-  data.attempts += 1;
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(key);
-    else delFromMemory(key);
-  } else {
-    if (redis) {
-      const ttl = await redis.ttl(key);
-      if (ttl > 0) {
-        await redis.set(key, JSON.stringify(data), 'EX', ttl);
-      }
-    } else {
-      setInMemory(key, JSON.stringify(data), 300);
+  if (redis) {
+    const result = (await redis.eval(ATTEMPTS_LUA, 2, key, attemptsKey, 5)) as [number, string];
+    const [attempt, raw] = result;
+    if (attempt === 0 || !raw) {
+      return { valid: false };
     }
+    if (attempt === -1) {
+      return { valid: false, exhausted: true };
+    }
+    const data = JSON.parse(raw) as MfaChallengeData;
+    return { valid: true, data };
+  } else {
+    const raw = getFromMemory(key);
+    if (!raw) return { valid: false };
+    const attempt = parseInt(getFromMemory(attemptsKey) || '0', 10) + 1;
+    setInMemory(attemptsKey, String(attempt), 300);
+    if (attempt > 5) {
+      delFromMemory(key);
+      delFromMemory(attemptsKey);
+      return { valid: false, exhausted: true };
+    }
+    const data = JSON.parse(raw) as MfaChallengeData;
+    return { valid: true, data };
   }
-
-  return { valid: true, data };
 }
 
 export async function deleteMfaChallenge(
@@ -97,10 +123,12 @@ export async function deleteMfaChallenge(
   mfaToken: string,
 ): Promise<void> {
   const key = `mfa:chal:${mfaToken}`;
+  const attemptsKey = `mfa:chal:${mfaToken}:attempts`;
   if (redis) {
-    await redis.del(key);
+    await redis.del(key, attemptsKey);
   } else {
     delFromMemory(key);
+    delFromMemory(attemptsKey);
   }
 }
 
@@ -108,18 +136,22 @@ export async function storePendingTotpSetup(
   redis: Redis | null | undefined,
   setupId: string,
   userId: string,
-  secret: string,
+  encryptedSecret: Buffer,
+  keyId: string,
 ): Promise<void> {
   const key = `totp:setup:${setupId}`;
+  const attemptsKey = `totp:setup:${setupId}:attempts`;
   const data: PendingTotpSetupData = {
     userId,
-    secret,
-    attempts: 0,
+    encryptedSecret: encryptedSecret.toString('base64'),
+    keyId,
   };
   if (redis) {
     await redis.set(key, JSON.stringify(data), 'EX', 600); // 10 minutes
+    await redis.del(attemptsKey);
   } else {
     setInMemory(key, JSON.stringify(data), 600);
+    delFromMemory(attemptsKey);
   }
 }
 
@@ -128,34 +160,32 @@ export async function consumePendingTotpSetup(
   setupId: string,
 ): Promise<{ valid: boolean; data?: PendingTotpSetupData; exhausted?: boolean }> {
   const key = `totp:setup:${setupId}`;
-  const raw = redis ? await redis.get(key) : getFromMemory(key);
-  if (!raw) {
-    return { valid: false };
-  }
+  const attemptsKey = `totp:setup:${setupId}:attempts`;
 
-  const data = JSON.parse(raw) as PendingTotpSetupData;
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(key);
-    else delFromMemory(key);
-    return { valid: false, exhausted: true };
-  }
-
-  data.attempts += 1;
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(key);
-    else delFromMemory(key);
-  } else {
-    if (redis) {
-      const ttl = await redis.ttl(key);
-      if (ttl > 0) {
-        await redis.set(key, JSON.stringify(data), 'EX', ttl);
-      }
-    } else {
-      setInMemory(key, JSON.stringify(data), 600);
+  if (redis) {
+    const result = (await redis.eval(ATTEMPTS_LUA, 2, key, attemptsKey, 5)) as [number, string];
+    const [attempt, raw] = result;
+    if (attempt === 0 || !raw) {
+      return { valid: false };
     }
+    if (attempt === -1) {
+      return { valid: false, exhausted: true };
+    }
+    const data = JSON.parse(raw) as PendingTotpSetupData;
+    return { valid: true, data };
+  } else {
+    const raw = getFromMemory(key);
+    if (!raw) return { valid: false };
+    const attempt = parseInt(getFromMemory(attemptsKey) || '0', 10) + 1;
+    setInMemory(attemptsKey, String(attempt), 600);
+    if (attempt > 5) {
+      delFromMemory(key);
+      delFromMemory(attemptsKey);
+      return { valid: false, exhausted: true };
+    }
+    const data = JSON.parse(raw) as PendingTotpSetupData;
+    return { valid: true, data };
   }
-
-  return { valid: true, data };
 }
 
 export async function deletePendingTotpSetup(
@@ -163,10 +193,12 @@ export async function deletePendingTotpSetup(
   setupId: string,
 ): Promise<void> {
   const key = `totp:setup:${setupId}`;
+  const attemptsKey = `totp:setup:${setupId}:attempts`;
   if (redis) {
-    await redis.del(key);
+    await redis.del(key, attemptsKey);
   } else {
     delFromMemory(key);
+    delFromMemory(attemptsKey);
   }
 }
 

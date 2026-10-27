@@ -26,6 +26,33 @@ function delFromMemory(key: string): void {
   memoryStore.delete(key);
 }
 
+const ATTEMPTS_LUA = `
+local key = KEYS[1]
+local attemptsKey = KEYS[2]
+local maxAttempts = tonumber(ARGV[1])
+
+local raw = redis.call('GET', key)
+if not raw then
+  return {0, ''}
+end
+
+local attempt = redis.call('INCR', attemptsKey)
+if attempt == 1 then
+  local ttl = redis.call('TTL', key)
+  if ttl > 0 then
+    redis.call('EXPIRE', attemptsKey, ttl)
+  end
+end
+
+if attempt > maxAttempts then
+  redis.call('DEL', key)
+  redis.call('DEL', attemptsKey)
+  return {-1, ''}
+end
+
+return {attempt, raw}
+`;
+
 export async function assertStepUp(db: Kysely<Database>, sessionId: string): Promise<Date> {
   const session = await db
     .selectFrom('auth.sessions')
@@ -75,15 +102,18 @@ export async function sendStepUpEmailCode(
   const codeHash = createHash('sha256').update(code).digest('hex');
 
   const storeKey = `stepup:email:${sessionId}`;
+  const attemptsKey = `stepup:email:${sessionId}:attempts`;
   if (redis) {
     await redis.set(
       storeKey,
-      JSON.stringify({ codeHash, attempts: 0 }),
+      JSON.stringify({ codeHash }),
       'EX',
       600, // 10 minutes
     );
+    await redis.del(attemptsKey);
   } else {
-    setInMemory(storeKey, JSON.stringify({ codeHash, attempts: 0 }), 600);
+    setInMemory(storeKey, JSON.stringify({ codeHash }), 600);
+    delFromMemory(attemptsKey);
   }
 
   // Queue email with 6-digit code
@@ -114,38 +144,42 @@ export async function verifyStepUpEmailCode(
   inputCode: string,
 ): Promise<boolean> {
   const storeKey = `stepup:email:${sessionId}`;
-  const dataStr = redis ? await redis.get(storeKey) : getFromMemory(storeKey);
-  if (!dataStr) {
-    return false;
+  const attemptsKey = `stepup:email:${sessionId}:attempts`;
+
+  let raw: string | null = null;
+  if (redis) {
+    const result = (await redis.eval(ATTEMPTS_LUA, 2, storeKey, attemptsKey, 5)) as [
+      number,
+      string,
+    ];
+    const [attempt, dataStr] = result;
+    if (attempt <= 0 || !dataStr) {
+      return false;
+    }
+    raw = dataStr;
+  } else {
+    const dataStr = getFromMemory(storeKey);
+    if (!dataStr) return false;
+    const attempt = parseInt(getFromMemory(attemptsKey) || '0', 10) + 1;
+    setInMemory(attemptsKey, String(attempt), 600);
+    if (attempt > 5) {
+      delFromMemory(storeKey);
+      delFromMemory(attemptsKey);
+      return false;
+    }
+    raw = dataStr;
   }
 
-  const data = JSON.parse(dataStr) as { codeHash: string; attempts: number };
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(storeKey);
-    else delFromMemory(storeKey);
-    return false;
-  }
-
+  const data = JSON.parse(raw) as { codeHash: string };
   const inputHash = createHash('sha256').update(inputCode.trim()).digest('hex');
   if (inputHash === data.codeHash) {
-    if (redis) await redis.del(storeKey);
-    else delFromMemory(storeKey);
-    return true;
-  }
-
-  data.attempts += 1;
-  if (data.attempts >= 5) {
-    if (redis) await redis.del(storeKey);
-    else delFromMemory(storeKey);
-  } else {
     if (redis) {
-      const ttl = await redis.ttl(storeKey);
-      if (ttl > 0) {
-        await redis.set(storeKey, JSON.stringify(data), 'EX', ttl);
-      }
+      await redis.del(storeKey, attemptsKey);
     } else {
-      setInMemory(storeKey, JSON.stringify(data), 600);
+      delFromMemory(storeKey);
+      delFromMemory(attemptsKey);
     }
+    return true;
   }
 
   return false;

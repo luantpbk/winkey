@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Keyring } from '../../src/crypto/keyring.js';
+import { Keyring, getKeyring } from '../../src/crypto/keyring.js';
 
 describe('Keyring AES-256-GCM encryption & key rotation', () => {
   const key1 = Buffer.alloc(32, 1).toString('base64');
@@ -84,5 +84,33 @@ describe('hashIp HMAC-SHA256', () => {
     const keyring = new Keyring(`k1:${key1}`, salt);
     expect(keyring.hashIp(null)).toBeNull();
     expect(keyring.hashIp(undefined)).toBeNull();
+  });
+});
+
+describe('getKeyring environment validation', () => {
+  it('allows fallback keys only when NODE_ENV is test', () => {
+    const keyringTest = getKeyring({ NODE_ENV: 'test' });
+    expect(keyringTest).toBeInstanceOf(Keyring);
+    expect(keyringTest.primaryKeyId).toBe('k1');
+  });
+
+  it('throws an error when fallback keys are used in non-test environment', () => {
+    expect(() => getKeyring({ NODE_ENV: 'production' })).toThrow(
+      /Fallback keys are only permitted when NODE_ENV=test/,
+    );
+    expect(() => getKeyring({ NODE_ENV: 'development' })).toThrow(
+      /Fallback keys are only permitted when NODE_ENV=test/,
+    );
+  });
+
+  it('accepts explicit keys and salt in production environment', () => {
+    const key1 = Buffer.alloc(32, 5).toString('base64');
+    const salt = 'valid-production-salt-that-is-at-least-32-bytes-long!';
+    const keyringProd = getKeyring({
+      NODE_ENV: 'production',
+      TOTP_ENCRYPTION_KEYS: `k1:${key1}`,
+      SESSION_IP_SALT: salt,
+    });
+    expect(keyringProd).toBeInstanceOf(Keyring);
   });
 });

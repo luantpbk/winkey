@@ -4,6 +4,7 @@ import { envSchema } from '../../src/config/env.js';
 describe('envSchema COOKIE_SECRET validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
     TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
@@ -65,6 +66,7 @@ describe('envSchema COOKIE_SECRET validation', () => {
 describe('envSchema REGISTRATION_MODE and INVITE_CODES validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
     TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
@@ -165,6 +167,7 @@ describe('envSchema REGISTRATION_MODE and INVITE_CODES validation', () => {
 describe('envSchema REFRESH_REUSE_GRACE validation', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
     TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
@@ -226,6 +229,7 @@ describe('envSchema REFRESH_REUSE_GRACE validation', () => {
 describe('envSchema SIGNUP_ROLES validation (ADR-046, task ROLE1)', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    VALKEY_URL: 'redis://localhost:6379',
     TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
@@ -269,6 +273,7 @@ describe('envSchema SOC-1a account security configuration (ADR-049)', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
     NODE_ENV: 'production' as const,
+    VALKEY_URL: 'redis://localhost:6379',
     COOKIE_SECRET: 'super-secure-production-cookie-secret-min-32-chars-long!',
     TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
@@ -323,5 +328,34 @@ describe('envSchema SOC-1a account security configuration (ADR-049)', () => {
     });
     expect(parsed.TOTP_ENCRYPTION_KEYS).toBeDefined();
     expect(parsed.SESSION_IP_SALT).toBeDefined();
+  });
+
+  it('fails in production and development when VALKEY_URL is missing', () => {
+    const { VALKEY_URL: _, ...withoutValkey } = validBase;
+    const resProd = envSchema.safeParse({
+      ...withoutValkey,
+      NODE_ENV: 'production',
+    });
+    expect(resProd.success).toBe(false);
+    if (!resProd.success) {
+      expect(resProd.error.issues.some((i) => i.path.includes('VALKEY_URL'))).toBe(true);
+    }
+
+    const resDev = envSchema.safeParse({
+      ...withoutValkey,
+      NODE_ENV: 'development',
+    });
+    expect(resDev.success).toBe(false);
+    if (!resDev.success) {
+      expect(resDev.error.issues.some((i) => i.path.includes('VALKEY_URL'))).toBe(true);
+    }
+  });
+
+  it('provides default VALKEY_URL in test mode', () => {
+    const parsed = envSchema.parse({
+      JWT_PRIVATE_KEY: 'test-key',
+      NODE_ENV: 'test',
+    });
+    expect(parsed.VALKEY_URL).toBe('redis://localhost:6379');
   });
 });

@@ -73,10 +73,15 @@ let lastKeyringEnv = '';
 export function getKeyring(env: {
   TOTP_ENCRYPTION_KEYS?: string;
   SESSION_IP_SALT?: string;
+  NODE_ENV?: string;
 }): Keyring {
-  const envKey = `${env.TOTP_ENCRYPTION_KEYS ?? ''}::${env.SESSION_IP_SALT ?? ''}`;
+  const envKey = `${env.TOTP_ENCRYPTION_KEYS ?? ''}::${env.SESSION_IP_SALT ?? ''}::${env.NODE_ENV ?? ''}`;
   if (cachedKeyring && lastKeyringEnv === envKey) {
     return cachedKeyring;
+  }
+  const isTest = env.NODE_ENV ? env.NODE_ENV === 'test' : process.env.NODE_ENV === 'test';
+  if (!isTest && (!env.TOTP_ENCRYPTION_KEYS || !env.SESSION_IP_SALT)) {
+    throw new Error('KEYRING_ERROR: Fallback keys are only permitted when NODE_ENV=test');
   }
   const keys = env.TOTP_ENCRYPTION_KEYS || `k1:${Buffer.alloc(32, 1).toString('base64')}`;
   const salt = env.SESSION_IP_SALT || 'default_test_salt_at_least_32_bytes_long_123';

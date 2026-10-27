@@ -33,13 +33,15 @@ async function main() {
 
   // 4. Connect to Valkey (Redis)
   let valkeyClient: Redis | null = null;
-  try {
-    valkeyClient = new Redis(env.VALKEY_URL, {
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    });
-  } catch (err) {
-    console.warn('Warning: Could not connect to Valkey on startup:', err);
+  if (env.VALKEY_URL) {
+    try {
+      valkeyClient = new Redis(env.VALKEY_URL, {
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+      });
+    } catch (err) {
+      console.warn('Warning: Could not connect to Valkey on startup:', err);
+    }
   }
 
   const rateLimiter = new ValkeyRateLimiter(env.VALKEY_URL, valkeyClient ?? undefined);

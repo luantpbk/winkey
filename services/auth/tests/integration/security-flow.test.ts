@@ -691,4 +691,149 @@ describe('SOC-1a Account Security Integration Flow (PR 1)', () => {
       }
     });
   });
+
+  describe('8. Atomic attempt counter under parallel / concurrent requests', () => {
+    it('evaluates at most 5 attempts when 20 concurrent invalid requests hit MFA login completion', async () => {
+      const { accessToken } = await registerUser('mfa_par@winkey.vn', 'mfa_par', 'MfaPass123!');
+
+      // Enable TOTP
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { method: 'password', password: 'MfaPass123!' },
+      });
+      const setupRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/totp',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      const { setup_id, secret } = setupRes.json();
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/totp/confirm',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { setup_id, code: generateTotpCode(secret) },
+      });
+
+      // Initiate login to get mfa_token
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { email: 'mfa_par@winkey.vn', password: 'MfaPass123!' },
+      });
+      expect(loginRes.statusCode).toBe(200);
+      const { mfa_token } = loginRes.json();
+      expect(mfa_token).toBeDefined();
+
+      // Launch 20 concurrent requests in parallel with wrong code
+      const requests = Array.from({ length: 20 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/login/complete',
+          payload: {
+            mfa_token,
+            method: 'totp',
+            code: '000000',
+          },
+        }),
+      );
+
+      const responses = await Promise.all(requests);
+      expect(responses).toHaveLength(20);
+
+      // Only at most 5 requests should reach evaluation and receive MFA_CODE_INVALID
+      const evaluated = responses.filter((r) => r.json().code === 'MFA_CODE_INVALID');
+      const tokenInvalid = responses.filter((r) => r.json().code === 'MFA_TOKEN_INVALID');
+
+      expect(evaluated.length).toBeLessThanOrEqual(5);
+      expect(evaluated.length).toBe(5);
+      expect(tokenInvalid.length).toBe(15);
+    });
+
+    it('evaluates at most 5 attempts when 20 concurrent invalid requests hit TOTP confirmation', async () => {
+      const { accessToken } = await registerUser('totp_par@winkey.vn', 'totp_par', 'TotpPass123!');
+
+      // Step-up
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { method: 'password', password: 'TotpPass123!' },
+      });
+
+      // Start TOTP setup
+      const setupRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/totp',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      const { setup_id } = setupRes.json();
+      expect(setup_id).toBeDefined();
+
+      // Launch 20 concurrent requests with wrong TOTP codes
+      const requests = Array.from({ length: 20 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/me/totp/confirm',
+          headers: { authorization: `Bearer ${accessToken}` },
+          payload: {
+            setup_id,
+            code: '000000',
+          },
+        }),
+      );
+
+      const responses = await Promise.all(requests);
+      expect(responses).toHaveLength(20);
+
+      // Only at most 5 requests evaluate the code (400 MFA_CODE_INVALID), the rest are exhausted (404)
+      const evaluated = responses.filter(
+        (r) => r.statusCode === 400 && r.json().code === 'MFA_CODE_INVALID',
+      );
+      const exhausted = responses.filter((r) => r.statusCode === 404);
+
+      expect(evaluated.length).toBeLessThanOrEqual(5);
+      expect(evaluated.length).toBe(5);
+      expect(exhausted.length).toBe(15);
+    });
+
+    it('evaluates at most 5 attempts when 20 concurrent invalid requests hit step-up email code verification', async () => {
+      const { accessToken } = await registerUser(
+        'email_par@winkey.vn',
+        'email_par',
+        'EmailPass123!',
+      );
+
+      // Request email code
+      const sendRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up/email-code',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(sendRes.statusCode).toBe(202);
+
+      // Launch 20 concurrent requests with wrong email code
+      const requests = Array.from({ length: 20 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/v1/auth/me/step-up',
+          headers: { authorization: `Bearer ${accessToken}` },
+          payload: {
+            method: 'email_code',
+            code: '999999',
+          },
+        }),
+      );
+
+      const responses = await Promise.all(requests);
+      expect(responses).toHaveLength(20);
+
+      // Requests evaluate up to 5 attempts before being rate limited (429) or exhausted (403)
+      const evaluated = responses.filter((r) => r.statusCode === 403);
+      const rateLimited = responses.filter((r) => r.statusCode === 429);
+      expect(evaluated.length).toBeLessThanOrEqual(5);
+      expect(evaluated.length + rateLimited.length).toBe(20);
+    });
+  });
 });

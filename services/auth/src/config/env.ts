@@ -11,7 +11,7 @@ export const envSchema = z
       .string()
       .default('postgres://auth_svc:auth_svc@localhost:5432/winkey?sslmode=disable'),
     NATS_URL: z.string().default('nats://localhost:4222'),
-    VALKEY_URL: z.string().default('redis://localhost:6379'),
+    VALKEY_URL: z.string().optional(),
 
     // JWT configuration
     JWT_PRIVATE_KEY: z.string(),
@@ -81,8 +81,16 @@ export const envSchema = z
     WEBAUTHN_USER_HANDLE_KEY: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    // Validate TOTP_ENCRYPTION_KEYS unless in test mode
+    // Validate VALKEY_URL and TOTP_ENCRYPTION_KEYS unless in test mode
     if (data.NODE_ENV !== 'test') {
+      if (!data.VALKEY_URL || data.VALKEY_URL.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'VALKEY_URL is required in non-test environments',
+          path: ['VALKEY_URL'],
+        });
+      }
+
       if (!data.TOTP_ENCRYPTION_KEYS || data.TOTP_ENCRYPTION_KEYS.trim() === '') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -132,6 +140,9 @@ export const envSchema = z
       }
     } else {
       // Provide fallback for tests if not set
+      if (!data.VALKEY_URL) {
+        data.VALKEY_URL = 'redis://localhost:6379';
+      }
       if (!data.TOTP_ENCRYPTION_KEYS) {
         data.TOTP_ENCRYPTION_KEYS = `k1:${Buffer.alloc(32, 1).toString('base64')}`;
       }

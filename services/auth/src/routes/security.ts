@@ -573,7 +573,9 @@ export const securityRoute: FastifyPluginAsync<{
     const otpauthUri = buildOtpauthUri(user.handle, secret);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    await storePendingTotpSetup(redis, setupId, userId, secret);
+    const keyring = getKeyring(env);
+    const { keyId, payload } = keyring.encrypt(secret);
+    await storePendingTotpSetup(redis, setupId, userId, payload, keyId);
 
     return reply.status(201).send({
       setup_id: setupId,
@@ -605,7 +607,16 @@ export const securityRoute: FastifyPluginAsync<{
       throw ProblemError.notFound('TOTP setup session not found or expired');
     }
 
-    const matchedStep = matchTotpStep(pending.data.secret, code);
+    const keyring = getKeyring(env);
+    let secretBase32: string;
+    try {
+      const bufEnc = Buffer.from(pending.data.encryptedSecret, 'base64');
+      secretBase32 = keyring.decrypt(pending.data.keyId, bufEnc).toString('utf8');
+    } catch {
+      throw ProblemError.notFound('TOTP setup session not found or expired');
+    }
+
+    const matchedStep = matchTotpStep(secretBase32, code);
     if (matchedStep === null) {
       await recordSecurityEvent(db, {
         userId,
@@ -616,9 +627,9 @@ export const securityRoute: FastifyPluginAsync<{
       throw ProblemError.badRequest('Invalid verification code', undefined, 'MFA_CODE_INVALID');
     }
 
-    // Success: encrypt secret using primary key in TOTP_ENCRYPTION_KEYS
-    const keyring = getKeyring(env);
-    const { keyId, payload } = keyring.encrypt(pending.data.secret);
+    // Success: save encrypted secret and keyId into DB
+    const bufEnc = Buffer.from(pending.data.encryptedSecret, 'base64');
+    const keyId = pending.data.keyId;
     await deletePendingTotpSetup(redis, setup_id);
 
     let recoveryCodes: string[] | null = null;
@@ -628,7 +639,7 @@ export const securityRoute: FastifyPluginAsync<{
       await trx
         .updateTable('auth.users')
         .set({
-          totp_secret_enc: payload,
+          totp_secret_enc: bufEnc,
           totp_key_id: keyId,
           totp_enabled_at: now,
           totp_last_step: Number(matchedStep),
