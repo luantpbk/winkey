@@ -106,7 +106,7 @@ func preOverlapOutput(t *testing.T, tools job.Tools, clip string) string {
 	out := t.TempDir()
 	hls := filepath.Join(out, "hls")
 	rs := media.Select(info.DisplayW, info.DisplayH)
-	plan := media.HLSPlan{Input: clip, OutDir: hls, Encoder: media.EncoderX264, X264Preset: "ultrafast", Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio}
+	plan := media.HLSPlan{Input: clip, OutDir: hls, Encoder: media.EncoderX264, X264Preset: "ultrafast", Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec}
 	if err := deterministicEncode(ctx, tools, plan, true); err != nil {
 		t.Fatal(err)
 	}

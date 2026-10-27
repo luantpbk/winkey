@@ -206,7 +206,7 @@ func (r *Runner) one(ctx context.Context, c Candidate) outcome {
 	}
 	out := filepath.Join(dir, "hls-av1")
 	plan := media.HLSPlan{
-		Input: src, OutDir: out, Encoder: media.EncoderAV1NVENC, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+		Input: src, OutDir: out, Encoder: media.EncoderAV1NVENC, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec,
 		AV1CQ: r.Opt.CQ, AV1MaxratePct: r.Opt.MaxratePct, NoHWDecode: r.Opt.NoHWDecode,
 	}
 	if err := r.Media.RunHLS(ctx, plan, info.DurationSec, func(float64) {}); err != nil {

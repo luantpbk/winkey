@@ -71,7 +71,7 @@ authorization: {
       user: "upload"
       password: "${UPLOAD_PWD}"
       permissions: {
-        publish: ["video.uploaded", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.uploaded", "media.image_uploaded", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["rt.video.*.progress", "_INBOX.>"]
       }
     },
@@ -79,8 +79,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
-        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
+        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.transcoder-images.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "media.image_uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder-images"]
       }
     },
     {
@@ -183,7 +183,7 @@ authorization: {
       user: "upload"
       password: "${UPLOAD_PWD}"
       permissions: {
-        publish: ["video.uploaded", "_INBOX.>", "\$JS.API.>"]
+        publish: ["video.uploaded", "media.image_uploaded", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["rt.video.*.progress", "_INBOX.>"]
       }
     },
@@ -191,8 +191,8 @@ authorization: {
       user: "transcoder"
       password: "${TRANSCODER_PWD}"
       permissions: {
-        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
-        subscribe: ["video.uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder"]
+        publish: ["video.uploaded", "video.ready", "video.failed", "rt.video.*.progress", "dlq.video.uploaded", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.VIDEO.transcoder.>", "\$JS.ACK.VIDEO.transcoder-images.>", "\$JS.ACK.VIDEO.media-janitor.>", "\$JS.ACK.DLQ.replay-dlq.>"]
+        subscribe: ["video.uploaded", "media.image_uploaded", "_INBOX.>", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder", "\$JS.EVENT.ADVISORY.CONSUMER.*.VIDEO.transcoder-images"]
       }
     },
     {

@@ -44,3 +44,14 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA analytics TO analytics_svc;
 ALTER DEFAULT PRIVILEGES IN SCHEMA analytics GRANT ALL PRIVILEGES ON TABLES TO analytics_svc;
 ALTER DEFAULT PRIVILEGES IN SCHEMA analytics GRANT ALL PRIVILEGES ON SEQUENCES TO analytics_svc;
 
+-- 5. Cross-domain read for auth_svc: USAGE on media + SELECT strictly on media.ready_images (SOC-1b, ADR-049)
+GRANT USAGE ON SCHEMA media TO auth_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'media' AND viewname = 'ready_images') THEN
+        GRANT SELECT ON media.ready_images TO auth_svc;
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON media.images FROM auth_svc;
+
