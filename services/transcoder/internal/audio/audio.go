@@ -209,7 +209,19 @@ func (j *Job) Process(ctx context.Context, ev UploadedEvent, delivery int) Resul
 		return Result{Action: Ack}
 	}
 	log.InfoContext(ctx, "audio track ready", "duration_ms", durationMs)
+	j.deleteRaw(t, log)
 	return Result{Action: Ack}
+}
+
+// deleteRaw removes the uploaded audio once its track is READY: only the HLS output is ever read again (a re-encode
+// of the video re-applies the audio group from it), unlike the video's own raw file, which AV1 upgrades still use.
+// Best effort on a fresh context: a leftover is reported by storage-gc as raw-audio-processed.
+func (j *Job) deleteRaw(t Track, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := j.Objects.DeleteObject(ctx, t.RawBucket, t.RawKey); err != nil {
+		log.Warn("delete processed raw audio", "error", err)
+	}
 }
 
 // upload sends every file of dir to prefix: segments and init first, the playlist last, so a playlist is

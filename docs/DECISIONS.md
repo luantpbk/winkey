@@ -1418,3 +1418,5 @@ Hiện trạng code:
   - tỷ lệ máy AV1 trên các lượt phát 7 ngày;
   - tỷ lệ thời gian xem bằng AV1.
 - Ngưỡng tăng `AV1_TOP_N` vẫn như trên: `av1_capable_share` vượt khoảng 30–40%.
+
+*Bổ sung 2026-10-27 (file gốc âm thanh).* Job âm thanh (MUX1) xoá file gốc âm thanh ngay khi track READY: sau đó chỉ bản HLS được dùng, kể cả khi video được encode lại. File gốc của track FAILED vẫn giữ. File gốc video vẫn giữ, vì `av1-upgrade` cần nó. Nếu lần xoá thất bại, `storage-gc` vẫn báo file đó trong nhóm `raw-audio-processed`.
