@@ -359,7 +359,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 		err := p.Tools.RunHLS(rctx, media.HLSPlan{
 			Input: source, OutDir: hlsDir, Encoder: enc, X264Preset: p.Cfg.X264Preset,
 			RateControl: p.Cfg.RateControl, X264CRF: p.Cfg.X264CRF, NVENCCQ: p.Cfg.NVENCCQ,
-			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, NoHWDecode: p.Cfg.NoHWDecode,
+			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec, NoHWDecode: p.Cfg.NoHWDecode,
 		}, info.DurationSec, func(pct float64) {
 			rep.report(ctx, StageTranscoding, progressTranscode+(progressUpload-progressTranscode)*pct/100)
 		})

@@ -61,6 +61,10 @@ type HLSPlan struct {
 	Renditions    []Rendition
 	FPS           string // constant frame rate as an ffmpeg rational, e.g. "30000/1001"
 	HasAudio      bool
+	// DurationSec bounds the silent track added when HasAudio is false. Without it
+	// the infinite anullsrc is cut by -shortest, which ends at a muxer-timing-dependent
+	// point (different segment counts and bytes from run to run).
+	DurationSec float64
 	// NoHWDecode makes NVENC runs decode on the CPU (no -hwaccel cuda). It is
 	// the hook for a possible HWACCEL_DECODE=false when NVDEC is unavailable or
 	// slow on a shared GPU; it is not wired to configuration yet.
@@ -103,7 +107,11 @@ func BuildHLSArgs(p HLSPlan) []string {
 	a = append(a, "-i", filepath.ToSlash(p.Input))
 	audioInput := 0
 	if !p.HasAudio {
-		a = append(a, "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000")
+		a = append(a, "-f", "lavfi")
+		if p.DurationSec > 0 {
+			a = append(a, "-t", strconv.FormatFloat(p.DurationSec, 'f', 3, 64))
+		}
+		a = append(a, "-i", "anullsrc=channel_layout=stereo:sample_rate=48000")
 		audioInput = 1
 	}
 
@@ -181,7 +189,7 @@ func BuildHLSArgs(p HLSPlan) []string {
 	}
 	a = append(a, "-force_key_frames", "expr:gte(t,n_forced*2)")
 	a = append(a, "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2")
-	if !p.HasAudio {
+	if !p.HasAudio && p.DurationSec <= 0 {
 		a = append(a, "-shortest") // anullsrc is infinite
 	}
 

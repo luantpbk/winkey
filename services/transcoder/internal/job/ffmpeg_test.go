@@ -55,7 +55,7 @@ func TestHLSOutputWithRealFFmpeg(t *testing.T) {
 			var last float64
 			err = tools.RunHLS(ctx, media.HLSPlan{
 				Input: src, OutDir: out, Encoder: media.EncoderX264, X264Preset: "ultrafast",
-				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+				Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec,
 			}, info.DurationSec, func(p float64) { last = p })
 			if err != nil {
 				t.Fatal(err)
@@ -122,7 +122,7 @@ func TestCappedCRFWithRealFFmpeg(t *testing.T) {
 		out := filepath.Join(dir, mode, "hls")
 		err := tools.RunHLS(ctx, media.HLSPlan{
 			Input: src, OutDir: out, Encoder: media.EncoderX264, X264Preset: "ultrafast",
-			RateControl: mode, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio,
+			RateControl: mode, Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec,
 		}, info.DurationSec, func(float64) {})
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
