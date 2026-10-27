@@ -94,6 +94,18 @@ export const mockUsers: Record<string, User> = {
     has_password: false,
     created_at: '2026-03-01T00:00:00Z',
   },
+  pending_staff: {
+    id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c09',
+    email: 'pending_staff@winkey.vn',
+    email_verified: true,
+    handle: 'pending_staff',
+    display_name: 'Pending Staff User',
+    avatar_url: null,
+    roles: ['viewer'],
+    staff_roles_pending_mfa: ['admin'],
+    has_password: true,
+    created_at: '2026-01-01T00:00:00Z',
+  },
 };
 
 export const mockPublicProfiles: Record<string, PublicProfile> = {

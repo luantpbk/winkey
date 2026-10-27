@@ -9,6 +9,7 @@ import { Footer } from './footer';
 import { BottomNav } from './bottom-nav';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { CreatorSignupHintBanner } from '../auth/creator-signup-hint';
+import { StaffMfaBanner } from '../auth/staff-mfa-banner';
 import { useSpatialNavigation } from '../../hooks/use-spatial-navigation';
 import { useTvMode } from '../../lib/tv-mode';
 
@@ -46,6 +47,7 @@ export function Shell({
     <div className="min-h-screen bg-[#0f0f0f] dark:bg-[#0f0f0f] bg-white text-gray-900 dark:text-gray-100 flex flex-col transition-colors">
       <TopBar onToggleSidebar={toggleSidebar} />
       <EmailVerificationBanner />
+      <StaffMfaBanner />
       <CreatorSignupHintBanner />
       <div className="flex flex-1">
         <Sidebar

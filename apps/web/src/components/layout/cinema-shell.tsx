@@ -8,6 +8,7 @@ import { computePermissions } from '../../lib/auth';
 import { NotificationBell } from '../notifications/notification-bell';
 import { EmailVerificationBanner } from '../auth/email-verification-banner';
 import { CreatorSignupHintBanner } from '../auth/creator-signup-hint';
+import { StaffMfaBanner } from '../auth/staff-mfa-banner';
 import { beVietnamPro } from '../../lib/fonts';
 import { Footer } from './footer';
 import {
@@ -420,6 +421,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
       {/* Email Verification Banner */}
       <div className="pt-[72px] md:pt-[72px]">
         <EmailVerificationBanner />
+        <StaffMfaBanner />
         <CreatorSignupHintBanner />
       </div>
 

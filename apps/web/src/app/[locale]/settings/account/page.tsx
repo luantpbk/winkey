@@ -2,13 +2,13 @@
 
 import React, { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { useRouter } from '../../../../i18n/routing';
+import { Link, useRouter } from '../../../../i18n/routing';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { ProfileSettings } from '../../../../components/settings/profile-settings';
 import { PasswordSettings } from '../../../../components/settings/password-settings';
 import { TvModeSettings } from '../../../../components/settings/tv-mode-settings';
 import { DangerZone } from '../../../../components/settings/danger-zone';
-import { Settings } from 'lucide-react';
+import { Settings, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export default function AccountSettingsPage() {
   const t = useTranslations('settings.account');
@@ -52,6 +52,32 @@ export default function AccountSettingsPage() {
       <div className="space-y-8">
         <ProfileSettings user={user} />
         <PasswordSettings user={user} />
+
+        {/* Security & 2FA */}
+        <div className="bg-white dark:bg-[#181818] border border-zinc-200 dark:border-[#272727] rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-red-500/10 rounded-xl text-red-500">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-white">
+                Bảo mật tài khoản & Xác thực hai lớp (2FA)
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Thiết lập ứng dụng xác thực TOTP, khóa Passkey, mã khôi phục và quản lý các thiết bị
+                đã đăng nhập.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/cai-dat/bao-mat"
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shrink-0"
+          >
+            <span>Cài đặt bảo mật</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
         <TvModeSettings />
         <DangerZone user={user} />
       </div>

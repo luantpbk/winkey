@@ -9,6 +9,7 @@ import { withOAuthReturnMarker } from '../../../lib/auth/session-indicator';
 import type { RegisterRequest } from '@winkey/api-client';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 import { A11Y_COLORS } from '../../../lib/a11y-tokens';
+import { TurnstileWidget } from '../../../components/auth/turnstile-widget';
 
 function RegisterFormSkeleton() {
   return (
@@ -49,6 +50,7 @@ function RegisterForm() {
   const [handle, setHandle] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,12 +97,13 @@ function RegisterForm() {
     setIsSubmitting(true);
 
     const trimmedInvite = inviteCode.trim();
-    const payload: RegisterRequest = {
+    const payload: RegisterRequest & { turnstile_token?: string } = {
       email,
       password,
       handle,
       display_name: displayName,
       ...(trimmedInvite ? { invite_code: trimmedInvite } : {}),
+      ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
     };
 
     const res = await register(payload);
@@ -112,7 +115,11 @@ function RegisterForm() {
       }
       router.push('/');
     } else if (res.error) {
-      if (res.error.code === 'INVITE_REQUIRED') {
+      if (res.error.code === 'PASSWORD_BREACHED') {
+        setFieldErrors({
+          password: 'Mật khẩu này đã bị lộ trong một vụ rò rỉ dữ liệu, hãy chọn mật khẩu khác',
+        });
+      } else if (res.error.code === 'INVITE_REQUIRED') {
         setFieldErrors({ invite_code: t('inviteRequired') });
         inviteInputRef.current?.focus();
       } else if (res.error.code === 'INVITE_INVALID') {
@@ -332,6 +339,8 @@ function RegisterForm() {
             </Link>
           </label>
         </div>
+
+        <TurnstileWidget onToken={setTurnstileToken} />
 
         {/* Submit button: gated by agreement checkbox */}
         <button
