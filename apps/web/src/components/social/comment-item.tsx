@@ -10,11 +10,14 @@ import {
   ChevronDown,
   ChevronUp,
   Flag,
+  UserX,
+  VolumeX,
 } from 'lucide-react';
 import type { Comment } from '@winkey/api-client';
 import { formatRelativeTime } from '../../lib/format';
 import { CommentComposer } from './comment-composer';
 import { ReportDialog } from '../moderation/report-dialog';
+import { BlockConfirmDialog } from './block-confirm-dialog';
 import { api } from '../../lib/api-client';
 import { useRouter, usePathname } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
@@ -48,6 +51,7 @@ export function CommentItem({
   const [showReplyComposer, setShowReplyComposer] = useState<boolean>(false);
   const [showMenu, setShowMenu] = useState<boolean>(false);
   const [showReportDialog, setShowReportDialog] = useState<boolean>(false);
+  const [showBlockDialog, setShowBlockDialog] = useState<boolean>(false);
 
   // Replies state (only relevant for top-level comments)
   const isTopLevel = comment.parent_id === null;
@@ -185,7 +189,7 @@ export function CommentItem({
 
   const handleReplySubmit = async (replyText: string) => {
     try {
-      const { data, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
+      const { data, response, error } = await api.social.POST('/v1/videos/{video_id}/comments', {
         params: { path: { video_id: comment.video_id } },
         body: { body: replyText, parent_id: targetParentId },
       });
@@ -202,7 +206,14 @@ export function CommentItem({
         return { success: true };
       }
 
-      const retryAfter = response.headers.get('retry-after');
+      if ((error as any)?.code === 'INTERACTION_BLOCKED') {
+        return {
+          success: false,
+          error: 'Bạn không thể bình luận ở đây',
+        };
+      }
+
+      const retryAfter = response.headers?.get?.('retry-after');
       return {
         success: false,
         error: mapSocialError(response.status, retryAfter, t, 'replyError'),
@@ -212,6 +223,25 @@ export function CommentItem({
         success: false,
         error: t('networkError'),
       };
+    }
+  };
+
+  const handleConfirmBlock = async () => {
+    if (!comment.author?.id) return;
+    await api.social.PUT('/v1/me/blocks/{user_id}', {
+      params: { path: { user_id: comment.author.id } },
+    });
+  };
+
+  const handleMute = async () => {
+    setShowMenu(false);
+    if (!comment.author?.id) return;
+    try {
+      await api.social.PUT('/v1/me/mutes/{user_id}', {
+        params: { path: { user_id: comment.author.id } },
+      });
+    } catch {
+      // Ignored
     }
   };
 
@@ -322,21 +352,61 @@ export function CommentItem({
                           </button>
                         )}
                         {(!user || user.id !== comment.author?.id) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowMenu(false);
-                              if (!isAuthenticated) {
-                                router.push(`/login?returnTo=${encodeURIComponent(pathname)}`);
-                                return;
-                              }
-                              setShowReportDialog(true);
-                            }}
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:text-red-400 hover:bg-[#333]"
-                          >
-                            <Flag className="h-3.5 w-3.5 text-red-400" />
-                            <span>Báo cáo</span>
-                          </button>
+                          <>
+                            {comment.author?.handle && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowMenu(false);
+                                    if (!isAuthenticated) {
+                                      router.push(
+                                        `/login?returnTo=${encodeURIComponent(pathname)}`,
+                                      );
+                                      return;
+                                    }
+                                    handleMute();
+                                  }}
+                                  className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:bg-[#333]"
+                                >
+                                  <VolumeX className="h-3.5 w-3.5 text-zinc-400" />
+                                  <span>Tắt tiếng</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowMenu(false);
+                                    if (!isAuthenticated) {
+                                      router.push(
+                                        `/login?returnTo=${encodeURIComponent(pathname)}`,
+                                      );
+                                      return;
+                                    }
+                                    setShowBlockDialog(true);
+                                  }}
+                                  className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-red-400 hover:bg-[#333]"
+                                >
+                                  <UserX className="h-3.5 w-3.5" />
+                                  <span>Chặn</span>
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMenu(false);
+                                if (!isAuthenticated) {
+                                  router.push(`/login?returnTo=${encodeURIComponent(pathname)}`);
+                                  return;
+                                }
+                                setShowReportDialog(true);
+                              }}
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-gray-200 hover:text-red-400 hover:bg-[#333]"
+                            >
+                              <Flag className="h-3.5 w-3.5 text-red-400" />
+                              <span>Báo cáo</span>
+                            </button>
+                          </>
                         )}
                       </div>
                     )}
@@ -460,6 +530,19 @@ export function CommentItem({
         targetId={comment.id}
         targetTitle={comment.body}
       />
+
+      {/* Block Confirm Dialog */}
+      {comment.author && (
+        <BlockConfirmDialog
+          isOpen={showBlockDialog}
+          targetUser={{
+            handle: comment.author.handle,
+            display_name: comment.author.display_name,
+          }}
+          onClose={() => setShowBlockDialog(false)}
+          onConfirmBlock={handleConfirmBlock}
+        />
+      )}
     </div>
   );
 }

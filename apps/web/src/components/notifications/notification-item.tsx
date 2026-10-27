@@ -20,6 +20,10 @@ export function getNotificationUrl(notification: Notification): string {
   switch (notification.kind) {
     case 'NEW_SUBSCRIBER':
       return `/c/${notification.actor.handle}`;
+    case 'FOLLOW_REQUEST':
+      return '/settings/account';
+    case 'FOLLOW_REQUEST_APPROVED':
+      return `/c/${notification.actor.handle}`;
     case 'VIDEO_COMMENT':
     case 'COMMENT_REPLY':
       if (notification.video_id && notification.comment_id) {
@@ -88,6 +92,12 @@ export function NotificationItem({
       break;
     case 'NEW_SUBSCRIBER':
       notificationText = t('kinds.NEW_SUBSCRIBER', { actor: actorName });
+      break;
+    case 'FOLLOW_REQUEST':
+      notificationText = t('kinds.FOLLOW_REQUEST', { actor: actorName });
+      break;
+    case 'FOLLOW_REQUEST_APPROVED':
+      notificationText = t('kinds.FOLLOW_REQUEST_APPROVED', { actor: actorName });
       break;
     default:
       notificationText = actorName;

@@ -160,7 +160,7 @@ export function CommentSection({ videoId }: CommentSectionProps) {
     setComments((prev) => [optimisticComment, ...prev]);
 
     try {
-      const { data, response } = await api.social.POST('/v1/videos/{video_id}/comments', {
+      const { data, response, error } = await api.social.POST('/v1/videos/{video_id}/comments', {
         params: { path: { video_id: videoId } },
         body: { body: text },
       });
@@ -176,6 +176,13 @@ export function CommentSection({ videoId }: CommentSectionProps) {
 
       // Rollback optimistic comment on failure
       setComments((prev) => prev.filter((c) => c.id !== tempId));
+
+      if ((error as any)?.code === 'INTERACTION_BLOCKED') {
+        return {
+          success: false,
+          error: 'Bạn không thể bình luận ở đây',
+        };
+      }
 
       const retryAfter = response.headers?.get?.('retry-after');
       return {
