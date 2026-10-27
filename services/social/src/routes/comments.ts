@@ -11,6 +11,7 @@ import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 import { notificationsCreatedCounter } from '../metrics.js';
+import { isBlockedEitherWay, shouldSuppressNotification } from '../utils/blocks.js';
 
 export interface CommentsRouteOptions {
   db: Kysely<Database>;
@@ -102,6 +103,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
     query = query.where(
       sql<boolean>`((c.status != 'DELETED' OR EXISTS (SELECT 1 FROM social.comments replies WHERE replies.parent_id = c.id)))`,
     );
+
+    // Filter out comments from authors in a block relationship with the caller (SOC-1b)
+    if (caller.userId) {
+      query = query.where(
+        sql<boolean>`NOT EXISTS (
+          SELECT 1 FROM social.blocks b
+          WHERE (b.blocker_id = ${caller.userId} AND b.blocked_id = c.author_id)
+             OR (b.blocker_id = c.author_id AND b.blocked_id = ${caller.userId})
+        )`,
+      );
+    }
 
     // Keyset pagination (newest first: created_at DESC, id DESC) with microsecond precision
     if (cursorData) {
@@ -220,6 +232,12 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       throw ProblemError.notFound('Video not found or not ready', 'VIDEO_NOT_FOUND');
     }
 
+    // SOC-1b: Check block between caller and video owner (either direction) -> 403 INTERACTION_BLOCKED
+    const blockedWithOwner = await isBlockedEitherWay(db, caller.userId, video.owner_id);
+    if (blockedWithOwner) {
+      throw ProblemError.forbidden('Interaction blocked', 'INTERACTION_BLOCKED');
+    }
+
     let parentComment: {
       id: string;
       video_id: string;
@@ -253,6 +271,16 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
       }
       if (parentComment.status === 'DELETED') {
         throw ProblemError.conflict('Cannot reply to a deleted comment', 'PARENT_NOT_REPLYABLE');
+      }
+
+      // SOC-1b: Check block between caller and parent comment author (either direction) -> 403 INTERACTION_BLOCKED
+      const blockedWithParentAuthor = await isBlockedEitherWay(
+        db,
+        caller.userId,
+        parentComment.author_id,
+      );
+      if (blockedWithParentAuthor) {
+        throw ProblemError.forbidden('Interaction blocked', 'INTERACTION_BLOCKED');
       }
     }
 
@@ -314,15 +342,44 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
 
       // In-app Notification (Task N1, ADR-023)
       if (parentId === null) {
-        // Top-level comment -> notify video owner if not self
+        // Top-level comment -> notify video owner if not self and not suppressed
         if (video.owner_id !== caller.userId) {
+          const suppressed = await shouldSuppressNotification(trx, caller.userId, video.owner_id);
+          if (!suppressed) {
+            const notifId = uuidv7();
+            const inserted = await trx
+              .insertInto('social.notifications')
+              .values({
+                id: notifId,
+                user_id: video.owner_id,
+                kind: 'VIDEO_COMMENT',
+                actor_id: caller.userId,
+                video_id,
+                comment_id: commentId,
+              })
+              .onConflict((oc) => oc.doNothing())
+              .returning('id')
+              .execute();
+            if (inserted.length > 0) {
+              notificationsCreatedCounter.inc({ kind: 'VIDEO_COMMENT' });
+            }
+          }
+        }
+      } else if (parentComment && parentComment.author_id !== caller.userId) {
+        // Reply -> notify parent comment author if not self and not suppressed (reply does NOT notify video owner)
+        const suppressed = await shouldSuppressNotification(
+          trx,
+          caller.userId,
+          parentComment.author_id,
+        );
+        if (!suppressed) {
           const notifId = uuidv7();
           const inserted = await trx
             .insertInto('social.notifications')
             .values({
               id: notifId,
-              user_id: video.owner_id,
-              kind: 'VIDEO_COMMENT',
+              user_id: parentComment.author_id,
+              kind: 'COMMENT_REPLY',
               actor_id: caller.userId,
               video_id,
               comment_id: commentId,
@@ -331,27 +388,8 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
             .returning('id')
             .execute();
           if (inserted.length > 0) {
-            notificationsCreatedCounter.inc({ kind: 'VIDEO_COMMENT' });
+            notificationsCreatedCounter.inc({ kind: 'COMMENT_REPLY' });
           }
-        }
-      } else if (parentComment && parentComment.author_id !== caller.userId) {
-        // Reply -> notify parent comment author if not self (reply does NOT notify video owner)
-        const notifId = uuidv7();
-        const inserted = await trx
-          .insertInto('social.notifications')
-          .values({
-            id: notifId,
-            user_id: parentComment.author_id,
-            kind: 'COMMENT_REPLY',
-            actor_id: caller.userId,
-            video_id,
-            comment_id: commentId,
-          })
-          .onConflict((oc) => oc.doNothing())
-          .returning('id')
-          .execute();
-        if (inserted.length > 0) {
-          notificationsCreatedCounter.inc({ kind: 'COMMENT_REPLY' });
         }
       }
     });
@@ -430,6 +468,14 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         )
       ) {
         throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+      }
+
+      // SOC-1b: hide comments whose author is in a block relation with the caller
+      if (caller.userId) {
+        const blocked = await isBlockedEitherWay(db, caller.userId, comment.author_id);
+        if (blocked) {
+          throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+        }
       }
 
       if (comment.status === 'HIDDEN' && !caller.isModeratorOrAdmin) {
@@ -641,6 +687,14 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
         throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
       }
 
+      // SOC-1b: hide comments whose author is in a block relation with the caller
+      if (caller.userId) {
+        const blocked = await isBlockedEitherWay(db, caller.userId, comment.author_id);
+        if (blocked) {
+          throw ProblemError.notFound('Comment not found', 'COMMENT_NOT_FOUND');
+        }
+      }
+
       const isAuthor = caller.userId === comment.author_id;
       const isVideoOwner = caller.userId === comment.video_owner_id;
       const canDelete = isAuthor || isVideoOwner || caller.isModeratorOrAdmin;
@@ -770,6 +824,17 @@ export const commentsRoute: FastifyPluginAsync<CommentsRouteOptions> = async (
 
     // Replies cannot have nested replies, so DELETED replies have no replies and are omitted
     query = query.where('c.status', '!=', 'DELETED');
+
+    // Filter out replies from authors in a block relationship with the caller (SOC-1b)
+    if (caller.userId) {
+      query = query.where(
+        sql<boolean>`NOT EXISTS (
+          SELECT 1 FROM social.blocks b
+          WHERE (b.blocker_id = ${caller.userId} AND b.blocked_id = c.author_id)
+             OR (b.blocker_id = c.author_id AND b.blocked_id = ${caller.userId})
+        )`,
+      );
+    }
 
     // Keyset pagination (oldest first: created_at ASC, id ASC) with microsecond precision
     if (cursorData) {

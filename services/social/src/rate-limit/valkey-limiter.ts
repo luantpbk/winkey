@@ -107,3 +107,7 @@ export function buildCreatePlaylistRateLimitKey(userId: string): string {
 export function buildAddPlaylistItemRateLimitKey(userId: string): string {
   return `rl:social:playlist_add:${userId}`;
 }
+
+export function buildRelationshipChangeRateLimitKey(userId: string): string {
+  return `rl:social:rel_change:${userId}`;
+}
