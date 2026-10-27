@@ -66,7 +66,11 @@ Ensure the data plane secrets (`winkey-pg-auth-svc`, `winkey-pg-media-svc`, `win
 ./deploy/k8s/apps/secrets.sh
 ```
 This generates and provisions:
-- `auth-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `JWT_PRIVATE_KEY` (RS256 2048-bit), `JWT_KID`, `COOKIE_SECRET`, and closed-beta `INVITE_CODES` (ADR-034, task BETA1).
+- `auth-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`, `JWT_PRIVATE_KEY` (RS256 2048-bit), `JWT_KID`, `COOKIE_SECRET`, closed-beta `INVITE_CODES` (ADR-034, task BETA1), and SOC-1a account security secrets (ADR-049):
+  - `TOTP_ENCRYPTION_KEYS`: `k1:<base64-32-bytes>` AES-256-GCM master key used to encrypt TOTP secrets in the database. **CRITICAL**: this key is backed up to the vault on `gpu-01` (`/mnt/hdd_storage/winkey/vault/secrets/totp_encryption_keys.txt`); losing it renders all users' TOTP tokens undecryptable.
+  - `SESSION_IP_SALT`: ≥ 32 bytes random salt used to HMAC client IPs for session logging (`sessions.ip_hash`).
+  - `WEBAUTHN_USER_HANDLE_KEY`: ≥ 32 bytes random key used to derive persistent user handles (`HMAC-SHA256(key, user_id)`) for WebAuthn passkeys.
+- `auth-turnstile`: `TURNSTILE_SECRET` (optional). If not present, `secrets.sh` prompts securely; leave blank to disable Turnstile captcha verification.
 - `auth-google`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In Google Cloud Console, configure Authorized redirect URI as `https://winkey.vn/v1/auth/oauth/google/callback`.
 - `auth-smtp`: `SMTP_URL` (optional). If not present, `secrets.sh` prompts securely; leave blank to skip. In `auth-svc`, `MAIL_TRANSPORT` defaults to `log` in `deploy/k8s/apps/auth/deployment.yaml`. To enable real outbound email sending via SMTP, change `MAIL_TRANSPORT` to `smtp` in `deployment.yaml` and configure the `auth-smtp` secret.
 - `upload-secrets`: `DATABASE_URL`, `NATS_URL`.
@@ -74,6 +78,13 @@ This generates and provisions:
 - `social-secrets`: `DATABASE_URL`, `NATS_URL`, `VALKEY_URL`.
 - `realtime-secrets`: `NATS_URL`, `VALKEY_URL`.
 - Exports `MEDIA_LINK_SECRET` to `/etc/nginx/winkey-media-link-secret` with mode `0600` for task SEC1-b nginx configuration.
+
+### Outbound Egress & Country Header (SOC-1a)
+- **Egress**: `auth-svc` connects to external HTTPS endpoints:
+  - `challenges.cloudflare.com:443` (Cloudflare Turnstile captcha siteverify).
+  - `api.pwnedpasswords.com:443` (HaveIBeenPwned k-anonymity range API for password breach check).
+  The cluster uses K3s Flannel CNI with no default-deny egress NetworkPolicies in `default` namespace; direct outbound HTTPS traffic from pods is enabled.
+- **Country Header**: Configured with `TRUSTED_COUNTRY_HEADER=CF-IPCountry`. Production apex domain `winkey.vn` currently resolves directly to the Oracle Cloud edge host (`138.2.93.173`) with direct Nginx ingress (unproxied / grey-clouded), so `CF-IPCountry` is null on inbound requests; `country` field in `auth.sessions` gracefully remains null per ADR-049 specification.
 
 ### Step 2: Apply Kustomization
 ```bash
