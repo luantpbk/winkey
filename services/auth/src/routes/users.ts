@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
-import type { Database } from '../db/types.js';
+import type { Database, ProfileLink } from '../db/types.js';
 import type { Kysely } from 'kysely';
 
 const handleParamSchema = z.object({
@@ -31,11 +31,27 @@ export const usersRoute: FastifyPluginAsync<{
       throw ProblemError.notFound(`User with handle '${handle}' not found`);
     }
 
+    let parsedLinks: ProfileLink[] = [];
+    if (Array.isArray(profile.links)) {
+      parsedLinks = profile.links;
+    } else if (typeof profile.links === 'string') {
+      try {
+        parsedLinks = JSON.parse(profile.links);
+      } catch {
+        parsedLinks = [];
+      }
+    }
+
     return reply.status(200).send({
       id: profile.id,
       handle: profile.handle,
       display_name: profile.display_name,
       avatar_url: profile.avatar_key ? `${env.MEDIA_BASE_URL}/${profile.avatar_key}` : null,
+      bio: profile.bio ?? null,
+      links: parsedLinks,
+      banner_url: profile.banner_key ? `${env.MEDIA_BASE_URL}/${profile.banner_key}` : null,
+      is_private: Boolean(profile.is_private),
+      created_at: new Date(profile.created_at).toISOString(),
     });
   });
 };

@@ -8,15 +8,18 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
-import { createMockDb, createMockStore } from '../fixtures/mock-db.js';
+import { createMockDb, createMockStore, type MockStore } from '../fixtures/mock-db.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
 
 describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', () => {
   let app: FastifyInstance;
+  let store: MockStore;
   let ajv: Ajv;
   let validateTokenResponse: ValidateFunction;
   let validateUser: ValidateFunction;
+  let validateUserProfile: ValidateFunction;
+  let validateProfileLink: ValidateFunction;
   let validatePublicProfile: ValidateFunction;
   let validateProblem: ValidateFunction;
   let validateAdminUser: ValidateFunction;
@@ -130,6 +133,12 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
     validateSessionList = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/SessionList',
     )!;
+    validateUserProfile = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/UserProfile',
+    )!;
+    validateProfileLink = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/ProfileLink',
+    )!;
 
     // 3. Build test app
     const keys = getTestKeys();
@@ -142,7 +151,7 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
       NODE_ENV: 'test',
     });
 
-    const store = createMockStore();
+    store = createMockStore();
     const { db } = createMockDb(store);
     const rateLimiter = new ValkeyRateLimiter();
 
@@ -694,5 +703,60 @@ describe('OpenAPI Contract Verification against auth.v1.yaml and common.yaml', (
       staff_roles_pending_mfa: ['admin'],
     };
     expect(validateUser(sampleUser)).toBe(true);
+  });
+
+  it('verifies SOC-1b Profile & Privacy contracts (UserProfile, UpdateMeRequest with profile fields)', async () => {
+    // 1. ProfileLink validation
+    const validLink = { url: 'https://winkey.vn', label: 'Winkey' };
+    expect(validateProfileLink(validLink)).toBe(true);
+
+    const invalidHttpLink = { url: 'http://insecure.com', label: 'Insecure' };
+    expect(validateProfileLink(invalidHttpLink)).toBe(false);
+
+    // 2. UpdateMeRequest validation with new fields
+    const validUpdateMe = {
+      bio: 'Cloud Architect & Video Streaming Enthusiast',
+      links: [validLink],
+      avatar_image_id: '018f6c38-892f-7634-9388-3490715e2197',
+      banner_image_id: null,
+      is_private: true,
+    };
+    expect(validateUpdateMeRequest(validUpdateMe)).toBe(true);
+
+    // 3. UserProfile validation against /v1/users/:handle
+    const testUserId = '018f6c38-892f-7634-9388-3490715e2198';
+    store.users.push({
+      id: testUserId,
+      email: 'publicuser@example.com',
+      email_verified_at: new Date(),
+      password_hash: null,
+      handle: 'publicuser',
+      display_name: 'Public User',
+      avatar_key: 'avatars/public.webp',
+      bio: 'Public bio',
+      links: [{ url: 'https://winkey.vn', label: 'Winkey' }],
+      banner_key: 'banners/public.webp',
+      is_private: false,
+      roles: ['viewer'],
+      status: 'ACTIVE',
+      suspended_until: null,
+      suspension_reason: null,
+      created_at: new Date('2026-01-01T00:00:00Z'),
+      updated_at: new Date(),
+    });
+
+    const userProfileRes = await app.inject({
+      method: 'GET',
+      url: '/v1/users/publicuser',
+    });
+    expect(userProfileRes.statusCode).toBe(200);
+    const userProfileBody = userProfileRes.json();
+    const isProfileValid = validateUserProfile(userProfileBody);
+    if (!isProfileValid) {
+      console.error(validateUserProfile.errors);
+    }
+    expect(isProfileValid).toBe(true);
+    expect(userProfileBody.banner_url).toBe('https://media.winkey.vn/banners/public.webp');
+    expect(userProfileBody.is_private).toBe(false);
   });
 });

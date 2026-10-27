@@ -11,6 +11,10 @@ export interface MockStore {
     handle: string;
     display_name: string;
     avatar_key: string | null;
+    bio?: string | null;
+    links?: any;
+    banner_key?: string | null;
+    is_private?: boolean;
     roles: Role[];
     status: UserStatus;
     suspended_until: Date | null;
@@ -137,6 +141,33 @@ export interface MockStore {
     country: string | null;
     created_at: Date;
   }>;
+  ready_images: Array<{
+    id: string;
+    owner_id: string;
+    purpose: 'AVATAR' | 'BANNER' | 'POST';
+    image_key: string;
+    thumb_key: string | null;
+    width: number | null;
+    height: number | null;
+  }>;
+  images: Array<{
+    id: string;
+    owner_id: string;
+    purpose: 'AVATAR' | 'BANNER' | 'POST';
+    status: 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';
+    content_type: string;
+    size_bytes: number;
+    raw_bucket: string;
+    raw_key: string;
+    image_key: string | null;
+    thumb_key: string | null;
+    width: number | null;
+    height: number | null;
+    output_bytes: number | null;
+    error: string | null;
+    created_at: Date;
+    updated_at: Date;
+  }>;
 }
 
 export function createMockStore(): MockStore {
@@ -153,6 +184,8 @@ export function createMockStore(): MockStore {
     recovery_codes: [],
     passkeys: [],
     security_events: [],
+    ready_images: [],
+    images: [],
   };
 }
 
@@ -218,6 +251,21 @@ export function createMockDb(store: MockStore = createMockStore()): {
           throw err;
         }
 
+        const bio =
+          colMap['bio'] !== undefined ? (colMap['bio'] ? String(colMap['bio']) : null) : null;
+        let links: any = [];
+        if (colMap['links'] !== undefined) {
+          try {
+            links =
+              typeof colMap['links'] === 'string' ? JSON.parse(colMap['links']) : colMap['links'];
+          } catch {
+            links = [];
+          }
+        }
+        const banner_key = colMap['banner_key'] ? String(colMap['banner_key']) : null;
+        const is_private =
+          colMap['is_private'] !== undefined ? Boolean(colMap['is_private']) : false;
+
         const newUser = {
           id: String(id),
           email: String(email).toLowerCase(),
@@ -226,6 +274,10 @@ export function createMockDb(store: MockStore = createMockStore()): {
           handle: String(handle),
           display_name: String(display_name),
           avatar_key: avatar_key ? String(avatar_key) : null,
+          bio,
+          links,
+          banner_key,
+          is_private,
           roles: Array.isArray(roles) ? roles : ['viewer', 'creator'],
           status: (status as UserStatus) || 'ACTIVE',
           suspended_until: null,
@@ -514,12 +566,103 @@ export function createMockDb(store: MockStore = createMockStore()): {
             handle: u.handle,
             display_name: u.display_name,
             avatar_key: u.avatar_key,
+            bio: u.bio ?? null,
+            links: u.links ?? [],
+            banner_key: u.banner_key ?? null,
+            is_private: Boolean(u.is_private),
+            created_at: u.created_at,
           }));
 
         if (sql.includes('"handle" = $1')) {
           matching = matching.filter((u) => u.handle === String(params[0]));
         }
         return { rows: matching, rowCount: matching.length };
+      }
+
+      // 6b. SELECT FROM "media"."ready_images"
+      if (
+        sql.includes('select') &&
+        (sql.includes('"media"."ready_images"') || sql.includes('media.ready_images'))
+      ) {
+        const allReady = [
+          ...store.ready_images,
+          ...store.images
+            .filter((img) => img.status === 'READY' && img.image_key !== null)
+            .map((img) => ({
+              id: img.id,
+              owner_id: img.owner_id,
+              purpose: img.purpose,
+              image_key: img.image_key!,
+              thumb_key: img.thumb_key,
+              width: img.width,
+              height: img.height,
+            })),
+        ];
+
+        let matching = allReady;
+        const colMatch = sql.match(/"id"\s*=\s*\$(\d+)/);
+        if (colMatch) {
+          const idVal = String(params[parseInt(colMatch[1], 10) - 1]);
+          matching = matching.filter((r) => r.id === idVal);
+        }
+        const ownerMatch = sql.match(/"owner_id"\s*=\s*\$(\d+)/);
+        if (ownerMatch) {
+          const oVal = String(params[parseInt(ownerMatch[1], 10) - 1]);
+          matching = matching.filter((r) => r.owner_id === oVal);
+        }
+        const purposeMatch = sql.match(/"purpose"\s*=\s*\$(\d+)/);
+        if (purposeMatch) {
+          const pVal = String(params[parseInt(purposeMatch[1], 10) - 1]);
+          matching = matching.filter((r) => r.purpose === pVal);
+        }
+
+        return { rows: matching, rowCount: matching.length };
+      }
+
+      // 6c. INSERT INTO "media"."images"
+      if (
+        sql.includes('insert into "media"."images"') ||
+        sql.includes('insert into media.images')
+      ) {
+        const colMatch = sql.match(/insert into ["a-z_.]+\s*\(([^)]+)\)/i);
+        const colMap: Record<string, any> = {};
+        if (colMatch) {
+          const cols = colMatch[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+          cols.forEach((col, idx) => {
+            colMap[col] = params[idx];
+          });
+        }
+        const newImg = {
+          id: String(colMap['id'] ?? params[0]),
+          owner_id: String(colMap['owner_id'] ?? params[1]),
+          purpose: colMap['purpose'] ?? params[2],
+          status: colMap['status'] ?? 'UPLOADING',
+          content_type: colMap['content_type'] ?? 'image/jpeg',
+          size_bytes: Number(colMap['size_bytes'] ?? 1024),
+          raw_bucket: colMap['raw_bucket'] ?? 'raw',
+          raw_key: colMap['raw_key'] ?? 'raw_key',
+          image_key: colMap['image_key'] ?? null,
+          thumb_key: colMap['thumb_key'] ?? null,
+          width: colMap['width'] ?? 100,
+          height: colMap['height'] ?? 100,
+          output_bytes: colMap['output_bytes'] ?? 100,
+          error: colMap['error'] ?? null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        };
+        store.images.push(newImg);
+        if (newImg.status === 'READY' && newImg.image_key) {
+          store.ready_images.push({
+            id: newImg.id,
+            owner_id: newImg.owner_id,
+            purpose: newImg.purpose,
+            image_key: newImg.image_key,
+            thumb_key: newImg.thumb_key,
+            width: newImg.width,
+            height: newImg.height,
+          });
+        }
+        return { rows: [newImg], rowCount: 1 };
       }
 
       // 7. SELECT FROM "auth"."refresh_tokens"
@@ -836,6 +979,51 @@ export function createMockDb(store: MockStore = createMockStore()): {
           if (matchAvatarKey) {
             const aIdx = parseInt(matchAvatarKey[1], 10) - 1;
             user.avatar_key = params[aIdx] ? String(params[aIdx]) : null;
+          }
+
+          const matchBio = sql.match(/"bio"\s*=\s*\$(\d+)/);
+          if (matchBio) {
+            const bIdx = parseInt(matchBio[1], 10) - 1;
+            user.bio = params[bIdx] ? String(params[bIdx]) : null;
+          }
+
+          const matchLinks = sql.match(/"links"\s*=\s*\$(\d+)/);
+          if (matchLinks) {
+            const lIdx = parseInt(matchLinks[1], 10) - 1;
+            try {
+              user.links =
+                typeof params[lIdx] === 'string' ? JSON.parse(params[lIdx]) : (params[lIdx] ?? []);
+            } catch {
+              user.links = [];
+            }
+          }
+
+          const matchBannerKey = sql.match(/"banner_key"\s*=\s*\$(\d+)/);
+          if (matchBannerKey) {
+            const bkIdx = parseInt(matchBannerKey[1], 10) - 1;
+            user.banner_key = params[bkIdx] ? String(params[bkIdx]) : null;
+          }
+
+          const matchIsPrivate = sql.match(/"is_private"\s*=\s*\$(\d+)/);
+          if (matchIsPrivate) {
+            const pIdx = parseInt(matchIsPrivate[1], 10) - 1;
+            user.is_private = Boolean(params[pIdx]);
+          }
+
+          if (sql.includes('"avatar_key" = null')) {
+            user.avatar_key = null;
+          }
+          if (sql.includes('"bio" = null')) {
+            user.bio = null;
+          }
+          if (sql.includes('"links" = null') || sql.includes(`"links" = '[]'`)) {
+            user.links = [];
+          }
+          if (sql.includes('"banner_key" = null')) {
+            user.banner_key = null;
+          }
+          if (sql.includes('"is_private" = false')) {
+            user.is_private = false;
           }
 
           const matchEmailVerifiedCoalesce = sql.match(
