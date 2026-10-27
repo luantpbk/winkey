@@ -3,9 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import _Ajv from 'ajv';
+import { Ajv, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
-const Ajv = (_Ajv as any).default ?? _Ajv;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
 import { createMockDb, createMockStore } from '../fixtures/mock-db.js';
@@ -17,27 +16,27 @@ const __dirname = path.dirname(__filename);
 
 describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml', () => {
   let app: FastifyInstance;
-  let ajv: any;
-  let validateComment: any;
-  let validateCommentPage: any;
-  let validateLikeState: any;
-  let validateSubscriptionState: any;
-  let validateSubscriptionPage: any;
-  let validateProblem: any;
-  let validateReportReceipt: any;
-  let validateReport: any;
-  let validateModerationCase: any;
-  let validateModerationCasePage: any;
-  let validateResolveCaseResult: any;
-  let validateNotification: any;
-  let validateNotificationPage: any;
-  let validateUnreadCount: any;
-  let validateMarkNotificationsReadRequest: any;
-  let validateSeriesForVideo: any;
-  let validateFollowPage: any;
-  let validateFollowRequestPage: any;
-  let validateRelationship: any;
-  let validateRelationPage: any;
+  let ajv: Ajv;
+  let validateComment: ValidateFunction;
+  let validateCommentPage: ValidateFunction;
+  let validateLikeState: ValidateFunction;
+  let validateSubscriptionState: ValidateFunction;
+  let validateSubscriptionPage: ValidateFunction;
+  let validateProblem: ValidateFunction;
+  let validateReportReceipt: ValidateFunction;
+  let validateReport: ValidateFunction;
+  let validateModerationCase: ValidateFunction;
+  let validateModerationCasePage: ValidateFunction;
+  let validateResolveCaseResult: ValidateFunction;
+  let validateNotification: ValidateFunction;
+  let validateNotificationPage: ValidateFunction;
+  let validateUnreadCount: ValidateFunction;
+  let validateMarkNotificationsReadRequest: ValidateFunction;
+  let validateSeriesForVideo: ValidateFunction;
+  let validateFollowPage: ValidateFunction;
+  let validateFollowRequestPage: ValidateFunction;
+  let validateRelationship: ValidateFunction;
+  let validateRelationPage: ValidateFunction;
 
   const mockStore = createMockStore();
 
@@ -58,7 +57,7 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
 
     // 2. Setup Ajv
     ajv = new Ajv({ strict: false, allErrors: true });
-    (addFormats as any)(ajv);
+    (addFormats as unknown as (a: unknown) => void)(ajv);
 
     commonSpec.$id = 'https://winkey.vn/contracts/openapi/common.yaml';
     socialSpec.$id = 'https://winkey.vn/contracts/openapi/social.v1.yaml';

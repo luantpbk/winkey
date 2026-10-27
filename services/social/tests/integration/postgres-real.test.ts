@@ -3708,7 +3708,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       channel_id: privOwnerId,
       subscribed: false,
       requested: true,
-      created_at: null,
+      subscriber_count: 0,
     });
 
     // Verify row in social.follow_requests
