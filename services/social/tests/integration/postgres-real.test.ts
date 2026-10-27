@@ -3736,7 +3736,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(validateFollowRequestPage(listFrBody)).toBe(true);
     expect(listFrBody.pending_count).toBe(1);
     expect(listFrBody.items).toHaveLength(1);
-    expect(listFrBody.items[0].user_id).toBe(reqUserId);
+    expect(listFrBody.items[0].requester.id).toBe(reqUserId);
 
     // 3. privOwnerId approves follow request
     const approveRes = await app.inject({
@@ -3880,7 +3880,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(listBlocksRes.statusCode).toBe(200);
     expect(validateRelationPage(listBlocksRes.json())).toBe(true);
-    expect(listBlocksRes.json().items.some((i: any) => i.user_id === blockedId)).toBe(true);
+    expect(listBlocksRes.json().items.some((i: any) => i.user.id === blockedId)).toBe(true);
 
     // Verify mutual subscriptions deleted in DB
     const subsCheck = await pool.query(
