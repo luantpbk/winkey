@@ -39,6 +39,8 @@ type Handler struct {
 	Quota quota.Limits
 	// Audio serves the extra audio tracks (MUX1); nil leaves those routes unmounted.
 	Audio domain.AudioStore
+	// Images serves the social images (SOC-1b); nil leaves /v1/images unmounted.
+	Images *Images
 }
 
 // Routes mounts the API on r under /v1/uploads.
@@ -56,6 +58,9 @@ func (h *Handler) Routes(r chi.Router) {
 			}
 		})
 	})
+	if h.Images != nil {
+		h.imageRoutes(r)
+	}
 }
 
 var allowedContentTypes = map[string]bool{
