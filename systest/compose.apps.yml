@@ -67,6 +67,7 @@ services:
     environment:
       HTTP_ADDR: ':3002'
       LOG_LEVEL: info
+      MEDIA_BASE_URL: ${MEDIA_BASE_URL:-http://127.0.0.1:8081}
       DATABASE_URL: postgres://${MEDIA_SVC_USER:-media_svc}:${MEDIA_SVC_PASSWORD:-media_svc}@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
       NATS_URL: nats://nats:4222
       S3_ENDPOINT: http://garage:3900

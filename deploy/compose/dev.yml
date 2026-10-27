@@ -326,6 +326,7 @@ services:
   #   environment:
   #     DATABASE_URL: postgres://media_svc:media_svc@postgres:5432/winkey?sslmode=disable
   #     NATS_URL: nats://nats:4222
+  #     MEDIA_BASE_URL: http://localhost:8081
   #     S3_ENDPOINT: http://garage:3900
   #     S3_PUBLIC_ENDPOINT: http://localhost:3900
   #   depends_on:
