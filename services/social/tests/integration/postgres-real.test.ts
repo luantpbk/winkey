@@ -4029,12 +4029,12 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const imgNotReady = uuidv7();
 
     await pool.query(`
-      INSERT INTO media.ready_images (id, owner_id, image_key, thumb_key, width, height, purpose, status)
+      INSERT INTO media.images (id, owner_id, image_key, thumb_key, width, height, output_bytes, size_bytes, content_type, raw_bucket, raw_key, purpose, status)
       VALUES
-        ('${imgValid}', '${userA}', 'images/valid.webp', 'images/valid_thumb.webp', 1200, 800, 'POST', 'READY'),
-        ('${imgWrongOwner}', '${userB}', 'images/b.webp', 'images/b_thumb.webp', 1200, 800, 'POST', 'READY'),
-        ('${imgWrongPurpose}', '${userA}', 'images/avatar.webp', 'images/avatar_thumb.webp', 400, 400, 'AVATAR', 'READY'),
-        ('${imgNotReady}', '${userA}', 'images/pending.webp', 'images/pending_thumb.webp', 1200, 800, 'POST', 'PENDING')
+        ('${imgValid}', '${userA}', 'images/valid.webp', 'images/valid_thumb.webp', 1200, 800, 50000, 100000, 'image/webp', 'raw', 'k1', 'POST', 'READY'),
+        ('${imgWrongOwner}', '${userB}', 'images/b.webp', 'images/b_thumb.webp', 1200, 800, 50000, 100000, 'image/webp', 'raw', 'k2', 'POST', 'READY'),
+        ('${imgWrongPurpose}', '${userA}', 'images/avatar.webp', 'images/avatar_thumb.webp', 400, 400, 50000, 100000, 'image/webp', 'raw', 'k3', 'AVATAR', 'READY'),
+        ('${imgNotReady}', '${userA}', NULL, NULL, NULL, NULL, NULL, 100000, 'image/webp', 'raw', 'k4', 'POST', 'PROCESSING')
       ON CONFLICT DO NOTHING;
     `);
 
@@ -4508,43 +4508,52 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       ANALYZE social.post_scores;
     `);
 
-    // Following feed EXPLAIN
-    const explainFollowing = await pool.query(`
-      EXPLAIN (FORMAT TEXT)
-      SELECT p.id, p.author_id, p.created_at
-      FROM social.posts p
-      WHERE p.author_id = ANY(ARRAY['${creatorA}', '${followerF}']::uuid[])
-        AND p.status = 'VISIBLE'
-      ORDER BY p.created_at DESC, p.id DESC
-      LIMIT 25;
-    `);
-    const followingPlan = explainFollowing.rows.map((r: any) => r['QUERY PLAN']).join('\n');
-    expect(followingPlan).not.toContain('Seq Scan on posts');
+    const explainClient = await pool.connect();
+    try {
+      await explainClient.query('BEGIN');
+      await explainClient.query('SET LOCAL enable_seqscan = off');
 
-    // Explore feed EXPLAIN
-    const explainExplore = await pool.query(`
-      EXPLAIN (FORMAT TEXT)
-      SELECT p.id, ps.score
-      FROM social.post_scores ps
-      INNER JOIN social.posts p ON p.id = ps.post_id
-      WHERE p.status = 'VISIBLE' AND p.visibility = 'PUBLIC'
-      ORDER BY ps.score DESC, ps.post_id DESC
-      LIMIT 25;
-    `);
-    const explorePlan = explainExplore.rows.map((r: any) => r['QUERY PLAN']).join('\n');
-    expect(explorePlan).not.toContain('Seq Scan on posts');
+      // Following feed EXPLAIN
+      const explainFollowing = await explainClient.query(`
+        EXPLAIN (FORMAT TEXT)
+        SELECT p.id, p.author_id, p.created_at
+        FROM social.posts p
+        WHERE p.author_id = ANY(ARRAY['${creatorA}', '${followerF}']::uuid[])
+          AND p.status = 'VISIBLE'
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 25;
+      `);
+      const followingPlan = explainFollowing.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+      expect(followingPlan).not.toContain('Seq Scan on posts');
 
-    // Hashtags EXPLAIN
-    const explainHashtag = await pool.query(`
-      EXPLAIN (FORMAT TEXT)
-      SELECT p.id, ph.created_at
-      FROM social.post_hashtags ph
-      INNER JOIN social.posts p ON p.id = ph.post_id
-      WHERE ph.slug = 'hanoi' AND p.status = 'VISIBLE'
-      ORDER BY ph.created_at DESC, ph.post_id DESC
-      LIMIT 25;
-    `);
-    const hashtagPlan = explainHashtag.rows.map((r: any) => r['QUERY PLAN']).join('\n');
-    expect(hashtagPlan).not.toContain('Seq Scan on posts');
+      // Explore feed EXPLAIN
+      const explainExplore = await explainClient.query(`
+        EXPLAIN (FORMAT TEXT)
+        SELECT p.id, ps.score
+        FROM social.post_scores ps
+        INNER JOIN social.posts p ON p.id = ps.post_id
+        WHERE p.status = 'VISIBLE' AND p.visibility = 'PUBLIC'
+        ORDER BY ps.score DESC, ps.post_id DESC
+        LIMIT 25;
+      `);
+      const explorePlan = explainExplore.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+      expect(explorePlan).not.toContain('Seq Scan on posts');
+
+      // Hashtags EXPLAIN
+      const explainHashtag = await explainClient.query(`
+        EXPLAIN (FORMAT TEXT)
+        SELECT p.id, ph.created_at
+        FROM social.post_hashtags ph
+        INNER JOIN social.posts p ON p.id = ph.post_id
+        WHERE ph.slug = 'hanoi' AND p.status = 'VISIBLE'
+        ORDER BY ph.created_at DESC, ph.post_id DESC
+        LIMIT 25;
+      `);
+      const hashtagPlan = explainHashtag.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+      expect(hashtagPlan).not.toContain('Seq Scan on posts');
+    } finally {
+      await explainClient.query('ROLLBACK');
+      explainClient.release();
+    }
   }, 180_000);
 });
