@@ -150,7 +150,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
 
 	outbox.SetProducer(service)
-	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true}
+	// media.outbox is shared with upload-svc and the transcoder: publish only video-svc's own subjects.
+	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true,
+		Subjects: []string{"video.deleted", "video.moderated", "video.visibility_changed"}}
 
 	router := httpx.NewRouter(service, log)
 	health.Mount(router)

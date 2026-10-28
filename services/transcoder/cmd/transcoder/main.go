@@ -139,7 +139,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: router, ReadHeaderTimeout: 10 * time.Second}
 
 	outbox.SetProducer(service)
-	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true}
+	// media.outbox is shared with upload-svc and video-svc: publish only the transcoder's own subjects.
+	relay := &outbox.Relay{Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media", Log: log, Listen: true,
+		Subjects: []string{"video.ready", "video.failed", "video.uploaded", "video.audio_ready", "video.audio_failed"}}
 	consumer := &worker.Consumer{JS: js, Pipeline: pipeline, Concurrency: concurrency, Grace: cfg.ShutdownGrace, Log: log}
 	watcher := &worker.Watcher{NC: nc, JS: js, Store: pipeline.Store, Log: log}
 	reconciler := &worker.Reconciler{Store: pipeline.Store, Interval: cfg.ReconcileInterval, StaleAfter: cfg.StaleJobAfter, MaxAttempts: cfg.MaxJobAttempts, Log: log}

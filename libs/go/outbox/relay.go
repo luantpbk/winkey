@@ -35,6 +35,12 @@ type Relay struct {
 	Publisher Publisher
 	Schema    string
 	Log       *slog.Logger
+	// Subjects limits the relay to the rows whose subject it may publish. Several services share one outbox
+	// table (media.outbox: upload-svc, video-svc, transcoder) and each NATS user may publish only its own
+	// subjects; a relay that took every row would be refused on the others' rows, and since a batch stops at
+	// the first failed publish, one foreign row would block every row behind it. Empty means every row
+	// (a schema with a single producer).
+	Subjects []string
 
 	// Zero values pick the defaults noted below.
 	PollInterval    time.Duration // 500ms
@@ -130,8 +136,13 @@ func (r *Relay) PublishBatch(ctx context.Context) (int, error) {
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
-	rows, err := tx.Query(ctx, `SELECT id, event_id::text, subject, payload::text FROM `+table+
-		` WHERE published_at IS NULL ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED`, r.BatchSize)
+	query := `SELECT id, event_id::text, subject, payload::text FROM ` + table + ` WHERE published_at IS NULL`
+	args := []any{r.BatchSize}
+	if len(r.Subjects) > 0 {
+		query += ` AND subject = ANY($2)`
+		args = append(args, r.Subjects)
+	}
+	rows, err := tx.Query(ctx, query+` ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED`, args...)
 	if err != nil {
 		return 0, err
 	}
