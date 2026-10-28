@@ -272,6 +272,11 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       pool.on('error', (_err) => {
         // Prevent unhandled error events on idle clients (e.g. 57P01 admin shutdown during container teardown)
       });
+      pool.on('connect', (client) => {
+        client.on('error', (_err) => {
+          // Prevent unhandled error events on clients during container teardown
+        });
+      });
       await pool.query('SELECT 1');
       dbUrl = testDbUrl;
 
