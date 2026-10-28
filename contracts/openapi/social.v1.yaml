@@ -32,8 +32,8 @@ info:
     - Task CIN2 (ADR-035): the cinema catalogue and series episodes live in social-svc; `/v1/cinema` and `/v1/series`
       go to social-svc (gateway: `PathPrefix`).
     - Task SOC-2a (ADR-049): posts, post comments, reactions, hashtags and feeds live in social-svc; `/v1/posts`,
-      `/v1/post-comments`, `/v1/feed` and `/v1/hashtags` go to social-svc (gateway: `PathPrefix`), as does
-      `/v1/channels/{id}/posts`.
+      `/v1/post-comments` and `/v1/hashtags` go to social-svc (gateway: `PathPrefix`), as do `/v1/feed/following`,
+      `/v1/feed/explore` and `/v1/channels/{id}/posts`. The rest of `/v1/feed` stays with video-svc.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -110,8 +110,9 @@ tags:
       authority when a video is played.
   - name: posts
     description: |
-      Posts (task SOC-2a, ADR-049 addendum 2026-10-28). Gateway: `/v1/posts`, `/v1/post-comments`, `/v1/feed` and
-      `/v1/hashtags` go to social-svc (`PathPrefix`), as does `/v1/channels/{id}/posts`.
+      Posts (task SOC-2a, ADR-049 addendum 2026-10-28). Gateway: `/v1/posts`, `/v1/post-comments` and `/v1/hashtags`
+      go to social-svc (`PathPrefix`), as do `/v1/feed/following`, `/v1/feed/explore` and `/v1/channels/{id}/posts`
+      (other `/v1/feed/*` paths belong to video-svc).
 
       A post has a plain-text `body` (≤ 2000 characters) and at most one attachment kind:
       - up to 10 images (`image_ids`: `POST` images from upload-svc `createImageUpload`, `READY`, owned by the caller,

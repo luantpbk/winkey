@@ -55,3 +55,26 @@ END
 $$;
 REVOKE ALL PRIVILEGES ON media.images FROM auth_svc;
 
+-- 6. Cross-domain read for social_svc: USAGE on media + SELECT strictly on media.ready_images (SOC-2a, ADR-049)
+GRANT USAGE ON SCHEMA media TO social_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'media' AND viewname = 'ready_images') THEN
+        GRANT SELECT ON media.ready_images TO social_svc;
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON media.images FROM social_svc;
+
+-- 7. Cross-domain read for media_svc (storage-gc): USAGE on social + SELECT strictly on social.post_media (SOC-2a, ADR-049)
+GRANT USAGE ON SCHEMA social TO media_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'social' AND tablename = 'post_media') THEN
+        GRANT SELECT ON social.post_media TO media_svc;
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON social.posts FROM media_svc;
+
+
