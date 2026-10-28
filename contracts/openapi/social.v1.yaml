@@ -117,7 +117,11 @@ tags:
       A post has a plain-text `body` (≤ 2000 characters) and at most one attachment kind:
       - up to 10 images (`image_ids`: `POST` images from upload-svc `createImageUpload`, `READY`, owned by the caller,
         not used by another post), shown in the given order;
-      - or one embedded Winkey video (`video_id`, known to `social.videos`, playable by the caller when posting);
+      - or one embedded Winkey video (`video_id`, known to `social.videos`, playable by the caller when posting),
+        which may be the caller's own short social video (`purpose: SOCIAL`, SOC-2b: owned by the caller, READY, not
+        attached to another live post, else `409` code `VIDEO_IN_USE`). The post then owns that video: social-svc
+        emits `social.post.video_attached` when the post is created and `social.post.video_released` when it is
+        deleted, and video-svc deletes the released video;
       - or a reshare of another post (`reshare_of`), with or without text ("quote" when it has text).
       A post needs a non-empty trimmed body or an attachment. Images and the embedded video cannot be changed after
       posting; `editPost` changes `body` and `visibility` only.
