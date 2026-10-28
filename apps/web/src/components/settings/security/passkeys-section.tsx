@@ -79,7 +79,11 @@ export function PasskeysSection({ onRefresh, onRequireStepUp }: PasskeysSectionP
       } = await api.auth.POST('/v1/auth/me/passkeys/registration-options');
 
       if (!optRes.ok || !options) {
-        setErrorMessage(optErr?.detail || 'Không thể khởi tạo yêu cầu đăng ký passkey.');
+        if (optRes.status === 403 && optErr?.code === 'STEP_UP_REQUIRED') {
+          onRequireStepUp(handleAddPasskey);
+        } else {
+          setErrorMessage(optErr?.detail || 'Không thể khởi tạo yêu cầu đăng ký passkey.');
+        }
         setIsAdding(false);
         return;
       }
@@ -114,6 +118,8 @@ export function PasskeysSection({ onRefresh, onRequireStepUp }: PasskeysSectionP
         if (addData.recovery_codes && addData.recovery_codes.length > 0) {
           setNewRecoveryCodes(addData.recovery_codes);
         }
+      } else if (addRes.status === 403 && addErr?.code === 'STEP_UP_REQUIRED') {
+        onRequireStepUp(handleAddPasskey);
       } else {
         setErrorMessage(addErr?.detail || 'Không thể lưu khóa truy cập mới.');
       }
@@ -142,6 +148,8 @@ export function PasskeysSection({ onRefresh, onRequireStepUp }: PasskeysSectionP
       if (response.ok) {
         setEditingId(null);
         await fetchPasskeys();
+      } else if (response.status === 403 && error?.code === 'STEP_UP_REQUIRED') {
+        onRequireStepUp(() => handleRename(id));
       } else {
         setErrorMessage(error?.detail || 'Không thể đổi tên passkey.');
       }

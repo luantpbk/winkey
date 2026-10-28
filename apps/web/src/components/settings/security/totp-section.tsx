@@ -50,6 +50,8 @@ export function TotpSection({ totpEnabled, onRefresh, onRequireStepUp }: TotpSec
         } catch (qrErr) {
           console.error('Failed to generate local QR code', qrErr);
         }
+      } else if (response.status === 403 && error?.code === 'STEP_UP_REQUIRED') {
+        onRequireStepUp(handleStartSetup);
       } else {
         setErrorMessage(error?.detail || 'Không thể bắt đầu thiết lập TOTP.');
       }
@@ -60,8 +62,7 @@ export function TotpSection({ totpEnabled, onRefresh, onRequireStepUp }: TotpSec
     }
   };
 
-  const handleConfirmSetup = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeConfirmSetup = async () => {
     if (!setupData) return;
 
     setIsSubmitting(true);
@@ -83,6 +84,8 @@ export function TotpSection({ totpEnabled, onRefresh, onRequireStepUp }: TotpSec
         if (data.recovery_codes && data.recovery_codes.length > 0) {
           setNewRecoveryCodes(data.recovery_codes);
         }
+      } else if (response.status === 403 && error?.code === 'STEP_UP_REQUIRED') {
+        onRequireStepUp(executeConfirmSetup);
       } else {
         setErrorMessage(
           error?.code === 'TOTP_CODE_INVALID'
@@ -95,6 +98,11 @@ export function TotpSection({ totpEnabled, onRefresh, onRequireStepUp }: TotpSec
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleConfirmSetup = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeConfirmSetup();
   };
 
   const executeDisableTotp = async () => {

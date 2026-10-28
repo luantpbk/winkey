@@ -104,6 +104,13 @@ export let mockRequireStepUp = false;
 export function setMockRequireStepUp(val: boolean) {
   mockRequireStepUp = val;
 }
+export function resetMockSecurityState() {
+  mockMfaEnabled = false;
+  mockTotpEnabled = false;
+  mockRecoveryCodesRemaining = 10;
+  mockStepUpUntil = null;
+  mockRequireStepUp = false;
+}
 
 let mockPasskeys: Passkey[] = [
   {
@@ -1993,6 +2000,16 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/me/totp', async () => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
     const setup: TotpSetup = {
       setup_id: 'mock-setup-id',
       secret: 'JBSWY3DPEHPK3PXP',
@@ -2003,6 +2020,16 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/me/totp/confirm', async ({ request }) => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
     const body = (await request.json().catch(() => ({}))) as any;
     if (body.code === '999999') {
       const problem: Problem = {
@@ -2082,6 +2109,16 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/me/passkeys/registration-options', async () => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
     return HttpResponse.json({
       flow_id: 'mock-reg-flow-id',
       public_key: {
@@ -2098,6 +2135,16 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/me/passkeys', async ({ request }) => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
     const body = (await request.json().catch(() => ({}))) as any;
     const newPk: Passkey = {
       id: `0192f5e4-7c1a-7b3e-9d2a-pk${Date.now()}`,
@@ -2116,6 +2163,16 @@ export const handlers = [
   }),
 
   http.patch('*/v1/auth/me/passkeys/:id', async ({ params, request }) => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
     const body = (await request.json().catch(() => ({}))) as any;
     const pk = mockPasskeys.find((p) => p.id === params.id);
     if (pk && body.name) {
