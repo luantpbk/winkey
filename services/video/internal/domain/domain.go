@@ -24,6 +24,10 @@ const (
 	VisPublic   = "PUBLIC"
 	VisUnlisted = "UNLISTED"
 	VisPrivate  = "PRIVATE"
+
+	// Video purposes (media.video_purpose, SOC-2b).
+	PurposeFilm   = "FILM"
+	PurposeSocial = "SOCIAL"
 )
 
 // ErrNotFound: the video does not exist (or, for owner-scoped writes, is not
@@ -55,13 +59,15 @@ type Rendition struct {
 // Video is a full record with owner profile and renditions. It is viewer
 // independent, so it can be cached and the visibility rules applied after.
 type Video struct {
-	ID           uuid.UUID  `json:"id"`
-	OwnerID      uuid.UUID  `json:"owner_id"`
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	Tags         []string   `json:"tags"`      // TAG1 (ADR-036); never nil when read from the store
-	TagSlugs     []string   `json:"tag_slugs"` // SEO2 (ADR-037): media.videos.tag_slugs, aligned with Tags
-	Visibility   string     `json:"visibility"`
+	ID          uuid.UUID `json:"id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Tags        []string  `json:"tags"`      // TAG1 (ADR-036); never nil when read from the store
+	TagSlugs    []string  `json:"tag_slugs"` // SEO2 (ADR-037): media.videos.tag_slugs, aligned with Tags
+	Visibility  string    `json:"visibility"`
+	// Purpose is FILM or SOCIAL (SOC-2b, ADR-049): a SOCIAL video belongs to a post and is always UNLISTED.
+	Purpose      string     `json:"purpose"`
 	Status       string     `json:"status"`
 	DurationMs   *int       `json:"duration_ms"`
 	Width        *int       `json:"width"`
@@ -90,6 +96,9 @@ type Video struct {
 	ModeratedBy      *uuid.UUID `json:"moderated_by"`
 	ModeratedAt      *time.Time `json:"moderated_at"`
 }
+
+// Social reports whether the video belongs to a post (SOC-2b).
+func (v Video) Social() bool { return v.Purpose == PurposeSocial }
 
 // Hidden reports whether a moderator hid the video.
 func (v Video) Hidden() bool { return v.ModerationState == ModHidden }

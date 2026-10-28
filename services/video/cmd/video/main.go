@@ -28,6 +28,7 @@ import (
 	"github.com/luantpbk/winkey/services/video/internal/domain"
 	"github.com/luantpbk/winkey/services/video/internal/likes"
 	"github.com/luantpbk/winkey/services/video/internal/objects"
+	"github.com/luantpbk/winkey/services/video/internal/socialvideos"
 	"github.com/luantpbk/winkey/services/video/internal/store"
 	"github.com/luantpbk/winkey/services/video/internal/subscriptions"
 	"github.com/luantpbk/winkey/services/video/internal/trending"
@@ -148,6 +149,9 @@ func run(cfg config.Config, log *slog.Logger) error {
 		log.Info("ANALYTICS_ENABLED=false: playback heartbeats are accepted and dropped")
 	}
 	likeConsumer := &likes.Consumer{JS: js, Store: st, Cache: videoCache, Log: log}
+	// SOC-2b: the short videos of posts.
+	postVideoConsumer := &socialvideos.Consumer{JS: js, Store: st, Cache: videoCache, MediaBucket: cfg.MediaBucket, Log: log}
+	socialJanitor := &socialvideos.Janitor{Store: st, Cache: videoCache, MediaBucket: cfg.MediaBucket, Log: log}
 
 	outbox.SetProducer(service)
 	// media.outbox is shared with upload-svc and the transcoder: publish only video-svc's own subjects.
@@ -177,8 +181,10 @@ func run(cfg config.Config, log *slog.Logger) error {
 	wg.Add(2)
 	go func() { defer wg.Done(); _ = relay.Run(ctx) }()
 	go func() { defer wg.Done(); _ = likeConsumer.Run(ctx) }()
-	wg.Add(1)
+	wg.Add(3)
 	go func() { defer wg.Done(); _ = subConsumer.Run(ctx) }()
+	go func() { defer wg.Done(); _ = postVideoConsumer.Run(ctx) }()
+	go func() { defer wg.Done(); _ = socialJanitor.Run(ctx) }()
 	if trendingJob != nil {
 		wg.Add(1)
 		go func() { defer wg.Done(); _ = trendingJob.Run(ctx) }()
