@@ -66,6 +66,12 @@ import type {
   AudioTrack,
   HistoryItem,
   HistoryPage,
+  SecuritySummary,
+  StepUpRequest,
+  TotpSetup,
+  Passkey,
+  Session,
+  SecurityEvent,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -88,6 +94,68 @@ let dynamicStudioVideos: StudioVideo[] = [...mockStudioVideos];
 let dynamicAdminUsers: AdminUser[] = [...mockAdminUsers];
 let dynamicModerationCases: ModerationCase[] = [...mockModerationCases];
 let dynamicAuditEntries: AuditEntry[] = [...mockAuditEntries];
+
+// SOC-1a Security Mocks
+let mockMfaEnabled = false;
+let mockTotpEnabled = false;
+let mockRecoveryCodesRemaining = 10;
+let mockStepUpUntil: string | null = null;
+export let mockRequireStepUp = false;
+export function setMockRequireStepUp(val: boolean) {
+  mockRequireStepUp = val;
+}
+
+let mockPasskeys: Passkey[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-pk0000000001',
+    name: 'MacBook TouchID',
+    backed_up: true,
+    created_at: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
+    last_used_at: new Date(Date.now() - 3600000 * 2).toISOString(),
+  },
+];
+
+let mockSessions: Session[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-ss0000000001',
+    current: true,
+    device_label: 'Chrome trên macOS',
+    country: 'VN',
+    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+    last_used_at: new Date().toISOString(),
+    methods: ['pwd'],
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-ss0000000002',
+    current: false,
+    device_label: 'Safari trên iPhone 15',
+    country: 'VN',
+    created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
+    last_used_at: new Date(Date.now() - 3600000 * 5).toISOString(),
+    methods: ['passkey'],
+  },
+];
+
+const mockSecurityEvents: SecurityEvent[] = [
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-ev0000000001',
+    kind: 'SIGN_IN',
+    device_label: 'Chrome trên macOS',
+    country: 'VN',
+    session_id: '0192f5e4-7c1a-7b3e-9d2a-ss0000000001',
+    details: {},
+    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+  },
+  {
+    id: '0192f5e4-7c1a-7b3e-9d2a-ev0000000002',
+    kind: 'PASSKEY_ADDED',
+    device_label: 'Chrome trên macOS',
+    country: 'VN',
+    session_id: '0192f5e4-7c1a-7b3e-9d2a-ss0000000001',
+    details: {},
+    created_at: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
+  },
+];
 
 const initialMockCreatorRequests: AdminCreatorRequest[] = [
   {
@@ -1091,7 +1159,32 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/login', async ({ request }) => {
-    const body = (await request.json()) as { email?: string; password?: string };
+    const body = (await request.json()) as {
+      email?: string;
+      password?: string;
+      turnstile_token?: string;
+    };
+
+    if (body.email === 'captcha@winkey.vn' && !body.turnstile_token) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Captcha Required',
+        status: 403,
+        code: 'CAPTCHA_REQUIRED',
+        detail: 'Vui lòng xác nhận captcha trước khi tiếp tục.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+
+    if (body.email === 'mfa@winkey.vn' || body.password === 'require-mfa') {
+      return HttpResponse.json({
+        mfa_required: true,
+        mfa_token: 'mock-mfa-token-12345',
+        methods: ['totp', 'recovery_code', 'passkey'],
+        expires_in: 300,
+      });
+    }
+
     if (body.password === 'wrongpassword') {
       const problem: Problem = {
         type: '/problems/unauthorized',
@@ -1103,7 +1196,9 @@ export const handlers = [
       return HttpResponse.json(problem, { status: 401 });
     }
 
-    if (
+    if (body.email === 'pending_staff@winkey.vn') {
+      currentUser = mockUsers.pending_staff;
+    } else if (
       body.email === 'admin@winkey.vn' ||
       body.email === 'sim_admin@example.com' ||
       body.email?.includes('admin')
@@ -1791,6 +1886,313 @@ export const handlers = [
       );
     }
     return HttpResponse.json(profile);
+  }),
+
+  // --- SOC-1a SECURITY ENDPOINTS ---
+  http.post('*/v1/auth/login/mfa', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (body.mfa_token === 'invalid-token') {
+      const problem: Problem = {
+        type: '/problems/mfa-token-invalid',
+        title: 'MFA Token Invalid',
+        status: 400,
+        code: 'MFA_TOKEN_INVALID',
+        detail: 'Phiên xác thực đã hết hạn hoặc không hợp lệ.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    if (body.code === '999999' || body.recovery_code === 'invalid-recovery') {
+      const problem: Problem = {
+        type: '/problems/mfa-code-invalid',
+        title: 'MFA Code Invalid',
+        status: 400,
+        code: 'MFA_CODE_INVALID',
+        detail: 'Mã xác thực không hợp lệ hoặc đã hết hạn.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    currentUser = mockUsers.creator;
+    return HttpResponse.json({
+      access_token: `mock-mfa-access-${currentUser.id}`,
+      token_type: 'Bearer',
+      expires_in: 900,
+      user: currentUser,
+    });
+  }),
+
+  http.post('*/v1/auth/passkeys/assertion-options', async () => {
+    return HttpResponse.json({
+      flow_id: 'mock-assertion-flow-id',
+      public_key: {
+        challenge: 'Y2hhbGxlbmdl',
+        timeout: 60000,
+        rpId: 'localhost',
+        userVerification: 'preferred',
+      },
+    });
+  }),
+
+  http.post('*/v1/auth/passkeys/login', async () => {
+    currentUser = mockUsers.creator;
+    return HttpResponse.json({
+      access_token: `mock-passkey-access-${currentUser.id}`,
+      token_type: 'Bearer',
+      expires_in: 900,
+      user: currentUser,
+    });
+  }),
+
+  http.get('*/v1/auth/me/security', async () => {
+    const summary: SecuritySummary = {
+      mfa_enabled: mockMfaEnabled,
+      totp_enabled: mockTotpEnabled,
+      passkey_count: mockPasskeys.length,
+      recovery_codes_remaining: mockRecoveryCodesRemaining,
+      has_password: true,
+      step_up_until: mockStepUpUntil,
+      staff_roles_pending_mfa: currentUser?.staff_roles_pending_mfa || [],
+    };
+    return HttpResponse.json(summary);
+  }),
+
+  http.post('*/v1/auth/me/step-up', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as StepUpRequest;
+    if (body.method === 'password' && body.password === 'wrongpassword') {
+      const problem: Problem = {
+        type: '/problems/password-invalid',
+        title: 'Invalid Password',
+        status: 400,
+        code: 'PASSWORD_INVALID',
+        detail: 'Mật khẩu không chính xác.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    if ((body.method === 'totp' || body.method === 'email_code') && body.code === '999999') {
+      const problem: Problem = {
+        type: '/problems/step-up-code-invalid',
+        title: 'Invalid Code',
+        status: 400,
+        code: 'STEP_UP_CODE_INVALID',
+        detail: 'Mã xác thực không chính xác.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    mockStepUpUntil = new Date(Date.now() + 900000).toISOString();
+    mockRequireStepUp = false;
+    return HttpResponse.json({
+      step_up_until: mockStepUpUntil,
+    });
+  }),
+
+  http.post('*/v1/auth/me/step-up/email-code', async () => {
+    return new HttpResponse(null, { status: 202 });
+  }),
+
+  http.post('*/v1/auth/me/totp', async () => {
+    const setup: TotpSetup = {
+      setup_id: 'mock-setup-id',
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauth_uri: 'otpauth://totp/Winkey:creator?secret=JBSWY3DPEHPK3PXP&issuer=Winkey',
+      expires_at: new Date(Date.now() + 600000).toISOString(),
+    };
+    return HttpResponse.json(setup);
+  }),
+
+  http.post('*/v1/auth/me/totp/confirm', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (body.code === '999999') {
+      const problem: Problem = {
+        type: '/problems/totp-invalid',
+        title: 'Invalid TOTP',
+        status: 400,
+        code: 'TOTP_CODE_INVALID',
+        detail: 'Mã xác thực không hợp lệ.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+
+    mockTotpEnabled = true;
+    mockMfaEnabled = true;
+    return HttpResponse.json({
+      recovery_codes: [
+        '1a2b-3c4d',
+        '5e6f-7g8h',
+        '9i0j-1k2l',
+        '3m4n-5o6p',
+        '7q8r-9s0t',
+        '1u2v-3w4x',
+        '5y6z-7a8b',
+        '9c0d-1e2f',
+        '3g4h-5i6j',
+        '7k8l-9m0n',
+      ],
+    });
+  }),
+
+  http.delete('*/v1/auth/me/totp', async () => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+    mockTotpEnabled = false;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/auth/me/recovery-codes', async () => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+
+    mockRecoveryCodesRemaining = 10;
+    return HttpResponse.json({
+      recovery_codes: [
+        'r1a2-b3c4',
+        'r5e6-f7g8',
+        'r9i0-j1k2',
+        'r3m4-n5o6',
+        'r7q8-s9t0',
+        'r1u2-v3w4',
+        'r5y6-z7a8',
+        'r9c0-d1e2',
+        'r3g4-h5i6',
+        'r7k8-l9m0',
+      ],
+    });
+  }),
+
+  http.get('*/v1/auth/me/passkeys', async () => {
+    return HttpResponse.json({ items: mockPasskeys });
+  }),
+
+  http.post('*/v1/auth/me/passkeys/registration-options', async () => {
+    return HttpResponse.json({
+      flow_id: 'mock-reg-flow-id',
+      public_key: {
+        challenge: 'Y2hhbGxlbmdl',
+        rp: { name: 'Winkey', id: 'localhost' },
+        user: {
+          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+          name: 'creator',
+          displayName: 'Creator',
+        },
+        pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+      },
+    });
+  }),
+
+  http.post('*/v1/auth/me/passkeys', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const newPk: Passkey = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-pk${Date.now()}`,
+      name: body.name || 'Khóa mới',
+      backed_up: false,
+      created_at: new Date().toISOString(),
+      last_used_at: null,
+    };
+    mockPasskeys.push(newPk);
+    mockMfaEnabled = true;
+
+    return HttpResponse.json({
+      passkey: newPk,
+      recovery_codes: null,
+    });
+  }),
+
+  http.patch('*/v1/auth/me/passkeys/:id', async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const pk = mockPasskeys.find((p) => p.id === params.id);
+    if (pk && body.name) {
+      pk.name = body.name;
+    }
+    return HttpResponse.json({ passkey: pk });
+  }),
+
+  http.delete('*/v1/auth/me/passkeys/:id', async ({ params }) => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+    mockPasskeys = mockPasskeys.filter((p) => p.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/auth/me/sessions', async () => {
+    return HttpResponse.json({ items: mockSessions });
+  }),
+
+  http.delete('*/v1/auth/me/sessions/:id', async ({ params }) => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+    mockSessions = mockSessions.filter((s) => s.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/auth/me/sessions/revoke-others', async () => {
+    if (mockRequireStepUp) {
+      const problem: Problem = {
+        type: '/problems/forbidden',
+        title: 'Step Up Required',
+        status: 403,
+        code: 'STEP_UP_REQUIRED',
+        detail: 'Yêu cầu xác thực bảo mật nâng cao.',
+      };
+      return HttpResponse.json(problem, { status: 403 });
+    }
+    mockSessions = mockSessions.filter((s) => s.current);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('*/v1/auth/sessions/report', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (body.token === 'invalid-token') {
+      const problem: Problem = {
+        type: '/problems/invalid-token',
+        title: 'Invalid Token',
+        status: 400,
+        code: 'TOKEN_INVALID',
+        detail: 'Mã token báo cáo không hợp lệ hoặc đã hết hạn.',
+      };
+      return HttpResponse.json(problem, { status: 400 });
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/auth/me/security-events', async () => {
+    return HttpResponse.json({
+      items: mockSecurityEvents,
+      next_cursor: null,
+    });
   }),
 
   // --- VIDEO ENDPOINTS ---

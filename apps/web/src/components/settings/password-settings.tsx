@@ -70,7 +70,11 @@ export function PasswordSettings({ user }: PasswordSettingsProps) {
         }
       } else {
         const error = res.error as Problem | undefined;
-        if (
+        if (error?.code === 'PASSWORD_BREACHED') {
+          setFieldErrors({
+            newPassword: 'Mật khẩu này đã bị lộ trong một vụ rò rỉ dữ liệu, hãy chọn mật khẩu khác',
+          });
+        } else if (
           res.response.status === 403 ||
           error?.code === 'INVALID_CREDENTIALS' ||
           error?.code === 'FORBIDDEN'

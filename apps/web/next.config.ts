@@ -22,6 +22,11 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
+    const isDev = process.env.NODE_ENV === 'development';
+    const scriptSrc = isDev
+      ? "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com;"
+      : "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com;";
+
     return [
       {
         source: '/embed/:path*',
@@ -29,6 +34,15 @@ const nextConfig: NextConfig = {
           {
             key: 'Content-Security-Policy',
             value: 'frame-ancestors *',
+          },
+        ],
+      },
+      {
+        source: '/((?!embed).*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: scriptSrc,
           },
         ],
       },
