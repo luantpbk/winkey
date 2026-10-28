@@ -792,6 +792,297 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a post (text, images, an embedded video, or a reshare). */
+        post: operations["createPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/posts/{post_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        /** One post (deep link). Optional auth. */
+        get: operations["getPost"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete (author, moderator or admin). Idempotent.
+         * @description Sets `status = DELETED`, wipes the body and removes its images, reactions, hashtags and mentions; comments stay
+         *     for moderation history but are no longer reachable. Reshares remain and show the original as unavailable.
+         *     The post's images become unreferenced and are removed by storage-gc after 48 hours.
+         */
+        delete: operations["deletePost"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit the body and/or visibility (author only). Sets `edited_at` when the body changes.
+         * @description Mentions and hashtags are re-parsed from the new body; only users mentioned for the first time are notified.
+         *     A reshare cannot become `FOLLOWERS` (`409` code `RESHARE_VISIBILITY`); a post that has reshares may become
+         *     `FOLLOWERS`, and its reshares then show it as unavailable to non-followers. Editing a reshare to an empty body is
+         *     allowed only when it is not the user's second plain reshare of that post (`409` code `ALREADY_RESHARED`).
+         */
+        patch: operations["editPost"];
+        trace?: never;
+    };
+    "/v1/posts/{post_id}/moderation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Hide or restore a post (moderator or admin). */
+        put: operations["moderatePost"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/posts/{post_id}/reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Set or replace the caller's reaction. Idempotent. */
+        put: operations["setPostReaction"];
+        post?: never;
+        /** Remove the caller's reaction. Idempotent. */
+        delete: operations["removePostReaction"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/posts/{post_id}/reactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Who reacted, newest first, optionally one kind. Optional auth.
+         * @description Users in a block relation with the caller are left out.
+         */
+        get: operations["listPostReactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/posts/{post_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        /** Top-level comments on a post, newest first. Optional auth. */
+        get: operations["listPostComments"];
+        put?: never;
+        /** Comment on a post or reply to a top-level comment. */
+        post: operations["createPostComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/post-comments/{comment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        /** One post comment (deep link). Optional auth. */
+        get: operations["getPostComment"];
+        put?: never;
+        post?: never;
+        /** Delete (comment author, post author, moderator or admin). Idempotent. */
+        delete: operations["deletePostComment"];
+        options?: never;
+        head?: never;
+        /** Edit the body (author only). Sets `edited_at`. */
+        patch: operations["editPostComment"];
+        trace?: never;
+    };
+    "/v1/post-comments/{comment_id}/replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        /** Replies to a top-level post comment, oldest first. Optional auth. */
+        get: operations["listPostCommentReplies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/post-comments/{comment_id}/moderation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Hide or restore a post comment (moderator or admin). */
+        put: operations["moderatePostComment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/feed/following": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** "Đang theo dõi": own posts and posts of followed accounts, newest first. */
+        get: operations["getFollowingFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/feed/explore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * "Khám phá": ranked public posts of the last 7 days. Optional auth.
+         * @description The cursor pins the ranking snapshot it was issued from; a cursor older than the current snapshot returns
+         *     `400` code `CURSOR_EXPIRED` and the client restarts from the first page.
+         */
+        get: operations["getExploreFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hashtags/{tag}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A hashtag slug (`hanoi`) or its text (`HàNội`); social-svc derives the slug. */
+                tag: string;
+            };
+            cookie?: never;
+        };
+        /** Posts with a hashtag, newest first. Optional auth. */
+        get: operations["listHashtagPosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hashtags/trending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Top hashtags of the last 24 hours. Optional auth.
+         * @description Ranked by the number of visible public posts of public accounts carrying the hashtag in the last 24 hours,
+         *     then by slug. A top-N list with no cursor. `Cache-Control: public, max-age=60`.
+         */
+        get: operations["listTrendingHashtags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels/{channel_id}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A user's posts, newest first. Optional auth.
+         * @description Only the posts the caller may see; a private account's timeline is empty for non-followers.
+         */
+        get: operations["listChannelPosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -870,10 +1161,17 @@ export interface components {
          *     `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
          *     `FOLLOW_REQUEST` — someone asked to follow your private account (SOC-1b; only the first time per requester).
          *     `FOLLOW_REQUEST_APPROVED` — your follow request was approved (actor = the account you now follow).
-         *     No notification is created between users in a block relation, or for a muter from a muted actor.
+         *     `POST_COMMENT` — someone commented on your post (SOC-2a; `post_id`, `post_comment_id`).
+         *     `POST_COMMENT_REPLY` — someone replied to your post comment (`post_id`, `post_comment_id` = the reply).
+         *     `POST_MENTION` — someone mentioned you in a post (`post_id`; once per post).
+         *     `POST_RESHARE` — someone reshared your post (`post_id` = the reshare).
+         *     `POST_REACTION` — someone reacted to your post (`post_id`; once per reacting user and post).
+         *     No notification is created between users in a block relation, or for a muter from a muted actor. A post
+         *     notification whose post or comment is gone, hidden or no longer visible to the recipient is not returned.
+         *     Clients ignore kinds they do not know.
          * @enum {string}
          */
-        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER" | "FOLLOW_REQUEST" | "FOLLOW_REQUEST_APPROVED";
+        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER" | "FOLLOW_REQUEST" | "FOLLOW_REQUEST_APPROVED" | "POST_COMMENT" | "POST_COMMENT_REPLY" | "POST_MENTION" | "POST_RESHARE" | "POST_REACTION";
         Notification: {
             id: components["schemas"]["Uuid"];
             kind: components["schemas"]["NotificationKind"];
@@ -882,6 +1180,16 @@ export interface components {
             video_id: string | null;
             /** Format: uuid */
             comment_id: string | null;
+            /**
+             * Format: uuid
+             * @description Set for `POST_*` kinds (SOC-2a). Sent by every SOC-2a server; a missing value means `null`.
+             */
+            post_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Set for `POST_COMMENT` and `POST_COMMENT_REPLY`. A missing value means `null`.
+             */
+            post_comment_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -969,8 +1277,11 @@ export interface components {
         PlaylistMembership: {
             playlist_ids: components["schemas"]["Uuid"][];
         };
-        /** @enum {string} */
-        ReportTargetType: "VIDEO" | "COMMENT" | "USER";
+        /**
+         * @description `POST` and `POST_COMMENT` since SOC-2a; `target_id` is the post or post comment id.
+         * @enum {string}
+         */
+        ReportTargetType: "VIDEO" | "COMMENT" | "USER" | "POST" | "POST_COMMENT";
         /** @enum {string} */
         ReportReason: "SPAM" | "HARASSMENT" | "HATE" | "SEXUAL" | "VIOLENCE" | "COPYRIGHT" | "MISINFORMATION" | "OTHER";
         /** @enum {string} */
@@ -1126,6 +1437,163 @@ export interface components {
             next_cursor: string | null;
         };
         /**
+         * @description A private account's posts are followers-only whatever this value says.
+         * @enum {string}
+         */
+        PostVisibility: "PUBLIC" | "FOLLOWERS";
+        /** @enum {string} */
+        PostStatus: "VISIBLE" | "DELETED" | "HIDDEN";
+        /** @enum {string} */
+        ReactionKind: "LIKE" | "LOVE" | "HAHA" | "WOW" | "SAD" | "ANGRY";
+        PostImage: {
+            id: components["schemas"]["Uuid"];
+            /**
+             * Format: uri
+             * @description WebP, long edge ≤ 1600 px (`MEDIA_BASE_URL` + image key).
+             */
+            url: string;
+            /**
+             * Format: uri
+             * @description WebP, long edge ≤ 400 px.
+             */
+            thumb_url: string;
+            width: number;
+            height: number;
+        };
+        PostMention: {
+            user_id: components["schemas"]["Uuid"];
+            /** @description Current handle; the body keeps the handle as written. */
+            handle: string;
+        };
+        PostHashtag: {
+            /** @description As first written in the body, without `#`. */
+            tag: string;
+            slug: string;
+        };
+        ReactionCount: {
+            reaction: components["schemas"]["ReactionKind"];
+            count: number;
+        };
+        Post: {
+            id: components["schemas"]["Uuid"];
+            /** @description `null` when the author no longer has an active profile. */
+            author: components["schemas"]["PublicProfile"] | null;
+            body: string;
+            visibility: components["schemas"]["PostVisibility"];
+            status: components["schemas"]["PostStatus"];
+            images: components["schemas"]["PostImage"][];
+            /** @description Embedded Winkey video, or `null` (none, or the caller cannot play it). Hydrate with video-svc `batchGetVideos`. */
+            video_id: components["schemas"]["Uuid"] | null;
+            /** @description Id of the reshared original, or `null`. */
+            reshare_of: components["schemas"]["Uuid"] | null;
+            /**
+             * @description The original, one level deep (its own `reshared_post` is always `null`), or `null` when this is not a reshare
+             *     or the caller cannot see the original.
+             */
+            reshared_post: components["schemas"]["Post"] | null;
+            /** @description This is a reshare whose original is deleted, hidden, or not visible to the caller. */
+            reshare_unavailable: boolean;
+            mentions: components["schemas"]["PostMention"][];
+            hashtags: components["schemas"]["PostHashtag"][];
+            reaction_count: number;
+            /** @description The most used reaction kinds on this post, most used first. */
+            top_reactions: components["schemas"]["ReactionCount"][];
+            /** @description The caller's reaction; `null` when none or anonymous. */
+            my_reaction: components["schemas"]["ReactionKind"] | null;
+            comment_count: number;
+            reshare_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            edited_at: string | null;
+            /** @description The caller is the author and the post is VISIBLE. */
+            can_edit: boolean;
+            /** @description The caller is the author, a moderator or an admin. */
+            can_delete: boolean;
+        };
+        PostPage: {
+            items: components["schemas"]["Post"][];
+            next_cursor: string | null;
+        };
+        CreatePostRequest: {
+            /**
+             * @description Plain text, trimmed. Required (non-empty after trimming) unless an attachment is given.
+             * @default
+             */
+            body: string;
+            /** @description Defaults to `PUBLIC`. A reshare must be `PUBLIC`. */
+            visibility?: components["schemas"]["PostVisibility"];
+            /**
+             * @description `POST` images, `READY`, owned by the caller and not used by another post; otherwise `400` code
+             *     `IMAGE_INVALID`. Exclusive with `video_id` and `reshare_of`.
+             */
+            image_ids?: components["schemas"]["Uuid"][];
+            /** @description A Winkey video the caller can play (`PUBLIC` or `UNLISTED`, or the caller's own); otherwise `404`. */
+            video_id?: components["schemas"]["Uuid"];
+            /**
+             * @description A post the caller can see, `PUBLIC`, by a public account; otherwise `404` (cannot see) or `409` code
+             *     `NOT_RESHAREABLE`. A reshare of a reshare points at its original.
+             */
+            reshare_of?: components["schemas"]["Uuid"];
+        };
+        EditPostRequest: {
+            /** @description The trimmed body may be empty only if the post has an attachment. */
+            body?: string;
+            visibility?: components["schemas"]["PostVisibility"];
+        };
+        SetReactionRequest: {
+            reaction: components["schemas"]["ReactionKind"];
+        };
+        ReactionState: {
+            post_id: components["schemas"]["Uuid"];
+            my_reaction: components["schemas"]["ReactionKind"] | null;
+            reaction_count: number;
+            top_reactions: components["schemas"]["ReactionCount"][];
+        };
+        ReactionItem: {
+            user: components["schemas"]["PublicProfile"];
+            reaction: components["schemas"]["ReactionKind"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        ReactionPage: {
+            items: components["schemas"]["ReactionItem"][];
+            next_cursor: string | null;
+        };
+        PostComment: {
+            id: components["schemas"]["Uuid"];
+            post_id: components["schemas"]["Uuid"];
+            /** @description `null` for a top-level comment. */
+            parent_id: components["schemas"]["Uuid"] | null;
+            /** @description `null` when the author no longer has an active profile. */
+            author: components["schemas"]["PublicProfile"] | null;
+            /** @description Empty for `DELETED` tombstones. */
+            body: string;
+            status: components["schemas"]["CommentStatus"];
+            reply_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            edited_at: string | null;
+            /** @description The caller is the author and the comment is VISIBLE. */
+            can_edit: boolean;
+            /** @description The caller is the comment author, the post author, a moderator or an admin. */
+            can_delete: boolean;
+        };
+        PostCommentPage: {
+            items: components["schemas"]["PostComment"][];
+            next_cursor: string | null;
+        };
+        TrendingHashtag: {
+            /** @description The most used spelling in the window. */
+            tag: string;
+            slug: string;
+            post_count: number;
+        };
+        TrendingHashtags: {
+            items: components["schemas"]["TrendingHashtag"][];
+        };
+        /**
          * Format: uuid
          * @description UUIDv7 generated by the owning service.
          * @example 0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c0d
@@ -1228,6 +1696,7 @@ export interface components {
         /** @description User id of the other user. */
         RelationUserId: components["schemas"]["Uuid"];
         PlaylistId: components["schemas"]["Uuid"];
+        PostId: components["schemas"]["Uuid"];
         VideoId: components["schemas"]["Uuid"];
         /** @description Opaque cursor copied from `next_cursor` of the previous page. */
         Cursor: string;
@@ -2464,6 +2933,560 @@ export interface operations {
                     "application/json": components["schemas"]["SeriesEpisodeContext"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    /** @description `/v1/posts/{post_id}` */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deletePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    editPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditPostRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated post. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    moderatePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModerateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Post after moderation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Post"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    setPostReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Reaction state after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    removePostReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reaction state after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listPostReactions: {
+        parameters: {
+            query?: {
+                reaction?: components["schemas"]["ReactionKind"];
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of reactions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPostComments: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of top-level comments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostCommentPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createPostComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    /** @description `/v1/post-comments/{comment_id}` */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostComment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPostComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostComment"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deletePostComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    editPostComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostComment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listPostCommentReplies: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of replies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostCommentPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    moderatePostComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comment_id: components["parameters"]["CommentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModerateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Comment after moderation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostComment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getFollowingFeed: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getExploreFeed: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    listHashtagPosts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description A hashtag slug (`hanoi`) or its text (`HàNội`); social-svc derives the slug. */
+                tag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    listTrendingHashtags: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trending hashtags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendingHashtags"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    listChannelPosts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description User id of the channel owner. */
+                channel_id: components["parameters"]["ChannelId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of posts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
         };
     };
