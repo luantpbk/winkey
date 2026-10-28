@@ -57,4 +57,27 @@ BEGIN
     END IF;
 END
 $$;
+REVOKE ALL PRIVILEGES ON media.images FROM auth_svc;
+
+-- 7. social_svc needs SELECT on media.ready_images for post images (SOC-2a, ADR-049)
+GRANT USAGE ON SCHEMA media TO social_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'media' AND viewname = 'ready_images') THEN
+        GRANT SELECT ON media.ready_images TO social_svc;
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON media.images FROM social_svc;
+
+-- 8. media_svc (storage-gc) needs SELECT on social.post_media to verify post images (SOC-2a, ADR-049)
+GRANT USAGE ON SCHEMA social TO media_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'social' AND tablename = 'post_media') THEN
+        GRANT SELECT ON social.post_media TO media_svc;
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON social.posts FROM media_svc;
 
