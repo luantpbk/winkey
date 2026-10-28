@@ -28,7 +28,14 @@ type Video struct {
 	Status    string
 	RawBucket string
 	RawKey    string
+	Purpose   string // media.video_purpose: "FILM" or "SOCIAL" (SOC-2b)
 }
+
+// PurposeSocial marks a short video owned by a post (SOC-2b, ADR-049).
+const PurposeSocial = "SOCIAL"
+
+// Social reports whether v is a short social video.
+func (v Video) Social() bool { return v.Purpose == PurposeSocial }
 
 // BeginResult is the outcome of Store.BeginJob.
 type BeginResult struct {

@@ -1716,7 +1716,7 @@ Quyết định cho SOC-2a:
   - `SOCIAL` là video quay hoặc tải lên cho một bài đăng.
   Video `SOCIAL` dùng lại cả pipeline (multipart, transcoder, HLS, URL ký, phát), không cần dịch vụ mới.
 - **Giới hạn và nén** (transcoder, kiến trúc sư):
-  - tối đa 300 MiB (upload-svc kiểm tra, có cả CHECK trong DB) và 180 giây (transcoder đánh `FAILED` với mã `TOO_LONG`);
+  - tối đa 300 MiB (upload-svc kiểm tra, có cả CHECK trong DB) và 180 giây (transcoder đánh `FAILED`, lý do `INVALID_INPUT`, không thử lại);
   - chỉ 2 rendition **720p và 360p** theo cạnh ngắn, video dọc giữ dọc; capped CRF (x264 CRF 28, NVENC CQ tương đương), trần 720p khoảng 1,2 Mbps và 360p khoảng 0,5 Mbps; AAC 96 kbps;
   - không AV1, không storyboard; vẫn có ảnh bìa;
   - **xoá file gốc ngay khi READY** (khác phim: phim vẫn giữ file gốc).

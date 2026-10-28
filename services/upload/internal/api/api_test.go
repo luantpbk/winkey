@@ -26,6 +26,7 @@ import (
 type fakeStore struct {
 	mu       sync.Mutex
 	videos   map[uuid.UUID]*domain.Video
+	created  []domain.NewVideo // every NewVideo handed to Create
 	events   []domain.UploadedEvent
 	progress float64
 
@@ -40,6 +41,7 @@ func (s *fakeStore) Create(ctx context.Context, v domain.NewVideo, check func(do
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checked = append(s.checked, check != nil)
+	s.created = append(s.created, v)
 	if check != nil {
 		if err := check(s.usage); err != nil {
 			return err
@@ -501,5 +503,40 @@ func TestGetStatusReportsProgressAndError(t *testing.T) {
 	w = e.do(e.owner, "creator", "GET", "/v1/uploads/"+id, "")
 	if !strings.Contains(w.Body.String(), `"error":null`) {
 		t.Fatalf("expected explicit null: %s", w.Body)
+	}
+}
+
+// SOC-2b (ADR-049): a SOCIAL upload is open to any signed-in user, always UNLISTED and at most 300 MiB.
+func TestCreateSocialVideo(t *testing.T) {
+	e := newEnv()
+	social := `{"title":"clip","filename":"a.mp4","content_type":"video/mp4","size_bytes":1048576,"visibility":"PUBLIC","purpose":"SOCIAL"}`
+	w := e.do(e.owner, "viewer", "POST", "/v1/uploads", social)
+	if w.Code != 201 {
+		t.Fatalf("viewer social upload: %d %s", w.Code, w.Body)
+	}
+	got := e.store.created[len(e.store.created)-1]
+	if got.Purpose != domain.PurposeSocial || got.Visibility != "UNLISTED" {
+		t.Fatalf("stored purpose=%q visibility=%q; want SOCIAL / UNLISTED", got.Purpose, got.Visibility)
+	}
+	if !e.store.checked[len(e.store.checked)-1] {
+		t.Fatal("a social upload must pass the quota check like a film")
+	}
+
+	big := fmt.Sprintf(`{"title":"t","filename":"a.mp4","content_type":"video/mp4","size_bytes":%d,"purpose":"SOCIAL"}`, domain.MaxSocialVideoSizeBytes+1)
+	if w := e.do(e.owner, "viewer", "POST", "/v1/uploads", big); w.Code != 400 || problemCode(t, w) != "VIDEO_TOO_LARGE" {
+		t.Errorf("social over 300 MiB: %d %s", w.Code, w.Body)
+	}
+	if w := e.do(e.owner, "creator", "POST", "/v1/uploads", `{"title":"t","filename":"a.mp4","content_type":"video/mp4","size_bytes":1,"purpose":"CLIP"}`); w.Code != 400 || problemCode(t, w) != "VALIDATION_ERROR" {
+		t.Errorf("unknown purpose: %d %s", w.Code, w.Body)
+	}
+	// A film still needs the creator role, and a creator's film keeps its visibility and purpose.
+	if w := e.do(e.owner, "viewer", "POST", "/v1/uploads", `{"title":"t","filename":"a.mp4","content_type":"video/mp4","size_bytes":1,"purpose":"FILM"}`); w.Code != 403 {
+		t.Errorf("viewer film: %d", w.Code)
+	}
+	if w := e.do(e.owner, "creator", "POST", "/v1/uploads", validCreate); w.Code != 201 {
+		t.Fatalf("creator film: %d %s", w.Code, w.Body)
+	}
+	if got := e.store.created[len(e.store.created)-1]; got.Purpose != domain.PurposeFilm || got.Visibility != "PUBLIC" {
+		t.Fatalf("film stored purpose=%q visibility=%q", got.Purpose, got.Visibility)
 	}
 }

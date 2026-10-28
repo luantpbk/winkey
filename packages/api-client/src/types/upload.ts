@@ -12,8 +12,9 @@ export interface paths {
          * Start an upload. Requires role `creator` (except `purpose = SOCIAL`).
          * @description SOC-2b (ADR-049): `purpose: SOCIAL` starts a short video for a post. Any signed-in user may do it (no `creator`
          *     role); the video is created `UNLISTED` whatever `visibility` says; `size_bytes` ≤ 314572800 (300 MiB) else `400`
-         *     code `VIDEO_TOO_LARGE`. The transcoder fails a social video longer than 180 s with `error` code `TOO_LONG`
-         *     (`video.failed`). Social uploads count against the same quotas as films. The rest of the flow (parts,
+         *     code `VIDEO_TOO_LARGE`. The transcoder fails a social video longer than 180 s (`video.failed` reason
+         *     `INVALID_INPUT`, not retried; `getUpload.error` = "The video is longer than 3 minutes."). Clients check the
+         *     duration before uploading. Social uploads count against the same quotas as films. The rest of the flow (parts,
          *     complete, progress, `getUpload`) is unchanged.
          */
         post: operations["createUpload"];
