@@ -3098,7 +3098,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       const revokedSessionId = uuidv7();
       await pool.query(
         `INSERT INTO auth.sessions (id, user_id, device_label, country, ip_hash, amr, created_at, last_used_at, revoked_at, revoke_reason)
-         VALUES ($1, $2, 'Chrome trên Windows', 'VN', $3, '{pwd}', now(), now(), now(), 'USER_REQUEST')`,
+         VALUES ($1, $2, 'Chrome trên Windows', 'VN', $3, '{pwd}', now(), now(), now(), 'USER_REVOKED')`,
         [revokedSessionId, userId, Buffer.alloc(32, 1)],
       );
 
