@@ -4491,29 +4491,40 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(expRes.json().code).toBe('CURSOR_EXPIRED');
 
     // 6. EXPLAIN index check (queries must not Seq Scan on posts)
-    // Seed a few thousand posts to ensure planner chooses index scans naturally (per brief)
+    // Seed a few thousand posts from background authors so target authors have realistic selectivity (< 1%)
     await pool.query(`
       INSERT INTO social.posts (id, author_id, body, visibility, status, created_at)
       SELECT
         gen_random_uuid(),
-        CASE WHEN s % 2 = 0 THEN '${creatorA}'::uuid ELSE '${followerF}'::uuid END,
-        'Seeded post ' || s,
+        gen_random_uuid(),
+        'Unrelated post ' || s,
         'PUBLIC',
         'VISIBLE',
         now() - (s || ' minutes')::interval
-      FROM generate_series(1, 2500) s;
+      FROM generate_series(1, 5000) s;
+
+      INSERT INTO social.posts (id, author_id, body, visibility, status, created_at)
+      SELECT
+        gen_random_uuid(),
+        '${creatorA}'::uuid,
+        'Followed post ' || s,
+        'PUBLIC',
+        'VISIBLE',
+        now() - (s || ' minutes')::interval
+      FROM generate_series(1, 50) s;
 
       INSERT INTO social.post_hashtags (post_id, tag, created_at)
       SELECT p.id, 'hanoi', p.created_at
       FROM social.posts p
       WHERE p.author_id = '${creatorA}'::uuid
-      LIMIT 1000
+      LIMIT 30
       ON CONFLICT DO NOTHING;
 
       INSERT INTO social.post_scores (post_id, score, computed_at)
       SELECT p.id, 100.0 - (ROW_NUMBER() OVER () * 0.01), now()
       FROM social.posts p
-      LIMIT 1000
+      WHERE p.author_id = '${creatorA}'::uuid
+      LIMIT 30
       ON CONFLICT DO NOTHING;
 
       ANALYZE social.posts;
