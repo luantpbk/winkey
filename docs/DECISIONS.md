@@ -1661,3 +1661,13 @@ Contract SOC-1a nằm trong `auth.v1.yaml` (tag `security`); migration `000028_a
 - **Dọn ảnh cũ:**
   - ảnh đại diện hoặc ảnh bìa bị thay, và ảnh bài đăng không còn bài nào dùng (SOC-2), được `storage-gc` xử lý bằng nhóm mới `image-unreferenced`, sau 48 giờ, đối chiếu với `auth.public_profiles`;
   - ảnh FAILED và upload bỏ dở được janitor xoá.
+
+*Bổ sung 2026-10-28 (sửa lỗi SOC-1a sau khi lên production).* Migration `000030_step_up_mail_sessions_backfill`.
+- **Mã xác thực lại qua email:**
+  - mã đang được xếp hàng với template `VERIFY_EMAIL`, mà template này chỉ in `params.link`, nên email đến nơi nhưng không có mã;
+  - thêm template riêng `STEP_UP_CODE` (`params.code`, hết hạn sau 10 phút, không có liên kết).
+- **Phiên đăng nhập trước khi deploy:**
+  - các family refresh token phát hành trước khi auth-svc bắt đầu ghi `auth.sessions` không có dòng phiên, nên xác thực lại không cập nhật được gì và mọi thao tác cần xác thực lại đều trả `STEP_UP_REQUIRED`;
+  - migration backfill một dòng phiên cho mỗi family còn token sống (thiết bị, quốc gia và `amr` để trống);
+  - auth-svc cũng phải tự tạo dòng phiên khi refresh gặp family chưa có phiên, và `POST /me/step-up` phải lỗi khi không cập nhật được dòng nào, không được trả 200.
+- **Web:** mọi lệnh gọi có thể trả `403 STEP_UP_REQUIRED` phải mở hộp thoại xác thực lại rồi thử lại, không hiện lỗi thô; lỗi gặp ở production là bước bắt đầu thiết lập TOTP.
