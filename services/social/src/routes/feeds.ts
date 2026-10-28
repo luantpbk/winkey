@@ -92,37 +92,53 @@ export const feedsRoute: FastifyPluginAsync<FeedsRouteOptions> = async (
     `.execute(db);
 
     const excludedSet = new Set(excludedRows.rows.map((r) => r.user_id));
-    const eligibleAuthorIds = authorIds.filter((id) => !excludedSet.has(id));
+    const eligibleAuthorIds = Array.from(new Set(authorIds.filter((id) => !excludedSet.has(id))));
 
     if (eligibleAuthorIds.length === 0) {
       const emptyPage: PostPageDto = { items: [], next_cursor: null };
       return reply.status(200).send(emptyPage);
     }
 
-    // Query uses index posts_author_timeline (author_id, created_at DESC, id DESC) WHERE status = 'VISIBLE'
-    let query = db
-      .selectFrom('social.posts as p')
-      .selectAll('p')
-      .select([
-        sql<string>`to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
-          'created_at_cursor',
-        ),
-      ])
-      .where('p.author_id', 'in', eligibleAuthorIds)
-      .where('p.status', '=', 'VISIBLE');
+    const pageSize = limitNum + 1;
+    const cursorClause = cursorData
+      ? sql`AND (p_inner.created_at, p_inner.id) < (${cursorData.created_at}::timestamptz, ${cursorData.id}::uuid)`
+      : sql``;
 
-    if (cursorData) {
-      query = query.where(
-        sql<boolean>`(((p.created_at < ${cursorData.created_at}::timestamptz) OR (p.created_at = ${cursorData.created_at}::timestamptz AND p.id < ${cursorData.id}::uuid)))`,
-      );
+    let rows: (RawPostRow & { created_at_cursor?: string })[];
+
+    if (eligibleAuthorIds.length === 1) {
+      const singleAuthorId = eligibleAuthorIds[0];
+      const result = await sql<RawPostRow & { created_at_cursor: string }>`
+        SELECT p_inner.*,
+               to_char(p_inner.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM social.posts AS p_inner
+        WHERE p_inner.author_id = ${singleAuthorId}::uuid
+          AND p_inner.status = 'VISIBLE'
+          ${cursorClause}
+        ORDER BY p_inner.created_at DESC, p_inner.id DESC
+        LIMIT ${pageSize}
+      `.execute(db);
+      rows = result.rows;
+    } else {
+      const result = await sql<RawPostRow & { created_at_cursor: string }>`
+        SELECT p.*,
+               to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM unnest(${eligibleAuthorIds}::uuid[]) AS a(id)
+        CROSS JOIN LATERAL (
+          SELECT p_inner.*
+          FROM social.posts AS p_inner
+          WHERE p_inner.author_id = a.id
+            AND p_inner.status = 'VISIBLE'
+            ${cursorClause}
+          ORDER BY p_inner.created_at DESC, p_inner.id DESC
+          LIMIT ${pageSize}
+        ) p
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT ${pageSize}
+      `.execute(db);
+      rows = result.rows;
     }
 
-    query = query
-      .orderBy('p.created_at', 'desc')
-      .orderBy('p.id', 'desc')
-      .limit(limitNum + 1);
-
-    const rows = await query.execute();
     const hasMore = rows.length > limitNum;
     const pageRows = hasMore ? rows.slice(0, limitNum) : rows;
 
@@ -232,7 +248,7 @@ export const feedsRoute: FastifyPluginAsync<FeedsRouteOptions> = async (
     // Keyset pagination condition: (score, post_id) < (cursor.s, cursor.id)
     if (cursorData) {
       query = query.where(
-        sql<boolean>`(((ps.score < ${cursorData.s}) OR (ps.score = ${cursorData.s} AND ps.post_id < ${cursorData.id}::uuid)))`,
+        sql<boolean>`(ps.score, ps.post_id) < (${cursorData.s}::double precision, ${cursorData.id}::uuid)`,
       );
     }
 

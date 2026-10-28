@@ -10,7 +10,7 @@ import type {
 } from '../db/types.js';
 import type { Env } from '../config/env.js';
 import type { CallerIdentity } from './auth.js';
-import { canSeePost } from './visibility.js';
+import { canSeePost, batchCheckCanSeePosts } from './visibility.js';
 import { formatPublicProfile } from './profile.js';
 
 export type RawPostRow = {
@@ -57,25 +57,24 @@ export async function hydratePostsBatch(
       .where('id', 'in', reshareIds)
       .execute();
 
-    // Check visibility for each original post
-    await Promise.all(
-      candidateReshares.map(async (rp) => {
-        const canSee = await canSeePost(
-          db,
-          caller,
-          {
-            id: rp.id,
-            author_id: rp.author_id,
-            visibility: rp.visibility,
-            status: rp.status,
-          },
-          { allowHiddenForMods: false }, // In feeds and reshares, hidden originals are unavailable
-        );
-        if (canSee) {
-          visibleResharedMap.set(rp.id, rp as RawPostRow);
-        }
-      }),
+    // Check visibility for all candidate original posts in a single batch
+    const visibilityMap = await batchCheckCanSeePosts(
+      db,
+      caller,
+      candidateReshares.map((rp) => ({
+        id: rp.id,
+        author_id: rp.author_id,
+        visibility: rp.visibility,
+        status: rp.status,
+      })),
+      { allowHiddenForMods: false }, // In feeds and reshares, hidden originals are unavailable
     );
+
+    for (const rp of candidateReshares) {
+      if (visibilityMap.get(rp.id)) {
+        visibleResharedMap.set(rp.id, rp as RawPostRow);
+      }
+    }
   }
 
   // Combine all post rows that need auxiliary data (base posts + visible reshared originals)

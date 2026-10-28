@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { canSeePost } from '../../src/utils/visibility.js';
+import { canSeePost, batchCheckCanSeePosts } from '../../src/utils/visibility.js';
 import type { Kysely } from 'kysely';
 import type { Database } from '../../src/db/types.js';
 
-describe('visibility truth table (canSeePost)', () => {
+describe('visibility truth table (canSeePost & batchCheckCanSeePosts)', () => {
   const AUTHOR_ID = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001';
   const VIEWER_ID = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9002';
   const POST_ID = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9003';
@@ -25,6 +25,13 @@ describe('visibility truth table (canSeePost)', () => {
               where: () => ({
                 executeTakeFirst: async () =>
                   hasProfile ? { id: AUTHOR_ID, is_private: isPrivate } : undefined,
+                execute: async () =>
+                  hasProfile
+                    ? [
+                        { id: AUTHOR_ID, is_private: isPrivate },
+                        { id: VIEWER_ID, is_private: false },
+                      ]
+                    : [],
               }),
             }),
           };
@@ -34,6 +41,8 @@ describe('visibility truth table (canSeePost)', () => {
             select: () => ({
               where: () => ({
                 executeTakeFirst: async () => (isBlocked ? { blocked: 1 } : undefined),
+                execute: async () =>
+                  isBlocked ? [{ blocker_id: VIEWER_ID, blocked_id: AUTHOR_ID }] : [],
               }),
             }),
           };
@@ -44,7 +53,9 @@ describe('visibility truth table (canSeePost)', () => {
               where: () => ({
                 where: () => ({
                   executeTakeFirst: async () => (isSubscribed ? { sub: 1 } : undefined),
+                  execute: async () => (isSubscribed ? [{ channel_id: AUTHOR_ID }] : []),
                 }),
+                execute: async () => (isSubscribed ? [{ channel_id: AUTHOR_ID }] : []),
               }),
             }),
           };
@@ -221,6 +232,68 @@ describe('visibility truth table (canSeePost)', () => {
         { id: POST_ID, author_id: AUTHOR_ID, visibility: 'PUBLIC', status: 'VISIBLE' },
       );
       expect(visible).toBe(false);
+    });
+  });
+
+  describe('batchCheckCanSeePosts batch evaluation', () => {
+    it('returns empty map for empty post list', async () => {
+      const db = createMockDb({});
+      const map = await batchCheckCanSeePosts(db, { userId: VIEWER_ID }, []);
+      expect(map.size).toBe(0);
+    });
+
+    it('batches visibility checks across multiple posts with mixed states', async () => {
+      const db = createMockDb({ hasProfile: true, isPrivate: false, isSubscribed: true });
+      const posts = [
+        {
+          id: 'p1',
+          author_id: AUTHOR_ID,
+          visibility: 'PUBLIC' as const,
+          status: 'VISIBLE' as const,
+        },
+        {
+          id: 'p2',
+          author_id: AUTHOR_ID,
+          visibility: 'FOLLOWERS' as const,
+          status: 'VISIBLE' as const,
+        },
+        {
+          id: 'p3',
+          author_id: AUTHOR_ID,
+          visibility: 'PUBLIC' as const,
+          status: 'DELETED' as const,
+        },
+        {
+          id: 'p4',
+          author_id: AUTHOR_ID,
+          visibility: 'PUBLIC' as const,
+          status: 'HIDDEN' as const,
+        },
+        {
+          id: 'p5',
+          author_id: VIEWER_ID,
+          visibility: 'PUBLIC' as const,
+          status: 'VISIBLE' as const,
+        },
+      ];
+
+      const resUser = await batchCheckCanSeePosts(
+        db,
+        { userId: VIEWER_ID, isModeratorOrAdmin: false },
+        posts,
+      );
+      expect(resUser.get('p1')).toBe(true);
+      expect(resUser.get('p2')).toBe(true);
+      expect(resUser.get('p3')).toBe(false);
+      expect(resUser.get('p4')).toBe(false);
+      expect(resUser.get('p5')).toBe(true);
+
+      const resMod = await batchCheckCanSeePosts(
+        db,
+        { userId: VIEWER_ID, isModeratorOrAdmin: true },
+        posts,
+      );
+      expect(resMod.get('p4')).toBe(true); // mod sees HIDDEN
     });
   });
 });
