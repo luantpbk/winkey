@@ -20,6 +20,7 @@ import {
   Shield,
   Settings,
   Home,
+  Newspaper,
   Compass,
   Bell,
   X,
@@ -88,6 +89,10 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
   };
 
   const isHomeActive = pathname === '/' || pathname === '';
+  const isFeedActive =
+    pathname.startsWith('/bang-tin') ||
+    pathname.startsWith('/bai-viet') ||
+    pathname.startsWith('/hashtag');
 
   return (
     <div
@@ -143,6 +148,17 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
             className="text-[15px] font-medium text-[#B9B9C2] hover:text-white transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 border-transparent shrink-0"
           >
             {tCin('trending')}
+          </Link>
+          <Link
+            href="/bang-tin"
+            aria-current={isFeedActive ? 'page' : undefined}
+            className={`text-[15px] transition-colors min-h-11 inline-flex items-center py-2.5 border-b-2 shrink-0 ${
+              isFeedActive
+                ? 'text-white font-bold border-[#FF0033]'
+                : 'text-[#B9B9C2] hover:text-white font-medium border-transparent'
+            }`}
+          >
+            {tCin('feed')}
           </Link>
           <Link
             href="/kham-pha"
@@ -355,6 +371,15 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
           className="px-4 pb-2 flex items-center gap-2 overflow-x-auto scrollbar-none"
         >
           <Link
+            href="/bang-tin"
+            aria-current={isFeedActive ? 'page' : undefined}
+            className={`min-h-11 min-w-11 px-3.5 rounded-full border text-[13px] font-semibold inline-flex items-center justify-center whitespace-nowrap bg-black/40 backdrop-blur-sm ${
+              isFeedActive ? 'border-[#FF0033] text-white font-bold' : 'border-white/45 text-white'
+            }`}
+          >
+            {tCin('feed')}
+          </Link>
+          <Link
             href="/trending"
             className="min-h-11 min-w-11 px-3.5 rounded-full border border-white/45 text-[13px] font-semibold inline-flex items-center justify-center text-white whitespace-nowrap bg-black/40 backdrop-blur-sm"
           >
@@ -450,6 +475,16 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
         >
           <Home className="w-5 h-5" />
           <span>{tCin('home')}</span>
+        </Link>
+        <Link
+          href="/bang-tin"
+          aria-current={isFeedActive ? 'page' : undefined}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${
+            isFeedActive ? 'text-white' : 'text-[#8E8E99]'
+          }`}
+        >
+          <Newspaper className="w-5 h-5" />
+          <span>{tCin('feed')}</span>
         </Link>
         <Link
           href="/kham-pha"
