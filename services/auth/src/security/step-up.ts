@@ -122,7 +122,7 @@ export async function sendStepUpEmailCode(
     .values({
       user_id: userId,
       to_email: email,
-      template: 'VERIFY_EMAIL',
+      template: 'STEP_UP_CODE',
       locale: 'vi',
       params: JSON.stringify({
         code,

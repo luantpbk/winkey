@@ -64,4 +64,36 @@ describe('mail templates', () => {
       expect(email.html).not.toContain('<a ');
     });
   });
+
+  describe('STEP_UP_CODE', () => {
+    const testCode = '654321';
+
+    it('renders Vietnamese template containing the code, 10 min expiry, password change advice, and no link', () => {
+      const email = renderEmail('STEP_UP_CODE', 'vi', { code: testCode });
+
+      expect(email.subject).toContain('xác thực');
+      expect(email.text).toContain(testCode);
+      expect(email.html).toContain(testCode);
+      expect(email.text).toContain('10 phút');
+      expect(email.html).toContain('10 phút');
+      expect(email.text.toLowerCase()).toContain('đổi mật khẩu');
+      expect(email.html.toLowerCase()).toContain('đổi mật khẩu');
+      expect(email.text).not.toContain('http');
+      expect(email.html).not.toContain('<a ');
+    });
+
+    it('renders English template containing the code, 10 min expiry, password change advice, and no link', () => {
+      const email = renderEmail('STEP_UP_CODE', 'en', { code: testCode });
+
+      expect(email.subject).toContain('verification code');
+      expect(email.text).toContain(testCode);
+      expect(email.html).toContain(testCode);
+      expect(email.text).toContain('10 minutes');
+      expect(email.html).toContain('10 minutes');
+      expect(email.text.toLowerCase()).toContain('change your password');
+      expect(email.html.toLowerCase()).toContain('change your password');
+      expect(email.text).not.toContain('http');
+      expect(email.html).not.toContain('<a ');
+    });
+  });
 });

@@ -6,6 +6,15 @@ export interface RenderedEmail {
   html: string;
 }
 
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export function renderEmail(
   template: MailTemplate,
   locale: MailLocale,
@@ -71,6 +80,23 @@ export function renderEmail(
         subject: 'Đăng nhập mới trên tài khoản Winkey của bạn',
         text: `Phát hiện lượt đăng nhập mới trên tài khoản của bạn.\n\nThiết bị: ${device}\nQuốc gia: ${country || 'Không xác định'}\nThời gian: ${time}\n\nNếu không phải bạn, vui lòng khoá phiên và bảo mật tài khoản ngay lập tức:\n${link}`,
         html: `<p>Phát hiện lượt đăng nhập mới trên tài khoản của bạn.</p><p>Thiết bị: ${device}<br/>Quốc gia: ${country || 'Không xác định'}<br/>Thời gian: ${time}</p><p>Nếu không phải bạn, vui lòng khoá phiên và bảo mật tài khoản ngay lập tức:<br/><a href="${link}">${link}</a></p>`,
+      };
+    }
+
+    case 'STEP_UP_CODE': {
+      const code = typeof params?.code === 'string' ? params.code : '';
+      const safeCode = escapeHtml(code);
+      if (locale === 'en') {
+        return {
+          subject: 'Your security verification code - Winkey',
+          text: `Your security verification code is: ${code}\n\nThis code will expire in 10 minutes.\nIf this was not you, please change your password immediately.`,
+          html: `<p>Your security verification code is: <strong>${safeCode}</strong></p><p>This code will expire in 10 minutes.</p><p>If this was not you, please change your password immediately.</p>`,
+        };
+      }
+      return {
+        subject: 'Mã xác thực bảo mật của bạn - Winkey',
+        text: `Mã xác thực bảo mật của bạn là: ${code}\n\nMã này sẽ hết hạn sau 10 phút.\nNếu không phải bạn, vui lòng đổi mật khẩu ngay lập tức.`,
+        html: `<p>Mã xác thực bảo mật của bạn là: <strong>${safeCode}</strong></p><p>Mã này sẽ hết hạn sau 10 phút.</p><p>Nếu không phải bạn, vui lòng đổi mật khẩu ngay lập tức.</p>`,
       };
     }
   }

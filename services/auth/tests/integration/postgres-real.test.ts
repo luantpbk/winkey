@@ -11,7 +11,12 @@ import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
 import { getDb, registerArrayParsers } from '../../src/db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from '../../src/rate-limit/valkey-limiter.js';
-import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
+import {
+  REFRESH_COOKIE_NAME,
+  generateRefreshToken,
+  hashRefreshToken,
+} from '../../src/crypto/refresh.js';
+import { renderEmail } from '../../src/mail/templates.js';
 import { v7 as uuidv7, version as uuidVersion } from 'uuid';
 import { issueAccessToken } from '../../src/crypto/jwt.js';
 import { hashPassword } from '../../src/crypto/passwords.js';
@@ -2921,6 +2926,200 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       expect(codes).toEqual([200, 409]);
       const conflictRes = res1.statusCode === 409 ? res1 : res2;
       expect(conflictRes.json().code).toBe('REQUEST_ALREADY_DECIDED');
+    });
+  });
+
+  describe('Task SOC-1a Post-deploy Fixes (ADR-049 Addendum 2026-10-28)', () => {
+    it('1. sendStepUpEmailCode queues mail with template STEP_UP_CODE in real Postgres', async () => {
+      if (!app || !pool) return;
+
+      const userId = uuidv7();
+      const sessionId = uuidv7();
+      const email = `stepup_test_${Date.now()}@winkey.vn`;
+      const pwdHash = await hashPassword('StepUpPassword123!');
+
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, $2, $3, $4, $5, '{viewer}', 'ACTIVE')`,
+        [userId, email, pwdHash, `stepup_${Date.now().toString(36)}`, 'Stepup Tester'],
+      );
+
+      await pool.query(
+        `INSERT INTO auth.sessions (id, user_id, device_label, country, ip_hash, amr, created_at, last_used_at)
+         VALUES ($1, $2, 'Chrome trên Windows', 'VN', $3, '{pwd}', now(), now())`,
+        [sessionId, userId, Buffer.alloc(32, 1)],
+      );
+
+      const { token: accessToken } = await issueAccessToken(
+        { id: userId, roles: ['viewer'] },
+        sessionId,
+        testEnv!,
+      );
+
+      // Call POST /v1/auth/me/step-up/email-code
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up/email-code',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(res.statusCode).toBe(202);
+
+      // Query auth.mail_queue directly
+      const mqRes = await pool.query(
+        `SELECT template, params, to_email FROM auth.mail_queue WHERE to_email = $1 ORDER BY created_at DESC LIMIT 1`,
+        [email],
+      );
+      expect(mqRes.rows.length).toBe(1);
+      const row = mqRes.rows[0];
+      expect(row.template).toBe('STEP_UP_CODE');
+
+      const params = typeof row.params === 'string' ? JSON.parse(row.params) : row.params;
+      expect(params.code).toMatch(/^\d{6}$/);
+
+      // Verify template render (vi + en) with real DB params
+      const viMail = renderEmail('STEP_UP_CODE', 'vi', params);
+      expect(viMail.subject).toContain('xác thực');
+      expect(viMail.text).toContain(params.code);
+      expect(viMail.html).toContain(params.code);
+      expect(viMail.text).toContain('10 phút');
+      expect(viMail.text.toLowerCase()).toContain('đổi mật khẩu');
+      expect(viMail.text).not.toContain('http');
+      expect(viMail.html).not.toContain('<a ');
+
+      const enMail = renderEmail('STEP_UP_CODE', 'en', params);
+      expect(enMail.subject).toContain('verification code');
+      expect(enMail.text).toContain(params.code);
+      expect(enMail.html).toContain(params.code);
+      expect(enMail.text).toContain('10 minutes');
+      expect(enMail.text.toLowerCase()).toContain('change your password');
+      expect(enMail.text).not.toContain('http');
+      expect(enMail.html).not.toContain('<a ');
+    });
+
+    it('2. routes/refresh.ts lazily creates auth.sessions row for pre-SOC-1a family missing a session', async () => {
+      if (!app || !pool) return;
+
+      const userId = uuidv7();
+      const familyId = uuidv7();
+      const tokenId = uuidv7();
+      const email = `legacy_refresh_${Date.now()}@winkey.vn`;
+      const pwdHash = await hashPassword('LegacyPassword123!');
+
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, $2, $3, $4, $5, '{viewer}', 'ACTIVE')`,
+        [userId, email, pwdHash, `legacy_${Date.now().toString(36)}`, 'Legacy Signin'],
+      );
+
+      const opaqueToken = generateRefreshToken();
+      const tokenHash = hashRefreshToken(opaqueToken);
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      // Insert refresh token with familyId but deliberately DO NOT create auth.sessions row
+      await pool.query(
+        `INSERT INTO auth.refresh_tokens (id, user_id, family_id, token_hash, expires_at, user_agent)
+         VALUES ($1, $2, $3, $4, $5, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36')`,
+        [tokenId, userId, familyId, tokenHash, expiresAt],
+      );
+
+      // Verify no session exists yet
+      const preCheck = await pool.query(`SELECT 1 FROM auth.sessions WHERE id = $1`, [familyId]);
+      expect(preCheck.rows.length).toBe(0);
+
+      // Call POST /v1/auth/refresh
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+          'cf-ipcountry': 'VN',
+        },
+        cookies: {
+          [REFRESH_COOKIE_NAME]: opaqueToken,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.access_token).toBeDefined();
+
+      // Verify auth.sessions now has exactly 1 row with familyId
+      const postCheck = await pool.query(
+        `SELECT id, user_id, device_label, country, ip_hash, amr, revoked_at FROM auth.sessions WHERE id = $1`,
+        [familyId],
+      );
+      expect(postCheck.rows.length).toBe(1);
+      const session = postCheck.rows[0];
+      expect(session.id).toBe(familyId);
+      expect(session.user_id).toBe(userId);
+      expect(session.device_label).toContain('Chrome');
+      expect(session.country).toBe('VN');
+      expect(session.ip_hash).not.toBeNull();
+      expect(session.amr).toEqual([]);
+      expect(session.revoked_at).toBeNull();
+    });
+
+    it('3. routes/security.ts POST /v1/auth/me/step-up returns 401 SESSION_NOT_FOUND when session row missing or revoked', async () => {
+      if (!app || !pool) return;
+
+      const userId = uuidv7();
+      const missingSessionId = uuidv7();
+      const email = `missing_sess_${Date.now()}@winkey.vn`;
+      const password = 'StepUpPass123!';
+      const pwdHash = await hashPassword(password);
+
+      await pool.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, $2, $3, $4, $5, '{viewer}', 'ACTIVE')`,
+        [userId, email, pwdHash, `nosess_${Date.now().toString(36)}`, 'No Session'],
+      );
+
+      // Issue token with missingSessionId that does NOT exist in auth.sessions
+      const { token: tokenNoSession } = await issueAccessToken(
+        { id: userId, roles: ['viewer'] },
+        missingSessionId,
+        testEnv!,
+      );
+
+      const resNoSession = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${tokenNoSession}` },
+        payload: {
+          method: 'password',
+          password,
+        },
+      });
+
+      expect(resNoSession.statusCode).toBe(401);
+      expect(resNoSession.json().code).toBe('SESSION_NOT_FOUND');
+
+      // Now create a revoked session
+      const revokedSessionId = uuidv7();
+      await pool.query(
+        `INSERT INTO auth.sessions (id, user_id, device_label, country, ip_hash, amr, created_at, last_used_at, revoked_at, revoke_reason)
+         VALUES ($1, $2, 'Chrome trên Windows', 'VN', $3, '{pwd}', now(), now(), now(), 'USER_REQUEST')`,
+        [revokedSessionId, userId, Buffer.alloc(32, 1)],
+      );
+
+      const { token: tokenRevokedSession } = await issueAccessToken(
+        { id: userId, roles: ['viewer'] },
+        revokedSessionId,
+        testEnv!,
+      );
+
+      const resRevoked = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${tokenRevokedSession}` },
+        payload: {
+          method: 'password',
+          password,
+        },
+      });
+
+      expect(resRevoked.statusCode).toBe(401);
+      expect(resRevoked.json().code).toBe('SESSION_NOT_FOUND');
     });
   });
 });
