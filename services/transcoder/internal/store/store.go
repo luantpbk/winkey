@@ -29,9 +29,9 @@ func (p *Postgres) BeginJob(ctx context.Context, videoID uuid.UUID, encoder, wor
 
 	var v job.Video
 	err = tx.QueryRow(ctx, `
-		SELECT id, owner_id, status::text, raw_bucket, raw_key
+		SELECT id, owner_id, status::text, raw_bucket, raw_key, purpose::text
 		FROM media.videos WHERE id = $1 FOR UPDATE`, videoID).
-		Scan(&v.ID, &v.OwnerID, &v.Status, &v.RawBucket, &v.RawKey)
+		Scan(&v.ID, &v.OwnerID, &v.Status, &v.RawBucket, &v.RawKey, &v.Purpose)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return job.BeginResult{Skip: true}, nil
 	}
@@ -107,6 +107,8 @@ type readyEvent struct {
 	// Visibility is the visibility when the video became READY (task C4), read from the row that
 	// the same UPDATE switched to READY.
 	Visibility string `json:"visibility"`
+	// Purpose is FILM or SOCIAL (SOC-2b), read from the same row.
+	Purpose string `json:"purpose"`
 	// StoryboardKey is null (not absent) when there is no storyboard (contract: null or absent).
 	StoryboardKey *string          `json:"storyboard_key"`
 	DurationMs    int              `json:"duration_ms"`
@@ -148,15 +150,15 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 			}
 		}
 	}
-	var visibility string
+	var visibility, purpose string
 	err = tx.QueryRow(ctx, `
 		UPDATE media.videos SET
 			status = 'READY', duration_ms = $2, width = $3, height = $4,
 			hls_master_key = $5, thumbnail_key = $6, storyboard_key = $7,
 			published_at = coalesce(published_at, now()), error = NULL
 		WHERE id = $1 AND status = 'PROCESSING'
-		RETURNING visibility::text`,
-		r.VideoID, r.DurationMs, r.Width, r.Height, masterKey, r.ThumbKey, storyboardKey).Scan(&visibility)
+		RETURNING visibility::text, purpose::text`,
+		r.VideoID, r.DurationMs, r.Width, r.Height, masterKey, r.ThumbKey, storyboardKey).Scan(&visibility, &purpose)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // no longer PROCESSING (deleted meanwhile): nothing is written
 	}
@@ -170,7 +172,7 @@ func (p *Postgres) Complete(ctx context.Context, r job.ReadyResult) (bool, error
 		VideoID: r.VideoID.String(), OwnerID: r.OwnerID.String(), JobID: r.JobID.String(),
 		Attempt: r.Attempt, Encoder: r.Encoder, HLSMasterKey: masterKey, ThumbnailKey: r.ThumbKey,
 		DurationMs: r.DurationMs, Width: r.Width, Height: r.Height,
-		StoryboardKey: storyboardKey, Visibility: visibility,
+		StoryboardKey: storyboardKey, Visibility: visibility, Purpose: purpose,
 	}
 	for i, rd := range r.Renditions {
 		if _, err := tx.Exec(ctx, `

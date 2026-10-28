@@ -23,7 +23,7 @@ type ReencodeCandidate struct {
 func (p *Postgres) SelectReencode(ctx context.Context, ids []uuid.UUID) ([]ReencodeCandidate, error) {
 	rows, err := p.Pool.Query(ctx, `
 		SELECT id, hls_master_key FROM media.videos
-		WHERE status = 'READY' AND hls_master_key IS NOT NULL AND (coalesce(cardinality($1::uuid[]), 0) = 0 OR id = ANY($1))
+		WHERE status = 'READY' AND purpose = 'FILM' AND hls_master_key IS NOT NULL AND (coalesce(cardinality($1::uuid[]), 0) = 0 OR id = ANY($1))
 		ORDER BY created_at, id`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("select videos: %w", err)

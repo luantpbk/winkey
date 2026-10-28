@@ -6,7 +6,7 @@ Read **ADR-049** (the SOC-2b addendum 2026-10-28) and the SOC-2b parts of `uploa
 1. **S12 social video (API):**
    - a viewer (no `creator` role) uploads a 20 s clip with `purpose: SOCIAL` → READY with exactly the 720p and 360p renditions (or fewer for small sources), `UNLISTED`, raw object gone;
    - it never appears in `listVideos`, search, tag pages, trending, `listStudioVideos`;
-   - a 200 s clip → `video.failed` code `TOO_LONG`; `size_bytes` > 300 MiB → `400 VIDEO_TOO_LARGE`;
+   - a 200 s clip → `FAILED` (`video.failed` reason `INVALID_INPUT`, `getUpload.error` mentions 3 minutes); `size_bytes` > 300 MiB → `400 VIDEO_TOO_LARGE`;
    - post with it → `video_attached` reaches video-svc (`attached_at` set); a second post with the same video → `409 VIDEO_IN_USE`; another user's social video → `404`;
    - delete the post → the video becomes `DELETED` and its media is removed; hiding a post keeps the video;
    - `updateVideo` visibility on a social video → `409 SOCIAL_VIDEO_UNLISTED`.

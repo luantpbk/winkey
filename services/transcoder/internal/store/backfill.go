@@ -20,7 +20,7 @@ func (p *Postgres) SelectBackfill(ctx context.Context, after backfill.Cursor, li
 	rows, err := p.Pool.Query(ctx, `
 		SELECT id, created_at, hls_master_key, duration_ms
 		FROM media.videos
-		WHERE status = 'READY' AND storyboard_key IS NULL
+		WHERE status = 'READY' AND purpose = 'FILM' AND storyboard_key IS NULL
 		  AND ($1::timestamptz IS NULL OR (created_at, id) < ($1, $2))
 		ORDER BY created_at DESC, id DESC
 		LIMIT $3`, nullTime(after.CreatedAt), after.ID, limit)

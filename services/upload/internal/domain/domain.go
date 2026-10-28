@@ -37,12 +37,22 @@ type Video struct {
 	Error       string // owner-safe failure message; empty if none
 }
 
+// Video purposes (media.video_purpose, SOC-2b ADR-049).
+const (
+	PurposeFilm   = "FILM"
+	PurposeSocial = "SOCIAL"
+)
+
+// MaxSocialVideoSizeBytes caps a SOCIAL upload (300 MiB; DB CHECK videos_social_size).
+const MaxSocialVideoSizeBytes = 300 << 20
+
 // NewVideo is the input of Store.Insert.
 type NewVideo struct {
 	Video
 	Title       string
 	Description string
 	Visibility  string
+	Purpose     string // PurposeFilm or PurposeSocial
 }
 
 // Usage is the recent upload usage of one owner, read inside the transaction of Store.Create.

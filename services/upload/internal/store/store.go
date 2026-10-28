@@ -59,10 +59,10 @@ func (p *Postgres) Create(ctx context.Context, v domain.NewVideo, check func(dom
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO media.videos
 			(id, owner_id, title, description, visibility, status, raw_bucket, raw_key,
-			 content_type, size_bytes)
-		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9)`,
+			 content_type, size_bytes, purpose)
+		VALUES ($1, $2, $3, $4, $5::media.visibility, 'UPLOADING', $6, $7, $8, $9, $10::media.video_purpose)`,
 		v.ID, v.OwnerID, v.Title, v.Description, v.Visibility, v.RawBucket, v.RawKey,
-		v.ContentType, v.SizeBytes); err != nil {
+		v.ContentType, v.SizeBytes, purposeOrFilm(v.Purpose)); err != nil {
 		return fmt.Errorf("insert video: %w", err)
 	}
 	// The ledger row is written for every upload that passed the check, admins included, in the
@@ -210,4 +210,11 @@ func (p *Postgres) PurgeLedger(ctx context.Context, olderThan time.Duration, lim
 		return 0, fmt.Errorf("purge ledger: %w", err)
 	}
 	return int(tag.RowsAffected()), nil
+}
+
+func purposeOrFilm(p string) string {
+	if p == "" {
+		return domain.PurposeFilm
+	}
+	return p
 }
