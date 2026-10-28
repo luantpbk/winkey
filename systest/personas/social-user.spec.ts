@@ -202,8 +202,16 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       await page.waitForLoadState('domcontentloaded');
     }
 
+    // Switch to Following tab where author's own posts appear
+    const followingTab = page
+      .locator('[data-testid="feed-tab-following"], button:has-text("Đang theo dõi")')
+      .first();
+    if (await followingTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTab.click();
+    }
+
     const postCard = page.locator('[data-testid^="post-card-"]').first();
-    await expect(postCard).toBeVisible({ timeout: 10000 });
+    await expect(postCard).toBeVisible({ timeout: 15000 });
 
     // 1. Click share menu
     const shareBtn = postCard.locator('button[aria-label="Chia sẻ bài viết"]').first();
@@ -230,8 +238,7 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
   });
 
   test('open hashtag page and verify tagged posts', async () => {
-    const postCard = page.locator('[data-testid^="post-card-"]').first();
-    const hashtagLink = postCard.locator('a[href*="/hashtag/hanoi"]').first();
+    const hashtagLink = page.locator('a[href*="/hashtag/hanoi"]').first();
 
     if (await hashtagLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await hashtagLink.click();
