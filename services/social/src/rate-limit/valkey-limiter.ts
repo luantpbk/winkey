@@ -100,6 +100,18 @@ export function buildReportRateLimitKey(userId: string): string {
   return `rl:social:report:${userId}`;
 }
 
+export function buildPostCreateRateLimitKey(userId: string): string {
+  return `rl:social:post:create:${userId}`;
+}
+
+export function buildPostReactionRateLimitKey(userId: string): string {
+  return `rl:social:post:react:${userId}`;
+}
+
+export function buildPostCommentRateLimitKey(userId: string): string {
+  return `rl:social:post:comment:${userId}`;
+}
+
 export function buildCreatePlaylistRateLimitKey(userId: string): string {
   return `rl:social:playlist_create:${userId}`;
 }

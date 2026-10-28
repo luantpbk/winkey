@@ -70,12 +70,17 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
       .innerJoin('auth.public_profiles as p', 'p.id', 'n.actor_id')
       .leftJoin('social.videos as v', 'v.id', 'n.video_id')
       .leftJoin('social.comments as c', 'c.id', 'n.comment_id')
+      .leftJoin('social.posts as post', 'post.id', 'n.post_id')
+      .leftJoin('auth.public_profiles as post_author_p', 'post_author_p.id', 'post.author_id')
+      .leftJoin('social.post_comments as pc', 'pc.id', 'n.post_comment_id')
       .select([
         'n.id',
         'n.kind',
         'n.actor_id',
         'n.video_id',
         'n.comment_id',
+        'n.post_id',
+        'n.post_comment_id',
         'n.created_at',
         'n.read_at',
         sql<string>`to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
@@ -91,6 +96,20 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
         sql<boolean>`(n.video_id IS NULL OR (v.id IS NOT NULL AND v.hidden = false AND v.visibility <> 'PRIVATE'))`,
       )
       .where(sql<boolean>`(n.comment_id IS NULL OR (c.id IS NOT NULL AND c.status = 'VISIBLE'))`)
+      .where(
+        sql<boolean>`(n.post_id IS NULL OR (
+          post.id IS NOT NULL 
+          AND post.status = 'VISIBLE'
+          AND (
+            post.author_id = ${caller.userId}
+            OR (post.visibility = 'PUBLIC' AND (post_author_p.is_private IS NULL OR post_author_p.is_private = false))
+            OR EXISTS (SELECT 1 FROM social.subscriptions s WHERE s.subscriber_id = ${caller.userId} AND s.channel_id = post.author_id)
+          )
+        ))`,
+      )
+      .where(
+        sql<boolean>`(n.post_comment_id IS NULL OR (pc.id IS NOT NULL AND pc.status = 'VISIBLE'))`,
+      )
       .where(
         sql<boolean>`NOT EXISTS (
           SELECT 1 FROM social.blocks b
@@ -136,6 +155,8 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
         actor: formatPublicProfile(profile, env.MEDIA_BASE_URL)!,
         video_id: r.video_id ?? null,
         comment_id: r.comment_id ?? null,
+        post_id: r.post_id ?? null,
+        post_comment_id: r.post_comment_id ?? null,
         created_at: createdAtStr,
         read_at: r.read_at ? new Date(r.read_at).toISOString() : null,
       };
@@ -174,10 +195,23 @@ export const notificationsRoute: FastifyPluginAsync<NotificationsRouteOptions> =
         INNER JOIN auth.public_profiles p ON p.id = n.actor_id
         LEFT JOIN social.videos v ON v.id = n.video_id
         LEFT JOIN social.comments c ON c.id = n.comment_id
+        LEFT JOIN social.posts post ON post.id = n.post_id
+        LEFT JOIN auth.public_profiles post_author_p ON post_author_p.id = post.author_id
+        LEFT JOIN social.post_comments pc ON pc.id = n.post_comment_id
         WHERE n.user_id = ${caller.userId}::uuid
           AND n.read_at IS NULL
           AND (n.video_id IS NULL OR (v.id IS NOT NULL AND v.hidden = false AND v.visibility <> 'PRIVATE'))
           AND (n.comment_id IS NULL OR (c.id IS NOT NULL AND c.status = 'VISIBLE'))
+          AND (n.post_id IS NULL OR (
+            post.id IS NOT NULL 
+            AND post.status = 'VISIBLE'
+            AND (
+              post.author_id = ${caller.userId}::uuid
+              OR (post.visibility = 'PUBLIC' AND (post_author_p.is_private IS NULL OR post_author_p.is_private = false))
+              OR EXISTS (SELECT 1 FROM social.subscriptions s WHERE s.subscriber_id = ${caller.userId}::uuid AND s.channel_id = post.author_id)
+            )
+          ))
+          AND (n.post_comment_id IS NULL OR (pc.id IS NOT NULL AND pc.status = 'VISIBLE'))
           AND NOT EXISTS (
             SELECT 1 FROM social.blocks b
             WHERE (b.blocker_id = ${caller.userId}::uuid AND b.blocked_id = n.actor_id)

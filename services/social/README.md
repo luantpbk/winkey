@@ -13,6 +13,36 @@ Part of **Task C1**, owned by **Antigravity 3**.
   - Strict two-level hierarchy enforced by database triggers.
   - Tombstones: `DELETED` comments with replies remain in thread with `body: ""` and `status: "DELETED"`.
   - Moderation: `HIDDEN` comments visible only to moderators and admins.
+- **Posts, Reshares & Post Reactions (Task SOC-2a / ADR-049)**:
+  - `POST /v1/posts`: Create post (plain text, single video, or 1-4 images; plain reshare or quote post).
+    - Rate limit: 30 posts per hour per user sliding window.
+    - Attachments are mutually exclusive: text-only, images (1-4 from `media.ready_images`), or video (`social.videos`).
+    - Reshare rules: Can reshare an existing public/unlisted post (or public video). Plain reshares cannot contain body or attachments and are deduplicated via unique index (`409 ALREADY_RESHARED`). Quote posts can contain body and attachments. Cannot reshare a reshare directly (flattened or rejected).
+    - Mention and hashtag parsing: Unicode-aware parsing (`@handle`, `#hashtag`), diacritic-folded tag slugs (`public.winkey_tag_slug`), notifications for mentioned users.
+  - `GET /v1/posts/:post_id`: View post with author public profile, media, top 3 reaction counts, caller's reaction (`my_reaction`), and hydrated reshare target. Returns 404 for inaccessible or non-visible posts.
+  - `PATCH /v1/posts/:post_id`: Edit post body (max 5,000 chars) and visibility (`PUBLIC`, `UNLISTED`, `FOLLOWERS_ONLY`, `PRIVATE`). Plain reshares cannot have body added. Re-parses mentions and hashtags with differential notifications.
+  - `DELETE /v1/posts/:post_id`: Soft delete post (`status = 'DELETED'`, body cleared, cascades media/reactions/hashtags/mentions/scores deleted; comments preserved). Idempotent 204.
+  - `POST /v1/posts/:post_id/moderation`: Moderator/admin action (`HIDE` / `RESTORE`).
+  - `PUT /v1/posts/:post_id/reactions`: Add or update reaction (`LIKE`, `LOVE`, `CARE`, `HAHA`, `WOW`, `SAD`, `ANGRY`). Rate limit 300/hr. Triggers `POST_REACTION` notification to post author.
+  - `DELETE /v1/posts/:post_id/reactions`: Remove reaction (idempotent 200).
+  - `GET /v1/posts/:post_id/reactions`: Keyset paginated list of user reactions, optional filter by reaction kind. Blocked actors are excluded.
+- **Post Comments & Replies (Task SOC-2a / ADR-049)**:
+  - `POST /v1/posts/:post_id/comments`: Add top-level comment or reply (max 2,000 chars). Rate limit 10 comments/min.
+    - Creates `POST_COMMENT` notification to post author or `POST_COMMENT_REPLY` notification to parent comment author.
+    - Block check: `403 INTERACTION_BLOCKED` if block relationship exists between caller and post author or parent comment author.
+  - `GET /v1/posts/:post_id/comments`: Keyset paginated comments. Top-level newest first, replies oldest first. Omits comments from blocked users.
+  - `DELETE /v1/posts/:post_id/comments/:comment_id`: Delete comment (by author, post owner, or moderator/admin). Uses tombstone (`DELETED` status, body cleared) if replies exist, otherwise hard deletes.
+  - `POST /v1/posts/:post_id/comments/:comment_id/moderation`: Moderator/admin action (`HIDE` / `RESTORE`).
+- **Feeds & Discovery (Task SOC-2a / ADR-049)**:
+  - `GET /v1/feed/following`: Fan-out on read following feed with keyset cursor `(published_at, id)`. 30-second Valkey cache for page 1.
+  - `GET /v1/feed/explore`: Gravity score feed reading from `social.post_scores`. Keyset cursor with snapshot expiration check (`400 CURSOR_EXPIRED`).
+  - `GET /v1/hashtags/:tag/posts`: List posts tagged with `#tag` via `social.post_hashtags`. Keyset cursor on `(published_at, post_id)`.
+  - `GET /v1/hashtags/trending`: Top 20 trending hashtags over rolling 24-hour window with 60-second Valkey cache.
+  - `GET /v1/channels/:channel_id/posts`: Channel timeline using `posts_author_timeline` index.
+- **Background Post Scoring Job (Task SOC-2a / ADR-049)**:
+  - Periodic background worker running every 5 minutes with distributed Valkey lock (`social:locks:post_scoring_job`, TTL 9 minutes).
+  - Computes Hacker News-style gravity score: `(reaction_count + 2*comment_count + 3*reshare_count + 1) / (age_in_hours + 2)^1.5` for public visible posts published within the last 7 days.
+  - Writes scores to `social.post_scores` for instantaneous explore feed retrieval.
 - **Likes**: Idempotent video likes and unlikes.
   - Automatically publishes `social.video.like_changed` with absolute `like_count` via transactional outbox.
 - **Subscriptions & Follow Requests (Task SOC-1b / ADR-049)**:
@@ -142,7 +172,7 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 |---|---|---|---|
 | `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
-| `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`, `FOLLOW_REQUEST`, `FOLLOW_REQUEST_APPROVED`). |
+| `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`, `FOLLOW_REQUEST`, `FOLLOW_REQUEST_APPROVED`, `POST_COMMENT`, `POST_COMMENT_REPLY`, `POST_MENTION`, `POST_RESHARE`, `POST_REACTION`). |
 | `social_notifications_fanout_seconds` | Histogram | None | Latency of subscriber notification fanout on video publication. |
 | `social_notifications_janitor_deleted_total` | Counter | None | Total expired notification rows deleted by background janitor. |
 | `social_playlist_items_added_total` | Counter | None | Total playlist items appended to playlists (excluding idempotent repeats). |

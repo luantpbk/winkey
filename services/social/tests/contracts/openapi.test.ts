@@ -37,6 +37,13 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
   let validateFollowRequestPage: ValidateFunction;
   let validateRelationship: ValidateFunction;
   let validateRelationPage: ValidateFunction;
+  let validatePost: ValidateFunction;
+  let validatePostPage: ValidateFunction;
+  let validateReactionState: ValidateFunction;
+  let validateReactionPage: ValidateFunction;
+  let validatePostComment: ValidateFunction;
+  let validatePostCommentPage: ValidateFunction;
+  let validateTrendingHashtags: ValidateFunction;
 
   const mockStore = createMockStore();
 
@@ -124,6 +131,27 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateRelationPage = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
+    )!;
+    validatePost = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Post',
+    )!;
+    validatePostPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostPage',
+    )!;
+    validateReactionState = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReactionState',
+    )!;
+    validateReactionPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReactionPage',
+    )!;
+    validatePostComment = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostComment',
+    )!;
+    validatePostCommentPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostCommentPage',
+    )!;
+    validateTrendingHashtags = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/TrendingHashtags',
     )!;
 
     // 3. Populate mock store
@@ -935,5 +963,278 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     const validMutes = validateRelationPage(mutesBody);
     if (!validMutes) console.error('RelationPage (mutes) errors:', validateRelationPage.errors);
     expect(validMutes).toBe(true);
+  });
+
+  describe('SOC-2a Operations Real HTTP Contract Tests', () => {
+    let createdPostId: string;
+    let createdCommentId: string;
+
+    it('POST /v1/posts creates a post and matches Post schema (including German folding #Straße and #strasse)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/posts',
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Hello @owner_channel! Testing German folding #Straße and #strasse.',
+          visibility: 'PUBLIC',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const post = res.json();
+      createdPostId = post.id;
+      const valid = validatePost(post);
+      if (!valid) console.error('Post schema validation errors:', validatePost.errors);
+      expect(valid).toBe(true);
+      expect(post.author.id).toBe(authorId);
+      expect(post.hashtags).toHaveLength(1);
+      expect(post.hashtags[0].slug).toBe('strasse');
+    });
+
+    it('GET /v1/posts/:post_id returns 200 matching Post schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+    });
+
+    it('PATCH /v1/posts/:post_id updates a post and matches Post schema', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Updated body for post',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+      expect(post.body).toBe('Updated body for post');
+    });
+
+    it('PUT /v1/posts/:post_id/reaction returns 200 matching ReactionState schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/reaction`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          reaction: 'LOVE',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const state = res.json();
+      const valid = validateReactionState(state);
+      if (!valid) console.error('ReactionState errors:', validateReactionState.errors);
+      expect(valid).toBe(true);
+      expect(state.my_reaction).toBe('LOVE');
+    });
+
+    it('GET /v1/posts/:post_id/reactions returns 200 matching ReactionPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}/reactions`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validateReactionPage(page);
+      if (!valid) console.error('ReactionPage errors:', validateReactionPage.errors);
+      expect(valid).toBe(true);
+      expect(page.items.length).toBeGreaterThan(0);
+    });
+
+    it('DELETE /v1/posts/:post_id/reaction removes reaction and matches ReactionState schema', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/posts/${createdPostId}/reaction`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const state = res.json();
+      expect(validateReactionState(state)).toBe(true);
+      expect(state.my_reaction).toBeNull();
+    });
+
+    it('POST /v1/posts/:post_id/comments creates a comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/posts/${createdPostId}/comments`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'First comment on post!',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const comment = res.json();
+      createdCommentId = comment.id;
+      const valid = validatePostComment(comment);
+      if (!valid) console.error('PostComment errors:', validatePostComment.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/posts/:post_id/comments returns 200 matching PostCommentPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}/comments`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validatePostCommentPage(page);
+      if (!valid) console.error('PostCommentPage errors:', validatePostCommentPage.errors);
+      expect(valid).toBe(true);
+      expect(page.items.length).toBeGreaterThan(0);
+    });
+
+    it('PATCH /v1/post-comments/:comment_id updates comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/v1/post-comments/${createdCommentId}`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Edited post comment',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const comment = res.json();
+      expect(validatePostComment(comment)).toBe(true);
+      expect(comment.body).toBe('Edited post comment');
+    });
+
+    it('PUT /v1/post-comments/:comment_id/moderation hides comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/post-comments/${createdCommentId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'HIDDEN',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const comment = res.json();
+      expect(validatePostComment(comment)).toBe(true);
+      expect(comment.status).toBe('HIDDEN');
+    });
+
+    it('DELETE /v1/post-comments/:comment_id deletes comment with 204', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/post-comments/${createdCommentId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('PUT /v1/post-comments/:comment_id/moderation on deleted comment returns 409 COMMENT_DELETED', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/post-comments/${createdCommentId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'VISIBLE',
+        },
+      });
+      expect(res.statusCode).toBe(409);
+      const problem = res.json();
+      expect(validateProblem(problem)).toBe(true);
+      expect(problem.code).toBe('COMMENT_DELETED');
+    });
+
+    it('GET /v1/feed/following returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/feed/following',
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validatePostPage(page);
+      if (!valid) console.error('PostPage errors:', validatePostPage.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/feed/explore returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/feed/explore',
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('GET /v1/hashtags/:tag/posts returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/hashtags/strasse/posts',
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('GET /v1/hashtags/trending returns 200 matching TrendingHashtags schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/hashtags/trending',
+      });
+      expect(res.statusCode).toBe(200);
+      const trending = res.json();
+      const valid = validateTrendingHashtags(trending);
+      if (!valid) console.error('TrendingHashtags errors:', validateTrendingHashtags.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/channels/:channel_id/posts returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${authorId}/posts`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('PUT /v1/posts/:post_id/moderation hides post matching Post schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'HIDDEN',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+      expect(post.status).toBe('HIDDEN');
+    });
+
+    it('DELETE /v1/posts/:post_id deletes post with 204', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('PUT /v1/posts/:post_id/moderation on deleted post returns 409 POST_DELETED', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'VISIBLE',
+        },
+      });
+      expect(res.statusCode).toBe(409);
+      const problem = res.json();
+      expect(validateProblem(problem)).toBe(true);
+      expect(problem.code).toBe('POST_DELETED');
+    });
   });
 });

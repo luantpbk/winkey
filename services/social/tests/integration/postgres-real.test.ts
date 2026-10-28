@@ -9,7 +9,7 @@ import addFormats from 'ajv-formats';
 const Ajv2020 = (_Ajv2020 as any).default ?? _Ajv2020;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
-import { getDb } from '../../src/db/client.js';
+import { getDb, closeDb } from '../../src/db/client.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { VideoProjectionConsumer } from '../../src/projection/consumer.js';
 import { parse as parseYaml } from 'yaml';
@@ -85,6 +85,12 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateFollowRequestPage: any;
   let validateRelationship: any;
   let validateRelationPage: any;
+  let validatePost: any;
+  let validatePostPage: any;
+  let validateReactionState: any;
+  let validatePostComment: any;
+  let validatePostCommentPage: any;
+  let validateTrendingHashtags: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -184,6 +190,24 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     validateRelationPage = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
     )!;
+    validatePost = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Post',
+    )!;
+    validatePostPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostPage',
+    )!;
+    validateReactionState = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReactionState',
+    )!;
+    validatePostComment = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostComment',
+    )!;
+    validatePostCommentPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostCommentPage',
+    )!;
+    validateTrendingHashtags = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/TrendingHashtags',
+    )!;
 
     // 2. Discover or spin up PostgreSQL 17 container
     let testDbUrl =
@@ -248,6 +272,11 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       pool.on('error', (_err) => {
         // Prevent unhandled error events on idle clients (e.g. 57P01 admin shutdown during container teardown)
       });
+      pool.on('connect', (client) => {
+        client.on('error', (_err) => {
+          // Prevent unhandled error events on clients during container teardown
+        });
+      });
       await pool.query('SELECT 1');
       dbUrl = testDbUrl;
 
@@ -311,6 +340,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       await nc.drain().catch(() => {});
       await nc.close().catch(() => {});
     }
+    await closeDb().catch(() => {});
     if (pool) {
       await pool.end().catch(() => {});
     }
@@ -3985,4 +4015,641 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(blockedFeedIds).toContain(commentByBlockedId);
     expect(blockedFeedIds).not.toContain(commentByBlockerId);
   }, 120_000);
+
+  it('SOC-2a: Post creation with image validation and lifecycle', async () => {
+    if (!pool || !app) return;
+
+    const userA = uuidv7();
+    const userB = uuidv7();
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES 
+        ('${userA}', 'post_user_a@winkey.vn', 'post_user_a', 'User A', 'ACTIVE'),
+        ('${userB}', 'post_user_b@winkey.vn', 'post_user_b', 'User B', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    const imgValid = uuidv7();
+    const imgWrongOwner = uuidv7();
+    const imgWrongPurpose = uuidv7();
+    const imgNotReady = uuidv7();
+
+    await pool.query(`
+      INSERT INTO media.images (id, owner_id, image_key, thumb_key, width, height, output_bytes, size_bytes, content_type, raw_bucket, raw_key, purpose, status)
+      VALUES
+        ('${imgValid}', '${userA}', 'images/valid.webp', 'images/valid_thumb.webp', 1200, 800, 50000, 100000, 'image/webp', 'raw', 'k1', 'POST', 'READY'),
+        ('${imgWrongOwner}', '${userB}', 'images/b.webp', 'images/b_thumb.webp', 1200, 800, 50000, 100000, 'image/webp', 'raw', 'k2', 'POST', 'READY'),
+        ('${imgWrongPurpose}', '${userA}', 'images/avatar.webp', 'images/avatar_thumb.webp', 400, 400, 50000, 100000, 'image/webp', 'raw', 'k3', 'AVATAR', 'READY'),
+        ('${imgNotReady}', '${userA}', NULL, NULL, NULL, NULL, NULL, 100000, 'image/webp', 'raw', 'k4', 'POST', 'PROCESSING')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // 1. Wrong owner -> 400 IMAGE_INVALID
+    const wrongOwnerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Image with wrong owner', image_ids: [imgWrongOwner] },
+    });
+    expect(wrongOwnerRes.statusCode).toBe(400);
+    expect(wrongOwnerRes.json().code).toBe('IMAGE_INVALID');
+
+    // 2. Wrong purpose -> 400 IMAGE_INVALID
+    const wrongPurposeRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Image with wrong purpose', image_ids: [imgWrongPurpose] },
+    });
+    expect(wrongPurposeRes.statusCode).toBe(400);
+    expect(wrongPurposeRes.json().code).toBe('IMAGE_INVALID');
+
+    // 3. Not ready -> 400 IMAGE_INVALID
+    const notReadyRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Image not ready', image_ids: [imgNotReady] },
+    });
+    expect(notReadyRes.statusCode).toBe(400);
+    expect(notReadyRes.json().code).toBe('IMAGE_INVALID');
+
+    // 4. Valid image -> 201 Created
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Hello #HàNội from @post_user_b!', image_ids: [imgValid] },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const postData = createRes.json();
+    expect(validatePost(postData)).toBe(true);
+    expect(postData.images).toHaveLength(1);
+    expect(postData.images[0].id).toBe(imgValid);
+    expect(postData.hashtags).toHaveLength(1);
+    expect(postData.hashtags[0].slug).toBe('hanoi');
+    expect(postData.mentions).toHaveLength(1);
+    expect(postData.mentions[0].handle).toBe('post_user_b');
+
+    // 5. Reusing the same image in another post -> 400 IMAGE_INVALID
+    const reuseRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Reusing image', image_ids: [imgValid] },
+    });
+    expect(reuseRes.statusCode).toBe(400);
+    expect(reuseRes.json().code).toBe('IMAGE_INVALID');
+
+    // 5b. German Unicode hashtag deduplication (#Straße and #strasse fold to same slug 'strasse')
+    const germanRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Testing German folding #Straße and #strasse in real PostgreSQL!' },
+    });
+    expect(germanRes.statusCode).toBe(201);
+    const germanPost = germanRes.json();
+    expect(validatePost(germanPost)).toBe(true);
+    expect(germanPost.hashtags).toHaveLength(1);
+    expect(germanPost.hashtags[0].tag).toBe('Straße');
+    expect(germanPost.hashtags[0].slug).toBe('strasse');
+
+    // Moderate post with { status: 'HIDDEN' }
+    const modPostRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(modPostRes.statusCode).toBe(200);
+    expect(modPostRes.json().status).toBe('HIDDEN');
+
+    // Moderate post with { status: 'VISIBLE' }
+    const modPostRes2 = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modPostRes2.statusCode).toBe(200);
+    expect(modPostRes2.json().status).toBe('VISIBLE');
+
+    // Delete germanPost and verify 409 POST_DELETED on moderation
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${germanPost.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    const modDeletedRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modDeletedRes.statusCode).toBe(409);
+    expect(modDeletedRes.json().code).toBe('POST_DELETED');
+
+    // 6. Get Post
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(getRes.statusCode).toBe(200);
+    expect(validatePost(getRes.json())).toBe(true);
+
+    // 7. Edit Post
+    const editRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Updated body with #saigon' },
+    });
+    expect(editRes.statusCode).toBe(200);
+    const editedPost = editRes.json();
+    expect(editedPost.body).toBe('Updated body with #saigon');
+    expect(editedPost.hashtags[0].slug).toBe('saigon');
+
+    // 8. Delete Post -> 204
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(deleteRes.statusCode).toBe(204);
+
+    // 9. Idempotent delete -> 204
+    const deleteAgainRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(deleteAgainRes.statusCode).toBe(204);
+
+    // 10. Post now not found -> 404
+    const getDeletedRes = await app.inject({
+      method: 'GET',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(getDeletedRes.statusCode).toBe(404);
+  }, 120_000);
+
+  it('SOC-2a: Reshare rules (quote, plain, reshare-of-reshare, private posts, duplicates)', async () => {
+    if (!pool || !app) return;
+
+    const publicUser = uuidv7();
+    const privateUser = uuidv7();
+    const viewerUser = uuidv7();
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES 
+        ('${publicUser}', 'pub_user@winkey.vn', 'pub_user', 'Public User', 'ACTIVE'),
+        ('${privateUser}', 'priv_user@winkey.vn', 'priv_user', 'Private User', 'ACTIVE'),
+        ('${viewerUser}', 'view_user@winkey.vn', 'view_user', 'Viewer User', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+      UPDATE auth.public_profiles SET is_private = true WHERE id = '${privateUser}';
+    `);
+
+    // Public user creates public post
+    const pubPostRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': publicUser },
+      payload: { body: 'Public post by public user' },
+    });
+    expect(pubPostRes.statusCode).toBe(201);
+    const pubPostId = pubPostRes.json().id;
+
+    // Private user creates post (will be FOLLOWERS)
+    const privPostRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': privateUser },
+      payload: { body: 'Private post' },
+    });
+    expect(privPostRes.statusCode).toBe(201);
+    const privPostId = privPostRes.json().id;
+
+    // 1. Viewer tries to reshare private user's post -> 404 or 409 NOT_RESHAREABLE
+    const resharePrivRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': viewerUser },
+      payload: { reshare_of: privPostId },
+    });
+    expect([404, 409]).toContain(resharePrivRes.statusCode);
+
+    // 2. Viewer reshares public post plain (empty body) -> 201
+    const plainReshareRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': viewerUser },
+      payload: { reshare_of: pubPostId },
+    });
+    expect(plainReshareRes.statusCode).toBe(201);
+    const plainReshareId = plainReshareRes.json().id;
+    expect(plainReshareRes.json().reshare_of).toBe(pubPostId);
+    expect(plainReshareRes.json().reshared_post.id).toBe(pubPostId);
+
+    // Verify DB trigger updated reshare_count on original post
+    const checkCount = await pool.query(
+      `SELECT reshare_count FROM social.posts WHERE id = '${pubPostId}'`,
+    );
+    expect(Number(checkCount.rows[0].reshare_count)).toBe(1);
+
+    // 3. Plain reshare twice -> 409 ALREADY_RESHARED
+    const plainReshareTwice = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': viewerUser },
+      payload: { reshare_of: pubPostId },
+    });
+    expect(plainReshareTwice.statusCode).toBe(409);
+    expect(plainReshareTwice.json().code).toBe('ALREADY_RESHARED');
+
+    // 4. Quote reshare (with body) -> 201 (not limited)
+    const quoteReshareRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': viewerUser },
+      payload: { body: 'My thoughts on this', reshare_of: pubPostId },
+    });
+    expect(quoteReshareRes.statusCode).toBe(201);
+
+    // 5. Reshare of a reshare points at original
+    const userC = uuidv7();
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES ('${userC}', 'user_c@winkey.vn', 'user_c', 'User C', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    const reshareOfReshare = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userC },
+      payload: { reshare_of: plainReshareId },
+    });
+    expect(reshareOfReshare.statusCode).toBe(201);
+    expect(reshareOfReshare.json().reshare_of).toBe(pubPostId); // points at original!
+  }, 120_000);
+
+  it('SOC-2a: Reactions and notification deduplication', async () => {
+    if (!pool || !app) return;
+
+    const author = uuidv7();
+    const reactor = uuidv7();
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES 
+        ('${author}', 'react_author@winkey.vn', 'react_author', 'Author', 'ACTIVE'),
+        ('${reactor}', 'react_reactor@winkey.vn', 'react_reactor', 'Reactor', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    const postRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': author },
+      payload: { body: 'React to this!' },
+    });
+    expect(postRes.statusCode).toBe(201);
+    const postId = postRes.json().id;
+
+    // 1. Set reaction LOVE
+    const reactRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${postId}/reaction`,
+      headers: { 'x-user-id': reactor },
+      payload: { reaction: 'LOVE' },
+    });
+    expect(reactRes.statusCode).toBe(200);
+    const state = reactRes.json();
+    expect(validateReactionState(state)).toBe(true);
+    expect(state.reaction_count).toBe(1);
+    expect(state.my_reaction).toBe('LOVE');
+
+    // 2. Check notification generated
+    const notifs = await pool.query(
+      `SELECT * FROM social.notifications WHERE user_id = '${author}' AND kind = 'POST_REACTION'`,
+    );
+    expect(notifs.rows).toHaveLength(1);
+    expect(notifs.rows[0].post_id).toBe(postId);
+
+    // 3. Change reaction to LIKE
+    const changeRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${postId}/reaction`,
+      headers: { 'x-user-id': reactor },
+      payload: { reaction: 'LIKE' },
+    });
+    expect(changeRes.statusCode).toBe(200);
+    expect(changeRes.json().reaction_count).toBe(1);
+    expect(changeRes.json().my_reaction).toBe('LIKE');
+
+    // Verify notifications did not duplicate
+    const notifsAfterChange = await pool.query(
+      `SELECT * FROM social.notifications WHERE user_id = '${author}' AND kind = 'POST_REACTION'`,
+    );
+    expect(notifsAfterChange.rows).toHaveLength(1);
+
+    // 4. Remove reaction
+    const removeRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${postId}/reaction`,
+      headers: { 'x-user-id': reactor },
+    });
+    expect(removeRes.statusCode).toBe(200);
+    expect(removeRes.json().reaction_count).toBe(0);
+    expect(removeRes.json().my_reaction).toBeNull();
+  }, 120_000);
+
+  it('SOC-2a: Post comments two levels, tombstones and counters', async () => {
+    if (!pool || !app) return;
+
+    const author = uuidv7();
+    const commenter = uuidv7();
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES 
+        ('${author}', 'post_cmt_author@winkey.vn', 'post_cmt_author', 'Post Author', 'ACTIVE'),
+        ('${commenter}', 'post_cmt_user@winkey.vn', 'post_cmt_user', 'Commenter', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    const postRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': author },
+      payload: { body: 'Post for comments testing' },
+    });
+    expect(postRes.statusCode).toBe(201);
+    const postId = postRes.json().id;
+
+    // 1. Create top-level comment
+    const c1Res = await app.inject({
+      method: 'POST',
+      url: `/v1/posts/${postId}/comments`,
+      headers: { 'x-user-id': commenter },
+      payload: { body: 'Top level comment 1' },
+    });
+    expect(c1Res.statusCode).toBe(201);
+    const c1 = c1Res.json();
+    expect(validatePostComment(c1)).toBe(true);
+
+    // Check post comment_count = 1 via DB trigger
+    let postRow = await pool.query(`SELECT comment_count FROM social.posts WHERE id = '${postId}'`);
+    expect(Number(postRow.rows[0].comment_count)).toBe(1);
+
+    // 2. Create reply to C1
+    const r1Res = await app.inject({
+      method: 'POST',
+      url: `/v1/posts/${postId}/comments`,
+      headers: { 'x-user-id': author },
+      payload: { body: 'Reply 1', parent_id: c1.id },
+    });
+    expect(r1Res.statusCode).toBe(201);
+    const r1 = r1Res.json();
+
+    // Check post comment_count = 2, C1 reply_count = 1 via DB triggers
+    postRow = await pool.query(`SELECT comment_count FROM social.posts WHERE id = '${postId}'`);
+    expect(Number(postRow.rows[0].comment_count)).toBe(2);
+    const c1Row = await pool.query(
+      `SELECT reply_count FROM social.post_comments WHERE id = '${c1.id}'`,
+    );
+    expect(Number(c1Row.rows[0].reply_count)).toBe(1);
+
+    // 3. Trying to reply to a reply (level 3) -> 400 INVALID_PARENT
+    const r2Res = await app.inject({
+      method: 'POST',
+      url: `/v1/posts/${postId}/comments`,
+      headers: { 'x-user-id': commenter },
+      payload: { body: 'Level 3 reply attempt', parent_id: r1.id },
+    });
+    expect(r2Res.statusCode).toBe(400);
+
+    // 4. Delete C1 -> stays as tombstone because reply R1 exists
+    const delC1 = await app.inject({
+      method: 'DELETE',
+      url: `/v1/post-comments/${c1.id}`,
+      headers: { 'x-user-id': commenter },
+    });
+    expect(delC1.statusCode).toBe(204);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/v1/posts/${postId}/comments`,
+      headers: { 'x-user-id': author },
+    });
+    expect(listRes.statusCode).toBe(200);
+    const listData = listRes.json();
+    expect(validatePostCommentPage(listData)).toBe(true);
+    expect(listData.items).toHaveLength(1);
+    expect(listData.items[0].status).toBe('DELETED');
+    expect(listData.items[0].body).toBe(''); // tombstone has empty body
+
+    // 5. Moderate comment with { status: 'HIDDEN' }
+    const modCommRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/post-comments/${r1.id}/moderation`,
+      headers: { 'x-user-id': author, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(modCommRes.statusCode).toBe(200);
+    expect(modCommRes.json().status).toBe('HIDDEN');
+
+    // Delete r1
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/post-comments/${r1.id}`,
+      headers: { 'x-user-id': author },
+    });
+
+    // Moderate deleted comment returns 409 COMMENT_DELETED
+    const modDelComm = await app.inject({
+      method: 'PUT',
+      url: `/v1/post-comments/${r1.id}/moderation`,
+      headers: { 'x-user-id': author, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modDelComm.statusCode).toBe(409);
+    expect(modDelComm.json().code).toBe('COMMENT_DELETED');
+  }, 120_000);
+
+  it('SOC-2a: Feeds (following, explore, hashtags, channel), cursor expiry, and EXPLAIN index scans', async () => {
+    if (!pool || !app || !dbUrl) return;
+
+    const creatorA = uuidv7();
+    const followerF = uuidv7();
+
+    await pool.query(`
+      INSERT INTO auth.users (id, email, handle, display_name, status)
+      VALUES 
+        ('${creatorA}', 'feed_creator_a@winkey.vn', 'feed_creator_a', 'Creator A', 'ACTIVE'),
+        ('${followerF}', 'feed_follower_f@winkey.vn', 'feed_follower_f', 'Follower F', 'ACTIVE')
+      ON CONFLICT DO NOTHING;
+      INSERT INTO social.subscriptions (subscriber_id, channel_id)
+      VALUES ('${followerF}', '${creatorA}')
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // Creator A posts 2 posts with hashtags
+    const p1 = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': creatorA },
+      payload: { body: 'Exploring #HàNội today!' },
+    });
+    expect(p1.statusCode).toBe(201);
+    const p1Id = p1.json().id;
+
+    const p2 = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': creatorA },
+      payload: { body: 'Another post about #travel and #HàNội' },
+    });
+    expect(p2.statusCode).toBe(201);
+
+    // 1. Following feed for followerF
+    const followingRes = await app.inject({
+      method: 'GET',
+      url: '/v1/feed/following',
+      headers: { 'x-user-id': followerF },
+    });
+    expect(followingRes.statusCode).toBe(200);
+    const followingData = followingRes.json();
+    expect(validatePostPage(followingData)).toBe(true);
+    expect(followingData.items.length).toBeGreaterThanOrEqual(2);
+
+    // 2. Hashtag feed /v1/hashtags/hanoi/posts
+    const hashRes = await app.inject({
+      method: 'GET',
+      url: '/v1/hashtags/hanoi/posts',
+      headers: { 'x-user-id': followerF },
+    });
+    expect(hashRes.statusCode).toBe(200);
+    const hashData = hashRes.json();
+    expect(validatePostPage(hashData)).toBe(true);
+    expect(hashData.items.length).toBeGreaterThanOrEqual(2);
+
+    // 3. Trending hashtags
+    const trendRes = await app.inject({
+      method: 'GET',
+      url: '/v1/hashtags/trending',
+    });
+    expect(trendRes.statusCode).toBe(200);
+    expect(validateTrendingHashtags(trendRes.json())).toBe(true);
+
+    // 4. Explore feed & scoring job
+    const { runScoringJobOnce } = await import('../../src/jobs/scoring-job.js');
+    const database = getDb(dbUrl, pool).db;
+    await runScoringJobOnce(database, null, true);
+
+    const exploreRes = await app.inject({
+      method: 'GET',
+      url: '/v1/feed/explore',
+    });
+    expect(exploreRes.statusCode).toBe(200);
+    const exploreData = exploreRes.json();
+    expect(validatePostPage(exploreData)).toBe(true);
+
+    // 5. Expired cursor test
+    const expiredCursor = Buffer.from(
+      JSON.stringify({ s: 99.9, id: p1Id, ts: Date.now() - 3600_000 }),
+    ).toString('base64url');
+
+    const expRes = await app.inject({
+      method: 'GET',
+      url: `/v1/feed/explore?cursor=${expiredCursor}`,
+    });
+    expect(expRes.statusCode).toBe(400);
+    expect(expRes.json().code).toBe('CURSOR_EXPIRED');
+
+    // 6. EXPLAIN index check (queries must not Seq Scan on posts)
+    // Seed a few thousand posts from background authors so target authors have realistic selectivity (< 1%)
+    await pool.query(`
+      INSERT INTO social.posts (id, author_id, body, visibility, status, created_at)
+      SELECT
+        gen_random_uuid(),
+        gen_random_uuid(),
+        'Unrelated post ' || s,
+        'PUBLIC',
+        'VISIBLE',
+        now() - (s || ' minutes')::interval
+      FROM generate_series(1, 5000) s;
+
+      INSERT INTO social.posts (id, author_id, body, visibility, status, created_at)
+      SELECT
+        gen_random_uuid(),
+        '${creatorA}'::uuid,
+        'Followed post ' || s,
+        'PUBLIC',
+        'VISIBLE',
+        now() - (s || ' minutes')::interval
+      FROM generate_series(1, 50) s;
+
+      INSERT INTO social.post_hashtags (post_id, tag, created_at)
+      SELECT p.id, 'hanoi', p.created_at
+      FROM social.posts p
+      WHERE p.author_id = '${creatorA}'::uuid
+      LIMIT 30
+      ON CONFLICT DO NOTHING;
+
+      INSERT INTO social.post_scores (post_id, score, computed_at)
+      SELECT p.id, 100.0 - (ROW_NUMBER() OVER () * 0.01), now()
+      FROM social.posts p
+      WHERE p.author_id = '${creatorA}'::uuid
+      LIMIT 30
+      ON CONFLICT DO NOTHING;
+
+      ANALYZE social.posts;
+      ANALYZE social.post_hashtags;
+      ANALYZE social.post_scores;
+    `);
+
+    // Following feed EXPLAIN
+    const explainFollowing = await pool.query(`
+      EXPLAIN (FORMAT TEXT)
+      SELECT p.id, p.author_id, p.created_at
+      FROM social.posts p
+      WHERE p.author_id = ANY(ARRAY['${creatorA}', '${followerF}']::uuid[])
+        AND p.status = 'VISIBLE'
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT 25;
+    `);
+    const followingPlan = explainFollowing.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    expect(followingPlan).not.toContain('Seq Scan on posts');
+
+    // Explore feed EXPLAIN
+    const explainExplore = await pool.query(`
+      EXPLAIN (FORMAT TEXT)
+      SELECT p.id, ps.score
+      FROM social.post_scores ps
+      INNER JOIN social.posts p ON p.id = ps.post_id
+      WHERE p.status = 'VISIBLE' AND p.visibility = 'PUBLIC'
+      ORDER BY ps.score DESC, ps.post_id DESC
+      LIMIT 25;
+    `);
+    const explorePlan = explainExplore.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    expect(explorePlan).not.toContain('Seq Scan on posts');
+
+    // Hashtags EXPLAIN
+    const explainHashtag = await pool.query(`
+      EXPLAIN (FORMAT TEXT)
+      SELECT p.id, ph.created_at
+      FROM social.post_hashtags ph
+      INNER JOIN social.posts p ON p.id = ph.post_id
+      WHERE ph.slug = 'hanoi' AND p.status = 'VISIBLE'
+      ORDER BY ph.created_at DESC, ph.post_id DESC
+      LIMIT 25;
+    `);
+    const hashtagPlan = explainHashtag.rows.map((r: any) => r['QUERY PLAN']).join('\n');
+    expect(hashtagPlan).not.toContain('Seq Scan on posts');
+  }, 180_000);
 });

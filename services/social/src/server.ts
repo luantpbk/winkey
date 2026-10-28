@@ -9,6 +9,11 @@ import { notificationsRoute } from './routes/notifications.js';
 import { playlistsRoute } from './routes/playlists.js';
 import { cinemaRoute } from './routes/cinema.js';
 import { healthRoute } from './routes/health.js';
+import { postsRoute } from './routes/posts.js';
+import { reactionsRoute } from './routes/reactions.js';
+import { postCommentsRoute } from './routes/post-comments.js';
+import { feedsRoute } from './routes/feeds.js';
+import { startScoringJob } from './jobs/scoring-job.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
 import { ValkeyRateLimiter, type RateLimiter } from './rate-limit/valkey-limiter.js';
@@ -113,11 +118,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(notificationsRoute, { db, env });
   await app.register(playlistsRoute, { db, env, rateLimiter });
   await app.register(cinemaRoute, { db, env, rateLimiter });
+  await app.register(postsRoute, { db, env, rateLimiter, redis: options.redis });
+  await app.register(reactionsRoute, { db, env, rateLimiter });
+  await app.register(postCommentsRoute, { db, env, rateLimiter });
+  await app.register(feedsRoute, { db, env, redis: options.redis });
   await app.register(healthRoute, {
     db,
     redis: options.redis,
     natsConnection: options.natsConnection,
   });
+
+  if (env.NODE_ENV !== 'test') {
+    const jobHandle = startScoringJob(db, options.redis);
+    app.addHook('onClose', async () => {
+      jobHandle.stop();
+    });
+  }
 
   return app;
 }
