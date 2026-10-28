@@ -357,6 +357,17 @@ kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
   grep -q "test-img-sub" /tmp/sub_img.log
 '
 echo "  PASS: transcoder user subscribed and received message from media.image_uploaded."
+
+echo "Test 5.23: transcoder user publishes to video.audio_ready..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "video.audio_ready" "test-audio-ready" --server="nats://transcoder:${TRANSCODER_PWD}@nats:4222"' >/dev/null
+echo "  PASS: transcoder user published to video.audio_ready."
+
+echo "Test 5.24: video user CANNOT publish to video.ready (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "video.ready" "test-video-ready" --server="nats://video:${VIDEO_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: video user was able to publish to video.ready!" >&2
+    exit 1
+fi
+echo "  PASS: video user blocked from video.ready (Permissions Violation)."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
