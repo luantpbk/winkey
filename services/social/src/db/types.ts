@@ -227,8 +227,6 @@ export interface ReadyImagesTable {
   width: number;
   height: number;
   purpose: string;
-  status: string;
-  created_at: Generated<Date>;
 }
 
 export interface Database {

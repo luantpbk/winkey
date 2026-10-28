@@ -141,7 +141,6 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
         .where('id', 'in', image_ids)
         .where('owner_id', '=', caller.userId)
         .where('purpose', '=', 'POST')
-        .where('status', '=', 'READY')
         .execute();
 
       if (readyImages.length !== image_ids.length) {
