@@ -38,7 +38,7 @@ export const feedsRoute: FastifyPluginAsync<FeedsRouteOptions> = async (
   // 1. Following Feed: "Đang theo dõi"
   fastify.get<{
     Querystring: { cursor?: string; limit?: string };
-  }>('/v1/feeds/following', async (request, reply) => {
+  }>('/v1/feed/following', async (request, reply) => {
     const caller = requireAuth(request);
 
     const limitNum = Math.min(100, Math.max(1, parseInt(request.query.limit || '24', 10) || 24));
@@ -159,7 +159,7 @@ export const feedsRoute: FastifyPluginAsync<FeedsRouteOptions> = async (
   // 2. Explore Feed: "Khám phá"
   fastify.get<{
     Querystring: { cursor?: string; limit?: string };
-  }>('/v1/feeds/explore', async (request, reply) => {
+  }>('/v1/feed/explore', async (request, reply) => {
     const caller = getCaller(request);
     const limitNum = Math.min(100, Math.max(1, parseInt(request.query.limit || '24', 10) || 24));
     const cursorStr = request.query.cursor;

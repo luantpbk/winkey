@@ -109,6 +109,66 @@ export function parseBodyTokens(body: string): {
   return { handles, hashtags };
 }
 
+export interface ResolvedHashtag {
+  tag: string;
+  slug: string;
+}
+
+/**
+ * Extracts candidate hashtags from text (up to 30 unique candidate strings).
+ */
+export function extractCandidateHashtags(body: string): string[] {
+  return extractCandidates(body).rawTags;
+}
+
+/**
+ * Resolves candidate hashtags against PostgreSQL public.winkey_tag_slug:
+ * - Computes slug using SQL public.winkey_tag_slug(tag)
+ * - Filters out empty slugs (slug <> '')
+ * - Preserves the first spelling of each distinct slug
+ * - Caps at 10 hashtags
+ */
+export async function resolveHashtags(
+  db: Kysely<Database>,
+  candidateTags: string[],
+): Promise<ResolvedHashtag[]> {
+  if (candidateTags.length === 0) {
+    return [];
+  }
+
+  // Deduplicate exact tag strings in memory first (up to 30) to keep the query compact
+  const uniqueCandidateTags: string[] = [];
+  const seenExact = new Set<string>();
+  for (const t of candidateTags) {
+    if (!seenExact.has(t)) {
+      seenExact.add(t);
+      uniqueCandidateTags.push(t);
+      if (uniqueCandidateTags.length >= 30) break;
+    }
+  }
+
+  const { rows } = await sql<ResolvedHashtag>`
+    SELECT t AS tag, public.winkey_tag_slug(t) AS slug
+    FROM unnest(${uniqueCandidateTags}::text[]) WITH ORDINALITY AS u(t, ord)
+    ORDER BY ord ASC
+  `.execute(db);
+
+  const resolved: ResolvedHashtag[] = [];
+  const seenSlugs = new Set<string>();
+
+  for (const row of rows) {
+    const slug = row.slug ? row.slug.trim() : '';
+    if (slug.length === 0) continue;
+    if (seenSlugs.has(slug)) continue;
+
+    seenSlugs.add(slug);
+    resolved.push({ tag: row.tag, slug });
+    if (resolved.length >= 10) break;
+  }
+
+  return resolved;
+}
+
 export interface ResolvedMention {
   userId: string;
   handle: string;

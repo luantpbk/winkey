@@ -34,8 +34,8 @@ Part of **Task C1**, owned by **Antigravity 3**.
   - `DELETE /v1/posts/:post_id/comments/:comment_id`: Delete comment (by author, post owner, or moderator/admin). Uses tombstone (`DELETED` status, body cleared) if replies exist, otherwise hard deletes.
   - `POST /v1/posts/:post_id/comments/:comment_id/moderation`: Moderator/admin action (`HIDE` / `RESTORE`).
 - **Feeds & Discovery (Task SOC-2a / ADR-049)**:
-  - `GET /v1/feeds/following`: Fan-out on read following feed with keyset cursor `(published_at, id)`. 30-second Valkey cache for page 1.
-  - `GET /v1/feeds/explore`: Gravity score feed reading from `social.post_scores`. Keyset cursor with snapshot expiration check (`400 CURSOR_EXPIRED`).
+  - `GET /v1/feed/following`: Fan-out on read following feed with keyset cursor `(published_at, id)`. 30-second Valkey cache for page 1.
+  - `GET /v1/feed/explore`: Gravity score feed reading from `social.post_scores`. Keyset cursor with snapshot expiration check (`400 CURSOR_EXPIRED`).
   - `GET /v1/hashtags/:tag/posts`: List posts tagged with `#tag` via `social.post_hashtags`. Keyset cursor on `(published_at, post_id)`.
   - `GET /v1/hashtags/trending`: Top 20 trending hashtags over rolling 24-hour window with 60-second Valkey cache.
   - `GET /v1/channels/:channel_id/posts`: Channel timeline using `posts_author_timeline` index.

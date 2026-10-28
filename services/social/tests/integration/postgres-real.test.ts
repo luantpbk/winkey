@@ -4101,6 +4101,55 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(reuseRes.statusCode).toBe(400);
     expect(reuseRes.json().code).toBe('IMAGE_INVALID');
 
+    // 5b. German Unicode hashtag deduplication (#Straße and #strasse fold to same slug 'strasse')
+    const germanRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: { body: 'Testing German folding #Straße and #strasse in real PostgreSQL!' },
+    });
+    expect(germanRes.statusCode).toBe(201);
+    const germanPost = germanRes.json();
+    expect(validatePost(germanPost)).toBe(true);
+    expect(germanPost.hashtags).toHaveLength(1);
+    expect(germanPost.hashtags[0].tag).toBe('Straße');
+    expect(germanPost.hashtags[0].slug).toBe('strasse');
+
+    // Moderate post with { status: 'HIDDEN' }
+    const modPostRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(modPostRes.statusCode).toBe(200);
+    expect(modPostRes.json().status).toBe('HIDDEN');
+
+    // Moderate post with { status: 'VISIBLE' }
+    const modPostRes2 = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modPostRes2.statusCode).toBe(200);
+    expect(modPostRes2.json().status).toBe('VISIBLE');
+
+    // Delete germanPost and verify 409 POST_DELETED on moderation
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${germanPost.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    const modDeletedRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${germanPost.id}/moderation`,
+      headers: { 'x-user-id': userA, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modDeletedRes.statusCode).toBe(409);
+    expect(modDeletedRes.json().code).toBe('POST_DELETED');
+
     // 6. Get Post
     const getRes = await app.inject({
       method: 'GET',
@@ -4403,6 +4452,33 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(listData.items).toHaveLength(1);
     expect(listData.items[0].status).toBe('DELETED');
     expect(listData.items[0].body).toBe(''); // tombstone has empty body
+
+    // 5. Moderate comment with { status: 'HIDDEN' }
+    const modCommRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/post-comments/${r1.id}/moderation`,
+      headers: { 'x-user-id': author, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(modCommRes.statusCode).toBe(200);
+    expect(modCommRes.json().status).toBe('HIDDEN');
+
+    // Delete r1
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/post-comments/${r1.id}`,
+      headers: { 'x-user-id': author },
+    });
+
+    // Moderate deleted comment returns 409 COMMENT_DELETED
+    const modDelComm = await app.inject({
+      method: 'PUT',
+      url: `/v1/post-comments/${r1.id}/moderation`,
+      headers: { 'x-user-id': author, 'x-user-roles': 'moderator' },
+      payload: { status: 'VISIBLE' },
+    });
+    expect(modDelComm.statusCode).toBe(409);
+    expect(modDelComm.json().code).toBe('COMMENT_DELETED');
   }, 120_000);
 
   it('SOC-2a: Feeds (following, explore, hashtags, channel), cursor expiry, and EXPLAIN index scans', async () => {
@@ -4443,7 +4519,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     // 1. Following feed for followerF
     const followingRes = await app.inject({
       method: 'GET',
-      url: '/v1/feeds/following',
+      url: '/v1/feed/following',
       headers: { 'x-user-id': followerF },
     });
     expect(followingRes.statusCode).toBe(200);
@@ -4477,7 +4553,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     const exploreRes = await app.inject({
       method: 'GET',
-      url: '/v1/feeds/explore',
+      url: '/v1/feed/explore',
     });
     expect(exploreRes.statusCode).toBe(200);
     const exploreData = exploreRes.json();
@@ -4490,7 +4566,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     const expRes = await app.inject({
       method: 'GET',
-      url: `/v1/feeds/explore?cursor=${expiredCursor}`,
+      url: `/v1/feed/explore?cursor=${expiredCursor}`,
     });
     expect(expRes.statusCode).toBe(400);
     expect(expRes.json().code).toBe('CURSOR_EXPIRED');

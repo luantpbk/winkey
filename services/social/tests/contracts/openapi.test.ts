@@ -965,132 +965,276 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     expect(validMutes).toBe(true);
   });
 
-  it('SOC-2a Posts, Reactions, Post Comments and Feeds schemas validate correctly', () => {
-    // 1. Post & PostPage schema
-    const samplePost = {
-      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
-      author: {
-        id: authorId,
-        handle: 'alice',
-        display_name: 'Alice',
-        avatar_url: 'https://media.winkey.vn/avatars/alice.webp',
-      },
-      body: 'Hello #HàNội! @bob check this out.',
-      visibility: 'PUBLIC',
-      status: 'VISIBLE',
-      images: [
-        {
-          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9011',
-          url: 'https://media.winkey.vn/images/img1.webp',
-          thumb_url: 'https://media.winkey.vn/images/img1_thumb.webp',
-          width: 1200,
-          height: 800,
+  describe('SOC-2a Operations Real HTTP Contract Tests', () => {
+    let createdPostId: string;
+    let createdCommentId: string;
+
+    it('POST /v1/posts creates a post and matches Post schema (including German folding #Straße and #strasse)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/posts',
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Hello @owner_channel! Testing German folding #Straße and #strasse.',
+          visibility: 'PUBLIC',
         },
-      ],
-      video_id: null,
-      reshare_of: null,
-      reshared_post: null,
-      reshare_unavailable: false,
-      mentions: [{ user_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9012', handle: 'bob' }],
-      hashtags: [{ tag: 'HàNội', slug: 'hanoi' }],
-      reaction_count: 5,
-      top_reactions: [
-        { reaction: 'LOVE', count: 3 },
-        { reaction: 'LIKE', count: 2 },
-      ],
-      my_reaction: 'LOVE',
-      comment_count: 2,
-      reshare_count: 1,
-      created_at: '2026-10-28T07:00:00.000Z',
-      edited_at: null,
-      can_edit: true,
-      can_delete: true,
-    };
+      });
 
-    const validPost = validatePost(samplePost);
-    if (!validPost) console.error('Post errors:', validatePost.errors);
-    expect(validPost).toBe(true);
-
-    const validPostPage = validatePostPage({
-      items: [samplePost],
-      next_cursor: 'eyJjcmVhdGVkX2F0IjoiMjAyNi0xMC0yOCJ9',
+      expect(res.statusCode).toBe(201);
+      const post = res.json();
+      createdPostId = post.id;
+      const valid = validatePost(post);
+      if (!valid) console.error('Post schema validation errors:', validatePost.errors);
+      expect(valid).toBe(true);
+      expect(post.author.id).toBe(authorId);
+      expect(post.hashtags).toHaveLength(1);
+      expect(post.hashtags[0].slug).toBe('strasse');
     });
-    if (!validPostPage) console.error('PostPage errors:', validatePostPage.errors);
-    expect(validPostPage).toBe(true);
 
-    // 2. ReactionState & ReactionPage schema
-    const sampleReactionState = {
-      post_id: samplePost.id,
-      my_reaction: 'LIKE',
-      reaction_count: 10,
-      top_reactions: [
-        { reaction: 'LIKE', count: 6 },
-        { reaction: 'LOVE', count: 4 },
-      ],
-    };
-    const validReactionState = validateReactionState(sampleReactionState);
-    if (!validReactionState) console.error('ReactionState errors:', validateReactionState.errors);
-    expect(validReactionState).toBe(true);
+    it('GET /v1/posts/:post_id returns 200 matching Post schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+    });
 
-    const sampleReactionPage = {
-      items: [
-        {
-          user: {
-            id: authorId,
-            handle: 'alice',
-            display_name: 'Alice',
-            avatar_url: null,
-          },
-          reaction: 'LIKE',
-          created_at: '2026-10-28T07:00:00.000Z',
+    it('PATCH /v1/posts/:post_id updates a post and matches Post schema', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Updated body for post',
         },
-      ],
-      next_cursor: null,
-    };
-    const validReactionPage = validateReactionPage(sampleReactionPage);
-    if (!validReactionPage) console.error('ReactionPage errors:', validateReactionPage.errors);
-    expect(validReactionPage).toBe(true);
-
-    // 3. PostComment & PostCommentPage schema
-    const samplePostComment = {
-      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9015',
-      post_id: samplePost.id,
-      parent_id: null,
-      author: {
-        id: authorId,
-        handle: 'alice',
-        display_name: 'Alice',
-        avatar_url: null,
-      },
-      body: 'Great post!',
-      status: 'VISIBLE',
-      reply_count: 1,
-      created_at: '2026-10-28T07:05:00.000Z',
-      edited_at: null,
-      can_edit: true,
-      can_delete: true,
-    };
-    const validPostComment = validatePostComment(samplePostComment);
-    if (!validPostComment) console.error('PostComment errors:', validatePostComment.errors);
-    expect(validPostComment).toBe(true);
-
-    const validPostCommentPage = validatePostCommentPage({
-      items: [samplePostComment],
-      next_cursor: null,
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+      expect(post.body).toBe('Updated body for post');
     });
-    if (!validPostCommentPage)
-      console.error('PostCommentPage errors:', validatePostCommentPage.errors);
-    expect(validPostCommentPage).toBe(true);
 
-    // 4. TrendingHashtags schema
-    const sampleTrending = {
-      items: [
-        { tag: 'HàNội', slug: 'hanoi', post_count: 42 },
-        { tag: 'SàiGòn', slug: 'saigon', post_count: 28 },
-      ],
-    };
-    const validTrending = validateTrendingHashtags(sampleTrending);
-    if (!validTrending) console.error('TrendingHashtags errors:', validateTrendingHashtags.errors);
-    expect(validTrending).toBe(true);
+    it('PUT /v1/posts/:post_id/reaction returns 200 matching ReactionState schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/reaction`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          reaction: 'LOVE',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const state = res.json();
+      const valid = validateReactionState(state);
+      if (!valid) console.error('ReactionState errors:', validateReactionState.errors);
+      expect(valid).toBe(true);
+      expect(state.my_reaction).toBe('LOVE');
+    });
+
+    it('GET /v1/posts/:post_id/reactions returns 200 matching ReactionPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}/reactions`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validateReactionPage(page);
+      if (!valid) console.error('ReactionPage errors:', validateReactionPage.errors);
+      expect(valid).toBe(true);
+      expect(page.items.length).toBeGreaterThan(0);
+    });
+
+    it('DELETE /v1/posts/:post_id/reaction removes reaction and matches ReactionState schema', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/posts/${createdPostId}/reaction`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const state = res.json();
+      expect(validateReactionState(state)).toBe(true);
+      expect(state.my_reaction).toBeNull();
+    });
+
+    it('POST /v1/posts/:post_id/comments creates a comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/v1/posts/${createdPostId}/comments`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'First comment on post!',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const comment = res.json();
+      createdCommentId = comment.id;
+      const valid = validatePostComment(comment);
+      if (!valid) console.error('PostComment errors:', validatePostComment.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/posts/:post_id/comments returns 200 matching PostCommentPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/posts/${createdPostId}/comments`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validatePostCommentPage(page);
+      if (!valid) console.error('PostCommentPage errors:', validatePostCommentPage.errors);
+      expect(valid).toBe(true);
+      expect(page.items.length).toBeGreaterThan(0);
+    });
+
+    it('PATCH /v1/post-comments/:comment_id updates comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/v1/post-comments/${createdCommentId}`,
+        headers: { 'x-user-id': authorId },
+        payload: {
+          body: 'Edited post comment',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const comment = res.json();
+      expect(validatePostComment(comment)).toBe(true);
+      expect(comment.body).toBe('Edited post comment');
+    });
+
+    it('PUT /v1/post-comments/:comment_id/moderation hides comment matching PostComment schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/post-comments/${createdCommentId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'HIDDEN',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const comment = res.json();
+      expect(validatePostComment(comment)).toBe(true);
+      expect(comment.status).toBe('HIDDEN');
+    });
+
+    it('DELETE /v1/post-comments/:comment_id deletes comment with 204', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/post-comments/${createdCommentId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('PUT /v1/post-comments/:comment_id/moderation on deleted comment returns 409 COMMENT_DELETED', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/post-comments/${createdCommentId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'VISIBLE',
+        },
+      });
+      expect(res.statusCode).toBe(409);
+      const problem = res.json();
+      expect(validateProblem(problem)).toBe(true);
+      expect(problem.code).toBe('COMMENT_DELETED');
+    });
+
+    it('GET /v1/feed/following returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/feed/following',
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      const valid = validatePostPage(page);
+      if (!valid) console.error('PostPage errors:', validatePostPage.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/feed/explore returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/feed/explore',
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('GET /v1/hashtags/:tag/posts returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/hashtags/strasse/posts',
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('GET /v1/hashtags/trending returns 200 matching TrendingHashtags schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/hashtags/trending',
+      });
+      expect(res.statusCode).toBe(200);
+      const trending = res.json();
+      const valid = validateTrendingHashtags(trending);
+      if (!valid) console.error('TrendingHashtags errors:', validateTrendingHashtags.errors);
+      expect(valid).toBe(true);
+    });
+
+    it('GET /v1/channels/:channel_id/posts returns 200 matching PostPage schema', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/channels/${authorId}/posts`,
+      });
+      expect(res.statusCode).toBe(200);
+      const page = res.json();
+      expect(validatePostPage(page)).toBe(true);
+    });
+
+    it('PUT /v1/posts/:post_id/moderation hides post matching Post schema', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'HIDDEN',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const post = res.json();
+      expect(validatePost(post)).toBe(true);
+      expect(post.status).toBe('HIDDEN');
+    });
+
+    it('DELETE /v1/posts/:post_id deletes post with 204', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/v1/posts/${createdPostId}`,
+        headers: { 'x-user-id': authorId },
+      });
+      expect(res.statusCode).toBe(204);
+    });
+
+    it('PUT /v1/posts/:post_id/moderation on deleted post returns 409 POST_DELETED', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/v1/posts/${createdPostId}/moderation`,
+        headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+        payload: {
+          status: 'VISIBLE',
+        },
+      });
+      expect(res.statusCode).toBe(409);
+      const problem = res.json();
+      expect(validateProblem(problem)).toBe(true);
+      expect(problem.code).toBe('POST_DELETED');
+    });
   });
 });

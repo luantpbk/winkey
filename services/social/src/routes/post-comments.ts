@@ -29,7 +29,7 @@ const editPostCommentSchema = z.object({
 });
 
 const moderatePostCommentSchema = z.object({
-  action: z.enum(['HIDE', 'RESTORE']),
+  status: z.enum(['HIDDEN', 'VISIBLE']),
 });
 
 interface CommentCursor {
@@ -833,16 +833,18 @@ export const postCommentsRoute: FastifyPluginAsync<PostCommentsRouteOptions> = a
         throw ProblemError.conflict('Cannot moderate a deleted comment', 'COMMENT_DELETED');
       }
 
-      const newStatus: CommentStatus = parseResult.data.action === 'HIDE' ? 'HIDDEN' : 'VISIBLE';
+      const newStatus: CommentStatus = parseResult.data.status;
 
-      await db
-        .updateTable('social.post_comments')
-        .set({
-          status: newStatus,
-          updated_at: sql`now()`,
-        })
-        .where('id', '=', comment_id)
-        .execute();
+      if (comment.status !== newStatus) {
+        await db
+          .updateTable('social.post_comments')
+          .set({
+            status: newStatus,
+            updated_at: sql`now()`,
+          })
+          .where('id', '=', comment_id)
+          .execute();
+      }
 
       const updated = await db
         .selectFrom('social.post_comments as c')

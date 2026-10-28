@@ -124,6 +124,64 @@ export interface MockStore {
     position: number;
     added_at: Date;
   }>;
+  posts: Array<{
+    id: string;
+    author_id: string;
+    body: string;
+    visibility: 'PUBLIC' | 'FOLLOWERS';
+    status: 'VISIBLE' | 'DELETED' | 'HIDDEN';
+    media_count: number;
+    video_id: string | null;
+    reshare_of: string | null;
+    reaction_count: number;
+    comment_count: number;
+    reshare_count: number;
+    created_at: Date;
+    edited_at: Date | null;
+    updated_at: Date;
+  }>;
+  post_media: Array<{
+    post_id: string;
+    position: number;
+    image_id: string;
+    image_key: string;
+    thumb_key: string;
+    width: number;
+    height: number;
+  }>;
+  post_reactions: Array<{
+    post_id: string;
+    user_id: string;
+    reaction: 'LIKE' | 'LOVE' | 'HAHA' | 'WOW' | 'SAD' | 'ANGRY';
+    created_at: Date;
+  }>;
+  post_comments: Array<{
+    id: string;
+    post_id: string;
+    author_id: string;
+    parent_id: string | null;
+    body: string;
+    status: 'VISIBLE' | 'DELETED' | 'HIDDEN';
+    reply_count: number;
+    created_at: Date;
+    edited_at: Date | null;
+    updated_at: Date;
+  }>;
+  post_hashtags: Array<{
+    post_id: string;
+    tag: string;
+    slug: string;
+    created_at: Date;
+  }>;
+  post_mentions: Array<{
+    post_id: string;
+    user_id: string;
+  }>;
+  post_scores: Array<{
+    post_id: string;
+    score: number;
+    computed_at: Date;
+  }>;
   advisory_locks: Set<number>;
 }
 
@@ -143,6 +201,13 @@ export function createMockStore(): MockStore {
     notifications: [],
     playlists: [],
     playlist_items: [],
+    posts: [],
+    post_media: [],
+    post_reactions: [],
+    post_comments: [],
+    post_hashtags: [],
+    post_mentions: [],
+    post_scores: [],
     advisory_locks: new Set<number>(),
   };
 }
@@ -1295,6 +1360,460 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: playable, rowCount: playable.length };
       }
 
+      // 5f. POSTS, REACTIONS, POST COMMENTS, FEEDS (SOC-2a)
+      if (sql.includes('SELECT channel_id AS author_id FROM social.subscriptions')) {
+        const callerId = String(params[0]);
+        const subs = store.subscriptions
+          .filter((s) => s.subscriber_id === callerId)
+          .map((s) => ({ author_id: s.channel_id }));
+        subs.push({ author_id: callerId });
+        return { rows: subs, rowCount: subs.length };
+      }
+
+      if (sql.includes('SELECT blocked_id AS user_id FROM social.blocks')) {
+        const callerId = String(params[0]);
+        const blocked = store.blocks
+          .filter((b) => b.blocker_id === callerId || b.blocked_id === callerId)
+          .map((b) => ({ user_id: b.blocker_id === callerId ? b.blocked_id : b.blocker_id }));
+        const muted = store.mutes
+          .filter((m) => m.muter_id === callerId)
+          .map((m) => ({ user_id: m.muted_id }));
+        const rows = [...blocked, ...muted];
+        return { rows, rowCount: rows.length };
+      }
+
+      if (sql.includes('public.winkey_tag_slug')) {
+        const foldTag = (t: string) =>
+          t
+            .toLowerCase()
+            .replace(/ß/g, 'ss')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[đĐ]/g, 'd')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        if (sql.includes('unnest')) {
+          const tags = (params[0] as string[]) || [];
+          const rows = tags.map((t) => ({ tag: t, slug: foldTag(t) }));
+          return { rows, rowCount: rows.length };
+        }
+        const tag = String(params[0] ?? '');
+        const slug = foldTag(tag);
+        return { rows: [{ slug }], rowCount: 1 };
+      }
+
+      if (
+        sql.includes('insert into "social"."posts"') ||
+        sql.includes('insert into social.posts')
+      ) {
+        const id = String(params[0]);
+        const author_id = String(params[1]);
+        const body = String(params[2] ?? '');
+        const visibility = (params[3] ?? 'PUBLIC') as 'PUBLIC' | 'FOLLOWERS';
+        const status = (params[4] ?? 'VISIBLE') as 'VISIBLE' | 'DELETED' | 'HIDDEN';
+        const video_id = params[5] ? String(params[5]) : null;
+        const reshare_of = params[6] ? String(params[6]) : null;
+        const media_count = Number(params[7] ?? 0);
+        const post = {
+          id,
+          author_id,
+          body,
+          visibility,
+          status,
+          video_id,
+          reshare_of,
+          media_count,
+          reaction_count: 0,
+          comment_count: 0,
+          reshare_count: 0,
+          created_at: new Date(),
+          edited_at: null,
+          updated_at: new Date(),
+        };
+        store.posts.push(post);
+        return { rows: [post], rowCount: 1 };
+      }
+
+      if (sql.includes('update "social"."posts"') || sql.includes('update social.posts')) {
+        const idParam = String(params[params.length - 1]);
+        const post = store.posts.find((p) => p.id === idParam);
+        if (post) {
+          if (sql.includes('"status" =') || sql.includes('status =')) {
+            const st = params.find((p) => p === 'VISIBLE' || p === 'HIDDEN' || p === 'DELETED');
+            if (st) post.status = st as any;
+          }
+          if (sql.includes('"body" =') || sql.includes('body =')) {
+            const b = params.find(
+              (p) =>
+                typeof p === 'string' &&
+                p !== idParam &&
+                p !== 'PUBLIC' &&
+                p !== 'FOLLOWERS' &&
+                p !== 'VISIBLE' &&
+                p !== 'HIDDEN' &&
+                p !== 'DELETED',
+            );
+            if (b !== undefined && b !== null) {
+              post.body = String(b);
+              post.edited_at = new Date();
+            }
+          }
+          if (sql.includes('"visibility" =') || sql.includes('visibility =')) {
+            const v = params.find((p) => p === 'PUBLIC' || p === 'FOLLOWERS');
+            if (v) post.visibility = v as any;
+          }
+          post.updated_at = new Date();
+          return { rows: [post], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (
+        (sql.includes('from "social"."posts"') || sql.includes('from social.posts')) &&
+        !sql.includes('join')
+      ) {
+        if (sql.includes('id = $1') || sql.includes('"id" = $1')) {
+          const postId = String(params[0]);
+          const post = store.posts.find((p) => p.id === postId);
+          return {
+            rows: post ? [{ ...post, created_at_cursor: post.created_at.toISOString() }] : [],
+            rowCount: post ? 1 : 0,
+          };
+        }
+        if (sql.includes('"id" in') || sql.includes('id in')) {
+          const ids = (params as string[]).map(String);
+          const rows = store.posts
+            .filter((p) => ids.includes(p.id))
+            .map((p) => ({ ...p, created_at_cursor: p.created_at.toISOString() }));
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('author_id = any') || sql.includes('"author_id" = any')) {
+          const authors = (params[0] as string[]) || [];
+          const rows = store.posts
+            .filter((p) => authors.includes(p.author_id) && p.status === 'VISIBLE')
+            .map((p) => ({ ...p, created_at_cursor: p.created_at.toISOString() }));
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('author_id = $1') || sql.includes('"author_id" = $1')) {
+          const authorId = String(params[0]);
+          const rows = store.posts
+            .filter((p) => p.author_id === authorId && p.status === 'VISIBLE')
+            .map((p) => ({ ...p, created_at_cursor: p.created_at.toISOString() }));
+          return { rows, rowCount: rows.length };
+        }
+        const rows = store.posts.map((p) => ({
+          ...p,
+          created_at_cursor: p.created_at.toISOString(),
+        }));
+        return { rows, rowCount: rows.length };
+      }
+
+      if (sql.includes('post_hashtags') && !sql.includes('notifications')) {
+        if (sql.includes('insert into') || sql.includes('INSERT INTO')) {
+          for (let i = 0; i < params.length; i += 3) {
+            const pid = String(params[i]);
+            const tag = String(params[i + 1]);
+            const slug = tag
+              .toLowerCase()
+              .replace(/ß/g, 'ss')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/[đĐ]/g, 'd')
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+            store.post_hashtags.push({ post_id: pid, tag, slug, created_at: new Date() });
+          }
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('delete from') || sql.includes('DELETE FROM')) {
+          const pid = String(params[0]);
+          store.post_hashtags = store.post_hashtags.filter((h) => h.post_id !== pid);
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('group by') || sql.includes('GROUP BY')) {
+          const counts = new Map<string, { tag: string; slug: string; count: number }>();
+          for (const h of store.post_hashtags) {
+            const entry = counts.get(h.slug) ?? { tag: h.tag, slug: h.slug, count: 0 };
+            entry.count++;
+            counts.set(h.slug, entry);
+          }
+          const rows = Array.from(counts.values()).map((e) => ({
+            tag: e.tag,
+            slug: e.slug,
+            post_count: e.count,
+          }));
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('join') || sql.includes('JOIN')) {
+          const slugParam = String(params[0] ?? '');
+          const matching = store.post_hashtags.filter((h) => h.slug === slugParam);
+          const postIds = matching.map((h) => h.post_id);
+          const posts = store.posts
+            .filter((p) => postIds.includes(p.id) && p.status === 'VISIBLE')
+            .map((p) => ({
+              ...p,
+              hashtag_created_at: new Date(),
+              created_at_cursor: p.created_at.toISOString(),
+            }));
+          return { rows: posts, rowCount: posts.length };
+        }
+        if (sql.includes('"post_id" in') || sql.includes('post_id in')) {
+          const ids = (params as string[]).map(String);
+          const rows = store.post_hashtags.filter((h) => ids.includes(h.post_id));
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: store.post_hashtags, rowCount: store.post_hashtags.length };
+      }
+
+      if (sql.includes('post_mentions') && !sql.includes('notifications')) {
+        if (sql.includes('insert into') || sql.includes('INSERT INTO')) {
+          for (let i = 0; i < params.length; i += 2) {
+            const pid = String(params[i]);
+            const uid = String(params[i + 1]);
+            store.post_mentions.push({ post_id: pid, user_id: uid });
+          }
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('delete from') || sql.includes('DELETE FROM')) {
+          const pid = String(params[0]);
+          store.post_mentions = store.post_mentions.filter((m) => m.post_id !== pid);
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('join') || sql.includes('"post_id" in') || sql.includes('post_id in')) {
+          const ids = (params as string[]).map(String);
+          const rows = store.post_mentions
+            .filter((m) => ids.includes(m.post_id))
+            .map((m) => {
+              const prof = store.public_profiles.find((p) => p.id === m.user_id);
+              return {
+                post_id: m.post_id,
+                user_id: m.user_id,
+                handle: prof?.handle ?? 'unknown',
+              };
+            });
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: store.post_mentions, rowCount: store.post_mentions.length };
+      }
+
+      if (sql.includes('post_reactions') && !sql.includes('notifications')) {
+        if (sql.includes('insert into') || sql.includes('INSERT INTO')) {
+          const postId = String(params[0]);
+          const userId = String(params[1]);
+          const reaction = params[2] as any;
+          const existing = store.post_reactions.find(
+            (r) => r.post_id === postId && r.user_id === userId,
+          );
+          if (existing) {
+            existing.reaction = reaction;
+          } else {
+            store.post_reactions.push({
+              post_id: postId,
+              user_id: userId,
+              reaction,
+              created_at: new Date(),
+            });
+            const p = store.posts.find((x) => x.id === postId);
+            if (p) p.reaction_count++;
+          }
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('delete from') || sql.includes('DELETE FROM')) {
+          const postId = String(params[0]);
+          const userId = String(params[1]);
+          const idx = store.post_reactions.findIndex(
+            (r) => r.post_id === postId && r.user_id === userId,
+          );
+          if (idx !== -1) {
+            store.post_reactions.splice(idx, 1);
+            const p = store.posts.find((x) => x.id === postId);
+            if (p && p.reaction_count > 0) p.reaction_count--;
+          }
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('group by') || sql.includes('GROUP BY')) {
+          const postId = String(params[0]);
+          const reactions = store.post_reactions.filter((r) => r.post_id === postId);
+          const counts = new Map<string, number>();
+          for (const r of reactions) {
+            counts.set(r.reaction, (counts.get(r.reaction) || 0) + 1);
+          }
+          const rows = Array.from(counts.entries()).map(([reaction, count]) => ({
+            post_id: postId,
+            reaction,
+            count,
+          }));
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('join') || sql.includes('JOIN')) {
+          const postId = String(params[0]);
+          const reactions = store.post_reactions.filter((r) => r.post_id === postId);
+          const rows = reactions.map((r) => {
+            const prof = store.public_profiles.find((p) => p.id === r.user_id);
+            return {
+              user_id: r.user_id,
+              reaction: r.reaction,
+              created_at: r.created_at,
+              created_at_cursor: r.created_at.toISOString(),
+              profile_id: prof?.id,
+              profile_handle: prof?.handle,
+              profile_display_name: prof?.display_name,
+              profile_avatar_key: prof?.avatar_key,
+              handle: prof?.handle,
+              display_name: prof?.display_name,
+              avatar_key: prof?.avatar_key,
+              is_private: prof?.is_private ?? false,
+            };
+          });
+          return { rows, rowCount: rows.length };
+        }
+        if (
+          sql.includes('user_id = $1') &&
+          (sql.includes('post_id in') || sql.includes('"post_id" in'))
+        ) {
+          const userId = String(params[0]);
+          const postIds = (params.slice(1) as string[]).map(String);
+          const rows = store.post_reactions.filter(
+            (r) => r.user_id === userId && postIds.includes(r.post_id),
+          );
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: store.post_reactions, rowCount: store.post_reactions.length };
+      }
+
+      if (sql.includes('post_comments') && !sql.includes('notifications')) {
+        if (sql.includes('insert into') || sql.includes('INSERT INTO')) {
+          const id = String(params[0]);
+          const post_id = String(params[1]);
+          const author_id = String(params[2]);
+          const parent_id = params[3] ? String(params[3]) : null;
+          const body = String(params[4] ?? '');
+          const comment = {
+            id,
+            post_id,
+            author_id,
+            parent_id,
+            body,
+            status: 'VISIBLE' as const,
+            reply_count: 0,
+            created_at: new Date(),
+            edited_at: null,
+            updated_at: new Date(),
+          };
+          store.post_comments.push(comment);
+          const p = store.posts.find((x) => x.id === post_id);
+          if (p) p.comment_count++;
+          return { rows: [comment], rowCount: 1 };
+        }
+        if (
+          sql.includes('update "social"."post_comments"') ||
+          sql.includes('update social.post_comments')
+        ) {
+          const commentId = String(params[params.length - 1]);
+          const comment = store.post_comments.find((c) => c.id === commentId);
+          if (comment) {
+            if (sql.includes('status =') || sql.includes('"status" =')) {
+              const st = params.find((p) => p === 'VISIBLE' || p === 'HIDDEN' || p === 'DELETED');
+              if (st) comment.status = st as any;
+            }
+            if (sql.includes('body =') || sql.includes('"body" =')) {
+              const b = params.find(
+                (p) =>
+                  typeof p === 'string' &&
+                  p !== commentId &&
+                  p !== 'VISIBLE' &&
+                  p !== 'HIDDEN' &&
+                  p !== 'DELETED',
+              );
+              if (b !== undefined && b !== null) {
+                comment.body = String(b);
+                comment.edited_at = new Date();
+              }
+            }
+            comment.updated_at = new Date();
+            return { rows: [comment], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes('join') || sql.includes('JOIN')) {
+          if (sql.includes('c.id = $1') || sql.includes('"c"."id" = $1')) {
+            const commentId = String(params[0]);
+            const c = store.post_comments.find((x) => x.id === commentId);
+            if (!c) return { rows: [], rowCount: 0 };
+            const prof = store.public_profiles.find((p) => p.id === c.author_id);
+            const post = store.posts.find((p) => p.id === c.post_id);
+            return {
+              rows: [
+                {
+                  ...c,
+                  post_author_id: post?.author_id,
+                  profile_id: prof?.id,
+                  profile_handle: prof?.handle,
+                  profile_display_name: prof?.display_name,
+                  profile_avatar_key: prof?.avatar_key,
+                },
+              ],
+              rowCount: 1,
+            };
+          }
+          const postId = String(params[0]);
+          const comments = store.post_comments.filter(
+            (c) => c.post_id === postId && c.status !== 'DELETED',
+          );
+          const rows = comments.map((c) => {
+            const prof = store.public_profiles.find((p) => p.id === c.author_id);
+            return {
+              ...c,
+              profile_id: prof?.id,
+              profile_handle: prof?.handle,
+              profile_display_name: prof?.display_name,
+              profile_avatar_key: prof?.avatar_key,
+            };
+          });
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('id = $1') || sql.includes('"id" = $1')) {
+          const commentId = String(params[0]);
+          const comment = store.post_comments.find((c) => c.id === commentId);
+          return { rows: comment ? [comment] : [], rowCount: comment ? 1 : 0 };
+        }
+        return { rows: store.post_comments, rowCount: store.post_comments.length };
+      }
+
+      if (sql.includes('post_scores') && !sql.includes('notifications')) {
+        if (sql.includes('max(computed_at)')) {
+          return { rows: [{ max_ts: new Date() }], rowCount: 1 };
+        }
+        if (sql.includes('join') || sql.includes('JOIN')) {
+          const posts = store.posts.filter(
+            (p) => p.status === 'VISIBLE' && p.visibility === 'PUBLIC',
+          );
+          const rows = posts.map((p) => ({
+            ...p,
+            score: 10,
+            computed_at: new Date(),
+          }));
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('post_media') && !sql.includes('notifications')) {
+        if (sql.includes('insert into') || sql.includes('INSERT INTO')) {
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('delete from') || sql.includes('DELETE FROM')) {
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes('"post_id" in') || sql.includes('post_id in')) {
+          const ids = (params as string[]).map(String);
+          const rows = store.post_media.filter((m) => ids.includes(m.post_id));
+          return { rows, rowCount: rows.length };
+        }
+        return { rows: store.post_media, rowCount: store.post_media.length };
+      }
+
       // 6. SELECT QUERIES
       // Select single video
       if (sql.includes('from "social"."videos"') || sql.includes('from social.videos')) {
@@ -1326,9 +1845,42 @@ export function createMockDb(store: MockStore = createMockStore()): {
         sql.includes('from "auth"."public_profiles"') ||
         sql.includes('from auth.public_profiles')
       ) {
+        if (sql.includes('lower(handle)')) {
+          const lowerHandles = (params as string[]).map((h) => String(h).toLowerCase());
+          const rows = store.public_profiles
+            .filter((p) => lowerHandles.includes(p.handle.toLowerCase()))
+            .map((p) => ({ id: p.id, handle: p.handle, is_private: p.is_private ?? false }));
+          return { rows, rowCount: rows.length };
+        }
+        if (sql.includes('"id" in') || sql.includes('id in')) {
+          const ids = (params as string[]).map(String);
+          const rows = store.public_profiles
+            .filter((p) => ids.includes(p.id))
+            .map((p) => ({
+              id: p.id,
+              handle: p.handle,
+              display_name: p.display_name,
+              avatar_key: p.avatar_key,
+              is_private: p.is_private ?? false,
+            }));
+          return { rows, rowCount: rows.length };
+        }
         const profileId = String(params[0]);
         const profile = store.public_profiles.find((p) => p.id === profileId);
-        return { rows: profile ? [profile] : [], rowCount: profile ? 1 : 0 };
+        return {
+          rows: profile
+            ? [
+                {
+                  id: profile.id,
+                  handle: profile.handle,
+                  display_name: profile.display_name,
+                  avatar_key: profile.avatar_key,
+                  is_private: profile.is_private ?? false,
+                },
+              ]
+            : [],
+          rowCount: profile ? 1 : 0,
+        };
       }
 
       // Check single like

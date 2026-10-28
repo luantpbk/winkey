@@ -9,7 +9,7 @@ import { buildPostCreateRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
 import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 import { canSeePost } from '../utils/visibility.js';
-import { parseBodyTokens, resolveMentions } from '../utils/text-parser.js';
+import { extractCandidates, resolveHashtags, resolveMentions } from '../utils/text-parser.js';
 import { hydratePostsBatch, type RawPostRow } from '../utils/post-builder.js';
 import { shouldSuppressNotification } from '../utils/blocks.js';
 import type { Redis } from 'ioredis';
@@ -35,7 +35,7 @@ const editPostSchema = z.object({
 });
 
 const moderatePostSchema = z.object({
-  action: z.enum(['HIDE', 'RESTORE']),
+  status: z.enum(['HIDDEN', 'VISIBLE']),
 });
 
 export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
@@ -268,9 +268,10 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
       }
     }
 
-    // Parse mentions and hashtags
-    const { handles, hashtags } = parseBodyTokens(trimmedBody);
-    const resolvedMentions = await resolveMentions(db, caller.userId, handles);
+    // Parse mentions and candidate hashtags
+    const { rawHandles, rawTags } = extractCandidates(trimmedBody);
+    const resolvedMentions = await resolveMentions(db, caller.userId, rawHandles);
+    const resolvedHashtags = await resolveHashtags(db, rawTags);
 
     const postId = uuidv7();
 
@@ -322,11 +323,11 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
             .execute();
         }
 
-        if (hashtags.length > 0) {
+        if (resolvedHashtags.length > 0) {
           await trx
             .insertInto('social.post_hashtags')
             .values(
-              hashtags.map((h) => ({
+              resolvedHashtags.map((h) => ({
                 post_id: postId,
                 tag: h.tag,
                 created_at: sql`now()`,
@@ -571,8 +572,9 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
         await trx.deleteFrom('social.post_mentions').where('post_id', '=', post_id).execute();
         await trx.deleteFrom('social.post_hashtags').where('post_id', '=', post_id).execute();
 
-        const { handles, hashtags } = parseBodyTokens(nextBody);
-        const resolvedMentions = await resolveMentions(trx, caller.userId, handles);
+        const { rawHandles, rawTags } = extractCandidates(nextBody);
+        const resolvedMentions = await resolveMentions(trx, caller.userId, rawHandles);
+        const resolvedHashtags = await resolveHashtags(trx, rawTags);
 
         if (resolvedMentions.length > 0) {
           await trx
@@ -586,11 +588,11 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
             .execute();
         }
 
-        if (hashtags.length > 0) {
+        if (resolvedHashtags.length > 0) {
           await trx
             .insertInto('social.post_hashtags')
             .values(
-              hashtags.map((h) => ({
+              resolvedHashtags.map((h) => ({
                 post_id: post_id,
                 tag: h.tag,
                 created_at: post.created_at,
@@ -729,16 +731,25 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
         throw ProblemError.conflict('Cannot moderate a deleted post', 'POST_DELETED');
       }
 
-      const newStatus: PostStatus = parseResult.data.action === 'HIDE' ? 'HIDDEN' : 'VISIBLE';
+      const newStatus: PostStatus = parseResult.data.status;
 
-      await db
-        .updateTable('social.posts')
-        .set({
-          status: newStatus,
-          updated_at: sql`now()`,
-        })
-        .where('id', '=', post_id)
-        .execute();
+      if (post.status !== newStatus) {
+        await db
+          .updateTable('social.posts')
+          .set({
+            status: newStatus,
+            updated_at: sql`now()`,
+          })
+          .where('id', '=', post_id)
+          .execute();
+
+        if (newStatus === 'HIDDEN') {
+          await db.deleteFrom('social.post_scores').where('post_id', '=', post_id).execute();
+          if (redis) {
+            await redis.del(`social:feed:following:${post.author_id}:first_page`).catch(() => {});
+          }
+        }
+      }
 
       const updated = await db
         .selectFrom('social.posts')
