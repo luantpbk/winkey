@@ -1068,12 +1068,14 @@ function setDynamicStudioVideos(videos: StudioVideo[]) {
 interface ActiveUpload {
   video_id: string;
   title: string;
+  purpose?: 'FILM' | 'SOCIAL';
   size_bytes: number;
   part_size: number;
   part_count: number;
   status: 'UPLOADING' | 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
   progress: number;
   completed_parts: { part_number: number; etag: string }[];
+  error?: string | null;
 }
 
 const activeUploads = new Map<string, ActiveUpload>();
@@ -2755,7 +2757,7 @@ export const handlers = [
       if (v.status !== 'READY' && !isOwner && !isAdminOrMod) continue;
       if (v.visibility === 'PRIVATE' && !isOwner && !isAdminOrMod) continue;
 
-      const summary: VideoSummary = {
+      const summary: any = {
         id: v.id,
         title: v.title,
         owner: v.owner,
@@ -2765,6 +2767,10 @@ export const handlers = [
           'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
         view_count: v.view_count,
         published_at: v.published_at ?? v.created_at ?? new Date().toISOString(),
+        purpose: v.purpose || 'FILM',
+        playback: v.playback,
+        width: v.width,
+        height: v.height,
       };
       videoMap.set(v.id, summary);
     }
@@ -3588,6 +3594,21 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
   // --- UPLOAD & STUDIO ENDPOINTS ---
   http.post('*/v1/uploads', async ({ request }) => {
     const body = (await request.json()) as any;
+
+    // SOC-2b: size limit for purpose SOCIAL (max 300 MiB)
+    if (body.purpose === 'SOCIAL' && body.size_bytes > 314572800) {
+      return HttpResponse.json(
+        {
+          type: '/problems/validation',
+          title: 'Video too large',
+          status: 400,
+          code: 'VIDEO_TOO_LARGE',
+          detail: 'Social video must not exceed 300 MiB (314572800 bytes)',
+        },
+        { status: 400 },
+      );
+    }
+
     const videoId = `0192f5e4-7c1a-7b3e-9d2a-${Date.now().toString(16).slice(-12)}`;
     const sizeBytes = body.size_bytes || 50 * 1024 * 1024;
     // Limits: part_size = max(16 MiB, ceil(size_bytes / 10000)) rounded up to whole MiB
@@ -3599,6 +3620,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     activeUploads.set(videoId, {
       video_id: videoId,
       title: body.title,
+      purpose: body.purpose || 'FILM',
       size_bytes: sizeBytes,
       part_size: partSize,
       part_count: partCount,
@@ -3659,29 +3681,45 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
+    if (upload.title === 'trigger-too-long') {
+      upload.status = 'FAILED';
+      upload.error = 'TOO_LONG';
+      const resp: UploadStatus = {
+        video_id: videoId,
+        status: 'FAILED',
+        progress: 0,
+        error: 'TOO_LONG',
+      };
+      return HttpResponse.json(resp, { status: 202 });
+    }
+
     upload.status = 'UPLOADED';
     upload.progress = 25;
 
-    // Create studio record and public video
-    const newStudioVideo: StudioVideo = {
-      id: videoId,
-      title: upload.title,
-      visibility: 'PUBLIC',
-      status: 'PROCESSING',
-      progress: 35,
-      error: null,
-      duration_ms: 180000,
-      created_at: new Date().toISOString(),
-      thumbnail_url:
-        'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
-    };
-    const currentStudio = [newStudioVideo, ...getDynamicStudioVideos()];
-    setDynamicStudioVideos(currentStudio);
+    const isSocial = upload.purpose === 'SOCIAL';
+
+    // Social videos are UNLISTED and NOT listed in studio (SOC-2b, ADR-049)
+    if (!isSocial) {
+      const newStudioVideo: StudioVideo = {
+        id: videoId,
+        title: upload.title,
+        visibility: 'PUBLIC',
+        status: 'PROCESSING',
+        progress: 35,
+        error: null,
+        duration_ms: 180000,
+        created_at: new Date().toISOString(),
+        thumbnail_url:
+          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+      };
+      const currentStudio = [newStudioVideo, ...getDynamicStudioVideos()];
+      setDynamicStudioVideos(currentStudio);
+    }
 
     const newVideo: Video = {
       id: videoId,
       title: upload.title,
-      description: 'Uploaded via Winkey Web Creator Studio.',
+      description: isSocial ? 'Social short video' : 'Uploaded via Winkey Web Creator Studio.',
       owner: currentUser
         ? {
             id: currentUser.id,
@@ -3690,11 +3728,12 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
             avatar_url: currentUser.avatar_url,
           }
         : mockPublicProfiles.winkey_creator,
-      visibility: 'PUBLIC',
+      visibility: isSocial ? 'UNLISTED' : 'PUBLIC',
+      purpose: isSocial ? 'SOCIAL' : 'FILM',
       status: 'READY',
-      duration_ms: 180000,
-      width: 1920,
-      height: 1080,
+      duration_ms: isSocial ? 30000 : 180000,
+      width: isSocial ? 720 : 1920,
+      height: isSocial ? 1280 : 1080,
       view_count: 1,
       like_count: 0,
       published_at: new Date().toISOString(),
@@ -3703,7 +3742,14 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
         hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
         thumbnail_url:
           'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
-        renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
+        renditions: [
+          {
+            name: isSocial ? '720p' : '1080p',
+            width: isSocial ? 720 : 1920,
+            height: isSocial ? 1280 : 1080,
+            bitrate_kbps: isSocial ? 1200 : 5000,
+          },
+        ],
       },
     };
     const currentVideos = [newVideo, ...getDynamicVideos()];
@@ -3748,11 +3794,26 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       );
     }
 
+    if (upload.status === 'FAILED') {
+      return HttpResponse.json({
+        video_id: videoId,
+        status: 'FAILED',
+        progress: 0,
+        error: upload.error || 'FAILED',
+      });
+    }
+
+    // Advance social video processing to READY
+    if (upload.purpose === 'SOCIAL' && upload.status === 'UPLOADED') {
+      upload.status = 'READY';
+      upload.progress = 100;
+    }
+
     const resp: UploadStatus = {
       video_id: videoId,
       status: upload.status,
       progress: upload.progress,
-      error: null,
+      error: upload.error || null,
     };
     return HttpResponse.json(resp);
   }),
@@ -6638,6 +6699,21 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
           title: 'Already reshared',
           status: 409,
           code: 'ALREADY_RESHARED',
+        },
+        { status: 409 },
+      );
+    }
+    if (
+      body.video_id === '0192f5e4-7c1a-7b3e-9d2a-video-in-use' ||
+      (body.video_id && dynamicPosts.some((p) => p.video_id === body.video_id))
+    ) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Video in use',
+          status: 409,
+          code: 'VIDEO_IN_USE',
+          detail: 'Video already attached to another live post',
         },
         { status: 409 },
       );

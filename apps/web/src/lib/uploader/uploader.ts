@@ -32,6 +32,7 @@ export interface UploadOptions {
   title: string;
   description?: string;
   visibility?: 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
+  purpose?: 'FILM' | 'SOCIAL';
   onProgress?: (progress: UploadProgress) => void;
   onVideoIdCreated?: (videoId: string) => void;
   maxParallelParts?: number; // default 4
@@ -47,6 +48,7 @@ export class MultipartUploader {
   private title: string;
   private description: string;
   private visibility: 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
+  private purpose: 'FILM' | 'SOCIAL';
   private onProgress?: (progress: UploadProgress) => void;
   private onVideoIdCreated?: (videoId: string) => void;
   private maxParallelParts: number;
@@ -72,6 +74,7 @@ export class MultipartUploader {
     this.title = options.title;
     this.description = options.description || '';
     this.visibility = options.visibility || 'PUBLIC';
+    this.purpose = options.purpose || 'FILM';
     this.onProgress = options.onProgress;
     this.onVideoIdCreated = options.onVideoIdCreated;
     this.maxParallelParts = Math.min(options.maxParallelParts || 4, 4);
@@ -139,6 +142,7 @@ export class MultipartUploader {
             title: this.title,
             description: this.description,
             visibility: this.visibility,
+            purpose: this.purpose,
             filename: this.file.name,
             content_type: (this.file.type as any) || 'video/mp4',
             size_bytes: this.file.size,

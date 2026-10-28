@@ -5,9 +5,17 @@ import type { VideoSummary } from '@winkey/api-client';
 import { Link } from '../../../i18n/routing';
 import { Play, Eye } from 'lucide-react';
 import { formatCompactNumber, formatDuration } from '../../../lib/format';
+import { PostSocialVideoPlayer } from './post-social-player';
 
 export interface PostVideoEmbedProps {
-  video: VideoSummary | null;
+  video:
+    | (VideoSummary & {
+        purpose?: string;
+        width?: number | null;
+        height?: number | null;
+        playback?: any;
+      })
+    | null;
   videoId?: string;
 }
 
@@ -17,8 +25,17 @@ export function PostVideoEmbed({ video, videoId }: PostVideoEmbedProps) {
   const targetId = video.id || videoId;
   if (!targetId) return null;
 
+  // When purpose is SOCIAL, play inline with HLS player (SOC-2b, ADR-049)
+  if (video.purpose === 'SOCIAL') {
+    return <PostSocialVideoPlayer videoId={targetId} initialVideo={video} />;
+  }
+
+  // FILM stays a card linking to the watch page
   return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950">
+    <div
+      data-testid="post-film-embed"
+      className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950"
+    >
       <Link
         href={`/watch?v=${targetId}`}
         className="block group"

@@ -135,6 +135,34 @@ export const mockPublicProfiles: Record<string, PublicProfile> = {
   },
 };
 
+export const mockSocialVideo: Video = {
+  id: '0192f5e4-7c1a-7b3e-9d2a-social-video-01',
+  title: 'Khoảnh khắc chiều nay',
+  description: 'Video ngắn bài đăng',
+  owner: mockPublicProfiles.winkey_creator,
+  visibility: 'UNLISTED',
+  purpose: 'SOCIAL',
+  status: 'READY',
+  duration_ms: 28000,
+  width: 720,
+  height: 1280,
+  view_count: 320,
+  like_count: 45,
+  published_at: '2026-10-28T10:00:00Z',
+  created_at: '2026-10-28T09:50:00Z',
+  tags: ['reel', 'winkey'],
+  tag_slugs: ['reel', 'winkey'],
+  playback: {
+    hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+    thumbnail_url:
+      'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800&auto=format&fit=crop&q=80',
+    renditions: [
+      { name: '720p', width: 720, height: 1280, bitrate_kbps: 1200, codec: 'h264' },
+      { name: '360p', width: 360, height: 640, bitrate_kbps: 500, codec: 'h264' },
+    ],
+  },
+};
+
 export const mockVideos: Video[] = [
   {
     id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10',
@@ -318,6 +346,7 @@ export const mockVideos: Video[] = [
       renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
     },
   },
+  mockSocialVideo,
 ];
 
 export const mockStudioVideos: StudioVideo[] = [
