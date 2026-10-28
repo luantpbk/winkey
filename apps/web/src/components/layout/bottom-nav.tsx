@@ -3,7 +3,7 @@
 import React from 'react';
 import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '../../i18n/routing';
-import { Home, Compass, History, FolderHeart, UploadCloud } from 'lucide-react';
+import { Home, Newspaper, Compass, History, FolderHeart, UploadCloud } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 import { computePermissions } from '../../lib/auth';
 
@@ -13,12 +13,23 @@ export function BottomNav() {
   const { can: rawCan, user, isAuthenticated } = useAuth();
   const can = rawCan ?? computePermissions(user, isAuthenticated);
 
+  const isFeedActive =
+    pathname.startsWith('/bang-tin') ||
+    pathname.startsWith('/bai-viet') ||
+    pathname.startsWith('/hashtag');
+
   const navItems = [
     {
       href: '/',
       label: t('home'),
       icon: Home,
       isActive: pathname === '/' || pathname === '',
+    },
+    {
+      href: '/bang-tin',
+      label: t('feed'),
+      icon: Newspaper,
+      isActive: isFeedActive,
     },
     {
       href: '/kham-pha',

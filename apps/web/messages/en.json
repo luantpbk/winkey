@@ -18,7 +18,8 @@
     "creatorRoleRequired": "Creator role required",
     "watchLater": "Watch Later",
     "movies": "Movies",
-    "explore": "Explore"
+    "explore": "Explore",
+    "feed": "Feed"
   },
   "home": {
     "recommended": "Recommended Videos",
@@ -735,6 +736,7 @@
     "channel": "Channel: {name}",
     "episodes": "{count} episodes",
     "home": "Home",
+    "feed": "Feed",
     "trending": "Trending",
     "explore": "Explore",
     "subscriptions": "Subscriptions",

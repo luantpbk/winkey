@@ -18,7 +18,8 @@
     "creatorRoleRequired": "Cần quyền Creator",
     "watchLater": "Xem sau",
     "movies": "Phim",
-    "explore": "Khám phá"
+    "explore": "Khám phá",
+    "feed": "Bảng tin"
   },
   "home": {
     "recommended": "Video đề xuất",
@@ -735,6 +736,7 @@
     "channel": "Kênh: {name}",
     "episodes": "{count} tập",
     "home": "Trang chủ",
+    "feed": "Bảng tin",
     "trending": "Thịnh hành",
     "explore": "Khám phá",
     "subscriptions": "Đang theo dõi",

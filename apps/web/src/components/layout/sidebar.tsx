@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link, usePathname } from '../../i18n/routing';
 import {
   Home,
+  Newspaper,
   Compass,
   LayoutDashboard,
   UploadCloud,
@@ -52,6 +53,7 @@ export function Sidebar({
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
+    { href: '/bang-tin', label: t('feed'), icon: Newspaper },
     { href: '/kham-pha', label: t('explore'), icon: Compass },
     ...(can.studio ? [{ href: '/studio', label: t('studio'), icon: LayoutDashboard }] : []),
     ...(can.moderate ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
@@ -90,6 +92,13 @@ export function Sidebar({
   const isLinkActive = (href: string) => {
     if (href.startsWith('#')) return false;
     if (href === '/') return pathname === '/' || pathname === '';
+    if (href === '/bang-tin') {
+      return (
+        pathname.startsWith('/bang-tin') ||
+        pathname.startsWith('/bai-viet') ||
+        pathname.startsWith('/hashtag')
+      );
+    }
     return pathname.startsWith(href);
   };
 

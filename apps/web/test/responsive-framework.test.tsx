@@ -34,7 +34,7 @@ describe('UX1 Responsive Framework: BottomNav and Breakpoint Tokens (ADR-044)', 
 
     // All links in bottom nav must have min-h-11 min-w-11 (>= 44x44px)
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(4);
+    expect(links).toHaveLength(5);
 
     for (const link of links) {
       expect(link.className).toContain('min-h-11');
