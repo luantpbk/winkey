@@ -498,83 +498,78 @@ export function PostComposer({
           </div>
         </div>
 
-        {/* Uploading Images Preview Grid */}
+        {/* Uploading & Attached Images Grid */}
         {uploadingImages.length > 0 && (
           <div className="space-y-2">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-              {uploadingImages.map((img, idx) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {uploadingImages.map((item, idx) => (
                 <div
-                  key={img.id}
-                  className="relative aspect-square rounded-xl overflow-hidden bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 group"
+                  key={item.id}
+                  className="relative aspect-square rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-950 group"
                 >
                   <img
-                    src={img.previewUrl}
-                    alt="Xem trước ảnh"
-                    className="w-full h-full object-cover"
+                    src={item.previewUrl}
+                    alt={`Ảnh đính kèm ${idx + 1}`}
+                    className={`w-full h-full object-cover transition-opacity ${
+                      item.status !== 'ready' ? 'opacity-40' : 'opacity-100'
+                    }`}
                   />
 
-                  {/* Overlay for progress / error */}
-                  {img.status !== 'ready' && (
-                    <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center p-2 text-center text-white">
-                      {img.status === 'error' ? (
+                  {/* Status overlay */}
+                  {item.status !== 'ready' && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center text-[11px] text-white bg-black/50">
+                      {item.status === 'error' ? (
                         <>
-                          <AlertCircle className="w-5 h-5 text-red-500 mb-1" />
-                          <span className="text-[10px] text-red-400 font-medium leading-tight">
-                            {img.error || 'Lỗi'}
-                          </span>
+                          <AlertCircle className="w-5 h-5 text-red-400 mb-1" />
+                          <span className="text-red-300 line-clamp-2">{item.error}</span>
                         </>
                       ) : (
                         <>
-                          <Loader2 className="w-5 h-5 text-red-500 animate-spin mb-1" />
-                          <span className="text-[10px] text-zinc-300 font-medium leading-tight">
-                            {img.progressMsg}
-                          </span>
+                          <Loader2 className="w-5 h-5 animate-spin text-red-500 mb-1" />
+                          <span>{item.progressMsg || 'Đang xử lý...'}</span>
                         </>
                       )}
                     </div>
                   )}
 
-                  {/* Actions overlay for ready images */}
-                  <div className="absolute top-1 right-1 flex items-center gap-1 opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Actions overlay */}
+                  <div className="absolute top-1 right-1 flex items-center gap-1 opacity-90 group-hover:opacity-100">
+                    {idx > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(idx, idx - 1)}
+                        className="p-1 bg-black/60 hover:bg-black/90 text-white rounded-md transition-colors"
+                        title="Di chuyển sang trái"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {idx < uploadingImages.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(idx, idx + 1)}
+                        className="p-1 bg-black/60 hover:bg-black/90 text-white rounded-md transition-colors"
+                        title="Di chuyển sang phải"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleRemoveImage(idx)}
-                      className="p-1 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
-                      title="Xóa ảnh"
+                      className="p-1 bg-red-600/80 hover:bg-red-600 text-white rounded-md transition-colors"
+                      title="Gỡ ảnh"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
-
-                  {/* Re-order buttons */}
-                  {uploadingImages.length > 1 && (
-                    <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity px-1">
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => handleMoveImage(idx, idx - 1)}
-                        className="p-1 bg-black/70 hover:bg-black/90 disabled:opacity-30 text-white rounded-full"
-                        title="Di chuyển sang trái"
-                      >
-                        <ChevronLeft className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === uploadingImages.length - 1}
-                        onClick={() => handleMoveImage(idx, idx + 1)}
-                        className="p-1 bg-black/70 hover:bg-black/90 disabled:opacity-30 text-white rounded-full"
-                        title="Di chuyển sang phải"
-                      >
-                        <ChevronRight className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Đã đính kèm {uploadingImages.length}/10 ảnh. Có thể đổi thứ tự bằng mũi tên.
-            </p>
+            <span className="text-[11px] text-zinc-400">
+              Đã đính kèm {uploadingImages.length} / 10 ảnh (nhấn mũi tên để sắp xếp lại thứ tự
+              ảnh).
+            </span>
           </div>
         )}
 
