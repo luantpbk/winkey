@@ -81,9 +81,11 @@ func run(cfg config.Config, log *slog.Logger) error {
 	st := &store.Postgres{Pool: pool}
 
 	outbox.SetProducer(service)
+	// media.outbox is shared with video-svc and the transcoder: publish only upload-svc's own subjects.
 	relay := &outbox.Relay{
 		Pool: pool, Publisher: outbox.JetStreamPublisher{JS: js}, Schema: "media",
 		Log: log, Listen: true,
+		Subjects: []string{"video.uploaded", "video.audio_uploaded", "media.image_uploaded"},
 	}
 	jan := &janitor.Janitor{
 		Store: st, Audio: st, Storage: s3, Log: log,

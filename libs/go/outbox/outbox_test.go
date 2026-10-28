@@ -160,3 +160,69 @@ func TestEnqueueRejectsBadSchema(t *testing.T) {
 		t.Fatal("schema name must be validated")
 	}
 }
+
+// Production incident 2026-10-28: upload-svc, video-svc and the transcoder share media.outbox, and each NATS
+// user may publish only its own subjects. A relay without Subjects took the transcoder's video.ready, was
+// refused, and (a batch stops at the first failure) left every row behind it unpublished. With Subjects each
+// relay publishes only its own rows, so a row it may not publish can neither fail nor block it.
+func TestRelaySubjectsShareOneOutbox(t *testing.T) {
+	pg := testkit.StartPostgres(t)
+	ctx := context.Background()
+
+	tx, _ := pg.Pool.Begin(ctx)
+	for _, subj := range []string{"video.ready", "video.audio_ready", "video.uploaded", "video.deleted"} {
+		if err := outbox.Enqueue(ctx, tx, "media", subj, map[string]any{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// permits stands in for one NATS user's publish permissions.
+	relay := func(subjects ...string) (*outbox.Relay, *permits) {
+		p := &permits{allow: map[string]bool{}}
+		for _, s := range subjects {
+			p.allow[s] = true
+		}
+		return &outbox.Relay{Pool: pg.Pool, Publisher: p, Schema: "media", Subjects: subjects}, p
+	}
+
+	// Without a filter the upload relay is refused on the first foreign row and publishes nothing.
+	unfiltered := &outbox.Relay{Pool: pg.Pool, Publisher: &permits{allow: map[string]bool{"video.uploaded": true}}, Schema: "media"}
+	if n, err := unfiltered.PublishBatch(ctx); err == nil || n != 0 {
+		t.Fatalf("unfiltered relay: n=%d err=%v; want a refusal on video.ready and nothing published", n, err)
+	}
+
+	upload, up := relay("video.uploaded", "video.audio_uploaded", "media.image_uploaded")
+	if n, err := upload.PublishBatch(ctx); err != nil || n != 1 || len(up.seen) != 1 || up.seen[0] != "video.uploaded" {
+		t.Fatalf("upload relay: n=%d err=%v seen=%v; want only video.uploaded", n, err, up.seen)
+	}
+	transcoder, tr := relay("video.ready", "video.failed", "video.uploaded", "video.audio_ready", "video.audio_failed")
+	if n, err := transcoder.PublishBatch(ctx); err != nil || n != 2 {
+		t.Fatalf("transcoder relay: n=%d err=%v seen=%v; want video.ready and video.audio_ready", n, err, tr.seen)
+	}
+	video, vd := relay("video.deleted", "video.moderated", "video.visibility_changed")
+	if n, err := video.PublishBatch(ctx); err != nil || n != 1 || vd.seen[0] != "video.deleted" {
+		t.Fatalf("video relay: n=%d err=%v seen=%v; want video.deleted", n, err, vd.seen)
+	}
+	var pending int
+	if err := pg.Pool.QueryRow(ctx, `SELECT count(*) FROM media.outbox WHERE published_at IS NULL`).Scan(&pending); err != nil || pending != 0 {
+		t.Fatalf("%d rows left unpublished (%v)", pending, err)
+	}
+}
+
+type permits struct {
+	mu    sync.Mutex
+	allow map[string]bool
+	seen  []string
+}
+
+func (p *permits) Publish(_ context.Context, subject string, _ []byte, _ string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.allow[subject] {
+		return errors.New("nats: permissions violation for publish to " + subject)
+	}
+	p.seen = append(p.seen, subject)
+	return nil
+}
