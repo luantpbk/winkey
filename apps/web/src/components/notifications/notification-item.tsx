@@ -16,6 +16,20 @@ export interface NotificationItemProps {
   className?: string;
 }
 
+export const KNOWN_NOTIFICATION_KINDS = new Set([
+  'NEW_SUBSCRIBER',
+  'FOLLOW_REQUEST',
+  'FOLLOW_REQUEST_APPROVED',
+  'VIDEO_COMMENT',
+  'COMMENT_REPLY',
+  'VIDEO_PUBLISHED',
+  'POST_COMMENT',
+  'POST_COMMENT_REPLY',
+  'POST_MENTION',
+  'POST_RESHARE',
+  'POST_REACTION',
+]);
+
 export function getNotificationUrl(notification: Notification): string {
   switch (notification.kind) {
     case 'NEW_SUBSCRIBER':
@@ -35,6 +49,15 @@ export function getNotificationUrl(notification: Notification): string {
       return '/';
     case 'VIDEO_PUBLISHED':
       return notification.video_id ? buildWatchUrl(notification.video_id, 'other') : '/';
+    case 'POST_COMMENT':
+    case 'POST_COMMENT_REPLY':
+    case 'POST_MENTION':
+    case 'POST_RESHARE':
+    case 'POST_REACTION':
+      if (notification.post_id) {
+        return `/bai-viet/${notification.post_id}`;
+      }
+      return '/';
     default:
       return '/';
   }
@@ -47,6 +70,11 @@ export function NotificationItem({
 }: NotificationItemProps) {
   const t = useTranslations('notifications');
   const isUnread = !notification.read_at;
+
+  // Ignore unknown notification kinds (ADR-049 / SOC-2a)
+  if (!KNOWN_NOTIFICATION_KINDS.has(notification.kind as string)) {
+    return null;
+  }
 
   // Lazy-load video title for visible notifications with video_id (ADR-023)
   const { data: videoData } = useQuery({
@@ -98,6 +126,21 @@ export function NotificationItem({
       break;
     case 'FOLLOW_REQUEST_APPROVED':
       notificationText = t('kinds.FOLLOW_REQUEST_APPROVED', { actor: actorName });
+      break;
+    case 'POST_COMMENT':
+      notificationText = t('kinds.POST_COMMENT', { actor: actorName });
+      break;
+    case 'POST_COMMENT_REPLY':
+      notificationText = t('kinds.POST_COMMENT_REPLY', { actor: actorName });
+      break;
+    case 'POST_MENTION':
+      notificationText = t('kinds.POST_MENTION', { actor: actorName });
+      break;
+    case 'POST_RESHARE':
+      notificationText = t('kinds.POST_RESHARE', { actor: actorName });
+      break;
+    case 'POST_REACTION':
+      notificationText = t('kinds.POST_REACTION', { actor: actorName });
       break;
     default:
       notificationText = actorName;

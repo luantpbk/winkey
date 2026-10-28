@@ -111,6 +111,69 @@ export async function cropAndResizeImage(
   });
 }
 
+/**
+ * Compresses an image file for a post attachment (SOC-2a):
+ * Scales down so that max(width, height) <= 1600 px (never upscaled).
+ * Encodes as WebP (fallback JPEG) with quality ~0.8.
+ */
+export async function compressPostImageFile(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Không thể tải tệp hình ảnh.'));
+      img.src = url;
+    });
+
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    const maxEdge = Math.max(w, h);
+    let targetW = w;
+    let targetH = h;
+    if (maxEdge > 1600) {
+      const scale = 1600 / maxEdge;
+      targetW = Math.max(1, Math.round(w * scale));
+      targetH = Math.max(1, Math.round(h * scale));
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Không thể khởi tạo canvas 2D context.');
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            canvas.toBlob(
+              (jpegBlob) => {
+                if (jpegBlob) resolve(jpegBlob);
+                else reject(new Error('Không thể nén tệp ảnh.'));
+              },
+              'image/jpeg',
+              0.8,
+            );
+          }
+        },
+        'image/webp',
+        0.8,
+      );
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export interface UploadImageOptions {
   blob: Blob;
   purpose: ImagePurpose;

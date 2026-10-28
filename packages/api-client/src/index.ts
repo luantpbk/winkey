@@ -153,6 +153,26 @@ export type ResolveCaseRequest = SocialComponents['schemas']['ResolveCaseRequest
 export type ResolveCaseResult = SocialComponents['schemas']['ResolveCaseResult'];
 export type ModerateCommentRequest = SocialComponents['schemas']['ModerateCommentRequest'];
 
+export type PostVisibility = SocialComponents['schemas']['PostVisibility'];
+export type PostStatus = SocialComponents['schemas']['PostStatus'];
+export type ReactionKind = SocialComponents['schemas']['ReactionKind'];
+export type PostImage = SocialComponents['schemas']['PostImage'];
+export type PostMention = SocialComponents['schemas']['PostMention'];
+export type PostHashtag = SocialComponents['schemas']['PostHashtag'];
+export type ReactionCount = SocialComponents['schemas']['ReactionCount'];
+export type Post = SocialComponents['schemas']['Post'];
+export type PostPage = SocialComponents['schemas']['PostPage'];
+export type CreatePostRequest = SocialComponents['schemas']['CreatePostRequest'];
+export type EditPostRequest = SocialComponents['schemas']['EditPostRequest'];
+export type SetReactionRequest = SocialComponents['schemas']['SetReactionRequest'];
+export type ReactionState = SocialComponents['schemas']['ReactionState'];
+export type ReactionItem = SocialComponents['schemas']['ReactionItem'];
+export type ReactionPage = SocialComponents['schemas']['ReactionPage'];
+export type PostComment = SocialComponents['schemas']['PostComment'];
+export type PostCommentPage = SocialComponents['schemas']['PostCommentPage'];
+export type TrendingHashtag = SocialComponents['schemas']['TrendingHashtag'];
+export type TrendingHashtags = SocialComponents['schemas']['TrendingHashtags'];
+
 export type ModerateVideoRequest = VideoComponents['schemas']['ModerateVideoRequest'];
 export type VideoModeration = VideoComponents['schemas']['VideoModeration'];
 export type AdminVideo = VideoComponents['schemas']['AdminVideo'];

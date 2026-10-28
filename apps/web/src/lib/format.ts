@@ -22,6 +22,8 @@ export function formatViews(views: number | null | undefined): string {
   return views.toLocaleString();
 }
 
+export const formatCompactNumber = formatViews;
+
 export function formatRelativeTime(dateString: string | null | undefined, locale = 'vi'): string {
   if (!dateString) return '';
   const date = new Date(dateString);
