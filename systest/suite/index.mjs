@@ -1,9 +1,10 @@
-/* global fetch, setTimeout, clearTimeout, console, process, WebSocket, URL */
+/* global fetch, setTimeout, clearTimeout, console, process, WebSocket, URL, Buffer */
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 const REALTIME_URL = process.env.REALTIME_URL || 'http://127.0.0.1:8003';
@@ -99,7 +100,7 @@ async function checkRes(res, expectedStatus, label = 'Request') {
   return { status: res.status, text, json, headers: res.headers };
 }
 
-describe('Winkey System Integration Test Suite', () => {
+describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
   after(() => {
     console.log('\n===================================================================');
     console.log('                 SYSTEM TEST SUITE SUMMARY                         ');
@@ -655,9 +656,12 @@ describe('Winkey System Integration Test Suite', () => {
     const nonce = Date.now().toString(36);
 
     // 1. Register Moderator M
-    const regM = await fetch(`${GATEWAY_URL}/v1/auth/register`, {
+    const regM = await fetch(`${AUTH_URL}/v1/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.81',
+      },
       body: JSON.stringify(
         authBody({
           email: `mod_${nonce}@example.com`,
@@ -1819,13 +1823,17 @@ describe('Winkey System Integration Test Suite', () => {
   // ---------------------------------------------------------------------------
   it('S16: password reset & email verification (A6)', async () => {
     const startTime = Date.now();
+    const ipS16 = `10.42.16.${Math.floor(Math.random() * 200) + 1}`;
 
     // a. requestPasswordReset for unknown email and fresh active user: both 202 empty body & timing >= 250 ms
     const unknownEmail = `unknown_${Date.now()}@example.com`;
     const t0 = Date.now();
     const resForgotUnknown = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': ipS16,
+      },
       body: JSON.stringify({ email: unknownEmail }),
     });
     const durForgotUnknown = Date.now() - t0;
@@ -1848,7 +1856,7 @@ describe('Winkey System Integration Test Suite', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Forwarded-For': '10.42.0.161',
+        'X-Forwarded-For': ipS16,
       },
       body: JSON.stringify(
         authBody({
@@ -1864,7 +1872,10 @@ describe('Winkey System Integration Test Suite', () => {
     const t1 = Date.now();
     const resForgotActive = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': ipS16,
+      },
       body: JSON.stringify({ email: activeUserData.user.email }),
     });
     const durForgotActive = Date.now() - t1;
@@ -1887,7 +1898,10 @@ describe('Winkey System Integration Test Suite', () => {
     const unknownToken43 = 'A'.repeat(43);
     const resReset1 = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': ipS16,
+      },
       body: JSON.stringify({ token: unknownToken43, new_password: 'NewPassword123!' }),
     });
     const checkReset1 = await checkRes(resReset1, 400, 'Reset password unknown 43-char token');
@@ -1895,7 +1909,10 @@ describe('Winkey System Integration Test Suite', () => {
 
     const resResetMalformed = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': ipS16,
+      },
       body: JSON.stringify({ token: 'short', new_password: 'NewPassword123!' }),
     });
     assert.equal(resResetMalformed.status, 400, 'Reset password malformed token must return 400');
@@ -1903,7 +1920,10 @@ describe('Winkey System Integration Test Suite', () => {
     // c. verifyEmail with unknown token -> 400 INVALID_TOKEN
     const resVerifyUnknown = await fetch(`${GATEWAY_URL}/v1/auth/email/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': ipS16,
+      },
       body: JSON.stringify({ token: unknownToken43 }),
     });
     const checkVerifyUnknown = await checkRes(resVerifyUnknown, 400, 'Verify email unknown token');
@@ -1958,9 +1978,10 @@ describe('Winkey System Integration Test Suite', () => {
     );
 
     // e. auth-svc logs check: assert 0 hits for test emails and 43-char token-like strings
-    const authLogs = execSync('docker logs auth-svc', {
+    const authLogs = execSync('docker logs --tail 1000 auth-svc', {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 20 * 1024 * 1024,
     });
     const targetEmails = [unknownEmail, activeUserData.user.email, freshVerifData.user.email];
     for (const email of targetEmails) {
@@ -2065,7 +2086,10 @@ describe('Winkey System Integration Test Suite', () => {
     // 3. Request password reset (forgot) -> 202
     const forgotRes = await fetch(`${GATEWAY_URL}/v1/auth/password/forgot`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
       body: JSON.stringify({ email: mailUserEmail }),
     });
     await checkRes(forgotRes, 202, 'Forgot password request');
@@ -2081,7 +2105,10 @@ describe('Winkey System Integration Test Suite', () => {
     // Call resetPassword -> 204
     const resetRes = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
       body: JSON.stringify({ token: resetToken, new_password: newPassword }),
     });
     await checkRes(resetRes, 204, 'Reset password with token');
@@ -2089,7 +2116,10 @@ describe('Winkey System Integration Test Suite', () => {
     // 4. Old refresh cookie must be rejected (401)
     const oldRefreshRes = await fetch(`${GATEWAY_URL}/v1/auth/refresh`, {
       method: 'POST',
-      headers: { Cookie: setCookieHeader },
+      headers: {
+        Cookie: setCookieHeader,
+        'X-Forwarded-For': '10.42.0.181',
+      },
     });
     assert.equal(
       oldRefreshRes.status,
@@ -2100,7 +2130,10 @@ describe('Winkey System Integration Test Suite', () => {
     // Login with old password must fail (401)
     const oldLoginRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
       body: JSON.stringify({ email: mailUserEmail, password: initialPassword }),
     });
     assert.equal(oldLoginRes.status, 401, 'Login with old password must fail with 401');
@@ -2108,7 +2141,10 @@ describe('Winkey System Integration Test Suite', () => {
     // Login with new password must succeed (200)
     const newLoginRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
       body: JSON.stringify({ email: mailUserEmail, password: newPassword }),
     });
     const newLoginData = (await checkRes(newLoginRes, 200, 'Login with new password')).json;
@@ -2120,13 +2156,598 @@ describe('Winkey System Integration Test Suite', () => {
     // 6. Reuse reset token second time -> 400 INVALID_TOKEN
     const reuseRes = await fetch(`${GATEWAY_URL}/v1/auth/password/reset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.181',
+      },
       body: JSON.stringify({ token: resetToken, new_password: 'AnotherPassword789!' }),
     });
     const checkReuse = await checkRes(reuseRes, 400, 'Reuse reset password token');
     assert.equal(checkReuse.json.code, 'INVALID_TOKEN');
 
     recordResult('S18', 'full mail flow & token revocation', 'PASSED', Date.now() - startTime);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S11-posts: Posts, Feeds, Reactions, Comments, Reshares, Hashtags & Moderation (SOC-2a)
+  // ---------------------------------------------------------------------------
+  it('S11-posts: posts & feeds API matrix (SOC-2a, ADR-049)', async () => {
+    const startTime = Date.now();
+    const nonce = Date.now().toString(36);
+
+    // 1. Create users A, B, C
+    const userAEmail = `post_a_${nonce}@example.com`;
+    const userBEmail = `post_b_${nonce}@example.com`;
+    const userCEmail = `post_c_${nonce}@example.com`;
+
+    const regA = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.191',
+      },
+      body: JSON.stringify(authBody({ email: userAEmail, password: 'Password123!', handle: `user_a_${nonce}`, display_name: 'User A' })),
+    });
+    const dataA = (await checkRes(regA, 201, 'Register User A')).json;
+    const tokenA = dataA.access_token;
+    const userA = dataA.user;
+
+    const regB = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.192',
+      },
+      body: JSON.stringify(authBody({ email: userBEmail, password: 'Password123!', handle: `user_b_${nonce}`, display_name: 'User B' })),
+    });
+    const dataB = (await checkRes(regB, 201, 'Register User B')).json;
+    const tokenB = dataB.access_token;
+    const userB = dataB.user;
+
+    const regC = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.193',
+      },
+      body: JSON.stringify(authBody({ email: userCEmail, password: 'Password123!', handle: `user_c_${nonce}`, display_name: 'User C' })),
+    });
+    const dataC = (await checkRes(regC, 201, 'Register User C')).json;
+    const tokenC = dataC.access_token;
+    const userC = dataC.user;
+
+    // Helper: Upload an image through upload-svc -> transcoder -> READY
+    async function uploadImage(token) {
+      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const imgBuffer = Buffer.from(pngBase64, 'base64');
+
+      const initRes = await fetch(`${GATEWAY_URL}/v1/images`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          purpose: 'POST',
+          content_type: 'image/png',
+          size_bytes: imgBuffer.length,
+        }),
+      });
+      const initData = (await checkRes(initRes, 201, 'Create image upload')).json;
+      const { image_id, upload_url, upload_headers } = initData;
+
+      // PUT raw binary
+      const putRes = await fetch(upload_url, {
+        method: 'PUT',
+        headers: upload_headers || { 'Content-Type': 'image/png' },
+        body: imgBuffer,
+      });
+      assert.ok(putRes.ok, `PUT image binary failed with status ${putRes.status}`);
+
+      // Complete
+      const compRes = await fetch(`${GATEWAY_URL}/v1/images/${image_id}/complete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await checkRes(compRes, 202, 'Complete image upload');
+
+      // Poll until READY
+      const deadline = Date.now() + 30000;
+      let readyImg = null;
+      while (Date.now() < deadline) {
+        const getRes = await fetch(`${GATEWAY_URL}/v1/images/${image_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (getRes.ok) {
+          const data = await getRes.json();
+          if (data.status === 'READY') {
+            readyImg = data;
+            break;
+          }
+          if (data.status === 'FAILED') {
+            assert.fail(`Image transcoding failed: ${JSON.stringify(data)}`);
+          }
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      assert.ok(readyImg, `Image ${image_id} did not reach READY within 30s`);
+      return image_id;
+    }
+
+    // B follows A
+    const subRes = await fetch(`${GATEWAY_URL}/v1/channels/${userA.id}/subscription`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    await checkRes(subRes, 200, 'B follows A');
+
+    // 2. A posts text + 2 images (real upload through upload-svc -> transcoder -> READY)
+    const img1 = await uploadImage(tokenA);
+    const img2 = await uploadImage(tokenA);
+
+    const post1Res = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({
+        body: 'Post with 2 images from user A',
+        visibility: 'PUBLIC',
+        image_ids: [img1, img2],
+      }),
+    });
+    const post1 = (await checkRes(post1Res, 201, 'A posts with 2 images')).json;
+    assert.equal(post1.images.length, 2);
+
+    // B sees it first in "Đang theo dõi"
+    const feedBRes = await fetch(`${GATEWAY_URL}/v1/feed/following`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    const feedB = (await checkRes(feedBRes, 200, 'B following feed')).json;
+    assert.ok(feedB.items.length > 0, 'Following feed should have items');
+    assert.equal(feedB.items[0].id, post1.id, 'Newest post should appear first in following feed');
+
+    // Anonymous getPost works for a PUBLIC post
+    const anonGetPost = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`);
+    const anonPost = (await checkRes(anonGetPost, 200, 'Anonymous getPost')).json;
+    assert.equal(anonPost.id, post1.id);
+
+    // 3. A posts FOLLOWERS; C (not following) gets 404, B sees it
+    const postFolRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({
+        body: 'Followers only post from A',
+        visibility: 'FOLLOWERS',
+      }),
+    });
+    const postFol = (await checkRes(postFolRes, 201, 'A posts FOLLOWERS')).json;
+
+    const getFolC = await fetch(`${GATEWAY_URL}/v1/posts/${postFol.id}`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    assert.equal(getFolC.status, 404, 'C (not following) must get 404 on FOLLOWERS post');
+
+    const getFolB = await fetch(`${GATEWAY_URL}/v1/posts/${postFol.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    const getFolBData = (await checkRes(getFolB, 200, 'B gets FOLLOWERS post')).json;
+    assert.equal(getFolBData.id, postFol.id);
+
+    // 4. A makes account private; C gets 404 for every A post and an empty listChannelPosts
+    const privRes = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({ is_private: true }),
+    });
+    await checkRes(privRes, 200, 'A makes account private');
+
+    const getPost1C = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    assert.equal(getPost1C.status, 404, 'C gets 404 on post of private account');
+
+    const chanPostsC = await fetch(`${GATEWAY_URL}/v1/channels/${userA.id}/posts`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    const chanPostsCData = (await checkRes(chanPostsC, 200, 'C lists private channel posts')).json;
+    assert.equal(chanPostsCData.items.length, 0, 'Private account channel posts must be empty for non-follower');
+
+    // A restores public account so public posts can be reshared
+    const unprivRes = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({ is_private: false }),
+    });
+    await checkRes(unprivRes, 200, 'A makes account public');
+
+    // 5. B reacts LIKE then LOVE -> reaction_count 1, A has exactly one POST_REACTION
+    const reactLike = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}/reaction`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenB}`,
+      },
+      body: JSON.stringify({ reaction: 'LIKE' }),
+    });
+    await checkRes(reactLike, 200, 'B reacts LIKE');
+
+    const reactLove = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}/reaction`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenB}`,
+      },
+      body: JSON.stringify({ reaction: 'LOVE' }),
+    });
+    await checkRes(reactLove, 200, 'B replaces reaction with LOVE');
+
+    const checkPost1 = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    const post1Data = (await checkRes(checkPost1, 200, 'Get post1 after reactions')).json;
+    assert.equal(post1Data.reaction_count, 1, 'reaction_count should be exactly 1');
+    assert.equal(post1Data.my_reaction, 'LOVE');
+
+    // Verify A has exactly one POST_REACTION notification
+    const notifsA1 = await fetch(`${GATEWAY_URL}/v1/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    const notifsA1Data = (await checkRes(notifsA1, 200, 'A notifications')).json;
+    const postReactions = notifsA1Data.items.filter((n) => n.kind === 'POST_REACTION' && n.post_id === post1.id);
+    assert.equal(postReactions.length, 1, 'A must have exactly one POST_REACTION notification for post1');
+
+    // 6. B comments, A replies -> counters and POST_COMMENT / POST_COMMENT_REPLY
+    const commentBRes = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenB}`,
+      },
+      body: JSON.stringify({ body: 'Nice photo post!' }),
+    });
+    const commentB = (await checkRes(commentBRes, 201, 'B comments on post1')).json;
+
+    const replyARes = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({ body: 'Thanks B!', parent_id: commentB.id }),
+    });
+    const replyA = (await checkRes(replyARes, 201, 'A replies to B comment')).json;
+
+    const post1AfterComment = (await (await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`)).json());
+    assert.ok(post1AfterComment.comment_count >= 2, 'comment_count should reflect comment and reply');
+
+    // Check notifications for A (POST_COMMENT) and B (POST_COMMENT_REPLY)
+    const notifsA2 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })).json());
+    const commentNotifs = notifsA2.items.filter((n) => n.kind === 'POST_COMMENT' && n.post_id === post1.id);
+    assert.ok(commentNotifs.length >= 1, 'A must have POST_COMMENT notification');
+
+    const notifsB = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })).json());
+    const replyNotifs = notifsB.items.filter((n) => n.kind === 'POST_COMMENT_REPLY' && n.post_id === post1.id);
+    assert.ok(replyNotifs.length >= 1, 'B must have POST_COMMENT_REPLY notification');
+
+    // 7. B reshares (plain) -> POST_RESHARE; second plain reshare -> 409 ALREADY_RESHARED; reshare of the reshare points at the original
+    const reshareBRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenB}`,
+      },
+      body: JSON.stringify({ reshare_of: post1.id }),
+    });
+    const reshareB = (await checkRes(reshareBRes, 201, 'B reshares post1')).json;
+    assert.equal(reshareB.reshare_of, post1.id);
+
+    // Second plain reshare -> 409 ALREADY_RESHARED
+    const reshareB2Res = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenB}`,
+      },
+      body: JSON.stringify({ reshare_of: post1.id }),
+    });
+    const reshareB2 = await checkRes(reshareB2Res, 409, 'B plain reshares again -> 409');
+    assert.equal(reshareB2.json.code, 'ALREADY_RESHARED');
+
+    // User C reshares B's reshare -> reshare of the reshare points at original post1.id
+    const reshareCRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenC}`,
+      },
+      body: JSON.stringify({ reshare_of: reshareB.id }),
+    });
+    const reshareC = (await checkRes(reshareCRes, 201, 'C reshares reshareB')).json;
+    assert.equal(reshareC.reshare_of, post1.id, 'Reshare of a reshare must point at the original post');
+
+    // Check POST_RESHARE notification for A
+    const notifsA3 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })).json());
+    const reshareNotifs = notifsA3.items.filter((n) => n.kind === 'POST_RESHARE');
+    assert.ok(reshareNotifs.length >= 1, 'A must receive POST_RESHARE notification');
+
+    // 8. #HàNội and #hanoi posts both appear in listHashtagPosts(hanoi); @B creates POST_MENTION
+    const postHanoi1Res = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({
+        body: `Du lịch tại #HàNội tuyệt đẹp cùng @${userB.handle}`,
+        visibility: 'PUBLIC',
+      }),
+    });
+    const postHanoi1 = (await checkRes(postHanoi1Res, 201, 'A posts #HàNội with @B')).json;
+
+    const postHanoi2Res = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenC}`,
+      },
+      body: JSON.stringify({
+        body: 'Ẩm thực phố cổ #hanoi buổi tối',
+        visibility: 'PUBLIC',
+      }),
+    });
+    const postHanoi2 = (await checkRes(postHanoi2Res, 201, 'C posts #hanoi')).json;
+
+    // Both appear in listHashtagPosts(hanoi)
+    const tagRes = await fetch(`${GATEWAY_URL}/v1/hashtags/hanoi/posts`);
+    const tagData = (await checkRes(tagRes, 200, 'listHashtagPosts(hanoi)')).json;
+    const tagIds = tagData.items.map((p) => p.id);
+    assert.ok(tagIds.includes(postHanoi1.id), 'postHanoi1 must appear in hashtag posts');
+    assert.ok(tagIds.includes(postHanoi2.id), 'postHanoi2 must appear in hashtag posts');
+
+    // Check POST_MENTION notification for B
+    const notifsB2 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })).json());
+    const mentionNotifs = notifsB2.items.filter((n) => n.kind === 'POST_MENTION' && n.post_id === postHanoi1.id);
+    assert.ok(mentionNotifs.length >= 1, 'B must receive POST_MENTION notification');
+
+    // 9. A blocks B -> B gets 404 on A's posts, A's posts vanish from B's feed; A mutes C -> C's posts vanish from A's feed
+    const blockRes = await fetch(`${GATEWAY_URL}/v1/me/blocks/${userB.id}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    await checkRes(blockRes, 204, 'A blocks B');
+
+    // B gets 404 on A's posts
+    const getBlockedPost = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    assert.equal(getBlockedPost.status, 404, 'B gets 404 on post of user who blocked them');
+
+    // A's posts vanish from B's feed (use limit=25 to bypass 30s first-page cache)
+    const feedBAfterBlock = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=25`, {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })).json());
+    assert.ok(!feedBAfterBlock.items.some((p) => p.author?.id === userA.id), 'A posts must vanish from B feed');
+
+    // A follows C then mutes C -> C posts vanish from A's feed
+    const subCRes = await fetch(`${GATEWAY_URL}/v1/channels/${userC.id}/subscription`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    await checkRes(subCRes, 200, 'A follows C');
+
+    // Verify C post is in A feed before mute
+    const feedABeforeMute = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=26`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })).json());
+    assert.ok(feedABeforeMute.items.some((p) => p.id === postHanoi2.id), 'C post should be in A feed');
+
+    const muteCRes = await fetch(`${GATEWAY_URL}/v1/me/mutes/${userC.id}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    await checkRes(muteCRes, 204, 'A mutes C');
+
+    // C posts vanish from A feed
+    const feedAAfterMute = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=27`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })).json());
+    assert.ok(!feedAAfterMute.items.some((p) => p.author?.id === userC.id), 'C posts must vanish from A feed');
+
+    // 10. A deletes the post -> 404; the reshare shows reshare_unavailable: true
+    // User C created reshareC of post1 earlier
+    const delPost1 = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    await checkRes(delPost1, 204, 'A deletes post1');
+
+    const getDelPost1 = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`, {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    });
+    assert.equal(getDelPost1.status, 404, 'Deleted post returns 404');
+
+    const getReshareC = await fetch(`${GATEWAY_URL}/v1/posts/${reshareC.id}`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    const reshareCData = (await checkRes(getReshareC, 200, 'C gets reshare of deleted post')).json;
+    assert.equal(reshareCData.reshare_unavailable, true, 'Reshare must show reshare_unavailable: true');
+    assert.equal(reshareCData.reshared_post, null, 'Reshared post object must be null');
+
+    // 11. Moderator hides a reported post -> gone for everyone except moderators; restore brings it back
+    const modPostRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenC}`,
+      },
+      body: JSON.stringify({
+        body: 'Post to be moderated by staff',
+        visibility: 'PUBLIC',
+      }),
+    });
+    const modPost = (await checkRes(modPostRes, 201, 'Create post for moderation test')).json;
+
+    // Ensure active moderator token is available
+    let activeModToken = moderatorToken;
+    if (!activeModToken) {
+      const simModRes = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'sim_mod@winkey.test', password: 'Password123!' }),
+      });
+      if (simModRes.ok) {
+        const simModData = await simModRes.json();
+        activeModToken = simModData.access_token;
+      } else {
+        const modNonce = Date.now().toString(36);
+        const modEmail = `mod_soc2_${modNonce}@winkey.test`;
+        const regMod = await fetch(`${AUTH_URL}/v1/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '10.42.0.198' },
+          body: JSON.stringify(
+            authBody({
+              email: modEmail,
+              password: 'Password123!',
+              handle: `mod_soc2_${modNonce}`,
+              display_name: 'Moderator SOC2',
+            }),
+          ),
+        });
+        const regModData = (await checkRes(regMod, 201, 'Register Mod for S11')).json;
+        execSync(
+          `docker exec winkey-postgres psql -U winkey_migrator -d winkey -c "UPDATE auth.users SET roles = '{viewer,creator,moderator,admin}' WHERE id = '${regModData.user.id}';"`,
+          { stdio: ['ignore', 'pipe', 'ignore'] },
+        );
+        const loginMod = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: modEmail, password: 'Password123!' }),
+        });
+        const loginModData = (await checkRes(loginMod, 200, 'Login Mod for S11')).json;
+        activeModToken = loginModData.access_token;
+      }
+      moderatorToken = activeModToken;
+    }
+
+    // Moderator hides
+    const hideRes = await fetch(`${GATEWAY_URL}/v1/posts/${modPost.id}/moderation`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${activeModToken}`,
+      },
+      body: JSON.stringify({ status: 'HIDDEN' }),
+    });
+    const hideData = (await checkRes(hideRes, 200, 'Moderator hides post')).json;
+    assert.equal(hideData.status, 'HIDDEN');
+
+    // Regular user gets 404
+    const getHiddenByUser = await fetch(`${GATEWAY_URL}/v1/posts/${modPost.id}`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    assert.equal(getHiddenByUser.status, 404, 'Non-moderator gets 404 on HIDDEN post');
+
+    // Moderator sees it
+    const getHiddenByMod = await fetch(`${GATEWAY_URL}/v1/posts/${modPost.id}`, {
+      headers: { Authorization: `Bearer ${activeModToken}` },
+    });
+    const modSeen = (await checkRes(getHiddenByMod, 200, 'Moderator gets HIDDEN post')).json;
+    assert.equal(modSeen.id, modPost.id);
+
+    // Moderator restores
+    const restoreRes = await fetch(`${GATEWAY_URL}/v1/posts/${modPost.id}/moderation`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${activeModToken}`,
+      },
+      body: JSON.stringify({ status: 'VISIBLE' }),
+    });
+    const restoreData = (await checkRes(restoreRes, 200, 'Moderator restores post')).json;
+    assert.equal(restoreData.status, 'VISIBLE');
+
+    // Regular user sees it again
+    const getRestoredByUser = await fetch(`${GATEWAY_URL}/v1/posts/${modPost.id}`, {
+      headers: { Authorization: `Bearer ${tokenC}` },
+    });
+    await checkRes(getRestoredByUser, 200, 'Regular user sees restored post');
+
+    // 12. Security checks
+    // a) XSS strings in body/comments render as text
+    const xssString = `<script>alert('xss')</script><img src=x onerror=alert(1)>`;
+    const xssPostRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenC}`,
+      },
+      body: JSON.stringify({ body: xssString, visibility: 'PUBLIC' }),
+    });
+    const xssPost = (await checkRes(xssPostRes, 201, 'Post with XSS body')).json;
+    assert.equal(xssPost.body, xssString, 'XSS string in body must be preserved verbatim as text');
+
+    const xssCommentRes = await fetch(`${GATEWAY_URL}/v1/posts/${xssPost.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenC}`,
+      },
+      body: JSON.stringify({ body: xssString }),
+    });
+    const xssComment = (await checkRes(xssCommentRes, 201, 'Comment with XSS body')).json;
+    assert.equal(xssComment.body, xssString, 'XSS string in comment must be preserved verbatim as text');
+
+    // b) Post body with @ of a blocked user is not linked
+    // A has blocked B; A posts mentioning @userB.handle
+    const blockedMentionRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({ body: `Hello @${userB.handle} are you there?`, visibility: 'PUBLIC' }),
+    });
+    const blockedMentionPost = (await checkRes(blockedMentionRes, 201, 'Post mentioning blocked user')).json;
+    const mentions = blockedMentionPost.mentions || [];
+    assert.ok(!mentions.some((m) => m.handle === userB.handle || m.id === userB.id), 'Blocked user must not be linked in mentions');
+
+    // c) Image ids of another user -> IMAGE_INVALID (400)
+    const imgC = await uploadImage(tokenC);
+    const theftRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+      },
+      body: JSON.stringify({
+        body: 'Attempt to use someone else image',
+        visibility: 'PUBLIC',
+        image_ids: [imgC],
+      }),
+    });
+    const theftData = await checkRes(theftRes, 400, 'Image theft must return 400');
+    assert.equal(theftData.json.code, 'IMAGE_INVALID');
+
+    recordResult('S11-posts', 'posts & feeds API matrix (SOC-2a, ADR-049)', 'PASSED', Date.now() - startTime);
   });
 
   // ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ services:
       JWT_ISSUER: https://winkey.vn
       PUBLIC_ORIGIN: http://127.0.0.1:8080
       MEDIA_BASE_URL: http://127.0.0.1:8081
-      COOKIE_SECRET: ${COOKIE_SECRET:-winkey-dev-cookie-secret-min-32-chars-long!}
+      COOKIE_SECRET: ${COOKIE_SECRET:-winkey-systest-cookie-secret-min-32-chars-long!}
       TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,172.16.0.0/12
       MAIL_TRANSPORT: smtp
       SMTP_URL: smtp://mailpit:1025

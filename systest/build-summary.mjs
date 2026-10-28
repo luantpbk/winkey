@@ -41,6 +41,8 @@ export function parsePlaywright(playwrightJson) {
       persona: 'role-upgrade (ADR-046 viewer upgrade flow)',
       viewport: 'Desktop (1440x900)',
     },
+    { id: 'social-user-desktop', persona: 'social-user (SOC-2a)', viewport: 'Desktop (1440x900)' },
+    { id: 'social-user-mobile', persona: 'social-user (SOC-2a)', viewport: 'Mobile (360px)' },
   ];
 
   if (!playwrightJson) {
@@ -183,7 +185,7 @@ export function buildSummaryMarkdown({
   md += `- **Stack**: Ephemeral Docker Compose with real web-svc (Traefik gateway http://127.0.0.1:8080)\n`;
   md += `- **Seed**: 20 users, 1 curator, 1 moderator, 40 short videos (16:9 & 9:16), 4 playlists, 2 series\n\n`;
 
-  md += `## API System Tests (12 scenarios)\n\n`;
+  md += `## API System Tests (${tap.total || 19} scenarios)\n\n`;
   if (tap.status === 'NOT RUN') {
     md += `- **Status**: NOT RUN\n\n`;
   } else {
