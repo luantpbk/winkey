@@ -22,7 +22,9 @@ function resetRateLimits() {
       execSync(`bash "${script}"`, { stdio: 'ignore' });
     }
   } catch (err) {
-    console.warn(`[persona:social-user] resetRateLimits warning: ${(err as Error)?.message || err}`);
+    console.warn(
+      `[persona:social-user] resetRateLimits warning: ${(err as Error)?.message || err}`,
+    );
   }
 }
 
@@ -93,14 +95,18 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     // Otherwise, register a fresh account
     if (!loggedIn) {
       const inviteCode = manifest?.invite_code || process.env.INVITE_CODE || '';
-      const regUrl = inviteCode ? `/register?invite=${encodeURIComponent(inviteCode)}` : '/register';
+      const regUrl = inviteCode
+        ? `/register?invite=${encodeURIComponent(inviteCode)}`
+        : '/register';
       await page.goto(regUrl);
       await page.locator('input[placeholder*="nguyenvana"]').fill(userHandle);
       await page.locator('input[type="email"]').fill(userEmail);
       await page.locator('input[placeholder*="Nguyễn Văn A"]').fill(userDisplayName);
       await page.locator('input[type="password"]').fill(PASSWORD);
 
-      const termsCheckbox = page.locator('#terms-agreement-checkbox, input[type="checkbox"]').first();
+      const termsCheckbox = page
+        .locator('#terms-agreement-checkbox, input[type="checkbox"]')
+        .first();
       if (await termsCheckbox.isVisible()) {
         await termsCheckbox.check();
       }
@@ -151,13 +157,17 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
 
     // 1. Reaction picker
     const reactionBtn = postCard
-      .locator('button[aria-label="Thích bài viết"], button[aria-label*="bày tỏ cảm xúc"], button[aria-label="Chọn cảm xúc"]')
+      .locator(
+        'button[aria-label="Thích bài viết"], button[aria-label*="bày tỏ cảm xúc"], button[aria-label="Chọn cảm xúc"]',
+      )
       .first();
     await reactionBtn.hover();
 
     const picker = postCard.locator('[aria-label="Chọn cảm xúc"], [role="toolbar"]').first();
     if (await picker.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const loveBtn = picker.locator('button[aria-label="Yêu thích"], button[aria-label="Thích"]').first();
+      const loveBtn = picker
+        .locator('button[aria-label="Yêu thích"], button[aria-label="Thích"]')
+        .first();
       await loveBtn.click();
     } else {
       await reactionBtn.click();
@@ -180,7 +190,9 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     await sendCommentBtn.click();
 
     // Verify comment is displayed
-    await expect(page.locator('text=Góc nhìn đẹp quá bạn ơi!').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Góc nhìn đẹp quá bạn ơi!').first()).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('reshare with text (quote reshare)', async () => {
@@ -244,7 +256,9 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     if (await notifPostLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await notifPostLink.click();
       await page.waitForURL((url) => url.pathname.includes('/bai-viet/'), { timeout: 10000 });
-      await expect(page.locator('[data-testid^="post-card-"]').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid^="post-card-"]').first()).toBeVisible({
+        timeout: 10000,
+      });
     } else {
       // If no notification exists yet, navigate to feed and click post card timestamp/link
       await page.goto('/bang-tin');
@@ -252,7 +266,9 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       if (await postLink.isVisible({ timeout: 5000 }).catch(() => false)) {
         await postLink.click();
         await page.waitForURL((url) => url.pathname.includes('/bai-viet/'), { timeout: 10000 });
-        await expect(page.locator('[data-testid^="post-card-"]').first()).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('[data-testid^="post-card-"]').first()).toBeVisible({
+          timeout: 10000,
+        });
       }
     }
   });

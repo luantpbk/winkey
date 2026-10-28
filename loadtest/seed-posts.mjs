@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { Buffer } from 'node:buffer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -36,7 +37,9 @@ function createJwt(payload, privateKeyPem) {
 }
 
 async function main() {
-  console.log('[loadtest:seed] Starting high-performance bulk seed for SOC-2a feed load testing...');
+  console.log(
+    '[loadtest:seed] Starting high-performance bulk seed for SOC-2a feed load testing...',
+  );
   const t0 = Date.now();
 
   // 1. Ensure private key exists for signing tokens
@@ -44,12 +47,16 @@ async function main() {
   if (!fs.existsSync(privKeyPath)) {
     fs.mkdirSync(KEYS_DIR, { recursive: true });
     execSync(`openssl genrsa -out "${privKeyPath}" 2048 2>/dev/null`);
-    execSync(`openssl rsa -in "${privKeyPath}" -pubout -out "${path.join(KEYS_DIR, 'jwt_public.pem')}" 2>/dev/null`);
+    execSync(
+      `openssl rsa -in "${privKeyPath}" -pubout -out "${path.join(KEYS_DIR, 'jwt_public.pem')}" 2>/dev/null`,
+    );
   }
   const privateKeyPem = fs.readFileSync(privKeyPath, 'utf8');
 
   // 2. Execute PostgreSQL bulk inserts directly inside winkey-postgres container
-  console.log('[loadtest:seed] Seeding 2,000 users, 100,000 posts, and follow graph in PostgreSQL...');
+  console.log(
+    '[loadtest:seed] Seeding 2,000 users, 100,000 posts, and follow graph in PostgreSQL...',
+  );
 
   const sqlScript = `
 BEGIN;

@@ -1,4 +1,4 @@
-/* global __ENV, __VU, __ITER, open */
+/* global __ENV, __VU, open */
 import http from 'k6/http';
 import { sleep, check } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
@@ -64,7 +64,7 @@ export default function () {
   const rand = Math.random();
 
   // 1. 80% getFollowingFeed (first page + 2 next pages using next_cursor)
-  if (rand < 0.80) {
+  if (rand < 0.8) {
     followingRequests.add(1);
     const t0 = Date.now();
     const res1 = http.get(`${TARGET_URL}/v1/feed/following?limit=20`, {

@@ -1,4 +1,4 @@
-/* global fetch, setTimeout, clearTimeout, console, process, WebSocket, URL, Buffer */
+/* global fetch, setTimeout, clearTimeout, console, process, WebSocket, URL */
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -2186,7 +2186,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.191',
       },
-      body: JSON.stringify(authBody({ email: userAEmail, password: 'Password123!', handle: `user_a_${nonce}`, display_name: 'User A' })),
+      body: JSON.stringify(
+        authBody({
+          email: userAEmail,
+          password: 'Password123!',
+          handle: `user_a_${nonce}`,
+          display_name: 'User A',
+        }),
+      ),
     });
     const dataA = (await checkRes(regA, 201, 'Register User A')).json;
     const tokenA = dataA.access_token;
@@ -2198,7 +2205,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.192',
       },
-      body: JSON.stringify(authBody({ email: userBEmail, password: 'Password123!', handle: `user_b_${nonce}`, display_name: 'User B' })),
+      body: JSON.stringify(
+        authBody({
+          email: userBEmail,
+          password: 'Password123!',
+          handle: `user_b_${nonce}`,
+          display_name: 'User B',
+        }),
+      ),
     });
     const dataB = (await checkRes(regB, 201, 'Register User B')).json;
     const tokenB = dataB.access_token;
@@ -2210,7 +2224,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': '10.42.0.193',
       },
-      body: JSON.stringify(authBody({ email: userCEmail, password: 'Password123!', handle: `user_c_${nonce}`, display_name: 'User C' })),
+      body: JSON.stringify(
+        authBody({
+          email: userCEmail,
+          password: 'Password123!',
+          handle: `user_c_${nonce}`,
+          display_name: 'User C',
+        }),
+      ),
     });
     const dataC = (await checkRes(regC, 201, 'Register User C')).json;
     const tokenC = dataC.access_token;
@@ -2218,7 +2239,8 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
 
     // Helper: Upload an image through upload-svc -> transcoder -> READY
     async function uploadImage(token) {
-      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const pngBase64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       const imgBuffer = Buffer.from(pngBase64, 'base64');
 
       const initRes = await fetch(`${GATEWAY_URL}/v1/images`, {
@@ -2358,7 +2380,11 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       headers: { Authorization: `Bearer ${tokenC}` },
     });
     const chanPostsCData = (await checkRes(chanPostsC, 200, 'C lists private channel posts')).json;
-    assert.equal(chanPostsCData.items.length, 0, 'Private account channel posts must be empty for non-follower');
+    assert.equal(
+      chanPostsCData.items.length,
+      0,
+      'Private account channel posts must be empty for non-follower',
+    );
 
     // A restores public account so public posts can be reshared
     const unprivRes = await fetch(`${GATEWAY_URL}/v1/auth/me`, {
@@ -2404,8 +2430,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       headers: { Authorization: `Bearer ${tokenA}` },
     });
     const notifsA1Data = (await checkRes(notifsA1, 200, 'A notifications')).json;
-    const postReactions = notifsA1Data.items.filter((n) => n.kind === 'POST_REACTION' && n.post_id === post1.id);
-    assert.equal(postReactions.length, 1, 'A must have exactly one POST_REACTION notification for post1');
+    const postReactions = notifsA1Data.items.filter(
+      (n) => n.kind === 'POST_REACTION' && n.post_id === post1.id,
+    );
+    assert.equal(
+      postReactions.length,
+      1,
+      'A must have exactly one POST_REACTION notification for post1',
+    );
 
     // 6. B comments, A replies -> counters and POST_COMMENT / POST_COMMENT_REPLY
     const commentBRes = await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}/comments`, {
@@ -2426,22 +2458,33 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       },
       body: JSON.stringify({ body: 'Thanks B!', parent_id: commentB.id }),
     });
-    const replyA = (await checkRes(replyARes, 201, 'A replies to B comment')).json;
+    const _replyA = (await checkRes(replyARes, 201, 'A replies to B comment')).json;
 
-    const post1AfterComment = (await (await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`)).json());
-    assert.ok(post1AfterComment.comment_count >= 2, 'comment_count should reflect comment and reply');
+    const post1AfterComment = await (await fetch(`${GATEWAY_URL}/v1/posts/${post1.id}`)).json();
+    assert.ok(
+      post1AfterComment.comment_count >= 2,
+      'comment_count should reflect comment and reply',
+    );
 
     // Check notifications for A (POST_COMMENT) and B (POST_COMMENT_REPLY)
-    const notifsA2 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    })).json());
-    const commentNotifs = notifsA2.items.filter((n) => n.kind === 'POST_COMMENT' && n.post_id === post1.id);
+    const notifsA2 = await (
+      await fetch(`${GATEWAY_URL}/v1/notifications`, {
+        headers: { Authorization: `Bearer ${tokenA}` },
+      })
+    ).json();
+    const commentNotifs = notifsA2.items.filter(
+      (n) => n.kind === 'POST_COMMENT' && n.post_id === post1.id,
+    );
     assert.ok(commentNotifs.length >= 1, 'A must have POST_COMMENT notification');
 
-    const notifsB = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
-      headers: { Authorization: `Bearer ${tokenB}` },
-    })).json());
-    const replyNotifs = notifsB.items.filter((n) => n.kind === 'POST_COMMENT_REPLY' && n.post_id === post1.id);
+    const notifsB = await (
+      await fetch(`${GATEWAY_URL}/v1/notifications`, {
+        headers: { Authorization: `Bearer ${tokenB}` },
+      })
+    ).json();
+    const replyNotifs = notifsB.items.filter(
+      (n) => n.kind === 'POST_COMMENT_REPLY' && n.post_id === post1.id,
+    );
     assert.ok(replyNotifs.length >= 1, 'B must have POST_COMMENT_REPLY notification');
 
     // 7. B reshares (plain) -> POST_RESHARE; second plain reshare -> 409 ALREADY_RESHARED; reshare of the reshare points at the original
@@ -2478,12 +2521,18 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       body: JSON.stringify({ reshare_of: reshareB.id }),
     });
     const reshareC = (await checkRes(reshareCRes, 201, 'C reshares reshareB')).json;
-    assert.equal(reshareC.reshare_of, post1.id, 'Reshare of a reshare must point at the original post');
+    assert.equal(
+      reshareC.reshare_of,
+      post1.id,
+      'Reshare of a reshare must point at the original post',
+    );
 
     // Check POST_RESHARE notification for A
-    const notifsA3 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    })).json());
+    const notifsA3 = await (
+      await fetch(`${GATEWAY_URL}/v1/notifications`, {
+        headers: { Authorization: `Bearer ${tokenA}` },
+      })
+    ).json();
     const reshareNotifs = notifsA3.items.filter((n) => n.kind === 'POST_RESHARE');
     assert.ok(reshareNotifs.length >= 1, 'A must receive POST_RESHARE notification');
 
@@ -2522,10 +2571,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     assert.ok(tagIds.includes(postHanoi2.id), 'postHanoi2 must appear in hashtag posts');
 
     // Check POST_MENTION notification for B
-    const notifsB2 = (await (await fetch(`${GATEWAY_URL}/v1/notifications`, {
-      headers: { Authorization: `Bearer ${tokenB}` },
-    })).json());
-    const mentionNotifs = notifsB2.items.filter((n) => n.kind === 'POST_MENTION' && n.post_id === postHanoi1.id);
+    const notifsB2 = await (
+      await fetch(`${GATEWAY_URL}/v1/notifications`, {
+        headers: { Authorization: `Bearer ${tokenB}` },
+      })
+    ).json();
+    const mentionNotifs = notifsB2.items.filter(
+      (n) => n.kind === 'POST_MENTION' && n.post_id === postHanoi1.id,
+    );
     assert.ok(mentionNotifs.length >= 1, 'B must receive POST_MENTION notification');
 
     // 9. A blocks B -> B gets 404 on A's posts, A's posts vanish from B's feed; A mutes C -> C's posts vanish from A's feed
@@ -2542,10 +2595,15 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     assert.equal(getBlockedPost.status, 404, 'B gets 404 on post of user who blocked them');
 
     // A's posts vanish from B's feed (use limit=25 to bypass 30s first-page cache)
-    const feedBAfterBlock = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=25`, {
-      headers: { Authorization: `Bearer ${tokenB}` },
-    })).json());
-    assert.ok(!feedBAfterBlock.items.some((p) => p.author?.id === userA.id), 'A posts must vanish from B feed');
+    const feedBAfterBlock = await (
+      await fetch(`${GATEWAY_URL}/v1/feed/following?limit=25`, {
+        headers: { Authorization: `Bearer ${tokenB}` },
+      })
+    ).json();
+    assert.ok(
+      !feedBAfterBlock.items.some((p) => p.author?.id === userA.id),
+      'A posts must vanish from B feed',
+    );
 
     // A follows C then mutes C -> C posts vanish from A's feed
     const subCRes = await fetch(`${GATEWAY_URL}/v1/channels/${userC.id}/subscription`, {
@@ -2555,10 +2613,15 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     await checkRes(subCRes, 200, 'A follows C');
 
     // Verify C post is in A feed before mute
-    const feedABeforeMute = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=26`, {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    })).json());
-    assert.ok(feedABeforeMute.items.some((p) => p.id === postHanoi2.id), 'C post should be in A feed');
+    const feedABeforeMute = await (
+      await fetch(`${GATEWAY_URL}/v1/feed/following?limit=26`, {
+        headers: { Authorization: `Bearer ${tokenA}` },
+      })
+    ).json();
+    assert.ok(
+      feedABeforeMute.items.some((p) => p.id === postHanoi2.id),
+      'C post should be in A feed',
+    );
 
     const muteCRes = await fetch(`${GATEWAY_URL}/v1/me/mutes/${userC.id}`, {
       method: 'PUT',
@@ -2567,10 +2630,15 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     await checkRes(muteCRes, 204, 'A mutes C');
 
     // C posts vanish from A feed
-    const feedAAfterMute = (await (await fetch(`${GATEWAY_URL}/v1/feed/following?limit=27`, {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    })).json());
-    assert.ok(!feedAAfterMute.items.some((p) => p.author?.id === userC.id), 'C posts must vanish from A feed');
+    const feedAAfterMute = await (
+      await fetch(`${GATEWAY_URL}/v1/feed/following?limit=27`, {
+        headers: { Authorization: `Bearer ${tokenA}` },
+      })
+    ).json();
+    assert.ok(
+      !feedAAfterMute.items.some((p) => p.author?.id === userC.id),
+      'C posts must vanish from A feed',
+    );
 
     // 10. A deletes the post -> 404; the reshare shows reshare_unavailable: true
     // User C created reshareC of post1 earlier
@@ -2589,7 +2657,11 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       headers: { Authorization: `Bearer ${tokenC}` },
     });
     const reshareCData = (await checkRes(getReshareC, 200, 'C gets reshare of deleted post')).json;
-    assert.equal(reshareCData.reshare_unavailable, true, 'Reshare must show reshare_unavailable: true');
+    assert.equal(
+      reshareCData.reshare_unavailable,
+      true,
+      'Reshare must show reshare_unavailable: true',
+    );
     assert.equal(reshareCData.reshared_post, null, 'Reshared post object must be null');
 
     // 11. Moderator hides a reported post -> gone for everyone except moderators; restore brings it back
@@ -2714,7 +2786,11 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       body: JSON.stringify({ body: xssString }),
     });
     const xssComment = (await checkRes(xssCommentRes, 201, 'Comment with XSS body')).json;
-    assert.equal(xssComment.body, xssString, 'XSS string in comment must be preserved verbatim as text');
+    assert.equal(
+      xssComment.body,
+      xssString,
+      'XSS string in comment must be preserved verbatim as text',
+    );
 
     // b) Post body with @ of a blocked user is not linked
     // A has blocked B; A posts mentioning @userB.handle
@@ -2726,9 +2802,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       },
       body: JSON.stringify({ body: `Hello @${userB.handle} are you there?`, visibility: 'PUBLIC' }),
     });
-    const blockedMentionPost = (await checkRes(blockedMentionRes, 201, 'Post mentioning blocked user')).json;
+    const blockedMentionPost = (
+      await checkRes(blockedMentionRes, 201, 'Post mentioning blocked user')
+    ).json;
     const mentions = blockedMentionPost.mentions || [];
-    assert.ok(!mentions.some((m) => m.handle === userB.handle || m.id === userB.id), 'Blocked user must not be linked in mentions');
+    assert.ok(
+      !mentions.some((m) => m.handle === userB.handle || m.id === userB.id),
+      'Blocked user must not be linked in mentions',
+    );
 
     // c) Image ids of another user -> IMAGE_INVALID (400)
     const imgC = await uploadImage(tokenC);
@@ -2747,7 +2828,12 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     const theftData = await checkRes(theftRes, 400, 'Image theft must return 400');
     assert.equal(theftData.json.code, 'IMAGE_INVALID');
 
-    recordResult('S11-posts', 'posts & feeds API matrix (SOC-2a, ADR-049)', 'PASSED', Date.now() - startTime);
+    recordResult(
+      'S11-posts',
+      'posts & feeds API matrix (SOC-2a, ADR-049)',
+      'PASSED',
+      Date.now() - startTime,
+    );
   });
 
   // ---------------------------------------------------------------------------
