@@ -13,7 +13,7 @@ Work in `apps/web`, `packages/api-client`, `e2e/`. Branch `agent/ag1/soc2a-posts
    - disable "Đăng" until valid; map `IMAGE_INVALID`, `429` to clear Vietnamese messages.
 2. **Post card** (reused in every feed, timeline and the post page):
    - author, time (relative), visibility icon, "đã chỉnh sửa";
-   - body rendered as **text**: split it into tokens and link only the `@handle` / `#tag` tokens listed in `mentions` / `hashtags` (to `/@handle` and `/hashtag/<slug>`); never `dangerouslySetInnerHTML`;
+   - body rendered as **text**: split it into tokens and link only the `@handle` / `#tag` tokens listed in `mentions` / `hashtags` (to `/c/<handle>` and `/hashtag/<slug>`); never `dangerouslySetInnerHTML`;
    - image grid (1, 2, 3, 4, 5+ layouts) with `thumb_url`, lightbox with `url`, `width`/`height` to avoid layout shift, `loading="lazy"`;
    - embedded video: hydrate `video_id` with `batchGetVideos` (one call per page) and show a video card linking to the watch page; `null` → nothing;
    - reshare: nested card of `reshared_post`; `reshare_unavailable` → "Bài viết này không còn khả dụng";
@@ -23,7 +23,7 @@ Work in `apps/web`, `packages/api-client`, `e2e/`. Branch `agent/ag1/soc2a-posts
 3. **Post page** `/bai-viet/[id]`: the card + post comments (reuse the video comment components, pointed at the post-comment endpoints; report target `POST_COMMENT`). SSR metadata (title from the first 60 characters, `og:image` = first image) for public posts only; `noindex` for `FOLLOWERS` posts.
 4. **Feeds** `/bang-tin`: tabs "Đang theo dõi" (signed in) and "Khám phá"; infinite scroll with `next_cursor`; on `CURSOR_EXPIRED` reload from the top; empty states with suggestions to follow people / explore.
 5. **Hashtag page** `/hashtag/[tag]` and a "Thịnh hành" box (`listTrendingHashtags`) on `/bang-tin`.
-6. **Profile**: new "Bài viết" tab on `/@handle` (`listChannelPosts`); private account not followed → the existing private notice.
+6. **Profile**: new "Bài viết" tab on `/c/[handle]` (`listChannelPosts`); private account not followed → the existing private notice.
 7. **Notifications**: render the five `POST_*` kinds (link to the post / comment); ignore unknown kinds.
 
 ## Quality

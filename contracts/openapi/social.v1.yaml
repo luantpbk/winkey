@@ -142,7 +142,8 @@ tags:
 
       **Reshares**: only a `PUBLIC` post of a public account can be reshared, and a reshare always points at the
       original (resharing a reshare reshares its original). One plain reshare per user and post (`409` code
-      `ALREADY_RESHARED`); quotes are not limited. Resharing notifies the original author (`POST_RESHARE`).
+      `ALREADY_RESHARED`); quotes are not limited. A private account cannot reshare (`409` code `NOT_RESHAREABLE`),
+      since a reshare is always `PUBLIC`. Resharing notifies the original author (`POST_RESHARE`).
 
       **Reactions**: one per user and post, one of `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`; setting another
       kind replaces it. The author gets `POST_REACTION` once per reacting user and post.
