@@ -104,6 +104,32 @@ if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d win
     exit 1
 fi
 echo "  PASS: auth_svc SELECT on media.images was denied (Permission Denied)."
+
+echo "Test 3.11: social_svc can read media.ready_images (SOC-2a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE social_svc; SELECT count(*) FROM media.ready_images;" >/dev/null
+echo "  PASS: social_svc queried media.ready_images."
+
+echo "Test 3.12: social_svc CANNOT read media.images (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE social_svc; SELECT count(*) FROM media.images;" >/dev/null 2>&1; then
+    echo "ERROR: social_svc was able to SELECT from media.images!" >&2
+    exit 1
+fi
+echo "  PASS: social_svc SELECT on media.images was denied (Permission Denied)."
+
+echo "Test 3.13: social_svc can read social.posts (SOC-2a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE social_svc; SELECT count(*) FROM social.posts;" >/dev/null
+echo "  PASS: social_svc queried social.posts."
+
+echo "Test 3.14: media_svc can read social.post_media (SOC-2a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE media_svc; SELECT count(*) FROM social.post_media;" >/dev/null
+echo "  PASS: media_svc queried social.post_media."
+
+echo "Test 3.15: media_svc CANNOT read social.posts (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE media_svc; SELECT count(*) FROM social.posts;" >/dev/null 2>&1; then
+    echo "ERROR: media_svc was able to SELECT from social.posts!" >&2
+    exit 1
+fi
+echo "  PASS: media_svc SELECT on social.posts was denied (Permission Denied)."
 echo "SUCCESS: Database RBAC and isolation rules verified."
 
 
