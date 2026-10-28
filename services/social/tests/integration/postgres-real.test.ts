@@ -91,6 +91,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validatePostComment: any;
   let validatePostCommentPage: any;
   let validateTrendingHashtags: any;
+  let validateVideoAttached: any;
+  let validateVideoReleased: any;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -122,11 +124,19 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     const subChangedSchema = JSON.parse(
       fs.readFileSync(path.join(eventsDir, 'social.subscription.changed.schema.json'), 'utf8'),
     );
+    const videoAttachedSchema = JSON.parse(
+      fs.readFileSync(path.join(eventsDir, 'social.post.video_attached.schema.json'), 'utf8'),
+    );
+    const videoReleasedSchema = JSON.parse(
+      fs.readFileSync(path.join(eventsDir, 'social.post.video_released.schema.json'), 'utf8'),
+    );
 
     ajv.addSchema(envelopeSchema, 'envelope.schema.json');
     validateCommentCreated = ajv.compile(commentCreatedSchema);
     validateLikeChanged = ajv.compile(likeChangedSchema);
     validateSubChanged = ajv.compile(subChangedSchema);
+    validateVideoAttached = ajv.compile(videoAttachedSchema);
+    validateVideoReleased = ajv.compile(videoReleasedSchema);
 
     // OpenAPI contracts
     const openapiDir = path.join(repoRoot, 'contracts', 'openapi');
@@ -4684,5 +4694,224 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     `);
     const hashtagPlan = explainHashtag.rows.map((r: any) => r['QUERY PLAN']).join('\n');
     expect(hashtagPlan).not.toContain('Seq Scan on posts');
+  }, 180_000);
+
+  it('Task SOC-2b: short social videos in posts (projection, attachment, lifecycle, and outbox validation)', async () => {
+    if (!pool || !app || !projectionConsumer) return;
+
+    const userA = uuidv7();
+    const userB = uuidv7();
+    const modUser = uuidv7();
+
+    // 1. Setup users
+    await pool.query(`
+      INSERT INTO auth.public_profiles (id, handle, display_name, avatar_key, is_private, created_at)
+      VALUES
+        ('${userA}', 'soc2b_user_a', 'User A', NULL, false, now()),
+        ('${userB}', 'soc2b_user_b', 'User B', NULL, false, now()),
+        ('${modUser}', 'soc2b_mod', 'Mod User', NULL, false, now())
+      ON CONFLICT DO NOTHING;
+    `);
+
+    // 2. Projection test: video.ready with purpose: SOCIAL
+    const videoSocialA = uuidv7();
+    const videoSocialB = uuidv7();
+
+    const mockMsgA = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: videoSocialA,
+            owner_id: userA,
+            job_id: uuidv7(),
+            attempt: 1,
+            encoder: 'x264',
+            hls_master_key: 'hls/master.m3u8',
+            thumbnail_key: 'thumbs/1.webp',
+            duration_ms: 30000,
+            width: 720,
+            height: 1280,
+            visibility: 'UNLISTED',
+            purpose: 'SOCIAL',
+            renditions: [{ name: '720p', width: 720, height: 1280, bitrate_kbps: 1200 }],
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: () => {},
+      ack: () => {},
+      nak: () => {},
+    };
+
+    const mockMsgB = {
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          type: 'video.ready',
+          data: {
+            video_id: videoSocialB,
+            owner_id: userB,
+            job_id: uuidv7(),
+            attempt: 1,
+            encoder: 'x264',
+            hls_master_key: 'hls/master_b.m3u8',
+            thumbnail_key: 'thumbs/b.webp',
+            duration_ms: 45000,
+            width: 720,
+            height: 1280,
+            visibility: 'UNLISTED',
+            purpose: 'SOCIAL',
+            renditions: [{ name: '720p', width: 720, height: 1280, bitrate_kbps: 1200 }],
+          },
+        }),
+      ),
+      subject: 'video.ready',
+      term: () => {},
+      ack: () => {},
+      nak: () => {},
+    };
+
+    await projectionConsumer.processMessage(mockMsgA as any);
+    await projectionConsumer.processMessage(mockMsgB as any);
+
+    // Verify projected into social.videos with purpose SOCIAL
+    const vidCheck = await pool.query(
+      `SELECT id, owner_id, visibility, purpose FROM social.videos WHERE id = $1`,
+      [videoSocialA],
+    );
+    expect(vidCheck.rows[0].purpose).toBe('SOCIAL');
+    expect(vidCheck.rows[0].visibility).toBe('UNLISTED');
+
+    // 3. Social video of another user -> 404 (do not leak existence)
+    const foreignRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: {
+        body: 'Trying to use foreign social video',
+        video_id: videoSocialB,
+      },
+    });
+    expect(foreignRes.statusCode).toBe(404);
+    expect(foreignRes.json().code).toBe('VIDEO_NOT_FOUND');
+
+    // 4. Create post with own social video -> 201
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: {
+        body: 'Post with my own social video!',
+        video_id: videoSocialA,
+      },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const postData = createRes.json();
+    expect(validatePost(postData)).toBe(true);
+    expect(postData.video_id).toBe(videoSocialA);
+
+    // Verify outbox contains social.post.video_attached and validates against event schema
+    const attachedOutbox = await pool.query(
+      `SELECT payload FROM social.outbox WHERE subject = 'social.post.video_attached' AND payload->'data'->>'post_id' = $1`,
+      [postData.id],
+    );
+    expect(attachedOutbox.rows).toHaveLength(1);
+    const attachedPayload = attachedOutbox.rows[0].payload;
+    const isAttachedValid = validateVideoAttached(attachedPayload);
+    if (!isAttachedValid) console.error('video_attached errors:', validateVideoAttached.errors);
+    expect(isAttachedValid).toBe(true);
+    expect(attachedPayload.data.post_id).toBe(postData.id);
+    expect(attachedPayload.data.video_id).toBe(videoSocialA);
+    expect(attachedPayload.data.author_id).toBe(userA);
+
+    // 5. Second live post with the same social video -> 409 VIDEO_IN_USE
+    const duplicateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: {
+        body: 'Second post with same social video',
+        video_id: videoSocialA,
+      },
+    });
+    expect(duplicateRes.statusCode).toBe(409);
+    expect(duplicateRes.json().code).toBe('VIDEO_IN_USE');
+
+    // 6. Moderator hides post -> 200, NO video_released outbox event
+    const hideRes = await app.inject({
+      method: 'PUT',
+      url: `/v1/posts/${postData.id}/moderation`,
+      headers: { 'x-user-id': modUser, 'x-user-roles': 'moderator' },
+      payload: { status: 'HIDDEN' },
+    });
+    expect(hideRes.statusCode).toBe(200);
+
+    const releasedBeforeDelete = await pool.query(
+      `SELECT payload FROM social.outbox WHERE subject = 'social.post.video_released' AND payload->'data'->>'post_id' = $1`,
+      [postData.id],
+    );
+    expect(releasedBeforeDelete.rows).toHaveLength(0);
+
+    // While HIDDEN, video is STILL in use!
+    const whileHiddenRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: {
+        body: 'Post while hidden',
+        video_id: videoSocialA,
+      },
+    });
+    expect(whileHiddenRes.statusCode).toBe(409);
+    expect(whileHiddenRes.json().code).toBe('VIDEO_IN_USE');
+
+    // 7. Delete post -> 204, emits exactly one social.post.video_released
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(deleteRes.statusCode).toBe(204);
+
+    const releasedOutbox = await pool.query(
+      `SELECT payload FROM social.outbox WHERE subject = 'social.post.video_released' AND payload->'data'->>'post_id' = $1`,
+      [postData.id],
+    );
+    expect(releasedOutbox.rows).toHaveLength(1);
+    const releasedPayload = releasedOutbox.rows[0].payload;
+    const isReleasedValid = validateVideoReleased(releasedPayload);
+    if (!isReleasedValid) console.error('video_released errors:', validateVideoReleased.errors);
+    expect(isReleasedValid).toBe(true);
+    expect(releasedPayload.data.post_id).toBe(postData.id);
+    expect(releasedPayload.data.video_id).toBe(videoSocialA);
+    expect(releasedPayload.data.author_id).toBe(userA);
+
+    // 8. Delete again is idempotent -> 204, still exactly 1 released event
+    const deleteAgainRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/posts/${postData.id}`,
+      headers: { 'x-user-id': userA },
+    });
+    expect(deleteAgainRes.statusCode).toBe(204);
+
+    const releasedOutboxAfter = await pool.query(
+      `SELECT payload FROM social.outbox WHERE subject = 'social.post.video_released' AND payload->'data'->>'post_id' = $1`,
+      [postData.id],
+    );
+    expect(releasedOutboxAfter.rows).toHaveLength(1);
+
+    // 9. Now that post is DELETED, video can be attached to a new post!
+    const reattachRes = await app.inject({
+      method: 'POST',
+      url: '/v1/posts',
+      headers: { 'x-user-id': userA },
+      payload: {
+        body: 'New post after deletion',
+        video_id: videoSocialA,
+      },
+    });
+    expect(reattachRes.statusCode).toBe(201);
   }, 180_000);
 });

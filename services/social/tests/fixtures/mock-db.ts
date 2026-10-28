@@ -16,6 +16,7 @@ export interface MockStore {
     comment_count: number;
     hidden?: boolean;
     visibility?: VideoVisibility;
+    purpose?: 'FILM' | 'SOCIAL';
     created_at: Date;
   }>;
   comments: Array<{
@@ -132,6 +133,7 @@ export interface MockStore {
     status: 'VISIBLE' | 'DELETED' | 'HIDDEN';
     media_count: number;
     video_id: string | null;
+    video_social?: boolean;
     reshare_of: string | null;
     reaction_count: number;
     comment_count: number;
@@ -1413,8 +1415,33 @@ export function createMockDb(store: MockStore = createMockStore()): {
         const visibility = (params[3] ?? 'PUBLIC') as 'PUBLIC' | 'FOLLOWERS';
         const status = (params[4] ?? 'VISIBLE') as 'VISIBLE' | 'DELETED' | 'HIDDEN';
         const video_id = params[5] ? String(params[5]) : null;
-        const reshare_of = params[6] ? String(params[6]) : null;
-        const media_count = Number(params[7] ?? 0);
+
+        let video_social = false;
+        let reshare_of: string | null = null;
+        let media_count = 0;
+        if (sql.includes('"video_social"') || sql.includes('video_social')) {
+          video_social = Boolean(params[6]);
+          reshare_of = params[7] ? String(params[7]) : null;
+          media_count = Number(params[8] ?? 0);
+        } else {
+          reshare_of = params[6] ? String(params[6]) : null;
+          media_count = Number(params[7] ?? 0);
+        }
+
+        if (video_social && video_id) {
+          const duplicate = store.posts.find(
+            (p) => p.video_id === video_id && p.video_social && p.status !== 'DELETED',
+          );
+          if (duplicate) {
+            const err = new Error(
+              'duplicate key value violates unique constraint "posts_one_per_social_video"',
+            );
+            (err as any).code = '23505';
+            (err as any).constraint = 'posts_one_per_social_video';
+            throw err;
+          }
+        }
+
         const post = {
           id,
           author_id,
@@ -1422,6 +1449,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
           visibility,
           status,
           video_id,
+          video_social,
           reshare_of,
           media_count,
           reaction_count: 0,
@@ -1548,6 +1576,16 @@ export function createMockDb(store: MockStore = createMockStore()): {
         (sql.includes('from "social"."posts"') || sql.includes('from social.posts')) &&
         !sql.includes('join')
       ) {
+        if (sql.includes('video_id = $1') || sql.includes('"video_id" = $1')) {
+          const videoId = String(params[0]);
+          const found = store.posts.find(
+            (p) => p.video_id === videoId && p.video_social === true && p.status !== 'DELETED',
+          );
+          return {
+            rows: found ? [{ id: found.id }] : [],
+            rowCount: found ? 1 : 0,
+          };
+        }
         if (sql.includes('id = $1') || sql.includes('"id" = $1')) {
           const postId = String(params[0]);
           const post = store.posts.find((p) => p.id === postId);
@@ -1901,6 +1939,7 @@ export function createMockDb(store: MockStore = createMockStore()): {
                   ...video,
                   hidden: video.hidden ?? false,
                   visibility: video.visibility ?? 'PUBLIC',
+                  purpose: video.purpose ?? 'FILM',
                 },
               ]
             : [],
