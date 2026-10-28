@@ -76,6 +76,8 @@ configMapGenerator:
       - migrations/000029_profiles_privacy_images.down.sql
       - migrations/000030_step_up_mail_sessions_backfill.up.sql
       - migrations/000030_step_up_mail_sessions_backfill.down.sql
+      - migrations/000031_posts_feeds.up.sql
+      - migrations/000031_posts_feeds.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
