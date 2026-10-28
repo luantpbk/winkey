@@ -9,7 +9,7 @@ import { StaffMfaBanner } from '../src/components/auth/staff-mfa-banner';
 import { StepUpDialog } from '../src/components/auth/step-up-dialog';
 import { AuthProvider } from '../src/lib/auth/auth-context';
 import { setPendingMfaChallenge, clearPendingMfaChallenge } from '../src/lib/auth/mfa-state';
-import { setMockRequireStepUp } from '../src/mocks/handlers';
+import { setMockRequireStepUp, resetMockSecurityState } from '../src/mocks/handlers';
 import { server } from '../src/mocks/server';
 import viMessages from '../messages/vi.json';
 
@@ -86,7 +86,7 @@ describe('SOC-1a Account Security UI Tests', () => {
     vi.clearAllMocks();
     mockSearchParams = new URLSearchParams();
     clearPendingMfaChallenge();
-    setMockRequireStepUp(false);
+    resetMockSecurityState();
   });
 
   describe('1. MFA Sign-in Flow (/login & /login/2fa)', () => {
@@ -529,6 +529,227 @@ describe('SOC-1a Account Security UI Tests', () => {
         name: /đăng xuất tất cả thiết bị khác/i,
       });
       expect(revokeOthersBtn).toBeDefined();
+    });
+
+    it('opens step-up dialog when TOTP start setup returns 403 STEP_UP_REQUIRED and retries successfully', async () => {
+      const authUser = {
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        email: 'creator@winkey.vn',
+        handle: 'winkey_creator',
+        roles: ['viewer', 'creator'],
+        staff_roles_pending_mfa: [],
+      };
+
+      setMockRequireStepUp(true);
+
+      render(
+        <AuthProvider initialUser={authUser as any}>
+          <SecuritySettingsPage />
+        </AuthProvider>,
+      );
+
+      const setupBtn = await screen.findByRole('button', { name: /bật xác thực ứng dụng/i });
+      fireEvent.click(setupBtn);
+
+      // Verify Step-up dialog opened
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeDefined();
+      });
+
+      // Complete step-up by providing password
+      const pwdInput = screen.getByLabelText(/nhập mật khẩu hiện tại/i);
+      fireEvent.change(pwdInput, { target: { value: 'password123' } });
+
+      const submitStepUp = screen.getByRole('button', { name: /xác nhận/i });
+      fireEvent.click(submitStepUp);
+
+      // Verify that after step-up succeeds, handleStartSetup was retried and QR + secret is displayed
+      await waitFor(() => {
+        expect(screen.getByText(/jbswy3dpehpk3pxp/i)).toBeDefined();
+        expect(screen.getByAltText(/mã qr thiết lập totp/i)).toBeDefined();
+      });
+    });
+
+    it('opens step-up dialog when TOTP confirm returns 403 STEP_UP_REQUIRED and retries successfully', async () => {
+      const authUser = {
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        email: 'creator@winkey.vn',
+        handle: 'winkey_creator',
+        roles: ['viewer', 'creator'],
+        staff_roles_pending_mfa: [],
+      };
+
+      render(
+        <AuthProvider initialUser={authUser as any}>
+          <SecuritySettingsPage />
+        </AuthProvider>,
+      );
+
+      const setupBtn = await screen.findByRole('button', { name: /bật xác thực ứng dụng/i });
+      fireEvent.click(setupBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/jbswy3dpehpk3pxp/i)).toBeDefined();
+        expect(screen.getByAltText(/mã qr thiết lập totp/i)).toBeDefined();
+      });
+
+      // Now set mock require step up for confirmation
+      setMockRequireStepUp(true);
+
+      const confirmInput = screen.getByLabelText(/nhập mã 6 chữ số/i);
+      fireEvent.change(confirmInput, { target: { value: '123456' } });
+
+      const activateBtn = await screen.findByRole('button', { name: /kích hoạt xác thực totp/i });
+      fireEvent.click(activateBtn);
+
+      // Verify Step-up dialog opened
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeDefined();
+      });
+
+      // Complete step-up
+      const pwdInput = screen.getByLabelText(/nhập mật khẩu hiện tại/i);
+      fireEvent.change(pwdInput, { target: { value: 'password123' } });
+
+      const submitStepUp = screen.getByRole('button', { name: /xác nhận/i });
+      fireEvent.click(submitStepUp);
+
+      // Verify confirm retry succeeded and recovery codes modal is shown
+      await waitFor(() => {
+        expect(screen.getByText(/mã khôi phục mới cho tài khoản/i)).toBeDefined();
+      });
+    });
+
+    it('opens step-up dialog when passkey registration returns 403 STEP_UP_REQUIRED and retries', async () => {
+      const authUser = {
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        email: 'creator@winkey.vn',
+        handle: 'winkey_creator',
+        roles: ['viewer', 'creator'],
+        staff_roles_pending_mfa: [],
+      };
+
+      (window as any).PublicKeyCredential = class {};
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          get: vi.fn(),
+          create: vi.fn().mockResolvedValue({
+            id: 'new-pk-id',
+            rawId: new Uint8Array([1, 2, 3]).buffer,
+            type: 'public-key',
+            toJSON: () => ({
+              id: 'new-pk-id',
+              rawId: 'AQID',
+              type: 'public-key',
+              response: {
+                clientDataJSON: 'AQI',
+                attestationObject: 'AwQ',
+              },
+            }),
+            response: {
+              clientDataJSON: new Uint8Array([1, 2]).buffer,
+              attestationObject: new Uint8Array([3, 4]).buffer,
+            },
+          }),
+        },
+        configurable: true,
+      });
+
+      setMockRequireStepUp(true);
+
+      render(
+        <AuthProvider initialUser={authUser as any}>
+          <SecuritySettingsPage />
+        </AuthProvider>,
+      );
+
+      const addBtn = await screen.findByRole('button', { name: /thêm passkey/i });
+      fireEvent.click(addBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeDefined();
+      });
+
+      const pwdInput = screen.getByLabelText(/nhập mật khẩu hiện tại/i);
+      fireEvent.change(pwdInput, { target: { value: 'password123' } });
+
+      const submitStepUp = screen.getByRole('button', { name: /xác nhận/i });
+      fireEvent.click(submitStepUp);
+
+      await waitFor(() => {
+        expect(navigator.credentials.create).toHaveBeenCalled();
+      });
+    });
+
+    it('opens step-up dialog when regenerate recovery codes returns 403 STEP_UP_REQUIRED and retries', async () => {
+      const authUser = {
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        email: 'creator@winkey.vn',
+        handle: 'winkey_creator',
+        roles: ['viewer', 'creator'],
+        staff_roles_pending_mfa: [],
+      };
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      setMockRequireStepUp(true);
+
+      render(
+        <AuthProvider initialUser={authUser as any}>
+          <SecuritySettingsPage />
+        </AuthProvider>,
+      );
+
+      const regenBtn = await screen.findByRole('button', { name: /tạo mã mới/i });
+      fireEvent.click(regenBtn);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeDefined();
+      });
+
+      const pwdInput = screen.getByLabelText(/nhập mật khẩu hiện tại/i);
+      fireEvent.change(pwdInput, { target: { value: 'password123' } });
+
+      const submitStepUp = screen.getByRole('button', { name: /xác nhận/i });
+      fireEvent.click(submitStepUp);
+
+      await waitFor(() => {
+        expect(screen.getByText(/bộ mã khôi phục mới/i)).toBeDefined();
+      });
+    });
+
+    it('opens step-up dialog when revoking a session returns 403 STEP_UP_REQUIRED and retries', async () => {
+      const authUser = {
+        id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
+        email: 'creator@winkey.vn',
+        handle: 'winkey_creator',
+        roles: ['viewer', 'creator'],
+        staff_roles_pending_mfa: [],
+      };
+
+      setMockRequireStepUp(true);
+
+      render(
+        <AuthProvider initialUser={authUser as any}>
+          <SecuritySettingsPage />
+        </AuthProvider>,
+      );
+
+      const revokeBtns = await screen.findAllByRole('button', { name: /đăng xuất/i });
+      fireEvent.click(revokeBtns[0]);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeDefined();
+      });
+
+      const pwdInput = screen.getByLabelText(/nhập mật khẩu hiện tại/i);
+      fireEvent.change(pwdInput, { target: { value: 'password123' } });
+
+      const submitStepUp = screen.getByRole('button', { name: /xác nhận/i });
+      fireEvent.click(submitStepUp);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /xác thực bảo mật nâng cao/i })).toBeNull();
+      });
     });
   });
 });
