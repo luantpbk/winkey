@@ -101,12 +101,8 @@ func run(cfg config.Config, cats map[storagegc.Category]bool, abort bool, minAge
 		fmt.Println("summary: dry_run=true (nothing deleted; pass -apply to delete)")
 		return nil
 	}
-	n, bytes, err := report.Delete(ctx, s3c.SDK(), cats, abort, cfg.S3RawBucket)
-	fmt.Printf("summary: deleted_objects=%d deleted_bytes=%d aborted_uploads=%v\n", n, bytes, abort && err == nil)
-	if err != nil {
-		return err
-	}
-	// image-unreferenced: the rows go too, so the image can never be chosen again (SOC-1b).
+	// image-unreferenced: the rows go first, re-checked in the same statement, so an image a profile or post
+	// picked up since the scan keeps its files and a removed row can never be chosen again (SOC-1b, SOC-2a).
 	if cats[storagegc.ImageUnreferenced] {
 		seen := map[uuid.UUID]bool{}
 		var ids []uuid.UUID
@@ -116,9 +112,14 @@ func run(cfg config.Config, cats map[storagegc.Category]bool, abort bool, minAge
 				ids = append(ids, id)
 			}
 		}
-		rows, err := storagegc.DeleteUnreferencedImages(ctx, pool, ids)
-		fmt.Printf("summary: deleted_image_rows=%d\n", rows)
-		return err
+		deleted, err := storagegc.DeleteUnreferencedImages(ctx, pool, ids, snap.PostRefsKnown())
+		fmt.Printf("summary: deleted_image_rows=%d\n", len(deleted))
+		if err != nil {
+			return err
+		}
+		report.KeepImagesOnly(deleted)
 	}
-	return nil
+	n, bytes, err := report.Delete(ctx, s3c.SDK(), cats, abort, cfg.S3RawBucket)
+	fmt.Printf("summary: deleted_objects=%d deleted_bytes=%d aborted_uploads=%v\n", n, bytes, abort && err == nil)
+	return err
 }
