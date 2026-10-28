@@ -10,7 +10,7 @@ import type {
 } from '../db/types.js';
 import type { Env } from '../config/env.js';
 import type { CallerIdentity } from './auth.js';
-import { canSeePost, batchCheckCanSeePosts } from './visibility.js';
+import { batchCheckCanSeePosts } from './visibility.js';
 import { formatPublicProfile } from './profile.js';
 
 export type RawPostRow = {

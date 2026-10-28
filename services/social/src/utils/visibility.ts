@@ -1,7 +1,6 @@
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { Database, PostVisibility, PostStatus } from '../db/types.js';
 import type { CallerIdentity } from './auth.js';
-import { isBlockedEitherWay } from './blocks.js';
 
 export interface PostVisibilityTarget {
   id: string;
