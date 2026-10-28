@@ -72,6 +72,8 @@ import type {
   Passkey,
   Session,
   SecurityEvent,
+  Post,
+  PostComment,
 } from '@winkey/api-client';
 import { getStatsDateRange } from '../lib/analytics/stats-utils';
 import {
@@ -87,6 +89,14 @@ import {
   mockSeriesSummary,
   mockCinemaCatalogItems,
 } from './fixtures';
+import { mockTrendingHashtags, mockPosts, mockPostComments } from './fixtures-posts';
+
+let dynamicPosts = [...mockPosts];
+let dynamicPostComments = [...mockPostComments];
+export function resetMockPostsState() {
+  dynamicPosts = [...mockPosts];
+  dynamicPostComments = [...mockPostComments];
+}
 
 let currentUser: User | null = mockUsers.creator;
 let dynamicVideos: Video[] = [...mockVideos];
@@ -1239,9 +1249,6 @@ export const handlers = [
   }),
 
   http.post('*/v1/auth/refresh', async ({ cookies, request }) => {
-    if (!currentUser) {
-      return new HttpResponse(null, { status: 401 });
-    }
     const cookieHeader = request.headers.get('cookie') || '';
     const rt = cookies.wk_rt || cookieHeader;
     for (const u of Object.values(mockUsers)) {
@@ -1249,6 +1256,9 @@ export const handlers = [
         currentUser = u;
         break;
       }
+    }
+    if (!currentUser) {
+      return new HttpResponse(null, { status: 401 });
     }
 
     return HttpResponse.json({
@@ -6533,5 +6543,389 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       ],
       next_cursor: null,
     });
+  }),
+
+  // --- SOC-2a: Posts, Feeds, Reactions, Post Comments ---
+  http.get('*/v1/feed/following', async ({ request }) => {
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    if (cursor === 'expired-cursor') {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Cursor Expired',
+          status: 400,
+          code: 'CURSOR_EXPIRED',
+          detail: 'Feed cursor has expired',
+        },
+        { status: 400 },
+      );
+    }
+    return HttpResponse.json({
+      items: dynamicPosts.filter((p) => p.status === 'VISIBLE'),
+      next_cursor: cursor ? null : 'next-page-cursor',
+    });
+  }),
+
+  http.get('*/v1/feed/explore', async ({ request }) => {
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    if (cursor === 'expired-cursor') {
+      return HttpResponse.json(
+        {
+          type: '/problems/bad-request',
+          title: 'Cursor Expired',
+          status: 400,
+          code: 'CURSOR_EXPIRED',
+          detail: 'Feed cursor has expired',
+        },
+        { status: 400 },
+      );
+    }
+    return HttpResponse.json({
+      items: dynamicPosts.filter((p) => p.status === 'VISIBLE' && p.visibility === 'PUBLIC'),
+      next_cursor: cursor ? null : 'next-page-cursor',
+    });
+  }),
+
+  http.get('*/v1/hashtags/trending', async () => {
+    return HttpResponse.json({
+      items: mockTrendingHashtags,
+    });
+  }),
+
+  http.get('*/v1/hashtags/:tag/posts', async ({ params, request }) => {
+    const { tag } = params;
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor');
+    const matched = dynamicPosts.filter((p) =>
+      p.hashtags.some(
+        (h) => h.slug === tag || h.tag.toLowerCase() === (tag as string).toLowerCase(),
+      ),
+    );
+    return HttpResponse.json({
+      items: matched.length > 0 ? matched : dynamicPosts.slice(0, 2),
+      next_cursor: cursor ? null : null,
+    });
+  }),
+
+  http.get('*/v1/channels/:channel_id/posts', async ({ params }) => {
+    const { channel_id } = params;
+    if (channel_id === '0192f5e4-7c1a-7b3e-9d2a-private-channel') {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Private channel',
+          status: 403,
+          code: 'PRIVATE_ACCOUNT',
+        },
+        { status: 403 },
+      );
+    }
+    const filtered = dynamicPosts.filter((p) => p.author?.id === channel_id);
+    return HttpResponse.json({
+      items: filtered.length > 0 ? filtered : dynamicPosts.slice(0, 3),
+      next_cursor: null,
+    });
+  }),
+
+  http.post('*/v1/posts', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (body.reshare_of === '0192f5e4-7c1a-7b3e-9d2a-duplicate-reshare') {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Already reshared',
+          status: 409,
+          code: 'ALREADY_RESHARED',
+        },
+        { status: 409 },
+      );
+    }
+    if (body.body === 'trigger-429') {
+      return HttpResponse.json(
+        {
+          type: '/problems/rate-limit',
+          title: 'Rate limited',
+          status: 429,
+          code: 'RATE_LIMIT_EXCEEDED',
+        },
+        { status: 429 },
+      );
+    }
+
+    const newPost: Post = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-${Date.now().toString().slice(-12)}`,
+      author: {
+        id: currentUser?.id || mockUsers.creator.id,
+        handle: currentUser?.handle || mockUsers.creator.handle,
+        display_name: currentUser?.display_name || mockUsers.creator.display_name,
+        avatar_url: currentUser?.avatar_url || mockUsers.creator.avatar_url,
+      },
+      body: body.body || '',
+      visibility: body.visibility || 'PUBLIC',
+      status: 'VISIBLE',
+      mentions: body.mentions || [],
+      hashtags: body.hashtags || [],
+      images: (body.image_ids || []).map((id: string) => ({
+        id,
+        url: `https://images.winkey.vn/${id}.webp`,
+        thumb_url: `https://images.winkey.vn/${id}_thumb.webp`,
+        width: 1600,
+        height: 1200,
+      })),
+      video_id: body.video_id || null,
+      reshare_of: body.reshare_of || null,
+      reshared_post: body.reshare_of
+        ? dynamicPosts.find((p) => p.id === body.reshare_of) || null
+        : null,
+      reshare_unavailable: false,
+      reaction_count: 0,
+      my_reaction: null,
+      top_reactions: [],
+      comment_count: 0,
+      reshare_count: 0,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+    dynamicPosts.unshift(newPost);
+    return HttpResponse.json(newPost, { status: 201 });
+  }),
+
+  http.get('*/v1/posts/:post_id', async ({ params }) => {
+    const { post_id } = params;
+    const post = dynamicPosts.find((p) => p.id === post_id);
+    if (!post) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Post not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json(post);
+  }),
+
+  http.patch('*/v1/posts/:post_id', async ({ params, request }) => {
+    const { post_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    const post = dynamicPosts.find((p) => p.id === post_id);
+    if (!post) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Post not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (body.body !== undefined) post.body = body.body;
+    if (body.visibility !== undefined) post.visibility = body.visibility;
+    post.edited_at = new Date().toISOString();
+    return HttpResponse.json(post);
+  }),
+
+  http.delete('*/v1/posts/:post_id', async ({ params }) => {
+    const { post_id } = params;
+    dynamicPosts = dynamicPosts.filter((p) => p.id !== post_id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('*/v1/posts/:post_id/reaction', async ({ params, request }) => {
+    const { post_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    const post = dynamicPosts.find((p) => p.id === post_id);
+    if (!post) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Post not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (body.kind === 'FAIL') {
+      return HttpResponse.json(
+        { type: '/problems/internal', title: 'Failed', status: 500 },
+        { status: 500 },
+      );
+    }
+    const previousReaction = post.my_reaction;
+    post.my_reaction = body.kind;
+    if (!previousReaction) {
+      post.reaction_count += 1;
+    }
+    post.top_reactions = [{ reaction: body.kind, count: post.reaction_count }];
+    return HttpResponse.json({
+      my_reaction: post.my_reaction,
+      reaction_count: post.reaction_count,
+      top_reactions: post.top_reactions,
+    });
+  }),
+
+  http.delete('*/v1/posts/:post_id/reaction', async ({ params }) => {
+    const { post_id } = params;
+    const post = dynamicPosts.find((p) => p.id === post_id);
+    if (!post) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Post not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (post.my_reaction) {
+      post.reaction_count = Math.max(0, post.reaction_count - 1);
+      post.my_reaction = null;
+    }
+    return HttpResponse.json({
+      my_reaction: null,
+      reaction_count: post.reaction_count,
+      top_reactions: post.reaction_count > 0 ? post.top_reactions : [],
+    });
+  }),
+
+  http.get('*/v1/posts/:post_id/reactions', async () => {
+    return HttpResponse.json({
+      items: [
+        {
+          user: mockUsers.creator,
+          kind: 'LIKE',
+          created_at: '2026-10-28T09:00:00Z',
+        },
+        {
+          user: mockUsers.tech_guy,
+          kind: 'LOVE',
+          created_at: '2026-10-28T09:05:00Z',
+        },
+      ],
+      next_cursor: null,
+    });
+  }),
+
+  http.put('*/v1/posts/:post_id/moderation', async ({ params, request }) => {
+    const { post_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    const post = dynamicPosts.find((p) => p.id === post_id);
+    if (!post) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Post not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    post.status = body.status || (body.action === 'HIDE' ? 'HIDDEN' : 'VISIBLE');
+    return HttpResponse.json(post);
+  }),
+
+  http.get('*/v1/posts/:post_id/comments', async ({ params }) => {
+    const { post_id } = params;
+    const comments = dynamicPostComments.filter((c) => c.post_id === post_id && !c.parent_id);
+    return HttpResponse.json({
+      items: comments,
+      next_cursor: null,
+    });
+  }),
+
+  http.post('*/v1/posts/:post_id/comments', async ({ params, request }) => {
+    const { post_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    if (body.body === 'trigger-429') {
+      return HttpResponse.json(
+        { type: '/problems/rate-limit', title: 'Rate limited', status: 429 },
+        { status: 429 },
+      );
+    }
+    const newComment: PostComment = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-c${Date.now().toString().slice(-11)}`,
+      post_id: post_id as string,
+      parent_id: body.parent_id || null,
+      author: {
+        id: currentUser?.id || mockUsers.creator.id,
+        handle: currentUser?.handle || mockUsers.creator.handle,
+        display_name: currentUser?.display_name || mockUsers.creator.display_name,
+        avatar_url: currentUser?.avatar_url || mockUsers.creator.avatar_url,
+      },
+      body: body.body || '',
+      status: 'VISIBLE',
+      reply_count: 0,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+    if (body.parent_id) {
+      const parent = dynamicPostComments.find((c) => c.id === body.parent_id);
+      if (parent) parent.reply_count += 1;
+      dynamicPostComments.push(newComment);
+    } else {
+      dynamicPostComments.unshift(newComment);
+    }
+    return HttpResponse.json(newComment, { status: 201 });
+  }),
+
+  http.get('*/v1/post-comments/:comment_id/replies', async ({ params }) => {
+    const { comment_id } = params;
+    const replies = dynamicPostComments.filter((c) => c.parent_id === comment_id);
+    return HttpResponse.json({
+      items: replies,
+      next_cursor: null,
+    });
+  }),
+
+  http.post('*/v1/post-comments/:comment_id/replies', async ({ params, request }) => {
+    const { comment_id } = params;
+    const parent = dynamicPostComments.find((c) => c.id === comment_id);
+    const body = (await request.json().catch(() => ({}))) as any;
+    const newReply: PostComment = {
+      id: `0192f5e4-7c1a-7b3e-9d2a-c${Date.now().toString().slice(-11)}`,
+      post_id: parent?.post_id || '0192f5e4-7c1a-7b3e-9d2a-000000000001',
+      parent_id: comment_id as string,
+      author: {
+        id: currentUser?.id || mockUsers.creator.id,
+        handle: currentUser?.handle || mockUsers.creator.handle,
+        display_name: currentUser?.display_name || mockUsers.creator.display_name,
+        avatar_url: currentUser?.avatar_url || mockUsers.creator.avatar_url,
+      },
+      body: body.body || '',
+      status: 'VISIBLE',
+      reply_count: 0,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+    dynamicPostComments.push(newReply);
+    if (parent) parent.reply_count += 1;
+    return HttpResponse.json(newReply, { status: 201 });
+  }),
+
+  http.patch('*/v1/post-comments/:comment_id', async ({ params, request }) => {
+    const { comment_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    const comment = dynamicPostComments.find((c) => c.id === comment_id);
+    if (!comment) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Comment not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (body.body !== undefined) comment.body = body.body;
+    comment.edited_at = new Date().toISOString();
+    return HttpResponse.json(comment);
+  }),
+
+  http.delete('*/v1/post-comments/:comment_id', async ({ params }) => {
+    const { comment_id } = params;
+    const comment = dynamicPostComments.find((c) => c.id === comment_id);
+    if (comment) {
+      comment.status = 'DELETED';
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('*/v1/post-comments/:comment_id/moderation', async ({ params, request }) => {
+    const { comment_id } = params;
+    const body = (await request.json().catch(() => ({}))) as any;
+    const comment = dynamicPostComments.find((c) => c.id === comment_id);
+    if (!comment) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Comment not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    comment.status = body.status || (body.action === 'HIDE' ? 'HIDDEN' : 'VISIBLE');
+    return HttpResponse.json(comment);
   }),
 ];
