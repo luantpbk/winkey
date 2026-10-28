@@ -31,6 +31,9 @@ info:
       go to social-svc (gateway: `PathPrefix`).
     - Task CIN2 (ADR-035): the cinema catalogue and series episodes live in social-svc; `/v1/cinema` and `/v1/series`
       go to social-svc (gateway: `PathPrefix`).
+    - Task SOC-2a (ADR-049): posts, post comments, reactions, hashtags and feeds live in social-svc; `/v1/posts`,
+      `/v1/post-comments`, `/v1/feed` and `/v1/hashtags` go to social-svc (gateway: `PathPrefix`), as does
+      `/v1/channels/{id}/posts`.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -105,6 +108,68 @@ tags:
       catalogue or get an episode number. social-svc returns ids only; clients hydrate titles and thumbnails with
       video-svc `batchGetVideos` (one call per page) and drop items that call omits. video-svc stays the final
       authority when a video is played.
+  - name: posts
+    description: |
+      Posts (task SOC-2a, ADR-049 addendum 2026-10-28). Gateway: `/v1/posts`, `/v1/post-comments`, `/v1/feed` and
+      `/v1/hashtags` go to social-svc (`PathPrefix`), as does `/v1/channels/{id}/posts`.
+
+      A post has a plain-text `body` (≤ 2000 characters) and at most one attachment kind:
+      - up to 10 images (`image_ids`: `POST` images from upload-svc `createImageUpload`, `READY`, owned by the caller,
+        not used by another post), shown in the given order;
+      - or one embedded Winkey video (`video_id`, known to `social.videos`, playable by the caller when posting);
+      - or a reshare of another post (`reshare_of`), with or without text ("quote" when it has text).
+      A post needs a non-empty trimmed body or an attachment. Images and the embedded video cannot be changed after
+      posting; `editPost` changes `body` and `visibility` only.
+
+      **Who sees a post** (`getPost`, feeds, timelines; otherwise `404`):
+      - status `VISIBLE` (a `HIDDEN` post is shown only to moderators and admins; `DELETED` to nobody);
+      - no block between the caller and the author, either direction;
+      - the caller is the author, or the post is `PUBLIC` and the author's account is public, or the caller is an
+        approved follower (`social.subscriptions`). A private account's posts are followers-only whatever their
+        `visibility`.
+      An embedded video the caller cannot play (deleted, hidden, `PRIVATE`) is returned as `video_id: null`;
+      a reshared post the caller cannot see is returned as `reshared_post: null` with `reshare_unavailable: true`.
+
+      **Mentions and hashtags** are parsed from `body` by social-svc on create and edit:
+      - `@handle` (handle syntax of `PublicProfile`) of an active user who is not in a block relation with the author;
+        at most 10 per post, extra or unknown handles stay plain text. A newly mentioned user gets `POST_MENTION`,
+        unless they cannot see the post.
+      - `#tag`: `#` followed by letters, digits and `_` (Unicode), 1–50 characters; at most 10 per post. Matched on the
+        same slug as video tags (lower-case, Vietnamese diacritics removed, đ → d), so `#HàNội` and `#hanoi` are the
+        same hashtag. Tags with an empty slug are ignored.
+      Clients render `body` as text and link only the `@handle` / `#tag` tokens listed in `mentions` / `hashtags`
+      (same token rules as above); never as HTML.
+
+      **Reshares**: only a `PUBLIC` post of a public account can be reshared, and a reshare always points at the
+      original (resharing a reshare reshares its original). One plain reshare per user and post (`409` code
+      `ALREADY_RESHARED`); quotes are not limited. Resharing notifies the original author (`POST_RESHARE`).
+
+      **Reactions**: one per user and post, one of `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`; setting another
+      kind replaces it. The author gets `POST_REACTION` once per reacting user and post.
+
+      **Rate limits** (`429` with `Retry-After`): 30 posts per hour, 300 reaction changes per hour, 10 post comments
+      per minute per user.
+
+      Moderation: `POST` and `POST_COMMENT` are report targets; `moderatePost` / `moderatePostComment` hide or restore.
+  - name: post-comments
+    description: |
+      Two-level comments on posts (task SOC-2a). Same rules as video comments: plain text ≤ 2000 characters, replies
+      only to top-level comments, `DELETED` comments with replies stay as tombstones, `HIDDEN` ones only for moderators
+      and admins. Commenting requires seeing the post; a block between the caller and the post author or (for a reply)
+      the parent comment's author → `403` code `INTERACTION_BLOCKED`. The post author gets `POST_COMMENT`, the parent
+      comment's author gets `POST_COMMENT_REPLY`. Deletable by the comment author, the post author, moderators and
+      admins.
+  - name: feeds
+    description: |
+      Feeds (task SOC-2a, ADR-049 §8). Every item is a `Post` the caller may see; posts by users in a block relation
+      with the caller or muted by the caller are left out.
+      - `getFollowingFeed` ("Đang theo dõi"): the caller's own posts and those of the accounts the caller follows,
+        newest first (keyset on `created_at`, `id`). The first page may be cached up to 30 s per user.
+      - `getExploreFeed` ("Khám phá"): `PUBLIC` posts of public accounts from the last 7 days, ranked by an
+        engagement score with time decay (`(reactions + 2·comments + 3·reshares + 1) / (age_hours + 2)^1.5`),
+        recomputed by social-svc at least every 10 minutes. Anonymous callers get it too.
+      - `listHashtagPosts`: posts carrying a hashtag (slug or text), newest first.
+      - `listChannelPosts`: one user's timeline, newest first (reshares included).
 paths:
   /v1/videos/{video_id}/comments:
     parameters:
@@ -1326,6 +1391,548 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /v1/posts:
+    post:
+      tags: [posts]
+      operationId: createPost
+      summary: Publish a post (text, images, an embedded video, or a reshare).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              description: '`/v1/posts/{post_id}`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/posts/{post_id}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [posts]
+      operationId: getPost
+      summary: One post (deep link). Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [posts]
+      operationId: editPost
+      summary: Edit the body and/or visibility (author only). Sets `edited_at` when the body changes.
+      description: |
+        Mentions and hashtags are re-parsed from the new body; only users mentioned for the first time are notified.
+        A reshare cannot become `FOLLOWERS` (`409` code `RESHARE_VISIBILITY`); a post that has reshares may become
+        `FOLLOWERS`, and its reshares then show it as unavailable to non-followers. Editing a reshare to an empty body is
+        allowed only when it is not the user's second plain reshare of that post (`409` code `ALREADY_RESHARED`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditPostRequest'
+      responses:
+        '200':
+          description: Updated post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [posts]
+      operationId: deletePost
+      summary: Delete (author, moderator or admin). Idempotent.
+      description: |
+        Sets `status = DELETED`, wipes the body and removes its images, reactions, hashtags and mentions; comments stay
+        for moderation history but are no longer reachable. Reshares remain and show the original as unavailable.
+        The post's images become unreferenced and are removed by storage-gc after 48 hours.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/posts/{post_id}/moderation:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    put:
+      tags: [posts]
+      operationId: moderatePost
+      summary: Hide or restore a post (moderator or admin).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerateCommentRequest'
+      responses:
+        '200':
+          description: Post after moderation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/posts/{post_id}/reaction:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    put:
+      tags: [posts]
+      operationId: setPostReaction
+      summary: Set or replace the caller's reaction. Idempotent.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetReactionRequest'
+      responses:
+        '200':
+          description: Reaction state after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionState'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [posts]
+      operationId: removePostReaction
+      summary: Remove the caller's reaction. Idempotent.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Reaction state after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionState'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/posts/{post_id}/reactions:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [posts]
+      operationId: listPostReactions
+      summary: Who reacted, newest first, optionally one kind. Optional auth.
+      description: Users in a block relation with the caller are left out.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: reaction
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReactionKind'
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of reactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/posts/{post_id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [post-comments]
+      operationId: listPostComments
+      summary: Top-level comments on a post, newest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of top-level comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostCommentPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    post:
+      tags: [post-comments]
+      operationId: createPostComment
+      summary: Comment on a post or reply to a top-level comment.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              description: '`/v1/post-comments/{comment_id}`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostComment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/post-comments/{comment_id}:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    get:
+      tags: [post-comments]
+      operationId: getPostComment
+      summary: One post comment (deep link). Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostComment'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [post-comments]
+      operationId: editPostComment
+      summary: Edit the body (author only). Sets `edited_at`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditCommentRequest'
+      responses:
+        '200':
+          description: Updated comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostComment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [post-comments]
+      operationId: deletePostComment
+      summary: Delete (comment author, post author, moderator or admin). Idempotent.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/post-comments/{comment_id}/replies:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    get:
+      tags: [post-comments]
+      operationId: listPostCommentReplies
+      summary: Replies to a top-level post comment, oldest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of replies.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostCommentPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/post-comments/{comment_id}/moderation:
+    parameters:
+      - $ref: '#/components/parameters/CommentId'
+    put:
+      tags: [post-comments]
+      operationId: moderatePostComment
+      summary: Hide or restore a post comment (moderator or admin).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerateCommentRequest'
+      responses:
+        '200':
+          description: Comment after moderation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostComment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/feed/following:
+    get:
+      tags: [feeds]
+      operationId: getFollowingFeed
+      summary: '"Đang theo dõi": own posts and posts of followed accounts, newest first.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/feed/explore:
+    get:
+      tags: [feeds]
+      operationId: getExploreFeed
+      summary: '"Khám phá": ranked public posts of the last 7 days. Optional auth.'
+      description: |
+        The cursor pins the ranking snapshot it was issued from; a cursor older than the current snapshot returns
+        `400` code `CURSOR_EXPIRED` and the client restarts from the first page.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/hashtags/{tag}/posts:
+    parameters:
+      - name: tag
+        in: path
+        required: true
+        description: A hashtag slug (`hanoi`) or its text (`HàNội`); social-svc derives the slug.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 50
+    get:
+      tags: [feeds]
+      operationId: listHashtagPosts
+      summary: Posts with a hashtag, newest first. Optional auth.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/hashtags/trending:
+    get:
+      tags: [feeds]
+      operationId: listTrendingHashtags
+      summary: Top hashtags of the last 24 hours. Optional auth.
+      description: |
+        Ranked by the number of visible public posts of public accounts carrying the hashtag in the last 24 hours,
+        then by slug. A top-N list with no cursor. `Cache-Control: public, max-age=60`.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: Trending hashtags.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendingHashtags'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+
+  /v1/channels/{channel_id}/posts:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    get:
+      tags: [feeds]
+      operationId: listChannelPosts
+      summary: A user's posts, newest first. Optional auth.
+      description: Only the posts the caller may see; a private account's timeline is empty for non-followers.
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of posts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1354,6 +1961,13 @@ components:
         $ref: './common.yaml#/components/schemas/Uuid'
     PlaylistId:
       name: playlist_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+
+    PostId:
+      name: post_id
       in: path
       required: true
       schema:
@@ -1510,8 +2124,26 @@ components:
         `NEW_SUBSCRIBER` — someone subscribed to your channel (only the first time per subscriber).
         `FOLLOW_REQUEST` — someone asked to follow your private account (SOC-1b; only the first time per requester).
         `FOLLOW_REQUEST_APPROVED` — your follow request was approved (actor = the account you now follow).
-        No notification is created between users in a block relation, or for a muter from a muted actor.
-      enum: [VIDEO_PUBLISHED, VIDEO_COMMENT, COMMENT_REPLY, NEW_SUBSCRIBER, FOLLOW_REQUEST, FOLLOW_REQUEST_APPROVED]
+        `POST_COMMENT` — someone commented on your post (SOC-2a; `post_id`, `post_comment_id`).
+        `POST_COMMENT_REPLY` — someone replied to your post comment (`post_id`, `post_comment_id` = the reply).
+        `POST_MENTION` — someone mentioned you in a post (`post_id`; once per post).
+        `POST_RESHARE` — someone reshared your post (`post_id` = the reshare).
+        `POST_REACTION` — someone reacted to your post (`post_id`; once per reacting user and post).
+        No notification is created between users in a block relation, or for a muter from a muted actor. A post
+        notification whose post or comment is gone, hidden or no longer visible to the recipient is not returned.
+        Clients ignore kinds they do not know.
+      enum:
+        - VIDEO_PUBLISHED
+        - VIDEO_COMMENT
+        - COMMENT_REPLY
+        - NEW_SUBSCRIBER
+        - FOLLOW_REQUEST
+        - FOLLOW_REQUEST_APPROVED
+        - POST_COMMENT
+        - POST_COMMENT_REPLY
+        - POST_MENTION
+        - POST_RESHARE
+        - POST_REACTION
 
     Notification:
       type: object
@@ -1530,6 +2162,14 @@ components:
         comment_id:
           type: [string, 'null']
           format: uuid
+        post_id:
+          type: [string, 'null']
+          format: uuid
+          description: Set for `POST_*` kinds (SOC-2a). Sent by every SOC-2a server; a missing value means `null`.
+        post_comment_id:
+          type: [string, 'null']
+          format: uuid
+          description: Set for `POST_COMMENT` and `POST_COMMENT_REPLY`. A missing value means `null`.
         created_at:
           type: string
           format: date-time
@@ -1729,7 +2369,8 @@ components:
 
     ReportTargetType:
       type: string
-      enum: [VIDEO, COMMENT, USER]
+      enum: [VIDEO, COMMENT, USER, POST, POST_COMMENT]
+      description: '`POST` and `POST_COMMENT` since SOC-2a; `target_id` is the post or post comment id.'
 
     ReportReason:
       type: string
@@ -2086,3 +2727,366 @@ components:
             $ref: '#/components/schemas/RelationItem'
         next_cursor:
           type: [string, 'null']
+
+    PostVisibility:
+      type: string
+      enum: [PUBLIC, FOLLOWERS]
+      description: A private account's posts are followers-only whatever this value says.
+
+    PostStatus:
+      type: string
+      enum: [VISIBLE, DELETED, HIDDEN]
+
+    ReactionKind:
+      type: string
+      enum: [LIKE, LOVE, HAHA, WOW, SAD, ANGRY]
+
+    PostImage:
+      type: object
+      additionalProperties: false
+      required: [id, url, thumb_url, width, height]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        url:
+          type: string
+          format: uri
+          description: WebP, long edge ≤ 1600 px (`MEDIA_BASE_URL` + image key).
+        thumb_url:
+          type: string
+          format: uri
+          description: WebP, long edge ≤ 400 px.
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+
+    PostMention:
+      type: object
+      additionalProperties: false
+      required: [user_id, handle]
+      properties:
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        handle:
+          type: string
+          description: Current handle; the body keeps the handle as written.
+
+    PostHashtag:
+      type: object
+      additionalProperties: false
+      required: [tag, slug]
+      properties:
+        tag:
+          type: string
+          description: As first written in the body, without `#`.
+        slug:
+          type: string
+
+    ReactionCount:
+      type: object
+      additionalProperties: false
+      required: [reaction, count]
+      properties:
+        reaction:
+          $ref: '#/components/schemas/ReactionKind'
+        count:
+          type: integer
+          minimum: 1
+
+    Post:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - author
+        - body
+        - visibility
+        - status
+        - images
+        - video_id
+        - reshare_of
+        - reshared_post
+        - reshare_unavailable
+        - mentions
+        - hashtags
+        - reaction_count
+        - top_reactions
+        - my_reaction
+        - comment_count
+        - reshare_count
+        - created_at
+        - edited_at
+        - can_edit
+        - can_delete
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        author:
+          description: '`null` when the author no longer has an active profile.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/PublicProfile'
+            - type: 'null'
+        body:
+          type: string
+          maxLength: 2000
+        visibility:
+          $ref: '#/components/schemas/PostVisibility'
+        status:
+          $ref: '#/components/schemas/PostStatus'
+        images:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PostImage'
+        video_id:
+          description: Embedded Winkey video, or `null` (none, or the caller cannot play it). Hydrate with video-svc `batchGetVideos`.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        reshare_of:
+          description: Id of the reshared original, or `null`.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        reshared_post:
+          description: |
+            The original, one level deep (its own `reshared_post` is always `null`), or `null` when this is not a reshare
+            or the caller cannot see the original.
+          oneOf:
+            - $ref: '#/components/schemas/Post'
+            - type: 'null'
+        reshare_unavailable:
+          type: boolean
+          description: This is a reshare whose original is deleted, hidden, or not visible to the caller.
+        mentions:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PostMention'
+        hashtags:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PostHashtag'
+        reaction_count:
+          type: integer
+          minimum: 0
+        top_reactions:
+          type: array
+          maxItems: 3
+          description: The most used reaction kinds on this post, most used first.
+          items:
+            $ref: '#/components/schemas/ReactionCount'
+        my_reaction:
+          description: The caller's reaction; `null` when none or anonymous.
+          oneOf:
+            - $ref: '#/components/schemas/ReactionKind'
+            - type: 'null'
+        comment_count:
+          type: integer
+          minimum: 0
+        reshare_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        edited_at:
+          type: [string, 'null']
+          format: date-time
+        can_edit:
+          type: boolean
+          description: The caller is the author and the post is VISIBLE.
+        can_delete:
+          type: boolean
+          description: The caller is the author, a moderator or an admin.
+
+    PostPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+        next_cursor:
+          type: [string, 'null']
+
+    CreatePostRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          default: ''
+          description: Plain text, trimmed. Required (non-empty after trimming) unless an attachment is given.
+        visibility:
+          $ref: '#/components/schemas/PostVisibility'
+          description: Defaults to `PUBLIC`. A reshare must be `PUBLIC`.
+        image_ids:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          description: |
+            `POST` images, `READY`, owned by the caller and not used by another post; otherwise `400` code
+            `IMAGE_INVALID`. Exclusive with `video_id` and `reshare_of`.
+          items:
+            $ref: './common.yaml#/components/schemas/Uuid'
+        video_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+          description: A Winkey video the caller can play (`PUBLIC` or `UNLISTED`, or the caller's own); otherwise `404`.
+        reshare_of:
+          $ref: './common.yaml#/components/schemas/Uuid'
+          description: |
+            A post the caller can see, `PUBLIC`, by a public account; otherwise `404` (cannot see) or `409` code
+            `NOT_RESHAREABLE`. A reshare of a reshare points at its original.
+
+    EditPostRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          description: The trimmed body may be empty only if the post has an attachment.
+        visibility:
+          $ref: '#/components/schemas/PostVisibility'
+
+    SetReactionRequest:
+      type: object
+      additionalProperties: false
+      required: [reaction]
+      properties:
+        reaction:
+          $ref: '#/components/schemas/ReactionKind'
+
+    ReactionState:
+      type: object
+      additionalProperties: false
+      required: [post_id, my_reaction, reaction_count, top_reactions]
+      properties:
+        post_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        my_reaction:
+          oneOf:
+            - $ref: '#/components/schemas/ReactionKind'
+            - type: 'null'
+        reaction_count:
+          type: integer
+          minimum: 0
+        top_reactions:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/ReactionCount'
+
+    ReactionItem:
+      type: object
+      additionalProperties: false
+      required: [user, reaction, created_at]
+      properties:
+        user:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        reaction:
+          $ref: '#/components/schemas/ReactionKind'
+        created_at:
+          type: string
+          format: date-time
+
+    ReactionPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReactionItem'
+        next_cursor:
+          type: [string, 'null']
+
+    PostComment:
+      type: object
+      additionalProperties: false
+      required:
+        [id, post_id, parent_id, author, body, status, reply_count, created_at, edited_at, can_edit, can_delete]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        post_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        parent_id:
+          description: '`null` for a top-level comment.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        author:
+          description: '`null` when the author no longer has an active profile.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/PublicProfile'
+            - type: 'null'
+        body:
+          type: string
+          maxLength: 2000
+          description: Empty for `DELETED` tombstones.
+        status:
+          $ref: '#/components/schemas/CommentStatus'
+        reply_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        edited_at:
+          type: [string, 'null']
+          format: date-time
+        can_edit:
+          type: boolean
+          description: The caller is the author and the comment is VISIBLE.
+        can_delete:
+          type: boolean
+          description: The caller is the comment author, the post author, a moderator or an admin.
+
+    PostCommentPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostComment'
+        next_cursor:
+          type: [string, 'null']
+
+    TrendingHashtag:
+      type: object
+      additionalProperties: false
+      required: [tag, slug, post_count]
+      properties:
+        tag:
+          type: string
+          description: The most used spelling in the window.
+        slug:
+          type: string
+        post_count:
+          type: integer
+          minimum: 1
+
+    TrendingHashtags:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/TrendingHashtag'

@@ -1671,3 +1671,41 @@ Contract SOC-1a nằm trong `auth.v1.yaml` (tag `security`); migration `000028_a
   - migration backfill một dòng phiên cho mỗi family còn token sống (thiết bị, quốc gia và `amr` để trống);
   - auth-svc cũng phải tự tạo dòng phiên khi refresh gặp family chưa có phiên, và `POST /me/step-up` phải lỗi khi không cập nhật được dòng nào, không được trả 200.
 - **Web:** mọi lệnh gọi có thể trả `403 STEP_UP_REQUIRED` phải mở hộp thoại xác thực lại rồi thử lại, không hiện lỗi thô; lỗi gặp ở production là bước bắt đầu thiết lập TOTP.
+
+*Bổ sung 2026-10-28 (SOC-2, bài đăng và bảng tin).* Chia làm hai:
+- **SOC-2a** (đợt này): bài chữ, ảnh, gắn video Winkey, chia sẻ lại, reaction, bình luận bài, @nhắc tên, #hashtag, bảng tin. Contract `social.v1.yaml` (tag `posts`, `post-comments`, `feeds`); migration `000031_posts_feeds`.
+- **SOC-2b** (sau): video ngắn trong bài đăng (`social_video`, 720p + 360p, xoá file gốc), có ADR bổ sung, contract và migration riêng. Phần upload-svc và transcoder do kiến trúc sư làm.
+
+Quyết định cho SOC-2a:
+- **Bài đăng** (social-svc, bảng `social.posts`):
+  - chữ thuần tối đa 2000 ký tự;
+  - kèm **một** loại đính kèm: tối đa 10 ảnh `POST` (từ pipeline ảnh SOC-1b), **hoặc** một video Winkey nhúng, **hoặc** chia sẻ lại một bài khác;
+  - bài phải có chữ hoặc đính kèm. Sau khi đăng chỉ sửa được chữ và quyền xem; ảnh và video không đổi.
+  - Quyền xem `PUBLIC` hoặc `FOLLOWERS`. Bài của tài khoản riêng tư luôn chỉ người theo dõi đã duyệt thấy.
+  - Xoá là xoá mềm (`DELETED`, xoá nội dung). Moderator ẩn/hiện bằng `HIDDEN`, như bình luận.
+- **Ảnh của bài**:
+  - social-svc kiểm tra ảnh qua `media.ready_images` (cần grant `SELECT` cho `social_svc`): đúng chủ, mục đích `POST`, `READY`, chưa thuộc bài nào;
+  - chép key và kích thước vào `social.post_media`, nên lúc đọc không truy vấn chéo schema.
+  - Ảnh `POST` không còn bài nào dùng (bài bị xoá hoặc upload rồi không đăng) được `storage-gc` xoá sau 48 giờ, nhóm `image-unreferenced` (kiến trúc sư; cần grant đọc `social.post_media` cho role của storage-gc).
+- **Chia sẻ lại**:
+  - luôn trỏ tới bài gốc;
+  - chỉ bài `PUBLIC` của tài khoản công khai mới chia sẻ được;
+  - mỗi người chia sẻ "trơn" (không kèm chữ) một bài tối đa một lần; chia sẻ kèm chữ (quote) không giới hạn.
+  - Bài gốc bị xoá, bị ẩn hoặc người xem không còn quyền thấy thì bài chia sẻ hiện "không khả dụng".
+- **Reaction**: mỗi người một reaction mỗi bài, gồm `LIKE`, `LOVE`, `HAHA`, `WOW`, `SAD`, `ANGRY`. Bộ đếm duy trì bằng trigger.
+- **Bình luận bài**:
+  - bảng riêng `social.post_comments`, cùng quy tắc với bình luận video (hai cấp, tombstone, ẩn bởi moderator);
+  - không dùng chung bảng `social.comments`, để không đụng trigger, chỉ mục và dữ liệu bình luận video đang chạy.
+- **@nhắc tên và #hashtag**:
+  - social-svc phân tích từ chữ khi tạo và khi sửa, mỗi loại tối đa 10;
+  - hashtag so khớp theo đúng slug của tag video (`public.winkey_tag_slug`), nên `#HàNội` và `#hanoi` là một;
+  - client chỉ hiển thị chữ thuần và gắn link cho các token có trong `mentions` / `hashtags`.
+- **Bảng tin**:
+  - "Đang theo dõi": fan-out khi đọc, keyset `(created_at, id)` trên chỉ mục `posts_author_timeline`; cache trang đầu 30 giây.
+  - "Khám phá": bài `PUBLIC` của tài khoản công khai trong 7 ngày; điểm `(reaction + 2·bình luận + 3·chia sẻ + 1) / (số giờ + 2)^1.5`; social-svc tính lại ít nhất 10 phút một lần vào `social.post_scores`; cursor gắn với lần tính điểm.
+  - Thêm trang hashtag, hashtag thịnh hành 24 giờ và dòng thời gian của từng người.
+  - Mọi danh sách bỏ người có quan hệ chặn với người xem (hai chiều) và người bị tắt tiếng.
+- **Thông báo mới**: `POST_COMMENT`, `POST_COMMENT_REPLY`, `POST_MENTION`, `POST_RESHARE`, `POST_REACTION` (một lần cho mỗi người reaction trên mỗi bài). Báo cáo thêm đối tượng `POST` và `POST_COMMENT`.
+- **Không có sự kiện mới**: chưa dịch vụ nào cần nghe bài đăng. Khi có (tìm kiếm, realtime), thêm sự kiện qua outbox.
+- **Giới hạn tần suất**: 30 bài/giờ, 300 lần đổi reaction/giờ, 10 bình luận bài/phút.
+- **Hiệu suất**: p95 bảng tin dưới 150 ms trên edge. CI có test EXPLAIN cho truy vấn "Đang theo dõi", "Khám phá" và hashtag: phải dùng chỉ mục, không quét tuần tự `social.posts`.
