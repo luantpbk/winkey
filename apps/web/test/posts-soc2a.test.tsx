@@ -108,7 +108,7 @@ describe('SOC-2a: Post Body Text Tokenizer & Safe Rendering', () => {
     const links = container.querySelectorAll('a');
     expect(links.length).toBe(2);
 
-    expect(links[0].getAttribute('href')).toBe('/@valid_user');
+    expect(links[0].getAttribute('href')).toBe('/c/valid_user');
     expect(links[0].textContent).toBe('@valid_user');
 
     expect(links[1].getAttribute('href')).toBe('/hashtag/winkey');
@@ -128,10 +128,37 @@ describe('SOC-2a: Post Body Text Tokenizer & Safe Rendering', () => {
 
     expect(tokens.length).toBe(5);
     expect(tokens[0]).toEqual({ type: 'text', text: 'Ghé thăm ' });
-    expect(tokens[1]).toEqual({ type: 'mention', text: '@winkeyvn', href: '/@winkeyvn' });
+    expect(tokens[1]).toEqual({ type: 'mention', text: '@winkeyvn', href: '/c/winkeyvn' });
     expect(tokens[2]).toEqual({ type: 'text', text: ', hay tìm ' });
     expect(tokens[3]).toEqual({ type: 'hashtag', text: '#tech', href: '/hashtag/tech' });
     expect(tokens[4]).toEqual({ type: 'text', text: '!' });
+  });
+
+  it('renders mentions with /c/${handle} href and adheres to server hashtag regex rules (letters, numbers, underscore)', () => {
+    const body = 'Xin chào @developer_vn! Tham gia #HàNội_2026 và #winkey_100 ngay hôm nay.';
+    const mentions = [{ handle: 'developer_vn', user_id: 'user-dev' }];
+    const hashtags = [
+      { tag: 'HàNội_2026', slug: 'hanoi-2026' },
+      { tag: 'winkey_100', slug: 'winkey-100' },
+    ];
+
+    const { container } = renderWithProviders(
+      <PostBodyText body={body} mentions={mentions} hashtags={hashtags} />,
+    );
+
+    const mentionLink = container.querySelector('a[href="/c/developer_vn"]');
+    expect(mentionLink).not.toBeNull();
+    expect(mentionLink?.textContent).toBe('@developer_vn');
+    // Ensure no legacy /@ links
+    expect(container.querySelector('a[href="/@developer_vn"]')).toBeNull();
+
+    const hashtag1Link = container.querySelector('a[href="/hashtag/hanoi-2026"]');
+    expect(hashtag1Link).not.toBeNull();
+    expect(hashtag1Link?.textContent).toBe('#HàNội_2026');
+
+    const hashtag2Link = container.querySelector('a[href="/hashtag/winkey-100"]');
+    expect(hashtag2Link).not.toBeNull();
+    expect(hashtag2Link?.textContent).toBe('#winkey_100');
   });
 });
 
@@ -166,12 +193,17 @@ describe('SOC-2a: Post Card Component', () => {
   };
 
   it('renders author, relative time, body and visibility icon', () => {
-    renderWithProviders(<PostCard post={basePost} />);
+    const { container } = renderWithProviders(<PostCard post={basePost} />);
 
     expect(screen.getByText('Tech Guy')).toBeDefined();
     expect(screen.getByText('@tech_guy')).toBeDefined();
     expect(screen.getByText('Nội dung bài viết mẫu trên Winkey.')).toBeDefined();
     expect(screen.getByText('5')).toBeDefined();
+
+    // Verify author profile link points to /c/${handle} and not /@${handle}
+    const authorLinks = container.querySelectorAll('a[href="/c/tech_guy"]');
+    expect(authorLinks.length).toBeGreaterThan(0);
+    expect(container.querySelector('a[href="/@tech_guy"]')).toBeNull();
   });
 
   it('renders "Bài viết này không còn khả dụng" when reshare_unavailable is true', () => {

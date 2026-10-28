@@ -361,7 +361,7 @@ export function PostReactions({
                 reactionsList.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between">
                     <Link
-                      href={`/@${item.user.handle}`}
+                      href={`/c/${item.user.handle}`}
                       className="flex items-center gap-3 group"
                       onClick={() => setShowDialog(false)}
                     >

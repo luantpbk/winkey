@@ -340,7 +340,7 @@ function PostCommentItem({
     <div className="flex items-start gap-3 text-xs sm:text-sm">
       {/* Avatar */}
       {comment.author?.handle ? (
-        <Link href={`/@${comment.author.handle}`} className="shrink-0 mt-0.5">
+        <Link href={`/c/${comment.author.handle}`} className="shrink-0 mt-0.5">
           {comment.author.avatar_url ? (
             <img
               src={comment.author.avatar_url}
@@ -366,7 +366,7 @@ function PostCommentItem({
             <div className="flex items-center gap-1.5 flex-wrap">
               {comment.author?.handle ? (
                 <Link
-                  href={`/@${comment.author.handle}`}
+                  href={`/c/${comment.author.handle}`}
                   className="font-bold text-zinc-900 dark:text-zinc-100 hover:underline"
                 >
                   {comment.author.display_name}

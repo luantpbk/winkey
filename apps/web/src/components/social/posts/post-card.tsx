@@ -182,7 +182,7 @@ export function PostCard({
         <div className="flex items-center gap-3 min-w-0">
           {authorHandle ? (
             <Link
-              href={`/@${authorHandle}`}
+              href={`/c/${authorHandle}`}
               className="shrink-0 relative focus:outline-none focus:ring-2 focus:ring-red-500 rounded-full"
             >
               {post.author?.avatar_url ? (
@@ -207,7 +207,7 @@ export function PostCard({
             <div className="flex items-center gap-1.5 flex-wrap">
               {authorHandle ? (
                 <Link
-                  href={`/@${authorHandle}`}
+                  href={`/c/${authorHandle}`}
                   className="font-bold text-sm text-zinc-900 dark:text-zinc-100 hover:underline truncate"
                 >
                   {authorName}
@@ -417,7 +417,7 @@ export function PostCard({
             <div className="p-4 bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-xs">
                 <Link
-                  href={`/@${post.reshared_post.author?.handle}`}
+                  href={`/c/${post.reshared_post.author?.handle}`}
                   className="font-bold text-zinc-900 dark:text-zinc-200 hover:underline"
                 >
                   {post.reshared_post.author?.display_name || post.reshared_post.author?.handle}

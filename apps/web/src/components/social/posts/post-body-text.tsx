@@ -44,8 +44,8 @@ export function tokenizePostBody(
     }
   }
 
-  // Regex matching potential @handles or #tags
-  const TOKEN_REGEX = /(@[A-Za-z0-9_.]{3,30}|#[^\s#.,!?:;"'()[\]{}]+)/gu;
+  // Regex matching potential @handles or #tags (server rule: letters, digits, underscore)
+  const TOKEN_REGEX = /(@[A-Za-z0-9_.]{3,30}|#[\p{L}\p{N}_]+)/gu;
   const parts = body.split(TOKEN_REGEX);
   const result: TextToken[] = [];
 
@@ -59,7 +59,7 @@ export function tokenizePostBody(
         result.push({
           type: 'mention',
           text: part,
-          href: `/@${match.handle}`,
+          href: `/c/${match.handle}`,
         });
         continue;
       }
