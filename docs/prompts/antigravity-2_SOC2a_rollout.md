@@ -8,7 +8,7 @@ Read **ADR-049** (the SOC-2 addendum 2026-10-28) and the `info` description plus
    - `media_svc` (the transcoder worker role that `storage-gc` uses): `USAGE ON SCHEMA social` + `SELECT ON social.post_media` only.
    - `social_svc` already has CRUD on new `social.*` tables through default privileges; verify on `social.posts`.
    - Add negative checks to `verify.sh`: `social_svc` cannot read `media.images`; `media_svc` cannot read `social.posts`.
-2. **Gateway (Traefik, every environment):** route to social-svc: `PathPrefix(/v1/posts)`, `PathPrefix(/v1/post-comments)`, `PathPrefix(/v1/feed)`, `PathPrefix(/v1/hashtags)`, and `/v1/channels/{id}/posts` (add `posts` to the existing channels regex that already sends `followers|following|relationship|playlists` to social-svc). Make sure none of them is captured by a video-svc prefix.
+2. **Gateway (Traefik, every environment):** route to social-svc: `PathPrefix(/v1/posts)`, `PathPrefix(/v1/post-comments)`, `Path(/v1/feed/following)` and `Path(/v1/feed/explore)` (the rest of `/v1/feed` is video-svc), `PathPrefix(/v1/hashtags)`, and `/v1/channels/{id}/posts` (add `posts` to the existing channels regex that already sends `followers|following|relationship|playlists` to social-svc). Make sure none of them is captured by a video-svc prefix.
 3. **Rate limits / body size:** `createPost` bodies are small JSON; keep the default limits. No new public buckets.
 4. **Rollout, in order:**
    1. migration `000031_posts_feeds`;
