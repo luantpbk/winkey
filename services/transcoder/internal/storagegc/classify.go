@@ -41,7 +41,7 @@ const (
 	RawOrphanAudio    Category = "raw-orphan-audio"    // raw audio of a track that no longer exists
 	RawAudioProcessed Category = "raw-audio-processed" // raw audio of a READY track (the HLS output is all that is used)
 	MediaOrphanImage  Category = "media-orphan-image"  // i/{owner}/{image}/ of an image that is gone or not READY
-	ImageUnreferenced Category = "image-unreferenced"  // READY avatar/banner no profile uses any more (row deleted too)
+	ImageUnreferenced Category = "image-unreferenced"  // READY avatar/banner no profile uses, or post image no post uses (row deleted too)
 	RawImageProcessed Category = "raw-image-processed" // raw image of a READY or FAILED image
 	RawOrphanImage    Category = "raw-orphan-image"    // raw image without a row
 )
@@ -76,7 +76,9 @@ type Video struct {
 type Snapshot struct {
 	videos map[uuid.UUID]*Video
 	images map[uuid.UUID]Image
-	inUse  map[string]bool // avatar_key / banner_key of active profiles
+	inUse  map[string]bool // avatar_key / banner_key of active profiles, plus post image keys (SOC-2a)
+	// postRefsKnown: social.post_media was readable. Without it no POST image is ever judged unreferenced.
+	postRefsKnown bool
 }
 
 // Image is the part of a media.images row the classification needs.
@@ -87,13 +89,15 @@ type Image struct {
 	ImageKey  string
 }
 
-// SetImages adds the social images and the image keys active profiles use (SOC-1b).
-func (s *Snapshot) SetImages(images []Image, inUse map[string]bool) {
+// SetImages adds the social images and the image keys in use: avatars and banners of active profiles (SOC-1b)
+// and, when postRefsKnown, the images of posts (social.post_media, SOC-2a).
+func (s *Snapshot) SetImages(images []Image, inUse map[string]bool, postRefsKnown bool) {
 	s.images = make(map[uuid.UUID]Image, len(images))
 	for _, i := range images {
 		s.images[i.ID] = i
 	}
 	s.inUse = inUse
+	s.postRefsKnown = postRefsKnown
 }
 
 // ImageID returns the image id of an i/{owner}/{image}/ media key.
@@ -210,7 +214,7 @@ func (s *Snapshot) classifyImage(parts []string) Category {
 		return MediaInFlight
 	case img.Status != "READY":
 		return MediaOrphanImage
-	case img.Purpose != "POST" && !s.inUse[img.ImageKey]:
+	case !s.inUse[img.ImageKey] && (img.Purpose != "POST" || s.postRefsKnown):
 		return ImageUnreferenced
 	}
 	return MediaImage

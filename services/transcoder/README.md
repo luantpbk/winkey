@@ -290,7 +290,7 @@ Invalid input → `FAILED INVALID_INPUT` and the raw object is deleted. A transi
 - kept: `media-image`, `raw-image-pending`;
 - deletable:
   - `media-orphan-image`;
-  - `image-unreferenced`: a READY avatar or banner that no active profile uses; its row is deleted too;
+  - `image-unreferenced`: a READY avatar or banner that no active profile uses, or a READY post image that no post uses (`social.post_media`, SOC-2a). With `-apply` the rows are deleted **first**, re-checked in the same statement, and only the files of rows actually removed are deleted, so an image picked up since the scan keeps its files. Without read access to `social.post_media` (the `media_svc` grant) post images are never judged unreferenced;
   - `raw-image-processed`;
   - `raw-orphan-image`.
 

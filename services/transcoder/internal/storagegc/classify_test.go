@@ -1,6 +1,7 @@
 package storagegc
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -128,28 +129,38 @@ func TestClassifyImages(t *testing.T) {
 	}
 	avatarInUse, avatarOld := mk(1, "AVATAR", "READY"), mk(2, "AVATAR", "READY")
 	post, failed, processing := mk(3, "POST", "READY"), mk(4, "POST", "FAILED"), mk(5, "BANNER", "PROCESSING")
+	postUnused := mk(6, "POST", "READY")
 	gone := uuid.MustParse("019a2f10-0000-7000-8000-000000000009")
+	all := []Image{avatarInUse, avatarOld, post, failed, processing, postUnused}
+	inUse := map[string]bool{avatarInUse.ImageKey: true, post.ImageKey: true}
 	s := NewSnapshot(nil, nil)
-	s.SetImages([]Image{avatarInUse, avatarOld, post, failed, processing}, map[string]bool{avatarInUse.ImageKey: true})
+	s.SetImages(all, inUse, true)
+	// Without social.post_media (grant not applied yet) no POST image is judged unreferenced.
+	blind := NewSnapshot(nil, nil)
+	blind.SetImages(all, map[string]bool{avatarInUse.ImageKey: true}, false)
 
 	media := func(i uuid.UUID, file string) string { return "i/" + owner.String() + "/" + i.String() + "/" + file }
 	raw := func(i uuid.UUID) string { return owner.String() + "/images/" + i.String() }
 	cases := map[string]struct {
 		got, want Category
 	}{
-		"avatar in use":      {s.ClassifyMedia(media(avatarInUse.ID, "thumb.webp"), old, now, 48*time.Hour), MediaImage},
-		"replaced avatar":    {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), old, now, 48*time.Hour), ImageUnreferenced},
-		"post":               {s.ClassifyMedia(media(post.ID, "image.webp"), old, now, 48*time.Hour), MediaImage},
-		"failed outputs":     {s.ClassifyMedia(media(failed.ID, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
-		"processing outputs": {s.ClassifyMedia(media(processing.ID, "image.webp"), old, now, 48*time.Hour), MediaInFlight},
-		"no row":             {s.ClassifyMedia(media(gone, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
-		"recent replaced":    {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), now.Add(-time.Hour), now, 48*time.Hour), Recent},
-		"raw ready":          {s.ClassifyRaw(raw(post.ID), old, now, 48*time.Hour), RawImageProcessed},
-		"raw failed":         {s.ClassifyRaw(raw(failed.ID), old, now, 48*time.Hour), RawImageProcessed},
-		"raw processing":     {s.ClassifyRaw(raw(processing.ID), old, now, 48*time.Hour), RawImageLive},
-		"raw no row":         {s.ClassifyRaw(raw(gone), old, now, 48*time.Hour), RawOrphanImage},
-		"raw bad id":         {s.ClassifyRaw(owner.String()+"/images/nope", old, now, 48*time.Hour), Unknown},
-		"media other owner":  {s.ClassifyMedia("i/"+uuid.NewString()+"/"+post.ID.String()+"/image.webp", old, now, 48*time.Hour), MediaOrphanImage},
+		"avatar in use":       {s.ClassifyMedia(media(avatarInUse.ID, "thumb.webp"), old, now, 48*time.Hour), MediaImage},
+		"replaced avatar":     {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), old, now, 48*time.Hour), ImageUnreferenced},
+		"post":                {s.ClassifyMedia(media(post.ID, "image.webp"), old, now, 48*time.Hour), MediaImage},
+		"post unused":         {s.ClassifyMedia(media(postUnused.ID, "image.webp"), old, now, 48*time.Hour), ImageUnreferenced},
+		"post unused recent":  {s.ClassifyMedia(media(postUnused.ID, "image.webp"), now.Add(-time.Hour), now, 48*time.Hour), Recent},
+		"post refs unknown":   {blind.ClassifyMedia(media(postUnused.ID, "image.webp"), old, now, 48*time.Hour), MediaImage},
+		"avatar refs unknown": {blind.ClassifyMedia(media(avatarOld.ID, "image.webp"), old, now, 48*time.Hour), ImageUnreferenced},
+		"failed outputs":      {s.ClassifyMedia(media(failed.ID, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
+		"processing outputs":  {s.ClassifyMedia(media(processing.ID, "image.webp"), old, now, 48*time.Hour), MediaInFlight},
+		"no row":              {s.ClassifyMedia(media(gone, "image.webp"), old, now, 48*time.Hour), MediaOrphanImage},
+		"recent replaced":     {s.ClassifyMedia(media(avatarOld.ID, "image.webp"), now.Add(-time.Hour), now, 48*time.Hour), Recent},
+		"raw ready":           {s.ClassifyRaw(raw(post.ID), old, now, 48*time.Hour), RawImageProcessed},
+		"raw failed":          {s.ClassifyRaw(raw(failed.ID), old, now, 48*time.Hour), RawImageProcessed},
+		"raw processing":      {s.ClassifyRaw(raw(processing.ID), old, now, 48*time.Hour), RawImageLive},
+		"raw no row":          {s.ClassifyRaw(raw(gone), old, now, 48*time.Hour), RawOrphanImage},
+		"raw bad id":          {s.ClassifyRaw(owner.String()+"/images/nope", old, now, 48*time.Hour), Unknown},
+		"media other owner":   {s.ClassifyMedia("i/"+uuid.NewString()+"/"+post.ID.String()+"/image.webp", old, now, 48*time.Hour), MediaOrphanImage},
 	}
 	for name, c := range cases {
 		if c.got != c.want {
@@ -168,5 +179,37 @@ func TestClassifyImages(t *testing.T) {
 		if IsDeletable(c) {
 			t.Errorf("%s must be kept", c)
 		}
+	}
+}
+
+func TestKeepImagesOnly(t *testing.T) {
+	owner := uuid.MustParse("0192f5e0-0000-7000-8000-000000000001")
+	a, b := uuid.MustParse("019a2f10-0000-7000-8000-0000000000a1"), uuid.MustParse("019a2f10-0000-7000-8000-0000000000b2")
+	key := func(id uuid.UUID, f string) string { return "i/" + owner.String() + "/" + id.String() + "/" + f }
+	r := &Report{ByCat: map[Category]Total{}, ByBucket: map[string]Total{}, PerVideo: map[string]int64{}}
+	for _, o := range []Object{
+		{Bucket: "m", Key: key(a, "image.webp"), Size: 10, Category: ImageUnreferenced},
+		{Bucket: "m", Key: key(a, "thumb.webp"), Size: 1, Category: ImageUnreferenced},
+		{Bucket: "m", Key: key(b, "image.webp"), Size: 20, Category: ImageUnreferenced},
+		{Bucket: "m", Key: "v/x/a1/master.m3u8", Size: 5, Category: MediaOrphanVideo},
+	} {
+		r.add(o)
+	}
+	// Only a's row was removed (b was picked up by a post after the scan): b's files must stay.
+	r.KeepImagesOnly([]uuid.UUID{a})
+	sel := r.Selected(map[Category]bool{ImageUnreferenced: true, MediaOrphanVideo: true})
+	if len(sel) != 3 {
+		t.Fatalf("selected %d objects, want a's two files and the orphan video: %+v", len(sel), sel)
+	}
+	for _, o := range sel {
+		if strings.Contains(o.Key, b.String()) {
+			t.Fatalf("b's file %s is still selected for deletion", o.Key)
+		}
+	}
+	if got := r.ByCat[ImageUnreferenced]; got.Count != 2 || got.Bytes != 11 {
+		t.Errorf("image-unreferenced totals %+v, want 2 objects / 11 bytes", got)
+	}
+	if got := r.ByCat[MediaImage]; got.Count != 1 || got.Bytes != 20 {
+		t.Errorf("media-image totals %+v, want 1 object / 20 bytes", got)
 	}
 }

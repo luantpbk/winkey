@@ -2,6 +2,7 @@ package storagegc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -56,59 +58,94 @@ func Load(ctx context.Context, pool *pgxpool.Pool) (*Snapshot, error) {
 		return nil, err
 	}
 	snap := NewSnapshot(videos, tracks)
-	images, inUse, err := loadImages(ctx, pool)
+	images, inUse, postRefsKnown, err := loadImages(ctx, pool)
 	if err != nil {
 		return nil, err
 	}
-	snap.SetImages(images, inUse)
+	snap.SetImages(images, inUse, postRefsKnown)
 	return snap, nil
 }
 
-// loadImages reads media.images and the image keys of active profiles (auth.public_profiles, SOC-1b).
-func loadImages(ctx context.Context, pool *pgxpool.Pool) ([]Image, map[string]bool, error) {
+// loadImages reads media.images and the image keys in use: avatars and banners of active profiles
+// (auth.public_profiles, SOC-1b) and post images (social.post_media, SOC-2a). postRefsKnown is false while the
+// worker role cannot read social.post_media yet (grant not applied); every POST image is then kept.
+func loadImages(ctx context.Context, pool *pgxpool.Pool) (images []Image, inUse map[string]bool, postRefsKnown bool, err error) {
 	rows, err := pool.Query(ctx, `SELECT id, owner_id, purpose::text, status::text, coalesce(image_key, '') FROM media.images`)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load images: %w", err)
+		return nil, nil, false, fmt.Errorf("load images: %w", err)
 	}
-	images, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Image, error) {
+	images, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (Image, error) {
 		var i Image
 		err := r.Scan(&i.ID, &i.Owner, &i.Purpose, &i.Status, &i.ImageKey)
 		return i, err
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("load images: %w", err)
+		return nil, nil, false, fmt.Errorf("load images: %w", err)
 	}
-	rows, err = pool.Query(ctx, `
+	profileKeys, err := collectKeys(ctx, pool, `
 		SELECT avatar_key FROM auth.public_profiles WHERE avatar_key IS NOT NULL
 		UNION SELECT banner_key FROM auth.public_profiles WHERE banner_key IS NOT NULL`)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load profile image keys: %w", err)
+		return nil, nil, false, fmt.Errorf("load profile image keys: %w", err)
 	}
-	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return nil, nil, fmt.Errorf("load profile image keys: %w", err)
+	postKeys, err := collectKeys(ctx, pool, `SELECT image_key FROM social.post_media`)
+	switch {
+	case err == nil:
+		postRefsKnown = true
+	case isNoAccess(err):
+		postKeys = nil
+	default:
+		return nil, nil, false, fmt.Errorf("load post image keys: %w", err)
 	}
-	inUse := make(map[string]bool, len(keys))
-	for _, k := range keys {
+	inUse = make(map[string]bool, len(profileKeys)+len(postKeys))
+	for _, k := range append(profileKeys, postKeys...) {
 		inUse[k] = true
 	}
-	return images, inUse, nil
+	return images, inUse, postRefsKnown, nil
 }
 
-// DeleteUnreferencedImages removes the rows of images whose objects were deleted as image-unreferenced, so
-// auth-svc can never pick them again. Re-checks READY and that no active profile uses the key.
-func DeleteUnreferencedImages(ctx context.Context, pool *pgxpool.Pool, ids []uuid.UUID) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	tag, err := pool.Exec(ctx, `
-		DELETE FROM media.images i WHERE i.id = ANY($1) AND i.status = 'READY' AND i.purpose <> 'POST'
-		AND NOT EXISTS (SELECT 1 FROM auth.public_profiles p WHERE p.avatar_key = i.image_key OR p.banner_key = i.image_key)`, ids)
+func collectKeys(ctx context.Context, pool *pgxpool.Pool, query string) ([]string, error) {
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
-		return 0, fmt.Errorf("delete unreferenced images: %w", err)
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
+
+// isNoAccess: the relation or schema is missing (migration 000031 not applied) or not granted.
+func isNoAccess(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		(pgErr.Code == "42501" || pgErr.Code == "42P01" || pgErr.Code == "3F000")
+}
+
+// DeleteUnreferencedImages removes the rows of images judged image-unreferenced, re-checking in the same
+// statement that the image is READY and still unreferenced, and returns the ids actually removed. It runs
+// before the objects are deleted, so an image a profile or post picked up since the scan keeps its files, and
+// a removed row can never be chosen again. POST images are considered only when postRefsKnown.
+func DeleteUnreferencedImages(ctx context.Context, pool *pgxpool.Pool, ids []uuid.UUID, postRefsKnown bool) ([]uuid.UUID, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	cond := `i.purpose <> 'POST'
+		AND NOT EXISTS (SELECT 1 FROM auth.public_profiles p WHERE p.avatar_key = i.image_key OR p.banner_key = i.image_key)`
+	if postRefsKnown {
+		cond = `(` + cond + `) OR (i.purpose = 'POST'
+		AND NOT EXISTS (SELECT 1 FROM social.post_media m WHERE m.image_id = i.id OR m.image_key = i.image_key))`
+	}
+	rows, err := pool.Query(ctx, `DELETE FROM media.images i WHERE i.id = ANY($1) AND i.status = 'READY' AND (`+cond+`) RETURNING i.id`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("delete unreferenced images: %w", err)
+	}
+	deleted, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("delete unreferenced images: %w", err)
+	}
+	return deleted, nil
+}
+
+// PostRefsKnown reports whether post image references were loaded (see loadImages).
+func (s *Snapshot) PostRefsKnown() bool { return s.postRefsKnown }
 
 // Object is one listed object and its verdict.
 type Object struct {
@@ -260,6 +297,37 @@ func (r *Report) Print(w io.Writer, top int) {
 		}
 		fmt.Fprintf(w, "  %s %12s\n", id, human(r.PerVideo[id]))
 	}
+}
+
+// KeepImagesOnly narrows image-unreferenced to the images in ids (the rows DeleteUnreferencedImages removed);
+// the other image-unreferenced objects are counted as media-image again and are not deleted.
+func (r *Report) KeepImagesOnly(ids []uuid.UUID) {
+	keep := make(map[uuid.UUID]bool, len(ids))
+	for _, id := range ids {
+		keep[id] = true
+	}
+	for i, o := range r.Objects {
+		if o.Category != ImageUnreferenced {
+			continue
+		}
+		if id, ok := ImageID(o.Key); ok && keep[id] {
+			continue
+		}
+		r.move(i, MediaImage)
+	}
+}
+
+func (r *Report) move(i int, to Category) {
+	o := r.Objects[i]
+	from := r.ByCat[o.Category]
+	from.Count--
+	from.Bytes -= o.Size
+	r.ByCat[o.Category] = from
+	t := r.ByCat[to]
+	t.Count++
+	t.Bytes += o.Size
+	r.ByCat[to] = t
+	r.Objects[i].Category = to
 }
 
 // Selected returns the objects Delete would remove: those of the selected categories that are garbage. A
