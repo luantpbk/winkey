@@ -37,6 +37,13 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
   let validateFollowRequestPage: ValidateFunction;
   let validateRelationship: ValidateFunction;
   let validateRelationPage: ValidateFunction;
+  let validatePost: ValidateFunction;
+  let validatePostPage: ValidateFunction;
+  let validateReactionState: ValidateFunction;
+  let validateReactionPage: ValidateFunction;
+  let validatePostComment: ValidateFunction;
+  let validatePostCommentPage: ValidateFunction;
+  let validateTrendingHashtags: ValidateFunction;
 
   const mockStore = createMockStore();
 
@@ -124,6 +131,27 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     )!;
     validateRelationPage = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
+    )!;
+    validatePost = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Post',
+    )!;
+    validatePostPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostPage',
+    )!;
+    validateReactionState = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReactionState',
+    )!;
+    validateReactionPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/ReactionPage',
+    )!;
+    validatePostComment = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostComment',
+    )!;
+    validatePostCommentPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/PostCommentPage',
+    )!;
+    validateTrendingHashtags = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/TrendingHashtags',
     )!;
 
     // 3. Populate mock store
@@ -935,5 +963,134 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
     const validMutes = validateRelationPage(mutesBody);
     if (!validMutes) console.error('RelationPage (mutes) errors:', validateRelationPage.errors);
     expect(validMutes).toBe(true);
+  });
+
+  it('SOC-2a Posts, Reactions, Post Comments and Feeds schemas validate correctly', () => {
+    // 1. Post & PostPage schema
+    const samplePost = {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9010',
+      author: {
+        id: authorId,
+        handle: 'alice',
+        display_name: 'Alice',
+        avatar_url: 'https://media.winkey.vn/avatars/alice.webp',
+      },
+      body: 'Hello #HàNội! @bob check this out.',
+      visibility: 'PUBLIC',
+      status: 'VISIBLE',
+      images: [
+        {
+          id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9011',
+          url: 'https://media.winkey.vn/images/img1.webp',
+          thumb_url: 'https://media.winkey.vn/images/img1_thumb.webp',
+          width: 1200,
+          height: 800,
+        },
+      ],
+      video_id: null,
+      reshare_of: null,
+      reshared_post: null,
+      reshare_unavailable: false,
+      mentions: [{ user_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9012', handle: 'bob' }],
+      hashtags: [{ tag: 'HàNội', slug: 'hanoi' }],
+      reaction_count: 5,
+      top_reactions: [
+        { reaction: 'LOVE', count: 3 },
+        { reaction: 'LIKE', count: 2 },
+      ],
+      my_reaction: 'LOVE',
+      comment_count: 2,
+      reshare_count: 1,
+      created_at: '2026-10-28T07:00:00.000Z',
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+
+    const validPost = validatePost(samplePost);
+    if (!validPost) console.error('Post errors:', validatePost.errors);
+    expect(validPost).toBe(true);
+
+    const validPostPage = validatePostPage({
+      items: [samplePost],
+      next_cursor: 'eyJjcmVhdGVkX2F0IjoiMjAyNi0xMC0yOCJ9',
+    });
+    if (!validPostPage) console.error('PostPage errors:', validatePostPage.errors);
+    expect(validPostPage).toBe(true);
+
+    // 2. ReactionState & ReactionPage schema
+    const sampleReactionState = {
+      post_id: samplePost.id,
+      my_reaction: 'LIKE',
+      reaction_count: 10,
+      top_reactions: [
+        { reaction: 'LIKE', count: 6 },
+        { reaction: 'LOVE', count: 4 },
+      ],
+    };
+    const validReactionState = validateReactionState(sampleReactionState);
+    if (!validReactionState) console.error('ReactionState errors:', validateReactionState.errors);
+    expect(validReactionState).toBe(true);
+
+    const sampleReactionPage = {
+      items: [
+        {
+          user: {
+            id: authorId,
+            handle: 'alice',
+            display_name: 'Alice',
+            avatar_url: null,
+          },
+          reaction: 'LIKE',
+          created_at: '2026-10-28T07:00:00.000Z',
+        },
+      ],
+      next_cursor: null,
+    };
+    const validReactionPage = validateReactionPage(sampleReactionPage);
+    if (!validReactionPage) console.error('ReactionPage errors:', validateReactionPage.errors);
+    expect(validReactionPage).toBe(true);
+
+    // 3. PostComment & PostCommentPage schema
+    const samplePostComment = {
+      id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9015',
+      post_id: samplePost.id,
+      parent_id: null,
+      author: {
+        id: authorId,
+        handle: 'alice',
+        display_name: 'Alice',
+        avatar_url: null,
+      },
+      body: 'Great post!',
+      status: 'VISIBLE',
+      reply_count: 1,
+      created_at: '2026-10-28T07:05:00.000Z',
+      edited_at: null,
+      can_edit: true,
+      can_delete: true,
+    };
+    const validPostComment = validatePostComment(samplePostComment);
+    if (!validPostComment) console.error('PostComment errors:', validatePostComment.errors);
+    expect(validPostComment).toBe(true);
+
+    const validPostCommentPage = validatePostCommentPage({
+      items: [samplePostComment],
+      next_cursor: null,
+    });
+    if (!validPostCommentPage)
+      console.error('PostCommentPage errors:', validatePostCommentPage.errors);
+    expect(validPostCommentPage).toBe(true);
+
+    // 4. TrendingHashtags schema
+    const sampleTrending = {
+      items: [
+        { tag: 'HàNội', slug: 'hanoi', post_count: 42 },
+        { tag: 'SàiGòn', slug: 'saigon', post_count: 28 },
+      ],
+    };
+    const validTrending = validateTrendingHashtags(sampleTrending);
+    if (!validTrending) console.error('TrendingHashtags errors:', validateTrendingHashtags.errors);
+    expect(validTrending).toBe(true);
   });
 });

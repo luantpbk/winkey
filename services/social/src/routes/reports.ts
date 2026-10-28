@@ -14,6 +14,7 @@ import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildReportRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
 import { requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
+import { canSeePost } from '../utils/visibility.js';
 import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { formatPublicProfile } from '../utils/profile.js';
 
@@ -24,7 +25,7 @@ export interface ReportsRouteOptions {
 }
 
 const createReportSchema = z.object({
-  target_type: z.enum(['VIDEO', 'COMMENT', 'USER']),
+  target_type: z.enum(['VIDEO', 'COMMENT', 'USER', 'POST', 'POST_COMMENT']),
   target_id: z.string().uuid(),
   reason: z.enum([
     'SPAM',
@@ -142,6 +143,77 @@ export const reportsRoute: FastifyPluginAsync<ReportsRouteOptions> = async (
       if (target_id === caller.userId) {
         throw ProblemError.badRequest('Cannot report yourself', undefined, 'CANNOT_REPORT_SELF');
       }
+    } else if (target_type === 'POST') {
+      const post = await db
+        .selectFrom('social.posts')
+        .select(['id', 'author_id', 'visibility', 'status'])
+        .where('id', '=', target_id)
+        .executeTakeFirst();
+
+      if (!post) {
+        throw ProblemError.notFound('Post not found or not visible', 'TARGET_NOT_FOUND');
+      }
+      const canSee = await canSeePost(
+        db,
+        caller,
+        {
+          id: post.id,
+          author_id: post.author_id,
+          visibility: post.visibility,
+          status: post.status,
+        },
+        { allowHiddenForMods: false },
+      );
+      if (!canSee) {
+        throw ProblemError.notFound('Post not found or not visible', 'TARGET_NOT_FOUND');
+      }
+      if (post.author_id === caller.userId) {
+        throw ProblemError.badRequest(
+          'Cannot report your own post',
+          undefined,
+          'CANNOT_REPORT_OWN_CONTENT',
+        );
+      }
+    } else if (target_type === 'POST_COMMENT') {
+      const comment = await db
+        .selectFrom('social.post_comments as pc')
+        .innerJoin('social.posts as p', 'p.id', 'pc.post_id')
+        .select([
+          'pc.id',
+          'pc.author_id',
+          'pc.status',
+          'pc.post_id',
+          'p.author_id as post_author_id',
+          'p.visibility as post_visibility',
+          'p.status as post_status',
+        ])
+        .where('pc.id', '=', target_id)
+        .executeTakeFirst();
+
+      if (!comment || comment.status !== 'VISIBLE') {
+        throw ProblemError.notFound('Comment not found or not visible', 'TARGET_NOT_FOUND');
+      }
+      const canSee = await canSeePost(
+        db,
+        caller,
+        {
+          id: comment.post_id,
+          author_id: comment.post_author_id,
+          visibility: comment.post_visibility,
+          status: comment.post_status,
+        },
+        { allowHiddenForMods: false },
+      );
+      if (!canSee) {
+        throw ProblemError.notFound('Comment not found or not visible', 'TARGET_NOT_FOUND');
+      }
+      if (comment.author_id === caller.userId) {
+        throw ProblemError.badRequest(
+          'Cannot report your own comment',
+          undefined,
+          'CANNOT_REPORT_OWN_CONTENT',
+        );
+      }
     }
 
     // Insert with partial unique index (reporter_id, target_type, target_id) WHERE status = 'OPEN'
@@ -220,7 +292,7 @@ export const reportsRoute: FastifyPluginAsync<ReportsRouteOptions> = async (
     if (request.query.status && !['OPEN', 'ACTIONED', 'DISMISSED'].includes(request.query.status)) {
       throw ProblemError.badRequest('Invalid status filter', undefined, 'INVALID_STATUS');
     }
-    if (targetType && !['VIDEO', 'COMMENT', 'USER'].includes(targetType)) {
+    if (targetType && !['VIDEO', 'COMMENT', 'USER', 'POST', 'POST_COMMENT'].includes(targetType)) {
       throw ProblemError.badRequest('Invalid target_type filter', undefined, 'INVALID_TARGET_TYPE');
     }
 
@@ -401,7 +473,7 @@ export const reportsRoute: FastifyPluginAsync<ReportsRouteOptions> = async (
     }
 
     const { target_type, target_id } = request.params;
-    if (!['VIDEO', 'COMMENT', 'USER'].includes(target_type)) {
+    if (!['VIDEO', 'COMMENT', 'USER', 'POST', 'POST_COMMENT'].includes(target_type)) {
       throw ProblemError.badRequest('Invalid target_type', undefined, 'INVALID_TARGET_TYPE');
     }
     if (!isValidUuid(target_id)) {

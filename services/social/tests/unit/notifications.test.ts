@@ -118,6 +118,8 @@ describe('In-App Notifications Unit Tests (Task N1 / ADR-023)', () => {
         },
         video_id: null,
         comment_id: null,
+        post_id: null,
+        post_comment_id: null,
         created_at: now.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z'),
         read_at: null,
       });
