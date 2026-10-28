@@ -72,6 +72,7 @@ export interface paths {
          * Edit metadata (owner only).
          * @description Task C4: when `visibility` actually changes, `video.visibility_changed` is written to the outbox in the
          *     same transaction (not emitted for a no-op or for other fields).
+         *     SOC-2b: a social video stays `UNLISTED`; any other `visibility` → `409` code `SOCIAL_VIDEO_UNLISTED`.
          */
         patch: operations["updateVideo"];
         trace?: never;
@@ -676,6 +677,8 @@ export interface components {
             description: string;
             owner: components["schemas"]["PublicProfile"];
             visibility: components["schemas"]["Visibility"];
+            /** @description SOC-2b. Sent by every SOC-2b server; a missing value means `FILM`. */
+            purpose?: components["schemas"]["VideoPurpose"];
             status: components["schemas"]["VideoStatus"];
             duration_ms: number | null;
             width: number | null;
@@ -1068,6 +1071,12 @@ export interface components {
          * @enum {string}
          */
         Visibility: "PUBLIC" | "UNLISTED" | "PRIVATE";
+        /**
+         * @description `FILM`: a video of the catalogue (every video before SOC-2b). `SOCIAL`: a short video uploaded for a post (task
+         *     SOC-2b, ADR-049): at most 3 minutes and 300 MiB, encoded to 720p + 360p only, always `UNLISTED`.
+         * @enum {string}
+         */
+        VideoPurpose: "FILM" | "SOCIAL";
         /** @enum {string} */
         VideoStatus: "UPLOADING" | "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
     };

@@ -28,6 +28,10 @@
           "enum": ["PUBLIC", "UNLISTED", "PRIVATE"],
           "description": "Visibility when the video became READY (task C4). Absent in events produced before C4: consumers treat it as PUBLIC."
         },
+        "purpose": {
+          "enum": ["FILM", "SOCIAL"],
+          "description": "Task SOC-2b. SOCIAL: a short video owned by a post (always UNLISTED). Absent in events produced before SOC-2b: consumers treat it as FILM."
+        },
         "duration_ms": { "type": "integer", "minimum": 1 },
         "width": { "type": "integer", "minimum": 1 },
         "height": { "type": "integer", "minimum": 1 },

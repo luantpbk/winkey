@@ -109,6 +109,13 @@ components:
       type: string
       enum: [UPLOADING, UPLOADED, PROCESSING, READY, FAILED]
 
+    VideoPurpose:
+      type: string
+      enum: [FILM, SOCIAL]
+      description: |
+        `FILM`: a video of the catalogue (every video before SOC-2b). `SOCIAL`: a short video uploaded for a post (task
+        SOC-2b, ADR-049): at most 3 minutes and 300 MiB, encoded to 720p + 360p only, always `UNLISTED`.
+
     Visibility:
       type: string
       enum: [PUBLIC, UNLISTED, PRIVATE]

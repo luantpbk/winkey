@@ -44,7 +44,16 @@ tags:
   - name: videos
     description: Public video metadata and playback info.
   - name: studio
-    description: Creator views of their own videos.
+    description: |
+      Creator views of their own videos.
+
+      Social videos (task SOC-2b, ADR-049): a video uploaded with `purpose: SOCIAL` belongs to a post. It is always
+      `UNLISTED`, so no listing, feed, search, tag page, trending, recommendation or sitemap ever shows it.
+      `listStudioVideos` and `adminListVideos` leave it out too (it is managed through its post). `getVideo`,
+      `batchGetVideos` and playback work as for any `UNLISTED` video, and `Video.purpose` tells clients to play it
+      inline. `updateVideo` refuses a visibility change (`409` code `SOCIAL_VIDEO_UNLISTED`). video-svc deletes a social
+      video (emitting `video.deleted`) when its post releases it (`social.post.video_released`) or when it was never
+      attached to a post (`social.post.video_attached`) within 48 hours of becoming READY.
   - name: moderation
     description: Hide or restore a video (task A2).
   - name: audio-tracks
@@ -196,6 +205,7 @@ paths:
       description: |
         Task C4: when `visibility` actually changes, `video.visibility_changed` is written to the outbox in the
         same transaction (not emitted for a no-op or for other fields).
+        SOC-2b: a social video stays `UNLISTED`; any other `visibility` → `409` code `SOCIAL_VIDEO_UNLISTED`.
       security:
         - bearerAuth: []
       requestBody:
@@ -1223,6 +1233,9 @@ components:
           $ref: './common.yaml#/components/schemas/PublicProfile'
         visibility:
           $ref: './common.yaml#/components/schemas/Visibility'
+        purpose:
+          $ref: './common.yaml#/components/schemas/VideoPurpose'
+          description: SOC-2b. Sent by every SOC-2b server; a missing value means `FILM`.
         status:
           $ref: './common.yaml#/components/schemas/VideoStatus'
         duration_ms:

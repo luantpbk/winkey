@@ -1709,3 +1709,30 @@ Quyết định cho SOC-2a:
 - **Không có sự kiện mới**: chưa dịch vụ nào cần nghe bài đăng. Khi có (tìm kiếm, realtime), thêm sự kiện qua outbox.
 - **Giới hạn tần suất**: 30 bài/giờ, 300 lần đổi reaction/giờ, 10 bình luận bài/phút.
 - **Hiệu suất**: p95 bảng tin dưới 150 ms trên edge. CI có test EXPLAIN cho truy vấn "Đang theo dõi", "Khám phá" và hashtag: phải dùng chỉ mục, không quét tuần tự `social.posts`.
+
+*Bổ sung 2026-10-28 (SOC-2b, video ngắn trong bài đăng).* Migration `000032_social_video`; contract `upload.v1.yaml` (`purpose`), `video.v1.yaml` (`Video.purpose`, `VideoPurpose` trong `common.yaml`), `social.v1.yaml` (tag `posts`); sự kiện `social.post.video_attached`, `social.post.video_released`, và `video.ready.purpose`.
+- **Dùng lại `media.videos`** với cột mới `purpose`:
+  - `FILM` là mọi video hiện có, giữ nguyên;
+  - `SOCIAL` là video quay hoặc tải lên cho một bài đăng.
+  Video `SOCIAL` dùng lại cả pipeline (multipart, transcoder, HLS, URL ký, phát), không cần dịch vụ mới.
+- **Giới hạn và nén** (transcoder, kiến trúc sư):
+  - tối đa 300 MiB (upload-svc kiểm tra, có cả CHECK trong DB) và 180 giây (transcoder đánh `FAILED` với mã `TOO_LONG`);
+  - chỉ 2 rendition **720p và 360p** theo cạnh ngắn, video dọc giữ dọc; capped CRF (x264 CRF 28, NVENC CQ tương đương), trần 720p khoảng 1,2 Mbps và 360p khoảng 0,5 Mbps; AAC 96 kbps;
+  - không AV1, không storyboard; vẫn có ảnh bìa;
+  - **xoá file gốc ngay khi READY** (khác phim: phim vẫn giữ file gốc).
+- **Luôn `UNLISTED`** (CHECK trong DB):
+  - nhờ vậy không danh sách, bảng tin video, tìm kiếm, tag, thịnh hành, đề xuất hay sitemap nào hiện video bài đăng, mà không phải sửa từng truy vấn;
+  - `listStudioVideos` và `adminListVideos` cũng loại video `SOCIAL` (quản lý qua bài đăng);
+  - đổi quyền xem → `409 SOCIAL_VIDEO_UNLISTED`.
+  - Giống ảnh bài đăng, URL media khó đoán nhưng không kiểm soát truy cập; quyền xem bài vẫn do social-svc quyết định.
+- **Quyền**: ai đăng nhập cũng tải được video `SOCIAL` (không cần vai trò `creator`); dùng chung quota upload với phim.
+- **Vòng đời** (video thuộc về bài đăng):
+  - social-svc chỉ nhận video `SOCIAL` khi nó READY, của chính tác giả, và chưa gắn với bài nào còn sống (chỉ mục `posts_one_per_social_video`, cờ `posts.video_social`); sai thì `409 VIDEO_IN_USE`;
+  - tạo bài → social-svc ghi `social.post.video_attached` vào outbox, video-svc đặt `attached_at`;
+  - xoá bài → `social.post.video_released`, video-svc xoá video (`video.deleted`, media janitor dọn file). Moderator ẩn bài thì **không** xoá video.
+  - Video `SOCIAL` READY mà 48 giờ không gắn vào bài nào thì video-svc tự xoá (chỉ mục `videos_social_unattached`).
+- **Trình duyệt**: kiểm tra thời lượng và dung lượng trước khi tải lên; bài có video `SOCIAL` phát ngay trong thẻ bài (tắt tiếng mặc định, tự phát khi cuộn tới, tôn trọng `prefers-reduced-motion`). Video `FILM` nhúng vẫn là thẻ dẫn sang trang xem.
+- **Phân việc**:
+  - kiến trúc sư: upload-svc, transcoder, video-svc (`purpose`, ladder, consumer sự kiện bài đăng, janitor);
+  - Antigravity 3: social-svc (projection `purpose`, luật tạo bài, phát sự kiện);
+  - Antigravity 1: web; Antigravity 2: quyền NATS, durable consumer; Antigravity 4: test.
