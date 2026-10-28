@@ -15,9 +15,42 @@ Part of **Task C1**, owned by **Antigravity 3**.
   - Moderation: `HIDDEN` comments visible only to moderators and admins.
 - **Likes**: Idempotent video likes and unlikes.
   - Automatically publishes `social.video.like_changed` with absolute `like_count` via transactional outbox.
-- **Subscriptions**: Idempotent channel subscriptions and unsubscriptions.
+- **Subscriptions & Follow Requests (Task SOC-1b / ADR-049)**:
+  - Idempotent channel subscriptions and unsubscriptions.
   - Self-subscription rejection (`400 CANNOT_SUBSCRIBE_SELF`).
-  - Automatically publishes `social.subscription.changed` with absolute `subscriber_count` via transactional outbox.
+  - Private channel handling: Subscribing to a private channel (`is_private = true`) places a pending request into `social.follow_requests` and creates a `FOLLOW_REQUEST` notification without emitting an outbox event. Returns `subscribed: false, requested: true`.
+  - Max 200 pending outgoing follow requests per user (`409 LIMIT_REACHED`).
+  - Automatically publishes `social.subscription.changed` with absolute `subscriber_count` via transactional outbox for public subscriptions or approved requests.
+  - `GET /v1/channels/:channel_id/subscription`: Returns `{ subscribed: boolean, requested: boolean }`.
+  - `DELETE /v1/channels/:channel_id/subscription`: Cancels both active subscription and pending follow request.
+- **Follow Requests Management (Task SOC-1b / ADR-049)**:
+  - `GET /v1/me/follow-requests`: List pending requests targeting caller with keyset pagination (`(created_at, requester_id)` DESC) and total `pending_count` (excluding blocked actors).
+  - `POST /v1/me/follow-requests/:requester_id/decision`: Transactional decision on a pending request:
+    - `APPROVE`: Removes request, creates subscription, creates `NEW_SUBSCRIBER` notification to channel owner and `FOLLOW_REQUEST_APPROVED` notification to requester, emits `social.subscription.changed` outbox event.
+    - `REJECT`: Deletes request without notifications or outbox events (`404` if not found).
+- **Followers & Following Lists (Task SOC-1b / ADR-049)**:
+  - `GET /v1/channels/:channel_id/followers`: Keyset paginated list of subscribers ordered by `(created_at, subscriber_id)`.
+  - `GET /v1/channels/:channel_id/following`: Keyset paginated list of channels followed ordered by `(created_at, channel_id)`.
+  - Access control: For private accounts, allowed only for the channel owner and approved followers (`403 PRIVATE_ACCOUNT` for strangers and anonymous callers).
+  - Bidirectional block exclusion: Users in a block relationship with the caller are filtered out.
+- **Relationships, Blocks & Mutes (Task SOC-1b / ADR-049)**:
+  - `GET /v1/channels/:channel_id/relationship`: Returns relationship state `{ following, follow_requested, followed_by, blocking, muting }`. Rejects querying self (`400 CANNOT_QUERY_SELF`). Never exposes whether the target blocks the caller (`blocked_by` is omitted to prevent harassment and enumeration).
+  - `GET /v1/me/blocks`: List blocked users with keyset pagination (`(created_at, blocked_id)` DESC).
+  - `PUT /v1/me/blocks/:user_id`: Block user atomically:
+    - Deletes subscriptions in both directions and emits `social.subscription.changed` outbox events for each removed subscription.
+    - Deletes follow requests in both directions.
+    - Inserts block into `social.blocks` (idempotent 204).
+    - Max 1,000 blocks per user (`409 LIMIT_REACHED`).
+  - `DELETE /v1/me/blocks/:user_id`: Unblock user (idempotent 204).
+  - `GET /v1/me/mutes`: List muted users with keyset pagination (`(created_at, muted_id)` DESC).
+  - `PUT /v1/me/mutes/:user_id`: Mute user notifications (idempotent 204, max 1,000 mutes -> `409 LIMIT_REACHED`).
+  - `DELETE /v1/me/mutes/:user_id`: Unmute user (idempotent 204).
+  - Rate limiting: 60 block and mute changes per hour per user sliding window (`429`).
+- **Block Semantics & Safety Invariants**:
+  - **Subscriptions**: Subscribing to someone who blocked you (or whom you blocked) returns `404` (target appears non-existent).
+  - **Comments**: Attempting to comment on a video owned by a user in a block relation with the caller, or replying to a comment authored by a blocked user, returns `403 INTERACTION_BLOCKED`.
+  - **Feed & Thread Visibility**: Comment lists (`listComments`, `listReplies`) automatically omit comments authored by any user in a block relation with the signed-in caller.
+  - **Notifications**: Blocked actors cannot trigger notifications to the other party. Muted actors do not generate notifications to the muter (including video publication fanout from `video.ready`).
 - **Content Reporting (Task A2)**:
   - `POST /v1/reports`: Users can report videos, comments, and user profiles.
   - Target visibility and existence checks: non-hidden videos, visible comments on visible videos, active profiles.
@@ -38,9 +71,11 @@ Part of **Task C1**, owned by **Antigravity 3**.
     - Top-level comment -> `VIDEO_COMMENT` notification to video owner.
     - Comment reply -> `COMMENT_REPLY` notification to parent comment author (video owner not notified).
     - Channel subscription -> `NEW_SUBSCRIBER` notification to channel owner on first subscribe.
-    - Video publish fanout -> `VIDEO_PUBLISHED` notification to all channel subscribers on `video.ready` / `video.visibility_changed` transition to `PUBLIC`.
+    - Private follow request -> `FOLLOW_REQUEST` notification to channel owner.
+    - Follow request approved -> `FOLLOW_REQUEST_APPROVED` notification to requester.
+    - Video publish fanout -> `VIDEO_PUBLISHED` notification to all channel subscribers on `video.ready` / `video.visibility_changed` transition to `PUBLIC` (skipping subscribers who muted the video owner or are in a block relation).
     - Dedup index on `(user_id, kind, COALESCE(comment_id, video_id, actor_id))`.
-    - Self-notifications (`user_id = actor_id`) are always omitted.
+    - Self-notifications (`user_id = actor_id`), block relations, and muted actors are always omitted.
   - Readers:
     - `GET /v1/notifications`: List caller's notifications with keyset cursor pagination (`(created_at, id) DESC`), `limit` parameter, and optional `unread=true` filter. Automatically omits notifications pointing to hidden or private videos, non-visible comments, or deleted/missing actor profiles.
     - `GET /v1/notifications/unread-count`: Efficient unread badge counter (`count: min(n, 100)`, `capped: n > 100`).
@@ -107,7 +142,7 @@ Exposed via `@winkey/metrics` (`prom-client`) on `HTTP_PORT`:
 |---|---|---|---|
 | `http_requests_total` | Counter | `method`, `route`, `status` | Total incoming HTTP requests by route pattern and status code (probes and `/metrics` excluded). |
 | `http_request_duration_seconds` | Histogram | `method`, `route`, `status` | HTTP request latency histogram in seconds (buckets match Go services). |
-| `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`). |
+| `social_notifications_created_total` | Counter | `kind` | Total notifications created by kind (`VIDEO_PUBLISHED`, `VIDEO_COMMENT`, `COMMENT_REPLY`, `NEW_SUBSCRIBER`, `FOLLOW_REQUEST`, `FOLLOW_REQUEST_APPROVED`). |
 | `social_notifications_fanout_seconds` | Histogram | None | Latency of subscriber notification fanout on video publication. |
 | `social_notifications_janitor_deleted_total` | Counter | None | Total expired notification rows deleted by background janitor. |
 | `social_playlist_items_added_total` | Counter | None | Total playlist items appended to playlists (excluding idempotent repeats). |

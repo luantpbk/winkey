@@ -6291,4 +6291,190 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
 
     return HttpResponse.json(context);
   }),
+
+  // --- SOC-1b: Images, Profiles, Follow Requests, Relationships, Block/Mute ---
+  http.post('*/v1/images', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as any;
+    const imageId = `img-${Date.now()}`;
+    return HttpResponse.json(
+      {
+        image_id: imageId,
+        upload_url: `http://localhost:8080/mock-upload/images/${imageId}`,
+        upload_headers: { 'Content-Type': body.content_type || 'image/webp' },
+        expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.put('*/mock-upload/images/:id', async () => {
+    return new HttpResponse(null, { status: 200 });
+  }),
+
+  http.post('*/v1/images/:image_id/complete', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/images/:image_id', async ({ params }) => {
+    const { image_id } = params;
+    if (image_id === 'img-failed') {
+      return HttpResponse.json({
+        id: image_id,
+        purpose: 'AVATAR',
+        status: 'FAILED',
+        url: null,
+        thumb_url: null,
+        width: null,
+        height: null,
+        error: 'Tệp ảnh không hợp lệ hoặc bị hỏng.',
+        created_at: new Date().toISOString(),
+      });
+    }
+    return HttpResponse.json({
+      id: image_id,
+      purpose: 'AVATAR',
+      status: 'READY',
+      url: `https://images.winkey.vn/${image_id}.webp`,
+      thumb_url: `https://images.winkey.vn/${image_id}_thumb.webp`,
+      width: 800,
+      height: 800,
+      error: null,
+      created_at: new Date().toISOString(),
+    });
+  }),
+
+  http.get('*/v1/auth/users/:handle', async ({ params }) => {
+    const mockProfiles = Object.values(mockUsers);
+    const { handle } = params;
+    const existing = mockProfiles.find((p: any) => p.handle === handle);
+    if (!existing) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'User not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json({
+      ...existing,
+      bio: (existing as any).bio || 'Xin chào! Chào mừng đến với kênh của tôi.',
+      links: (existing as any).links || [{ label: 'Website', url: 'https://winkey.vn' }],
+      banner_url: (existing as any).banner_url || null,
+      is_private: Boolean((existing as any).is_private),
+      created_at: '2026-01-01T00:00:00Z',
+    });
+  }),
+
+  http.get('*/v1/channels/:channel_id/followers', async ({ params }) => {
+    const { channel_id } = params;
+    if (channel_id === 'private-locked-channel') {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Tài khoản này là riêng tư',
+          status: 403,
+          code: 'PRIVATE_ACCOUNT_REQUIRED',
+        },
+        { status: 403 },
+      );
+    }
+    return HttpResponse.json({
+      items: Object.values(mockUsers).map((p: any) => ({
+        user: p,
+        followed_at: '2026-10-27T00:00:00Z',
+      })),
+      next_cursor: null,
+    });
+  }),
+
+  http.get('*/v1/channels/:channel_id/following', async ({ params }) => {
+    const { channel_id } = params;
+    if (channel_id === 'private-locked-channel') {
+      return HttpResponse.json(
+        {
+          type: '/problems/forbidden',
+          title: 'Tài khoản này là riêng tư',
+          status: 403,
+          code: 'PRIVATE_ACCOUNT_REQUIRED',
+        },
+        { status: 403 },
+      );
+    }
+    return HttpResponse.json({
+      items: Object.values(mockUsers).map((p: any) => ({
+        user: p,
+        followed_at: '2026-10-27T00:00:00Z',
+      })),
+      next_cursor: null,
+    });
+  }),
+
+  http.get('*/v1/me/follow-requests', async () => {
+    const list = Object.values(mockUsers);
+    return HttpResponse.json({
+      items: [
+        {
+          requester: list[0],
+          requested_at: '2026-10-27T10:00:00Z',
+        },
+      ],
+      next_cursor: null,
+      pending_count: 1,
+    });
+  }),
+
+  http.post('*/v1/me/follow-requests/:requester_id/decision', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/channels/:channel_id/relationship', async () => {
+    return HttpResponse.json({
+      user_id: 'usr-relation-123',
+      following: false,
+      follow_requested: false,
+      followed_by: false,
+      blocking: false,
+      muting: false,
+    });
+  }),
+
+  http.put('*/v1/me/blocks/:user_id', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/v1/me/blocks/:user_id', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('*/v1/me/mutes/:user_id', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/v1/me/mutes/:user_id', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get('*/v1/me/blocks', async () => {
+    const list = Object.values(mockUsers);
+    return HttpResponse.json({
+      items: [
+        {
+          user: list[1] || list[0],
+          since: '2026-10-26T00:00:00Z',
+        },
+      ],
+      next_cursor: null,
+    });
+  }),
+
+  http.get('*/v1/me/mutes', async () => {
+    const list = Object.values(mockUsers);
+    return HttpResponse.json({
+      items: [
+        {
+          user: list[2] || list[0],
+          since: '2026-10-26T00:00:00Z',
+        },
+      ],
+      next_cursor: null,
+    });
+  }),
 ];

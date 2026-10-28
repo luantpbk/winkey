@@ -1,10 +1,12 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { checkInvite } from '../../src/tokens/invite-codes.js';
 import { envSchema } from '../../src/config/env.js';
 
 describe('checkInvite', () => {
   const validBase = {
     JWT_PRIVATE_KEY: 'test-key',
+    TOTP_ENCRYPTION_KEYS: 'k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    SESSION_IP_SALT: 'dev_session_ip_salt_min_32_bytes_long_1234567890',
   };
 
   it('always succeeds in open mode even with missing or invalid code', () => {

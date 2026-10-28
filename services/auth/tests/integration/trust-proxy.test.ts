@@ -61,7 +61,7 @@ describe('trustProxy and rate-limiting with X-Forwarded-For', () => {
     expect(allowedRes2.json().code).toBe('INVALID_CREDENTIALS');
   });
 
-  it('records real client IP from X-Forwarded-For into refresh_tokens.ip', async () => {
+  it('stops writing refresh_tokens.ip and records ip_hash into sessions', async () => {
     const clientIp = '198.51.100.77';
     const regRes = await app.inject({
       method: 'POST',
@@ -76,6 +76,10 @@ describe('trustProxy and rate-limiting with X-Forwarded-For', () => {
     });
     expect(regRes.statusCode).toBe(201);
     expect(store.refresh_tokens.length).toBe(1);
-    expect(store.refresh_tokens[0].ip).toBe(clientIp);
+    // SOC-1a: stop writing refresh_tokens.ip
+    expect(store.refresh_tokens[0].ip).toBeNull();
+    // Recorded into sessions.ip_hash
+    expect(store.sessions.length).toBe(1);
+    expect(store.sessions[0].ip_hash).not.toBeNull();
   });
 });

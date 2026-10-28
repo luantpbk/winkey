@@ -2,7 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
-import type { PublicProfile, VideoSummary, VideoPage } from '@winkey/api-client';
+import type { VideoSummary, VideoPage } from '@winkey/api-client';
 import { ChannelClientHeader } from './channel-client';
 import { ChannelTabs } from './channel-tabs';
 import { buildPersonSchema } from '../../../../lib/seo/channel-schema';
@@ -12,14 +12,18 @@ interface ChannelPageProps {
   params: Promise<{ locale: string; handle: string }>;
 }
 
-async function getProfile(handle: string): Promise<PublicProfile | null> {
+async function getProfile(handle: string): Promise<any | null> {
   const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
   try {
-    const res = await fetch(`${baseUrl}/v1/users/${handle}`, {
+    const res = await fetch(`${baseUrl}/v1/auth/users/${handle}`, {
       next: { revalidate: 60 },
     });
-    if (!res.ok) return null;
-    return await res.json();
+    if (res.ok) return await res.json();
+    const fallback = await fetch(`${baseUrl}/v1/users/${handle}`, {
+      next: { revalidate: 60 },
+    });
+    if (!fallback.ok) return null;
+    return await fallback.json();
   } catch {
     return null;
   }

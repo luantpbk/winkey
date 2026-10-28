@@ -5,6 +5,8 @@ import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../../i18n/routing';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { ProfileSettings } from '../../../../components/settings/profile-settings';
+import { FollowRequestsSection } from '../../../../components/settings/follow-requests-section';
+import { BlockedMutedSection } from '../../../../components/settings/blocked-muted-section';
 import { PasswordSettings } from '../../../../components/settings/password-settings';
 import { TvModeSettings } from '../../../../components/settings/tv-mode-settings';
 import { DangerZone } from '../../../../components/settings/danger-zone';
@@ -51,6 +53,8 @@ export default function AccountSettingsPage() {
       {/* Sections */}
       <div className="space-y-8">
         <ProfileSettings user={user} />
+        <FollowRequestsSection />
+        <BlockedMutedSection />
         <PasswordSettings user={user} />
 
         {/* Security & 2FA */}

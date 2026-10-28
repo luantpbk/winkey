@@ -55,5 +55,23 @@ export function renderEmail(
         text: `Mật khẩu tài khoản Winkey của bạn vừa được thay đổi thành công.\n\nMọi phiên đăng nhập hiện tại đã được đăng xuất để bảo đảm an toàn.\nNếu bạn không thực hiện thay đổi này, vui lòng khôi phục tài khoản ngay lập tức hoặc liên hệ hỗ trợ.`,
         html: `<p>Mật khẩu tài khoản Winkey của bạn vừa được thay đổi thành công.</p><p>Mọi phiên đăng nhập hiện tại đã được đăng xuất để bảo đảm an toàn.</p><p>Nếu bạn không thực hiện thay đổi này, vui lòng khôi phục tài khoản ngay lập tức hoặc liên hệ hỗ trợ.</p>`,
       };
+
+    case 'NEW_SIGN_IN': {
+      const device = typeof params?.device === 'string' ? params.device : 'Thiết bị';
+      const country = typeof params?.country === 'string' ? params.country : '';
+      const time = typeof params?.time === 'string' ? params.time : new Date().toISOString();
+      if (locale === 'en') {
+        return {
+          subject: 'New sign-in to your Winkey account',
+          text: `A new sign-in was detected on your account.\n\nDevice: ${device}\nLocation: ${country || 'Unknown'}\nTime: ${time}\n\nIf this was not you, please secure your account immediately:\n${link}`,
+          html: `<p>A new sign-in was detected on your account.</p><p>Device: ${device}<br/>Location: ${country || 'Unknown'}<br/>Time: ${time}</p><p>If this was not you, please secure your account immediately:<br/><a href="${link}">${link}</a></p>`,
+        };
+      }
+      return {
+        subject: 'Đăng nhập mới trên tài khoản Winkey của bạn',
+        text: `Phát hiện lượt đăng nhập mới trên tài khoản của bạn.\n\nThiết bị: ${device}\nQuốc gia: ${country || 'Không xác định'}\nThời gian: ${time}\n\nNếu không phải bạn, vui lòng khoá phiên và bảo mật tài khoản ngay lập tức:\n${link}`,
+        html: `<p>Phát hiện lượt đăng nhập mới trên tài khoản của bạn.</p><p>Thiết bị: ${device}<br/>Quốc gia: ${country || 'Không xác định'}<br/>Thời gian: ${time}</p><p>Nếu không phải bạn, vui lòng khoá phiên và bảo mật tài khoản ngay lập tức:<br/><a href="${link}">${link}</a></p>`,
+      };
+    }
   }
 }

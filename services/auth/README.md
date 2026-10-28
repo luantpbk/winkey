@@ -15,31 +15,40 @@ Owner: **Antigravity 3** (Tasks A1, A2, A3).
 
 ## Environment Variables
 
-| Variable                  | Description                                                                                                               | Default / Example                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `NODE_ENV`                | Runtime environment (`development`, `production`, `test`)                                                                 | `development`                                                        |
-| `HTTP_PORT`               | Port for the HTTP server to listen on                                                                                     | `8001`                                                               |
-| `DATABASE_URL`            | PostgreSQL connection string (must connect as role `auth_svc`)                                                            | `postgres://auth_svc:auth_svc@localhost:5432/winkey?sslmode=disable` |
-| `NATS_URL`                | NATS JetStream server URL                                                                                                 | `nats://localhost:4222`                                              |
-| `VALKEY_URL`              | Valkey (Redis) connection string for rate limiting                                                                        | `redis://localhost:6379`                                             |
-| `JWT_PRIVATE_KEY`         | RSA private key (PEM format, PKCS#8) for signing access tokens                                                            | (required)                                                           |
-| `JWT_KID`                 | Key identifier for the active RSA key                                                                                     | `winkey-auth-key-1`                                                  |
-| `JWT_PREVIOUS_PUBLIC_KEY` | Optional previous RSA public key (PEM format, SPKI) during rotation                                                       | (optional)                                                           |
-| `JWT_ISSUER`              | Issuer URI for token claims (`iss`)                                                                                       | `https://winkey.vn`                                                  |
-| `PUBLIC_ORIGIN`           | Public website origin used to enforce CORS/Origin security on `/refresh` and `/logout`                                    | `https://winkey.vn`                                                  |
-| `MEDIA_BASE_URL`          | Base URL for avatars and static media                                                                                     | `https://media.winkey.vn`                                            |
-| `GOOGLE_CLIENT_ID`        | Google OAuth Client ID                                                                                                    | (optional for local dev)                                             |
-| `GOOGLE_CLIENT_SECRET`    | Google OAuth Client Secret                                                                                                | (optional for local dev)                                             |
-| `GOOGLE_REDIRECT_URI`     | Google OAuth Redirect Callback URI                                                                                        | `https://winkey.vn/v1/auth/oauth/google/callback`                    |
-| `COOKIE_SECRET`           | Secret key used to sign temporary OAuth session state cookies                                                             | (minimum 32 characters)                                              |
-| `TRUST_PROXY_CIDRS`       | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution                                       | `10.42.0.0/16,127.0.0.1`                                             |
-| `MAIL_TRANSPORT`          | Outbound email transport mechanism (`smtp` or `log`, ADR-026)                                                             | `log`                                                                |
-| `SMTP_URL`                | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`)                                                                 | `smtp://user:pass@localhost:1025`                                    |
-| `MAIL_FROM`               | RFC 5322 From address used for outbound authentication emails                                                             | `Winkey <no-reply@winkey.vn>`                                        |
-| `REGISTRATION_MODE`       | Account registration mode (`open` or `invite`, task BETA1, ADR-034)                                                       | `open`                                                               |
-| `INVITE_CODES`            | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes)            | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678`    |
-| `REFRESH_REUSE_GRACE`     | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s)                                      | `30`                                                                 |
-| `SIGNUP_ROLES`            | Default roles for new signups (`viewer` or `viewer,creator`, task ROLE1, ADR-046; service fails to start on other values) | `viewer`                                                             |
+| Variable                   | Description                                                                                                                                     | Default / Example                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `NODE_ENV`                 | Runtime environment (`development`, `production`, `test`)                                                                                       | `development`                                                        |
+| `HTTP_PORT`                | Port for the HTTP server to listen on                                                                                                           | `8001`                                                               |
+| `DATABASE_URL`             | PostgreSQL connection string (must connect as role `auth_svc`)                                                                                  | `postgres://auth_svc:auth_svc@localhost:5432/winkey?sslmode=disable` |
+| `NATS_URL`                 | NATS JetStream server URL                                                                                                                       | `nats://localhost:4222`                                              |
+| `VALKEY_URL`               | Valkey (Redis) connection string for rate limiting                                                                                              | `redis://localhost:6379`                                             |
+| `JWT_PRIVATE_KEY`          | RSA private key (PEM format, PKCS#8) for signing access tokens                                                                                  | (required)                                                           |
+| `JWT_KID`                  | Key identifier for the active RSA key                                                                                                           | `winkey-auth-key-1`                                                  |
+| `JWT_PREVIOUS_PUBLIC_KEY`  | Optional previous RSA public key (PEM format, SPKI) during rotation                                                                             | (optional)                                                           |
+| `JWT_ISSUER`               | Issuer URI for token claims (`iss`)                                                                                                             | `https://winkey.vn`                                                  |
+| `PUBLIC_ORIGIN`            | Public website origin used to enforce CORS/Origin security on `/refresh` and `/logout`                                                          | `https://winkey.vn`                                                  |
+| `MEDIA_BASE_URL`           | Base URL for avatars and static media                                                                                                           | `https://media.winkey.vn`                                            |
+| `GOOGLE_CLIENT_ID`         | Google OAuth Client ID                                                                                                                          | (optional for local dev)                                             |
+| `GOOGLE_CLIENT_SECRET`     | Google OAuth Client Secret                                                                                                                      | (optional for local dev)                                             |
+| `GOOGLE_REDIRECT_URI`      | Google OAuth Redirect Callback URI                                                                                                              | `https://winkey.vn/v1/auth/oauth/google/callback`                    |
+| `COOKIE_SECRET`            | Secret key used to sign temporary OAuth session state cookies                                                                                   | (minimum 32 characters)                                              |
+| `TRUST_PROXY_CIDRS`        | Comma-separated CIDRs of upstream reverse proxies to trust for client IP resolution                                                             | `10.42.0.0/16,127.0.0.1`                                             |
+| `MAIL_TRANSPORT`           | Outbound email transport mechanism (`smtp` or `log`, ADR-026)                                                                                   | `log`                                                                |
+| `SMTP_URL`                 | SMTP connection URI (required when `MAIL_TRANSPORT=smtp`)                                                                                       | `smtp://user:pass@localhost:1025`                                    |
+| `MAIL_FROM`                | RFC 5322 From address used for outbound authentication emails                                                                                   | `Winkey <no-reply@winkey.vn>`                                        |
+| `REGISTRATION_MODE`        | Account registration mode (`open` or `invite`, task BETA1, ADR-034)                                                                             | `open`                                                               |
+| `INVITE_CODES`             | Comma-separated list of invite codes required when `REGISTRATION_MODE=invite` (each 12-64 alphanumeric/dashes)                                  | `wk-beta1-dummy-code-sample-1234,wk-beta1-dummy-code-sample-5678`    |
+| `REFRESH_REUSE_GRACE`      | Refresh token reuse grace period in seconds (ADR-019 addendum; default 30s, max 60s)                                                            | `30`                                                                 |
+| `SIGNUP_ROLES`             | Default roles for new signups (`viewer` or `viewer,creator`, task ROLE1, ADR-046; service fails to start on other values)                       | `viewer`                                                             |
+| `TOTP_ENCRYPTION_KEYS`     | Keyring string in format `id1:base64(32 bytes),id2:...`; first key encrypts, any key decrypts (required in production/development, task SOC-1a) | `k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=`                    |
+| `SESSION_IP_SALT`          | Salt of at least 32 bytes used to HMAC client IP addresses into `sessions.ip_hash` (task SOC-1a)                                                | `dev_session_ip_salt_min_32_bytes_long_1234567890`                   |
+| `STAFF_MFA_REQUIRED`       | When `true`, strips `admin` and `moderator` from tokens for accounts lacking 2FA (default `true`, task SOC-1a)                                  | `true`                                                               |
+| `TURNSTILE_SECRET`         | Cloudflare Turnstile secret key for captcha verification on register & suspicious logins (empty disables captcha, task SOC-1a)                  | (optional)                                                           |
+| `PASSWORD_BREACH_CHECK`    | Whether to check passwords against HaveIBeenPwned range API upon register & password change/reset (default `false` in dev/test, task SOC-1a)    | `false`                                                              |
+| `TRUSTED_COUNTRY_HEADER`   | Proxy header name for client country resolution (default `CF-IPCountry`, task SOC-1a)                                                           | `CF-IPCountry`                                                       |
+| `WEBAUTHN_RP_ID`           | Relying party ID for passkeys / WebAuthn (task SOC-1a)                                                                                          | `localhost`                                                          |
+| `WEBAUTHN_ORIGINS`         | Comma-separated list of allowed WebAuthn origins (task SOC-1a)                                                                                  | `http://localhost:3000,http://localhost:8080`                        |
+| `WEBAUTHN_USER_HANDLE_KEY` | Key of at least 32 bytes used to derive user handle for WebAuthn (task SOC-1a)                                                                  | `dev_webauthn_user_handle_key_min_32_bytes_long_12345`               |
 
 ---
 
@@ -221,6 +230,54 @@ Under open registration, all new accounts (password or Google sign-up) are creat
 | `REQUEST_ALREADY_DECIDED` | `409`       | Request was already approved or rejected.                              |
 | `USER_NOT_ACTIVE`         | `409`       | User account is suspended or deleted upon approval attempt.            |
 | `RATE_LIMIT_EXCEEDED`     | `429`       | Daily creator request submission limit exceeded (5/day).               |
+
+---
+
+## Account Security (Task SOC-1a - PR 1)
+
+Account security implements ADR-049 §3 + SOC-1a addendum:
+
+### 1. Active Sessions (`auth.sessions`)
+
+- Every refresh token family is linked to a session tracking:
+  - `device_label`: short Vietnamese device label from UA (e.g. "Chrome trên Windows", max 80 chars);
+  - `country`: extracted from trusted reverse proxy (`CF-IPCountry`);
+  - `ip_hash`: HMAC-SHA256 of client IP using `SESSION_IP_SALT` (client raw IP is never stored in `refresh_tokens.ip`);
+  - `amr`: array of authentication method references (e.g. `['pwd']`, `['google']`, `['pwd', 'otp']`).
+- `refresh` updates `last_used_at` with write-throttling (at most once per minute per session via Valkey NX 60s lock).
+- Every revocation path (`logout`, reuse detection, password change/reset, suspension, account deletion) records `revoked_at` and `revoke_reason`.
+- Endpoints:
+  - `GET /v1/auth/me/sessions`: lists active sessions, marks caller's session `current: true`.
+  - `DELETE /v1/auth/me/sessions/{id}`: revokes specified session (`USER_REVOKED`).
+  - `POST /v1/auth/me/sessions/revoke-others`: revokes all other sessions of user (`REVOKE_OTHERS`).
+
+### 2. Step-Up Authentication Guard
+
+- Re-authenticates caller's current session for 10 minutes (`STEP_UP_WINDOW_MS = 600000`).
+- Guard `assertStepUp` protects sensitive endpoints (`startTotpSetup`, `disableTotp`, `regenerateRecoveryCodes`, WebAuthn operations).
+- Methods supported: `password` (verified with Argon2id), `totp` (RFC 6238 code), or `email_code` (6-digit code sent via `sendStepUpEmailCode`, rate limited to 3/session/10min).
+- Sets `sessions.step_up_at` and emits `STEP_UP` security event.
+
+### 3. TOTP & Recovery Codes
+
+- **TOTP:** RFC 6238 using `otplib` (SHA-1, 6 digits, 30s period, window ±1).
+  - Secrets stored encrypted via AES-256-GCM keyring with key rotation (`TOTP_ENCRYPTION_KEYS`).
+  - Replay protection: atomic SQL check `UPDATE auth.users SET totp_last_step = $step WHERE id = $userId AND (totp_last_step IS NULL OR totp_last_step < $step)`. Parallel requests with the same code fail atomically.
+- **Recovery Codes:** 10 codes in `xxxxx-xxxxx` format from `[a-z2-9]`. Stored as Argon2id hashes.
+  - Normalized matching strips hyphens, spaces, and is case-insensitive.
+  - Spent codes are marked `used_at = now()` and cannot be reused.
+
+### 4. Staff 2FA Rule
+
+- When `STAFF_MFA_REQUIRED=true`, any account with staff roles (`admin` or `moderator`) without 2FA has those roles stripped from all issued access tokens.
+- `User` schema returns effective `roles` and `staff_roles_pending_mfa` (e.g. `roles: ['viewer']`, `staff_roles_pending_mfa: ['admin']`).
+- Restored automatically upon enabling 2FA on the next token refresh.
+- Does **not** modify `auth.users.roles` in the database.
+
+### 5. Captcha & Password Breach Detection
+
+- **Cloudflare Turnstile:** Verified against Cloudflare `siteverify` (3s timeout). Required on `register`, and required on `login` after 3 failed login attempts within 15 minutes.
+- **HIBP K-Anonymity:** Checks SHA-1 first 5 hex characters against HaveIBeenPwned Range API with `Add-Padding: true` (1.5s timeout, fail-open). Results cached in Valkey for 24h.
 
 ---
 

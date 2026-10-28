@@ -52,6 +52,13 @@ export const logoutRoute: FastifyPluginAsync<{
       .where('revoked_at', 'is', null)
       .execute();
 
+    await db
+      .updateTable('auth.sessions')
+      .set({ revoked_at: new Date(), revoke_reason: 'LOGOUT' })
+      .where('id', '=', token.family_id)
+      .where('revoked_at', 'is', null)
+      .execute();
+
     // 4. Revoke session in Valkey AFTER DB update (fail-safe)
     await revocationService.revokeSession(token.family_id);
 

@@ -24,6 +24,13 @@ import { ProblemError } from '../errors/problem.js';
 import type { Env } from '../config/env.js';
 import type { Database, Role, UserStatus } from '../db/types.js';
 import type { Kysely, Transaction } from 'kysely';
+import type { Redis } from 'ioredis';
+import { checkUserMfaEnabled } from '../security/staff-rules.js';
+import { createMfaChallenge } from '../security/mfa.js';
+import { getKeyring } from '../crypto/keyring.js';
+import { buildVietnameseDeviceLabel } from '../security/ua-label.js';
+import { extractCountry } from '../security/sessions.js';
+import { recordSecurityEvent } from '../security/events.js';
 
 class SuspendedOAuthError extends Error {}
 class InvalidOAuthInviteError extends Error {
@@ -129,7 +136,8 @@ export const oauthRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
   env: Env;
   tokenExchanger?: GoogleTokenExchanger;
-}> = async (fastify, { db, env, tokenExchanger = defaultGoogleTokenExchanger }) => {
+  redis?: Redis | null;
+}> = async (fastify, { db, env, tokenExchanger = defaultGoogleTokenExchanger, redis }) => {
   if (!env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID.trim() === '') {
     fastify.log.warn('Google OAuth not configured');
   }
@@ -215,8 +223,9 @@ export const oauthRoute: FastifyPluginAsync<{
     const clientIp = request.ip || '127.0.0.1';
 
     // Database lookup & link in ONE transaction
+    let oauthResult: { isMfa: boolean; userId: string } | undefined;
     try {
-      await db.transaction().execute(async (trx) => {
+      oauthResult = await db.transaction().execute(async (trx) => {
         // 1. Check if OAuth identity already exists
         const existingIdentity = await trx
           .selectFrom('auth.oauth_identities')
@@ -337,7 +346,43 @@ export const oauthRoute: FastifyPluginAsync<{
           }
         }
 
-        // Create refresh token
+        // Check if account has 2FA enabled
+        const userRow = await trx
+          .selectFrom('auth.users')
+          .select('totp_enabled_at')
+          .where('id', '=', targetUserId)
+          .executeTakeFirst();
+        const isMfa = await checkUserMfaEnabled(trx, targetUserId, userRow?.totp_enabled_at);
+
+        if (isMfa) {
+          return { isMfa: true, userId: targetUserId };
+        }
+
+        const ua = request.headers['user-agent'] || null;
+        const deviceLabel = buildVietnameseDeviceLabel(ua);
+        const country = extractCountry(request, env);
+        const keyring = getKeyring(env);
+        const ipHash = keyring.hashIp(clientIp);
+
+        // Create session
+        await trx
+          .insertInto('auth.sessions')
+          .values({
+            id: familyId,
+            user_id: targetUserId,
+            device_label: deviceLabel,
+            country,
+            ip_hash: ipHash,
+            amr: ['google'],
+            created_at: new Date(),
+            last_used_at: new Date(),
+            step_up_at: null,
+            revoked_at: null,
+            revoke_reason: null,
+          })
+          .execute();
+
+        // Create refresh token (stop writing ip)
         await trx
           .insertInto('auth.refresh_tokens')
           .values({
@@ -347,10 +392,21 @@ export const oauthRoute: FastifyPluginAsync<{
             token_hash: tokenHash,
             parent_id: null,
             expires_at: expiresAt,
-            user_agent: request.headers['user-agent'] || null,
-            ip: clientIp,
+            user_agent: ua,
+            ip: null,
           })
           .execute();
+
+        // Record security event
+        await recordSecurityEvent(trx, {
+          userId: targetUserId,
+          kind: 'SIGN_IN',
+          sessionId: familyId,
+          deviceLabel,
+          country,
+        });
+
+        return { isMfa: false, userId: targetUserId };
       });
     } catch (err) {
       if (err instanceof SuspendedOAuthError) {
@@ -362,6 +418,22 @@ export const oauthRoute: FastifyPluginAsync<{
         return reply.redirect(`/register?error=${err.reason}`, 302);
       }
       throw err;
+    }
+
+    if (oauthResult?.isMfa) {
+      reply.setCookie(OAUTH_COOKIE_NAME, '', getClearOAuthCookieOptions(env));
+      const mfaToken = await createMfaChallenge(redis, oauthResult.userId, 'google');
+      reply.setCookie('wk_mfa', mfaToken, {
+        path: '/v1/auth/login',
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production' || env.PUBLIC_ORIGIN.startsWith('https://'),
+        sameSite: 'lax',
+        maxAge: 300,
+      });
+      return reply.redirect(
+        `/login/2fa?return_to=${encodeURIComponent(sessionState.returnTo)}`,
+        302,
+      );
     }
 
     // Set wk_rt cookie
