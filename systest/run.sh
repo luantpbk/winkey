@@ -81,8 +81,8 @@ fi
 
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap >/dev/null 2>&1 || true
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit db-grants
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap db-grants >/dev/null 2>&1 || true
 
 GEN_ENV="${REPO_ROOT}/deploy/compose/.generated.env"
 for _ in $(seq 1 30); do
@@ -166,7 +166,7 @@ env -u BASH_FUNC_module%% \
     -u BASH_FUNC_ml%% \
     -u BASH_FUNC__module_raw%% \
     -u BASH_FUNC_which%% \
-    node --test "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
+    node --test --test-concurrency=1 "${SCRIPT_DIR}/suite/index.mjs" 2>&1 | tee "${RUN_DIR}/report/systest.tap"
 SUITE_EXIT=${PIPESTATUS[0]}
 set -e
 

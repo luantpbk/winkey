@@ -70,5 +70,19 @@ export default defineConfig({
         viewport: { width: 1440, height: 900 },
       },
     },
+    {
+      name: 'social-user-desktop',
+      testMatch: /social-user\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'social-user-mobile',
+      testMatch: /social-user\.spec\.ts/,
+      use: {
+        viewport: { width: 360, height: 740 },
+      },
+    },
   ],
 });
