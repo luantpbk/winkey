@@ -83,7 +83,6 @@ fi
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit db-grants
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap db-grants >/dev/null 2>&1 || true
-docker exec winkey-postgres psql -U postgres -d winkey -c "GRANT USAGE ON SCHEMA media TO social_svc; GRANT SELECT ON media.ready_images TO social_svc; GRANT SELECT ON media.images TO social_svc;" >/dev/null 2>&1 || true
 
 GEN_ENV="${REPO_ROOT}/deploy/compose/.generated.env"
 for _ in $(seq 1 30); do
