@@ -1469,6 +1469,81 @@ export function createMockDb(store: MockStore = createMockStore()): {
         return { rows: [], rowCount: 0 };
       }
 
+      // Following feed: LATERAL unnest query
+      if (sql.toLowerCase().includes('unnest') && sql.toLowerCase().includes('lateral')) {
+        const authorIds = Array.isArray(params[0]) ? (params[0] as string[]).map(String) : [];
+        let matched = store.posts.filter(
+          (p) => authorIds.includes(p.author_id) && p.status === 'VISIBLE',
+        );
+
+        if (
+          sql.includes('p_inner.created_at, p_inner.id') ||
+          sql.includes('< ($2::timestamptz, $3::uuid)')
+        ) {
+          const cursorCreatedAt = new Date(String(params[1])).getTime();
+          const cursorId = String(params[2]);
+          matched = matched.filter((p) => {
+            const postTime = new Date(p.created_at).getTime();
+            if (postTime < cursorCreatedAt) return true;
+            if (postTime === cursorCreatedAt && p.id < cursorId) return true;
+            return false;
+          });
+        }
+
+        matched.sort((a, b) => {
+          const timeA = new Date(a.created_at).getTime();
+          const timeB = new Date(b.created_at).getTime();
+          if (timeB !== timeA) return timeB - timeA;
+          return b.id.localeCompare(a.id);
+        });
+
+        const limitParam = params.find((p) => typeof p === 'number');
+        if (typeof limitParam === 'number') {
+          matched = matched.slice(0, limitParam);
+        }
+
+        const rows = matched.map((p) => ({
+          ...p,
+          created_at_cursor: p.created_at.toISOString(),
+        }));
+        return { rows, rowCount: rows.length };
+      }
+
+      // Following feed: Single author fast-path
+      if (sql.includes('p_inner') && !sql.toLowerCase().includes('lateral')) {
+        const authorId = String(params[0]);
+        let matched = store.posts.filter((p) => p.author_id === authorId && p.status === 'VISIBLE');
+
+        if (sql.includes('p_inner.created_at, p_inner.id')) {
+          const cursorCreatedAt = new Date(String(params[1])).getTime();
+          const cursorId = String(params[2]);
+          matched = matched.filter((p) => {
+            const postTime = new Date(p.created_at).getTime();
+            if (postTime < cursorCreatedAt) return true;
+            if (postTime === cursorCreatedAt && p.id < cursorId) return true;
+            return false;
+          });
+        }
+
+        matched.sort((a, b) => {
+          const timeA = new Date(a.created_at).getTime();
+          const timeB = new Date(b.created_at).getTime();
+          if (timeB !== timeA) return timeB - timeA;
+          return b.id.localeCompare(a.id);
+        });
+
+        const limitParam = params.find((p) => typeof p === 'number');
+        if (typeof limitParam === 'number') {
+          matched = matched.slice(0, limitParam);
+        }
+
+        const rows = matched.map((p) => ({
+          ...p,
+          created_at_cursor: p.created_at.toISOString(),
+        }));
+        return { rows, rowCount: rows.length };
+      }
+
       if (
         (sql.includes('from "social"."posts"') || sql.includes('from social.posts')) &&
         !sql.includes('join')
@@ -1919,6 +1994,19 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
       // Check subscription
       if (sql.includes('from "social"."subscriptions"') && !sql.includes('join')) {
+        if (sql.includes('"channel_id" in') || sql.includes('channel_id in')) {
+          const subscriberId = String(params[0]);
+          const channelIds = (params.slice(1) as (string | string[])[]).flatMap((p) =>
+            Array.isArray(p) ? p.map(String) : [String(p)],
+          );
+          const matched = store.subscriptions.filter(
+            (s) => s.subscriber_id === subscriberId && channelIds.includes(s.channel_id),
+          );
+          return {
+            rows: matched.map((s) => ({ channel_id: s.channel_id, one: 1 })),
+            rowCount: matched.length,
+          };
+        }
         const [subscriberId, channelId] = params as [string, string];
         const exists = store.subscriptions.some(
           (s) => s.subscriber_id === subscriberId && s.channel_id === channelId,
@@ -2298,6 +2386,32 @@ export function createMockDb(store: MockStore = createMockStore()): {
             .filter(Boolean);
 
           return { rows: joined, rowCount: joined.length };
+        }
+
+        // Batched blocks check
+        if (
+          sql.includes('select "blocker_id", "blocked_id"') ||
+          sql.includes('select blocker_id, blocked_id')
+        ) {
+          const callerId = String(params[0]);
+          const otherIds = new Set<string>();
+          for (let i = 1; i < params.length; i++) {
+            const val = params[i];
+            if (Array.isArray(val)) {
+              val.forEach((x) => otherIds.add(String(x)));
+            } else if (val !== undefined && val !== null && String(val) !== callerId) {
+              otherIds.add(String(val));
+            }
+          }
+          const matched = store.blocks.filter(
+            (b) =>
+              (b.blocker_id === callerId && otherIds.has(b.blocked_id)) ||
+              (otherIds.has(b.blocker_id) && b.blocked_id === callerId),
+          );
+          return {
+            rows: matched.map((b) => ({ blocker_id: b.blocker_id, blocked_id: b.blocked_id })),
+            rowCount: matched.length,
+          };
         }
 
         // Single / either-way check

@@ -4613,26 +4613,59 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       ANALYZE social.post_scores;
     `);
 
-    // Following feed EXPLAIN
+    // Following feed LATERAL EXPLAIN (page 1 without cursor)
     const explainFollowing = await pool.query(`
       EXPLAIN (FORMAT TEXT)
-      SELECT p.id, p.author_id, p.created_at
-      FROM social.posts p
-      WHERE p.author_id = ANY(ARRAY['${creatorA}', '${followerF}']::uuid[])
-        AND p.status = 'VISIBLE'
+      SELECT p.*,
+             to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+      FROM unnest(ARRAY['${creatorA}', '${followerF}']::uuid[]) AS a(id)
+      CROSS JOIN LATERAL (
+        SELECT p_inner.*
+        FROM social.posts AS p_inner
+        WHERE p_inner.author_id = a.id
+          AND p_inner.status = 'VISIBLE'
+        ORDER BY p_inner.created_at DESC, p_inner.id DESC
+        LIMIT 25
+      ) p
       ORDER BY p.created_at DESC, p.id DESC
       LIMIT 25;
     `);
     const followingPlan = explainFollowing.rows.map((r: any) => r['QUERY PLAN']).join('\n');
     expect(followingPlan).not.toContain('Seq Scan on posts');
+    expect(followingPlan).toContain('posts_author_timeline');
 
-    // Explore feed EXPLAIN
+    // Following feed LATERAL EXPLAIN (page 2 with keyset cursor row-comparison)
+    const explainFollowingCursor = await pool.query(`
+      EXPLAIN (FORMAT TEXT)
+      SELECT p.*,
+             to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+      FROM unnest(ARRAY['${creatorA}', '${followerF}']::uuid[]) AS a(id)
+      CROSS JOIN LATERAL (
+        SELECT p_inner.*
+        FROM social.posts AS p_inner
+        WHERE p_inner.author_id = a.id
+          AND p_inner.status = 'VISIBLE'
+          AND (p_inner.created_at, p_inner.id) < ('2026-10-28T20:00:00.000000Z'::timestamptz, '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001'::uuid)
+        ORDER BY p_inner.created_at DESC, p_inner.id DESC
+        LIMIT 25
+      ) p
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT 25;
+    `);
+    const followingCursorPlan = explainFollowingCursor.rows
+      .map((r: any) => r['QUERY PLAN'])
+      .join('\n');
+    expect(followingCursorPlan).not.toContain('Seq Scan on posts');
+    expect(followingCursorPlan).toContain('posts_author_timeline');
+
+    // Explore feed EXPLAIN (with keyset cursor row-comparison)
     const explainExplore = await pool.query(`
       EXPLAIN (FORMAT TEXT)
       SELECT p.id, ps.score
       FROM social.post_scores ps
       INNER JOIN social.posts p ON p.id = ps.post_id
       WHERE p.status = 'VISIBLE' AND p.visibility = 'PUBLIC'
+        AND (ps.score, ps.post_id) < (100.0::double precision, '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9001'::uuid)
       ORDER BY ps.score DESC, ps.post_id DESC
       LIMIT 25;
     `);
