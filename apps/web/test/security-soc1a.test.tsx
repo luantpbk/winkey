@@ -590,6 +590,7 @@ describe('SOC-1a Account Security UI Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/jbswy3dpehpk3pxp/i)).toBeDefined();
+        expect(screen.getByAltText(/mã qr thiết lập totp/i)).toBeDefined();
       });
 
       // Now set mock require step up for confirmation
@@ -598,7 +599,7 @@ describe('SOC-1a Account Security UI Tests', () => {
       const confirmInput = screen.getByLabelText(/nhập mã 6 chữ số/i);
       fireEvent.change(confirmInput, { target: { value: '123456' } });
 
-      const activateBtn = screen.getByRole('button', { name: /kích hoạt xác thực totp/i });
+      const activateBtn = await screen.findByRole('button', { name: /kích hoạt xác thực totp/i });
       fireEvent.click(activateBtn);
 
       // Verify Step-up dialog opened
