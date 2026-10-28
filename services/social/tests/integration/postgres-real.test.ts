@@ -9,7 +9,7 @@ import addFormats from 'ajv-formats';
 const Ajv2020 = (_Ajv2020 as any).default ?? _Ajv2020;
 import { buildApp } from '../../src/server.js';
 import { getEnv } from '../../src/config/env.js';
-import { getDb } from '../../src/db/client.js';
+import { getDb, closeDb } from '../../src/db/client.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
 import { VideoProjectionConsumer } from '../../src/projection/consumer.js';
 import { parse as parseYaml } from 'yaml';
@@ -340,6 +340,7 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
       await nc.drain().catch(() => {});
       await nc.close().catch(() => {});
     }
+    await closeDb().catch(() => {});
     if (pool) {
       await pool.end().catch(() => {});
     }
@@ -4470,9 +4471,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     expect(validateTrendingHashtags(trendRes.json())).toBe(true);
 
     // 4. Explore feed & scoring job
-    const { getDb } = await import('../../src/db/client.js');
     const { runScoringJobOnce } = await import('../../src/jobs/scoring-job.js');
-    const database = getDb(dbUrl).db;
+    const database = getDb(dbUrl, pool).db;
     await runScoringJobOnce(database, null, true);
 
     const exploreRes = await app.inject({
