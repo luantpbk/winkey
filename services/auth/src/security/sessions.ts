@@ -44,6 +44,7 @@ export async function createSession(
       revoked_at: null,
       revoke_reason: null,
     })
+    .onConflict((oc) => oc.column('id').doNothing())
     .execute();
 }
 

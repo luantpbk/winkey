@@ -131,7 +131,8 @@ export interface EmailTokensTable {
   used_at: ColumnType<Date | null, string | Date | null | undefined, string | Date | null>;
 }
 
-export type MailTemplate = 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED' | 'NEW_SIGN_IN';
+export type MailTemplate =
+  'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED' | 'NEW_SIGN_IN' | 'STEP_UP_CODE';
 export type MailLocale = 'vi' | 'en';
 
 export interface MailQueueTable {

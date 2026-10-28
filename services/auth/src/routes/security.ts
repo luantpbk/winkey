@@ -435,14 +435,18 @@ export const securityRoute: FastifyPluginAsync<{
     const now = new Date();
     const validUntil = new Date(now.getTime() + STEP_UP_WINDOW_MS);
 
-    await db
+    const updateResult = await db
       .updateTable('auth.sessions')
       .set({
         step_up_at: now,
       })
       .where('id', '=', sessionId)
       .where('revoked_at', 'is', null)
-      .execute();
+      .executeTakeFirst();
+
+    if ((updateResult.numUpdatedRows ?? 0n) === 0n) {
+      throw ProblemError.unauthorized('Session not found', 'SESSION_NOT_FOUND');
+    }
 
     await recordSecurityEvent(db, {
       userId: user.id,

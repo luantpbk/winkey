@@ -76,7 +76,8 @@ export interface MockStore {
     id: string;
     user_id: string | null;
     to_email: string;
-    template: 'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED';
+    template:
+      'VERIFY_EMAIL' | 'RESET_PASSWORD' | 'PASSWORD_CHANGED' | 'NEW_SIGN_IN' | 'STEP_UP_CODE';
     locale: 'vi' | 'en';
     params: any;
     created_at: Date;
@@ -197,6 +198,16 @@ export function createMockDb(store: MockStore = createMockStore()): {
 
   const mockClient = {
     async query(sqlText: string, params: any[] = []) {
+      const res = await mockClient.executeMockQuery(sqlText, params);
+      const cmd = sqlText.trim().split(/\s+/)[0]?.toUpperCase() || 'SELECT';
+      return {
+        ...res,
+        command: (res as any).command ?? cmd,
+        rowCount: res.rowCount ?? (res.rows ? res.rows.length : 0),
+      };
+    },
+
+    async executeMockQuery(sqlText: string, params: any[] = []) {
       const sql = sqlText.trim();
 
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
@@ -1127,6 +1138,19 @@ export function createMockDb(store: MockStore = createMockStore()): {
             ? new Date(colMap['expires_at'])
             : new Date(Date.now() + 30 * 86400000),
         };
+
+        const existingIdx = store.sessions.findIndex((s) => s.id === session.id);
+        if (existingIdx >= 0) {
+          if (sql.toLowerCase().includes('on conflict')) {
+            return { rows: [], rowCount: 0 };
+          }
+          const err: any = new Error(
+            'duplicate key value violates unique constraint "sessions_pkey"',
+          );
+          err.code = '23505';
+          throw err;
+        }
+
         store.sessions.push(session);
         return { rows: [session], rowCount: 1 };
       }

@@ -14,7 +14,9 @@ import type { Database } from '../db/types.js';
 import type { Kysely } from 'kysely';
 import type { RevocationService } from '../revocation/revocation.js';
 import { authRefreshCounter } from '../metrics.js';
-import { touchSession } from '../security/sessions.js';
+import { createSession, extractCountry, touchSession } from '../security/sessions.js';
+import { buildVietnameseDeviceLabel } from '../security/ua-label.js';
+import { getKeyring } from '../crypto/keyring.js';
 import { checkUserMfaEnabled, computeEffectiveRoles } from '../security/staff-rules.js';
 
 function normalizeOrigin(origin: string): string {
@@ -69,6 +71,25 @@ export const refreshRoute: FastifyPluginAsync<{
 
       if (isExpired || isRevoked) {
         throw ProblemError.unauthorized('Refresh token is expired or revoked');
+      }
+
+      // Backfill session if missing (pre-SOC-1a sign-ins, ADR-049 addendum)
+      if (!session) {
+        const clientIp = request.ip;
+        const ua = request.headers['user-agent'] || null;
+        const deviceLabel = buildVietnameseDeviceLabel(ua);
+        const country = extractCountry(request, env);
+        const keyring = getKeyring(env);
+        const ipHash = keyring.hashIp(clientIp);
+
+        await createSession(trx, {
+          id: token.family_id,
+          userId: token.user_id,
+          deviceLabel,
+          country,
+          ipHash,
+          amr: [],
+        });
       }
 
       let isGraceRetry = false;

@@ -4,8 +4,14 @@ import { getEnv } from '../../src/config/env.js';
 import { getTestKeys } from '../fixtures/keys.js';
 import { createMockDb, createMockStore, type MockStore } from '../fixtures/mock-db.js';
 import { ValkeyRateLimiter } from '../../src/rate-limit/valkey-limiter.js';
-import { REFRESH_COOKIE_NAME } from '../../src/crypto/refresh.js';
+import {
+  REFRESH_COOKIE_NAME,
+  generateRefreshToken,
+  hashRefreshToken,
+} from '../../src/crypto/refresh.js';
 import { generateTotpCode } from '../../src/crypto/totp.js';
+import { issueAccessToken } from '../../src/crypto/jwt.js';
+import { v7 as uuidv7 } from 'uuid';
 
 describe('SOC-1a Account Security Integration Flow (PR 1)', () => {
   const keys = getTestKeys();
@@ -160,6 +166,50 @@ describe('SOC-1a Account Security Integration Flow (PR 1)', () => {
       expect(other?.revoked_at).not.toBeNull();
       expect(other?.revoke_reason).toBe('REVOKE_OTHERS');
     });
+
+    it('backfills auth.sessions when refreshing with a family missing a session row (ADR-049 addendum)', async () => {
+      const { user } = await registerUser('legacy_user@winkey.vn', 'legacy_user');
+      const familyId = uuidv7();
+      const tokenId = uuidv7();
+      const opaqueToken = generateRefreshToken();
+      const tokenHash = hashRefreshToken(opaqueToken);
+
+      // Create refresh token without session
+      store.refresh_tokens.push({
+        id: tokenId,
+        user_id: user.id,
+        family_id: familyId,
+        token_hash: tokenHash,
+        parent_id: null,
+        issued_at: new Date(),
+        expires_at: new Date(Date.now() + 30 * 86400000),
+        rotated_at: null,
+        revoked_at: null,
+        user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+        ip: null,
+      });
+
+      // Confirm no session exists for this familyId
+      expect(store.sessions.find((s) => s.id === familyId)).toBeUndefined();
+
+      const refreshRes = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/refresh',
+        headers: {
+          cookie: `${REFRESH_COOKIE_NAME}=${opaqueToken}`,
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+          'cf-ipcountry': 'VN',
+        },
+      });
+
+      expect(refreshRes.statusCode).toBe(200);
+      const backfilledSession = store.sessions.find((s) => s.id === familyId);
+      expect(backfilledSession).toBeDefined();
+      expect(backfilledSession!.user_id).toBe(user.id);
+      expect(backfilledSession!.country).toBe('VN');
+      expect(backfilledSession!.amr).toEqual([]);
+      expect(backfilledSession!.revoked_at).toBeNull();
+    });
   });
 
   describe('2. Step-up authorization', () => {
@@ -215,6 +265,62 @@ describe('SOC-1a Account Security Integration Flow (PR 1)', () => {
       expect(totpBody.setup_id).toBeDefined();
       expect(totpBody.secret).toBeDefined();
       expect(totpBody.otpauth_uri).toContain('otpauth://totp/');
+    });
+
+    it('rejects step-up with 401 SESSION_NOT_FOUND when session row is missing or revoked (ADR-049 addendum)', async () => {
+      const { user } = await registerUser('step_missing@winkey.vn', 'step_missing', 'Pass123456!');
+      const missingSessionId = uuidv7();
+
+      // Issue token with missingSessionId
+      const { token: tokenNoSession } = await issueAccessToken(
+        { id: user.id, roles: ['viewer'] },
+        missingSessionId,
+        env,
+      );
+
+      const resNoSession = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${tokenNoSession}` },
+        payload: { method: 'password', password: 'Pass123456!' },
+      });
+
+      expect(resNoSession.statusCode).toBe(401);
+      expect(resNoSession.json().code).toBe('SESSION_NOT_FOUND');
+
+      // Now with revoked session
+      const revokedSessionId = uuidv7();
+      store.sessions.push({
+        id: revokedSessionId,
+        user_id: user.id,
+        family_id: revokedSessionId,
+        device_label: 'Desktop',
+        country: 'VN',
+        ip_hash: null,
+        amr: ['pwd'],
+        step_up_at: null,
+        last_used_at: new Date(),
+        revoked_at: new Date(),
+        revoke_reason: 'USER_REVOKED',
+        created_at: new Date(),
+        expires_at: new Date(Date.now() + 30 * 86400000),
+      });
+
+      const { token: tokenRevoked } = await issueAccessToken(
+        { id: user.id, roles: ['viewer'] },
+        revokedSessionId,
+        env,
+      );
+
+      const resRevoked = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/me/step-up',
+        headers: { authorization: `Bearer ${tokenRevoked}` },
+        payload: { method: 'password', password: 'Pass123456!' },
+      });
+
+      expect(resRevoked.statusCode).toBe(401);
+      expect(resRevoked.json().code).toBe('SESSION_NOT_FOUND');
     });
   });
 
@@ -486,6 +592,7 @@ describe('SOC-1a Account Security Integration Flow (PR 1)', () => {
       // Verify email queued
       expect(store.mail_queue.length).toBeGreaterThanOrEqual(1);
       const mail = store.mail_queue[store.mail_queue.length - 1];
+      expect(mail.template).toBe('STEP_UP_CODE');
       const params = typeof mail.params === 'string' ? JSON.parse(mail.params) : mail.params;
       const sentCode = params.code as string;
       expect(sentCode).toMatch(/^\d{6}$/);
