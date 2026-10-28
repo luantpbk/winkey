@@ -4705,11 +4705,11 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
 
     // 1. Setup users
     await pool.query(`
-      INSERT INTO auth.public_profiles (id, handle, display_name, avatar_key, is_private, created_at)
+      INSERT INTO auth.users (id, email, handle, display_name, status)
       VALUES
-        ('${userA}', 'soc2b_user_a', 'User A', NULL, false, now()),
-        ('${userB}', 'soc2b_user_b', 'User B', NULL, false, now()),
-        ('${modUser}', 'soc2b_mod', 'Mod User', NULL, false, now())
+        ('${userA}', 'soc2b_user_a@winkey.vn', 'soc2b_user_a', 'User A', 'ACTIVE'),
+        ('${userB}', 'soc2b_user_b@winkey.vn', 'soc2b_user_b', 'User B', 'ACTIVE'),
+        ('${modUser}', 'soc2b_mod@winkey.vn', 'soc2b_mod', 'Mod User', 'ACTIVE')
       ON CONFLICT DO NOTHING;
     `);
 
