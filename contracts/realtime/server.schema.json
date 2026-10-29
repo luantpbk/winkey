@@ -159,7 +159,8 @@
             "comment.created",
             "comment.reply",
             "like.count",
-            "notification.hint"
+            "notification.hint",
+            "chat.hint"
           ]
         },
         "data": {
@@ -338,6 +339,30 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "chat.hint",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event"
+            ]
+          },
+          "then": {
+            "properties": {
+              "room": {
+                "pattern": "^user:",
+                "type": "string"
+              },
+              "data": {
+                "$ref": "#/$defs/chatHint"
+              }
+            }
+          }
         }
       ]
     },
@@ -472,6 +497,76 @@
           ]
         }
       }
+    },
+    "chatHint": {
+      "description": "Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user's E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user's devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. At-most-once: clients also refetch after every (re)connect.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "conversation_id",
+            "seq"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "MESSAGE"
+            },
+            "conversation_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "TO_DEVICE"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "conversation_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "CONVERSATION"
+            },
+            "conversation_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "user_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "DEVICES"
+            },
+            "user_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        }
+      ]
     }
   }
 }

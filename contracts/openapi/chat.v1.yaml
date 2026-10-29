@@ -1,0 +1,1188 @@
+openapi: 3.1.0
+info:
+  title: Winkey chat-svc API
+  version: 1.0.0
+  description: |
+    End-to-end encrypted messaging (task SOC-3a, ADR-049 section 5 and the SOC-3 addendum 2026-10-30). Owner:
+    Antigravity 3 (`services/chat`, Node). Gateway: `PathPrefix(/v1/chat)` goes to chat-svc.
+
+    - Identity comes only from `X-User-Id` / `X-User-Roles` (ADR-009). Every endpoint requires authentication.
+    - **The server never sees plaintext or private keys.** It stores public device keys, Olm/Megolm ciphertext
+      and conversation metadata (members, titles, timestamps, sizes). Clients use vodozemac (spike report
+      `docs/spikes/SOC3-e2ee.md`) in a Web Worker.
+    - **Encryption model (Matrix-style):** every conversation, `DIRECT` or `GROUP`, sends each message once,
+      encrypted with the sender device's Megolm session (`m.megolm.v1.aes-sha2`). The Megolm session key reaches
+      every member device in an Olm-encrypted **to-device** message (`m.olm.v1.curve25519-aes-sha2`), using a
+      one-time key claimed from chat-svc. Clients rotate their outbound Megolm session after 100 messages, after 7
+      days, and whenever the membership or a member's device list changes (`SYSTEM` messages and `chat.hint`
+      `DEVICES` tell them).
+    - **Signatures:** clients sign with the device's ed25519 key over canonical JSON (keys sorted, no whitespace,
+      UTF-8); signatures and keys are unpadded base64 (keys 43 characters, signatures 86). chat-svc verifies
+      every signature and answers `400` code `INVALID_SIGNATURE` otherwise.
+      - device keys: `{"algorithms":["m.megolm.v1.aes-sha2","m.olm.v1.curve25519-aes-sha2"],"curve25519":K,"device_id":D,"ed25519":E,"user_id":U}`;
+      - one-time and fallback keys: `{"device_id":D,"fallback":false|true,"key":K,"key_id":I}`.
+    - **Trust** is per device, trust on first use: clients show a safety number from both users' device identity
+      keys and warn when a contact adds a device or a known device's keys change (chat-svc never changes the keys
+      of an existing device id: `409 DEVICE_KEYS_IMMUTABLE`).
+    - **Message requests:** when the user being added does not follow the actor (`social.subscriptions`), their
+      membership starts `REQUESTED`: the conversation appears under requests, they may read it but not send, until
+      they accept (`ACTIVE`) or decline (`LEFT`). Users in a block relation with the actor (either direction,
+      `social.blocks`) cannot be added (`403 INTERACTION_BLOCKED`), and a `DIRECT` conversation with a block
+      relation refuses new messages with the same code.
+    - **Realtime:** chat-svc publishes content-free hints on core NATS (`rt.chat.user.<user_id>`), and realtime-gw
+      forwards them as `chat.hint` to the user's `user:` room (`contracts/realtime/README.md`). Clients then fetch
+      over REST. Hints are at-most-once, so clients also refetch after every (re)connect.
+    - Limits: 10 active devices per user, 100 stored one-time keys per device, 50 members per conversation
+      (`ACTIVE` + `REQUESTED`), ciphertext ≤ 64 KiB per message and ≤ 16 KiB per to-device message. Rate limits
+      per user: 60 messages/min, 2 000 to-device messages/min, 20 conversations created/hour, 20 new message
+      requests/day (`429` with `Retry-After`).
+    - Ids: devices are identified by a UUID the client generates (it is part of the signed device keys);
+      everything else is UUIDv7 from chat-svc. Message order is the per-conversation `seq` (1, 2, 3…).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://winkey.vn
+security:
+  - bearerAuth: []
+tags:
+  - name: devices
+    description: The caller's own E2EE devices and their keys.
+  - name: keys
+    description: Other users' device keys and one-time key claims.
+  - name: to-device
+    description: Olm-encrypted messages addressed to a single device (Megolm session keys).
+  - name: conversations
+    description: Direct and group conversations, members and message requests.
+  - name: messages
+    description: Megolm-encrypted messages of a conversation.
+
+paths:
+  /v1/chat/devices:
+    get:
+      tags: [devices]
+      operationId: listMyDevices
+      summary: The caller's active devices (for settings), newest first.
+      responses:
+        '200':
+          description: Devices.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OwnDevice'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/chat/devices/{device_id}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    put:
+      tags: [devices]
+      operationId: putMyDevice
+      summary: Register a device, or update its display name and fallback key.
+      description: |
+        First call registers the device (`201`): the signature must verify with `ed25519_key` over the canonical
+        device-keys JSON with this `device_id` and the caller's user id. Later calls (`200`) may change
+        `display_name` and `fallback_key` only; different identity keys → `409 DEVICE_KEYS_IMMUTABLE`. A device id
+        owned by another user, or removed → `409 DEVICE_ID_IN_USE`. An identity key already used by any device →
+        `409 IDENTITY_KEY_IN_USE`. An 11th active device → `409 TOO_MANY_DEVICES`. Registration and removal send a
+        `chat.hint` `DEVICES` to every user sharing a conversation with the caller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegistration'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnDevice'
+        '201':
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnDevice'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    delete:
+      tags: [devices]
+      operationId: deleteMyDevice
+      summary: Remove one of the caller's devices (logout of E2EE on that browser). Idempotent.
+      description: |
+        Sets `deleted_at`, deletes its one-time keys and pending to-device messages. Messages it sent stay readable
+        by devices that already hold the Megolm keys. Unknown or another user's device → `404`.
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/devices/{device_id}/one-time-keys:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [devices]
+      operationId: uploadOneTimeKeys
+      summary: Upload signed one-time keys for one of the caller's devices.
+      description: |
+        Each key's signature must verify (canonical one-time key JSON, `fallback: false`). A `key_id` already stored
+        for the device is ignored (idempotent retry). More than 100 stored keys after the upload →
+        `409 TOO_MANY_ONE_TIME_KEYS` and nothing is stored. Clients top up when `count` falls below 20.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              additionalProperties: false
+              properties:
+                keys:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/SignedKey'
+      responses:
+        '200':
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OneTimeKeyCount'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+    get:
+      tags: [devices]
+      operationId: countOneTimeKeys
+      summary: How many one-time keys the device still has on the server.
+      responses:
+        '200':
+          description: Count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OneTimeKeyCount'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/devices/query:
+    post:
+      tags: [keys]
+      operationId: queryDevices
+      summary: Active device keys of up to 50 users.
+      description: |
+        Users without an active profile, and users in a block relation with the caller, are returned with an empty
+        list. The caller's own devices may be queried too.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_ids]
+              additionalProperties: false
+              properties:
+                user_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  uniqueItems: true
+                  items:
+                    $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Devices per user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      required: [user_id, devices]
+                      properties:
+                        user_id:
+                          $ref: './common.yaml#/components/schemas/Uuid'
+                        devices:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/PublicDevice'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/chat/keys/claim:
+    post:
+      tags: [keys]
+      operationId: claimKeys
+      summary: Claim one one-time key per target device to start Olm sessions.
+      description: |
+        For each device: one stored one-time key is removed and returned (concurrent claims never get the same key);
+        when none is left, the device's fallback key is returned (`fallback: true`, not removed). Devices that are
+        removed, unknown, without any key, or whose owner is in a block relation with the caller are left out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_ids]
+              additionalProperties: false
+              properties:
+                device_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  uniqueItems: true
+                  items:
+                    $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Claimed keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ClaimedKey'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/to-device:
+    post:
+      tags: [to-device]
+      operationId: sendToDevice
+      summary: Send Olm-encrypted messages to specific devices.
+      description: |
+        `sender_device_id` must be one of the caller's active devices (`403 DEVICE_NOT_YOURS`). A recipient device is
+        accepted when it is one of the caller's own active devices, or belongs to a user who shares a conversation
+        with the caller (both memberships `ACTIVE` or `REQUESTED`) and is not in a block relation with them; other
+        recipients are skipped silently and listed in `skipped_device_ids`. One `chat.hint` `TO_DEVICE` is sent per
+        recipient user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sender_device_id, messages]
+              additionalProperties: false
+              properties:
+                sender_device_id:
+                  $ref: './common.yaml#/components/schemas/Uuid'
+                messages:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [device_id, ciphertext]
+                    additionalProperties: false
+                    properties:
+                      device_id:
+                        $ref: './common.yaml#/components/schemas/Uuid'
+                      ciphertext:
+                        type: string
+                        minLength: 1
+                        maxLength: 21848
+                        description: Olm message (JSON `{type, body}` serialised, then base64), ≤ 16 KiB decoded.
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, skipped_device_ids]
+                properties:
+                  accepted:
+                    type: integer
+                  skipped_device_ids:
+                    type: array
+                    items:
+                      $ref: './common.yaml#/components/schemas/Uuid'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/devices/{device_id}/to-device:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [to-device]
+      operationId: listToDevice
+      summary: Pending to-device messages of one of the caller's devices, oldest first.
+      description: Also sets the device's `last_seen_at` (at most once a minute).
+      parameters:
+        - name: after
+          in: query
+          required: false
+          description: Return messages with an id greater than this (the last id the client processed).
+          schema:
+            type: string
+            pattern: '^[0-9]{1,19}$'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        '200':
+          description: Pending messages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, has_more]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ToDeviceMessage'
+                  has_more:
+                    type: boolean
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/devices/{device_id}/to-device/ack:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      tags: [to-device]
+      operationId: ackToDevice
+      summary: Delete the device's to-device messages up to and including `up_to`. Idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [up_to]
+              additionalProperties: false
+              properties:
+                up_to:
+                  type: string
+                  pattern: '^[0-9]{1,19}$'
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/conversations:
+    get:
+      tags: [conversations]
+      operationId: listConversations
+      summary: The caller's conversations, most recent activity first.
+      description: |
+        `state=ACTIVE` (default) lists conversations the caller is in; `state=REQUESTED` lists message requests.
+        Ordered by `last_message_at` (then `created_at`) descending, then `id`.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ACTIVE, REQUESTED]
+            default: ACTIVE
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+    post:
+      tags: [conversations]
+      operationId: createConversation
+      summary: Start a direct conversation or create a group.
+      description: |
+        - `DIRECT`: `user_ids` holds exactly one other user. If a `DIRECT` conversation with them exists, it is returned
+          with `200`; if the caller had left it, the caller becomes `ACTIVE` again (`joined_seq` = `last_seq` + 1) and
+          the other side is unchanged. Otherwise `201`; the other user is `ACTIVE` when they follow the caller, else
+          `REQUESTED`.
+        - `GROUP`: `title` required; `user_ids` 1–49 other users; the caller is `OWNER`; each other member is `ACTIVE`
+          or `REQUESTED` as above.
+        - A user without an active profile → `404 USER_NOT_FOUND`; a block relation with any of them →
+          `403 INTERACTION_BLOCKED`; the caller in `user_ids` → `400`.
+        - Writes a `SYSTEM` message `conversation_created` and sends `chat.hint` `CONVERSATION` to every member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+      responses:
+        '200':
+          description: Existing direct conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/conversations/{conversation_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [conversations]
+      operationId: getConversation
+      summary: One conversation the caller is or was a member of (otherwise `404`).
+      responses:
+        '200':
+          description: The conversation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [conversations]
+      operationId: updateConversation
+      summary: Rename a group (`OWNER` or `ADMIN`).
+      description: |
+        `DIRECT` → `409 NOT_A_GROUP`; a `MEMBER` → `403`. Writes a `SYSTEM` message `title_changed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/chat/conversations/{conversation_id}/members:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [conversations]
+      operationId: addMembers
+      summary: Add users to a group (`OWNER` or `ADMIN`).
+      description: |
+        Same `ACTIVE`/`REQUESTED`, block and profile rules as `createConversation`. Users already `ACTIVE` or
+        `REQUESTED` are ignored; `LEFT` users rejoin with `joined_seq` = `last_seq` + 1 (they never get history).
+        More than 50 members → `409 TOO_MANY_MEMBERS`. `DIRECT` → `409 NOT_A_GROUP`. One `SYSTEM` message
+        `member_added` per added user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_ids]
+              additionalProperties: false
+              properties:
+                user_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 49
+                  uniqueItems: true
+                  items:
+                    $ref: './common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/conversations/{conversation_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          $ref: './common.yaml#/components/schemas/Uuid'
+    patch:
+      tags: [conversations]
+      operationId: updateMember
+      summary: Change a member's role (`OWNER` only) or the caller's own mute.
+      description: |
+        `role` (`ADMIN` or `MEMBER`, groups only) may be set by the `OWNER` on another member. `muted_until` (a future
+        time, or `null` to unmute) may be set only on the caller's own membership. Anything else → `403`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                role:
+                  type: string
+                  enum: [ADMIN, MEMBER]
+                muted_until:
+                  type: [string, 'null']
+                  format: date-time
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    delete:
+      tags: [conversations]
+      operationId: removeMember
+      summary: Leave (yourself) or remove a member from a group (`OWNER`, or `ADMIN` for `MEMBER`s).
+      description: |
+        Sets `state = LEFT` and `left_seq` = `last_seq`. Leaving also declines a request. When the `OWNER` leaves a
+        group, the oldest `ADMIN` (else the oldest `ACTIVE` member) becomes `OWNER`. Removing someone else from a
+        `DIRECT` conversation → `403`. Writes a `SYSTEM` message `member_left` or `member_removed`. Idempotent.
+      responses:
+        '204':
+          description: Done.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/conversations/{conversation_id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [conversations]
+      operationId: acceptConversation
+      summary: Accept a message request (`REQUESTED` → `ACTIVE`). Idempotent for `ACTIVE`.
+      description: |
+        `LEFT` → `409 CONVERSATION_CLOSED`. Writes a `SYSTEM` message `request_accepted` (clients share their Megolm
+        keys with the new active member's devices).
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/chat/conversations/{conversation_id}/read:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [conversations]
+      operationId: markRead
+      summary: Move the caller's read marker forward (never backwards). Idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seq]
+              additionalProperties: false
+              properties:
+                seq:
+                  type: integer
+                  format: int64
+                  minimum: 0
+      responses:
+        '204':
+          description: Saved (`seq` above `last_seq` is clamped to `last_seq`).
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/chat/conversations/{conversation_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [messages]
+      operationId: listMessages
+      summary: Messages in `seq` order, within the caller's readable range.
+      description: |
+        The readable range is `joined_seq` through `last_seq` (or `left_seq` once `LEFT`). With `after_seq`: the next
+        messages after it; with `before_seq`: the messages just before it (still returned in ascending order);
+        neither: the newest page. Both → `400`.
+      parameters:
+        - name: after_seq
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: before_seq
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: One page, ascending by `seq`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, has_more]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  has_more:
+                    type: boolean
+                    description: More messages exist in the requested direction.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    post:
+      tags: [messages]
+      operationId: sendMessage
+      summary: Send a Megolm-encrypted message.
+      description: |
+        - The caller must be `ACTIVE` (`REQUESTED` → `403 REQUEST_PENDING`, `LEFT` → `404`), and `sender_device_id` one
+          of their active devices (`403 DEVICE_NOT_YOURS`).
+        - `DIRECT`: the other member `LEFT` → `409 CONVERSATION_CLOSED`; a block relation → `403 INTERACTION_BLOCKED`.
+        - The same `client_msg_id` from the same user returns the stored message with `200` (safe retry).
+        - Assigns `seq` = `last_seq` + 1 and sends `chat.hint` `MESSAGE` to every `ACTIVE` and `REQUESTED` member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: Already stored (retry).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '201':
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/conversations/{conversation_id}/messages/{seq}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - name: seq
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [messages]
+      operationId: deleteMessage
+      summary: Delete one of the caller's own messages for everyone (tombstone). Idempotent.
+      description: |
+        Removes the ciphertext and sets `deleted`; the `seq` stays. Someone else's or a `SYSTEM` message → `403`.
+        Sends `chat.hint` `MESSAGE` so clients refetch.
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common.yaml#/components/securitySchemes/bearerAuth'
+  parameters:
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+
+  schemas:
+    Base64Key:
+      type: string
+      pattern: '^[A-Za-z0-9+/]{43}$'
+      description: Curve25519 or ed25519 public key, unpadded base64.
+    Base64Signature:
+      type: string
+      pattern: '^[A-Za-z0-9+/]{86}$'
+      description: ed25519 signature, unpadded base64.
+
+    SignedKey:
+      type: object
+      required: [key_id, public_key, signature]
+      additionalProperties: false
+      properties:
+        key_id:
+          type: string
+          pattern: '^[A-Za-z0-9+/_-]{1,64}$'
+        public_key:
+          $ref: '#/components/schemas/Base64Key'
+        signature:
+          $ref: '#/components/schemas/Base64Signature'
+
+    DeviceRegistration:
+      type: object
+      required: [display_name, curve25519_key, ed25519_key, signature]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        curve25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        ed25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        signature:
+          $ref: '#/components/schemas/Base64Signature'
+        fallback_key:
+          $ref: '#/components/schemas/SignedKey'
+
+    OwnDevice:
+      type: object
+      required: [id, display_name, curve25519_key, ed25519_key, created_at, last_seen_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        display_name:
+          type: string
+        curve25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        ed25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+
+    PublicDevice:
+      type: object
+      description: What other users see of a device (no display name, no activity times).
+      required: [id, user_id, curve25519_key, ed25519_key, signature, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        curve25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        ed25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        signature:
+          $ref: '#/components/schemas/Base64Signature'
+        created_at:
+          type: string
+          format: date-time
+
+    OneTimeKeyCount:
+      type: object
+      required: [count, fallback_key_id]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          maximum: 100
+        fallback_key_id:
+          type: [string, 'null']
+
+    ClaimedKey:
+      type: object
+      required: [device_id, user_id, curve25519_key, ed25519_key, key_id, public_key, signature, fallback]
+      properties:
+        device_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        curve25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        ed25519_key:
+          $ref: '#/components/schemas/Base64Key'
+        key_id:
+          type: string
+        public_key:
+          $ref: '#/components/schemas/Base64Key'
+        signature:
+          $ref: '#/components/schemas/Base64Signature'
+        fallback:
+          type: boolean
+
+    ToDeviceMessage:
+      type: object
+      required: [id, sender_id, sender_device_id, ciphertext, created_at]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          description: Increasing per server; pass the last processed one as `after` and to `ack`.
+        sender_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        sender_device_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        ciphertext:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    MemberRole:
+      type: string
+      enum: [OWNER, ADMIN, MEMBER]
+    MemberState:
+      type: string
+      enum: [ACTIVE, REQUESTED, LEFT]
+
+    Member:
+      type: object
+      required: [user_id, user, role, state]
+      properties:
+        user_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        user:
+          description: '`null` when the user no longer has an active profile.'
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/PublicProfile'
+            - type: 'null'
+        role:
+          $ref: '#/components/schemas/MemberRole'
+        state:
+          $ref: '#/components/schemas/MemberState'
+
+    Conversation:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - members
+        - my_role
+        - my_state
+        - last_seq
+        - last_message_at
+        - unread_count
+        - muted_until
+        - created_at
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [DIRECT, GROUP]
+        title:
+          type: [string, 'null']
+          description: Groups only. Clients name a `DIRECT` conversation after the other member.
+        members:
+          type: array
+          maxItems: 50
+          description: '`ACTIVE` and `REQUESTED` members (never `LEFT` ones), owner first, then by join time.'
+          items:
+            $ref: '#/components/schemas/Member'
+        my_role:
+          $ref: '#/components/schemas/MemberRole'
+        my_state:
+          $ref: '#/components/schemas/MemberState'
+        last_seq:
+          type: integer
+          format: int64
+        last_message_at:
+          type: [string, 'null']
+          format: date-time
+        unread_count:
+          type: integer
+          minimum: 0
+          description: Messages after `max(last_read_seq, joined_seq - 1)` not sent by the caller, capped at 99.
+        muted_until:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ConversationPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        next_cursor:
+          type: [string, 'null']
+
+    CreateConversationRequest:
+      type: object
+      required: [kind, user_ids]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [DIRECT, GROUP]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Required for `GROUP`, forbidden for `DIRECT`.
+        user_ids:
+          type: array
+          minItems: 1
+          maxItems: 49
+          uniqueItems: true
+          items:
+            $ref: './common.yaml#/components/schemas/Uuid'
+
+    SendMessageRequest:
+      type: object
+      required: [client_msg_id, sender_device_id, megolm_session_id, ciphertext]
+      additionalProperties: false
+      properties:
+        client_msg_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        sender_device_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        megolm_session_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        ciphertext:
+          type: string
+          minLength: 1
+          maxLength: 87384
+          description: Megolm message, base64, ≤ 64 KiB decoded. Its plaintext is a JSON event chosen by the client.
+
+    SystemBody:
+      type: object
+      description: Written by chat-svc; plaintext.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum:
+            - conversation_created
+            - member_added
+            - member_left
+            - member_removed
+            - request_accepted
+            - title_changed
+            - owner_changed
+        user_id:
+          description: The member concerned, when any.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        by:
+          description: Who did it, when not the member themselves.
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        title:
+          type: [string, 'null']
+
+    Message:
+      type: object
+      required:
+        - conversation_id
+        - seq
+        - id
+        - kind
+        - sender_id
+        - sender_device_id
+        - megolm_session_id
+        - ciphertext
+        - system
+        - deleted
+        - created_at
+      properties:
+        conversation_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        seq:
+          type: integer
+          format: int64
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [ENCRYPTED, SYSTEM]
+        sender_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        sender_device_id:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Uuid'
+            - type: 'null'
+        megolm_session_id:
+          type: [string, 'null']
+        ciphertext:
+          type: [string, 'null']
+          description: '`null` for `SYSTEM` messages and deleted messages.'
+        system:
+          oneOf:
+            - $ref: '#/components/schemas/SystemBody'
+            - type: 'null'
+        deleted:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
