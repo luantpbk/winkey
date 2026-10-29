@@ -1,0 +1,17 @@
+{
+  "name": "@winkey-spike/soc3-e2ee",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SOC-3 E2EE Browser Library Spike (vodozemac, libsignal, OpenMLS, Argon2id)",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "bench": "node benchmark.mjs",
+    "serve": "npx serve ."
+  },
+  "dependencies": {
+    "@matrix-org/olm": "^3.2.15",
+    "hash-wasm": "^4.12.0",
+    "winkey": "file:../../../winkey.vn"
+  }
+}
