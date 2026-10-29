@@ -1,3 +1,4 @@
+/* global importScripts, self, Olm, performance */
 /**
  * Web Worker for Offloaded E2EE Operations (SOC-3).
  * Keeps cryptographic computations off the browser main thread.

@@ -1,3 +1,4 @@
+/* global window, Buffer, TextDecoder, TextEncoder */
 /**
  * WebAssembly / JS bindings for vodozemac-winkey (SOC-3).
  * Bridges the wasm-bindgen surface to the browser/Node environment.
@@ -6,7 +7,7 @@
 let initialized = false;
 let olmBackend = null;
 
-export default async function init(wasmSource) {
+export default async function init(_wasmSource) {
   if (initialized) return;
 
   // In browser, if wasmSource provided or fetchable:

@@ -1,11 +1,7 @@
+/* global TextDecoder */
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
-import init, {
-  Account,
-  Session,
-  GroupSession,
-  InboundGroupSession,
-} from '../pkg/vodozemac_winkey.js';
+import init, { Account, GroupSession, InboundGroupSession } from '../pkg/vodozemac_winkey.js';
 
 // Setup Olm backend for Node environment tests
 import Olm from '@matrix-org/olm';

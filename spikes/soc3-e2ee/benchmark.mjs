@@ -1,3 +1,4 @@
+/* global console, process, performance, TextEncoder */
 import crypto from 'node:crypto';
 import { argon2id } from 'hash-wasm';
 import Olm from '@matrix-org/olm';
@@ -33,7 +34,7 @@ async function runBenchmark() {
 
   const bob = new Olm.Account();
   bob.create();
-  const bobId = JSON.parse(bob.identity_keys()).curve25519;
+  const _bobId = JSON.parse(bob.identity_keys()).curve25519;
   const aliceId = JSON.parse(alice.identity_keys()).curve25519;
   const firstOtk = Object.values(aliceOtks.curve25519)[0];
 

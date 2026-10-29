@@ -1,3 +1,4 @@
+/* global TextEncoder, TextDecoder */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -58,7 +59,7 @@ describe('E2EE Persistence: Non-extractable WebCrypto AES-GCM & Zero-leak Isolat
 
     // Verify localStorage NEVER received plaintext or ciphertext
     assert.equal(localStorageMock.size, 0, 'localStorage must remain empty');
-    for (const [key, val] of localStorageMock.entries()) {
+    for (const [_key, val] of localStorageMock.entries()) {
       assert.ok(!JSON.stringify(val).includes(simulatedPickle));
     }
 
