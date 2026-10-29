@@ -42,11 +42,12 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
   const img1Path = path.join(fixtureDir, 'soc_img1.png');
   const img2Path = path.join(fixtureDir, 'soc_img2.png');
   const img3Path = path.join(fixtureDir, 'soc_img3.png');
+  const videoPath = path.join(fixtureDir, 'soc_video.mp4');
 
   test.beforeAll(async ({ browser }) => {
     resetRateLimits();
 
-    // Prepare fixture images
+    // Prepare fixture images & video
     if (!fs.existsSync(fixtureDir)) {
       fs.mkdirSync(fixtureDir, { recursive: true });
     }
@@ -64,6 +65,24 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       fs.writeFileSync(img1Path, minimalPng);
       fs.writeFileSync(img2Path, minimalPng);
       fs.writeFileSync(img3Path, minimalPng);
+    }
+
+    if (!fs.existsSync(videoPath)) {
+      try {
+        execSync(
+          `ffmpeg -y -f lavfi -i testsrc=size=640x360:rate=24:duration=5 -f lavfi -i sine=frequency=440:duration=5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k "${videoPath}"`,
+          { stdio: 'pipe' },
+        );
+      } catch (err) {
+        throw new Error(
+          `Failed to generate soc_video.mp4 test fixture using ffmpeg: ${(err as Error)?.message || err}`,
+        );
+      }
+      if (!fs.existsSync(videoPath)) {
+        throw new Error(
+          `Failed to generate soc_video.mp4 test fixture: file not found at ${videoPath}`,
+        );
+      }
     }
 
     context = await browser.newContext();
@@ -151,15 +170,98 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     await expect(firstPostCard).toContainText('Dạo bước mùa thu #HàNội thật tuyệt vời!');
   });
 
+  test('compose with social video, see upload progress & processing, verify inline playback muted and unmute on tap', async () => {
+    await page.goto('/bang-tin');
+    await page.waitForLoadState('domcontentloaded');
+
+    // 1. Ensure following feed tab is active
+    const followingTab = page.locator('[data-testid="feed-tab-following"]').first();
+    if (await followingTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTab.click();
+    }
+
+    // 2. Composer textarea visible
+    const composerTextarea = page.locator('textarea[placeholder*="Bạn đang nghĩ gì"]');
+    await expect(composerTextarea).toBeVisible({ timeout: 15000 });
+
+    // 3. Attach social video file
+    const videoInput = page.locator('input[data-testid="post-video-file-input"]');
+    await videoInput.setInputFiles(videoPath);
+
+    // 4. See upload progress and wait until ready
+    const videoPreview = page.locator('[data-testid="composer-social-video-preview"]');
+    await expect(videoPreview).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('text=Video đã sẵn sàng')).toBeVisible({ timeout: 45000 });
+
+    // 5. Fill body with hashtag and suffix
+    const videoPostText = `Khoảnh khắc video ngắn #WinkeyShorts sống động! ${suffix}`;
+    await composerTextarea.fill(videoPostText);
+
+    // 6. Submit post
+    const postSubmitBtn = page.locator('button[aria-label="Đăng bài viết"]');
+    await expect(postSubmitBtn).toBeEnabled({ timeout: 5000 });
+    await postSubmitBtn.click();
+
+    // 7. Verify post appears in feed
+    const postCard = page
+      .locator(
+        `[data-testid^="post-card-"]:has-text("Khoảnh khắc video ngắn #WinkeyShorts sống động!")`,
+      )
+      .first();
+    await expect(postCard).toBeVisible({ timeout: 15000 });
+
+    // 8. Navigate to post permalink where social video is hydrated directly
+    const postLink = postCard.locator('a[href*="/bai-viet/"]').first();
+    await postLink.click();
+    await page.waitForURL((url) => url.pathname.includes('/bai-viet/'), { timeout: 15000 });
+
+    // 9. Verify inline video player on post detail
+    const detailCard = page.locator('[data-testid^="post-card-"]').first();
+    const playerContainer = detailCard.locator('[data-testid="post-social-player"]').first();
+    await expect(playerContainer).toBeVisible({ timeout: 15000 });
+    await playerContainer.scrollIntoViewIfNeeded();
+
+    const videoEl = detailCard.locator('video[data-testid="social-video-element"]').first();
+    await expect(videoEl).toBeVisible({ timeout: 10000 });
+
+    // Verify initially muted
+    const initialMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
+    expect(initialMuted).toBe(true);
+
+    // 10. Unmute on tap / click
+    const muteBtn = detailCard.locator('button[data-testid="social-video-mute-btn"]').first();
+    await expect(muteBtn).toBeVisible({ timeout: 10000 });
+    await muteBtn.click();
+    const afterMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
+    expect(afterMuted).toBe(false);
+
+    // 11. Return to /bang-tin for remaining persona tests
+    await page.goto('/bang-tin');
+    await page.waitForLoadState('domcontentloaded');
+
+    const followingTabTest3 = page
+      .locator('[data-testid="feed-tab-following"], button:has-text("Đang theo dõi")')
+      .first();
+    if (await followingTabTest3.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTabTest3.click();
+    }
+  });
+
   test('react via the picker and comment on the post', async () => {
+    // Switch to Following tab where author's own posts appear
+    const followingTab = page
+      .locator('[data-testid="feed-tab-following"], button:has-text("Đang theo dõi")')
+      .first();
+    if (await followingTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTab.click();
+    }
+
     const postCard = page.locator('[data-testid^="post-card-"]').first();
-    await expect(postCard).toBeVisible({ timeout: 10000 });
+    await expect(postCard).toBeVisible({ timeout: 15000 });
 
     // 1. Reaction picker
     const reactionBtn = postCard
-      .locator(
-        'button[aria-label="Thích bài viết"], button[aria-label*="bày tỏ cảm xúc"], button[aria-label="Chọn cảm xúc"]',
-      )
+      .locator('button[aria-label="Thích bài viết"], button[aria-label^="Bỏ bày tỏ cảm xúc"]')
       .first();
     await reactionBtn.hover();
 
@@ -173,9 +275,16 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       await reactionBtn.click();
     }
 
-    // Verify reaction count or icon reflects the click
-    const reactionDisplay = postCard.locator('[aria-label*="bày tỏ cảm xúc"]').first();
-    await expect(reactionDisplay).toBeVisible();
+    // Ensure reaction modal is closed if inadvertently triggered
+    const modalCloseBtn = page.locator('button[aria-label="Đóng"], [role="dialog"] button').first();
+    if (await modalCloseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await page.keyboard.press('Escape');
+    }
+
+    // Hard assertion: reaction state must become active ("Bỏ bày tỏ cảm xúc...")
+    await expect(postCard.locator('button[aria-label^="Bỏ bày tỏ cảm xúc"]').first()).toBeVisible({
+      timeout: 10000,
+    });
 
     // 2. Open comments and post a comment
     const commentToggleBtn = postCard.locator('a[aria-label^="Bình luận"]').first();
