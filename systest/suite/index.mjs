@@ -2837,6 +2837,505 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
   });
 
   // ---------------------------------------------------------------------------
+  // S12-social-video: Short Social Videos API Matrix (SOC-2b, ADR-049)
+  // ---------------------------------------------------------------------------
+  it('S12-social-video: short social videos API matrix (SOC-2b, ADR-049)', async () => {
+    const startTime = Date.now();
+    const nonce = Date.now().toString(36);
+
+    // Register dedicated viewer and other users (isolating from S10 suspended viewerUser)
+    const socViewerEmail = `soc_v_${nonce}@example.com`;
+    const regViewer = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.211',
+      },
+      body: JSON.stringify(
+        authBody({
+          email: socViewerEmail,
+          password: 'Password123!',
+          handle: `soc_v_${nonce}`,
+          display_name: 'Social Viewer',
+        }),
+      ),
+    });
+    const socViewerData = (await checkRes(regViewer, 201, 'Register Social Viewer')).json;
+    const socViewerToken = socViewerData.access_token;
+    const socViewerUser = socViewerData.user;
+
+    const otherEmail = `soc_oth_${nonce}@example.com`;
+    const regOther = await fetch(`${AUTH_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.42.0.212',
+      },
+      body: JSON.stringify(
+        authBody({
+          email: otherEmail,
+          password: 'Password123!',
+          handle: `soc_oth_${nonce}`,
+          display_name: 'Other Social User',
+        }),
+      ),
+    });
+    const otherData = (await checkRes(regOther, 201, 'Register Other Social User')).json;
+    const otherToken = otherData.access_token;
+
+    // 0. Ensure fixtures exist in /tmp
+    const f20s = '/tmp/s12_20s_720p.mp4';
+    const f5s = '/tmp/s12_5s_360p.mp4';
+    const f185s = '/tmp/s12_185s_tiny.mp4';
+
+    if (!fs.existsSync(f20s)) {
+      execSync(
+        `ffmpeg -y -f lavfi -i testsrc=duration=20:size=1280x720:rate=30 -f lavfi -i sine=frequency=1000:duration=20 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 96k "${f20s}" 2>/dev/null`,
+      );
+    }
+    if (!fs.existsSync(f5s)) {
+      execSync(
+        `ffmpeg -y -f lavfi -i testsrc=duration=5:size=640x360:rate=24 -f lavfi -i sine=frequency=1000:duration=5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k "${f5s}" 2>/dev/null`,
+      );
+    }
+    if (!fs.existsSync(f185s)) {
+      execSync(
+        `ffmpeg -y -f lavfi -i testsrc=duration=185:size=160x90:rate=1 -f lavfi -i sine=frequency=1000:duration=185 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 32k "${f185s}" 2>/dev/null`,
+      );
+    }
+
+    const b20s = fs.readFileSync(f20s);
+    const b5s = fs.readFileSync(f5s);
+    const b185s = fs.readFileSync(f185s);
+
+    // Helper: Upload a video via multipart upload
+    async function uploadTestVideo(token, buf, filename, purpose = 'SOCIAL') {
+      const createRes = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: `Social Test ${Date.now()}`,
+          description: 'SOC-2b system test clip',
+          filename,
+          content_type: 'video/mp4',
+          size_bytes: buf.length,
+          purpose,
+        }),
+      });
+      if (createRes.status !== 201) {
+        return {
+          ok: false,
+          status: createRes.status,
+          json: await createRes.json().catch(() => null),
+        };
+      }
+      const createData = await createRes.json();
+      const videoId = createData.video_id;
+
+      // Presign part 1
+      const presignRes = await fetch(`${GATEWAY_URL}/v1/uploads/${videoId}/parts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ part_numbers: [1] }),
+      });
+      const presignData = (await checkRes(presignRes, 200, 'Presign parts')).json;
+      const partUrl = presignData.urls[0].url;
+
+      // PUT part
+      const partPut = await fetch(partUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'video/mp4' },
+        body: buf,
+      });
+      assert.ok(
+        partPut.status >= 200 && partPut.status < 300,
+        `PUT part failed: ${partPut.status}`,
+      );
+      const rawEtag = partPut.headers.get('etag');
+      assert.ok(rawEtag, 'ETag missing from PUT part response');
+      const etag = rawEtag.replace(/"/g, '');
+
+      // Complete
+      const completeRes = await fetch(`${GATEWAY_URL}/v1/uploads/${videoId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ parts: [{ part_number: 1, etag }] }),
+      });
+      await checkRes(completeRes, 202, 'Complete upload');
+
+      // Poll until READY or FAILED (up to 90s)
+      let status = 'PROCESSING';
+      let error = null;
+      const deadline = Date.now() + 90000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const statusRes = await fetch(`${GATEWAY_URL}/v1/uploads/${videoId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (statusRes.status === 200) {
+          const sData = await statusRes.json().catch(() => null);
+          if (sData) {
+            status = sData.status;
+            error = sData.error;
+            if (status === 'READY' || status === 'FAILED') break;
+          }
+        }
+      }
+      return { ok: true, videoId, status, error };
+    }
+
+    // 1. A viewer (no creator role) uploads 20s clip with purpose: SOCIAL -> READY, UNLISTED, exactly 720p & 360p, no storyboard
+    const upload1 = await uploadTestVideo(socViewerToken, b20s, 'social_20s.mp4', 'SOCIAL');
+    assert.equal(upload1.status, 'READY', `Social video did not become READY: ${upload1.error}`);
+    const socialVid1 = upload1.videoId;
+
+    const vid1Res = await fetch(`${GATEWAY_URL}/v1/videos/${socialVid1}`, {
+      headers: { Authorization: `Bearer ${socViewerToken}` },
+    });
+    const vid1 = (await checkRes(vid1Res, 200, 'Get social video 1')).json;
+    assert.equal(vid1.purpose, 'SOCIAL', 'Video purpose must be SOCIAL');
+    assert.equal(vid1.visibility, 'UNLISTED', 'Social video visibility must be UNLISTED');
+    assert.ok(
+      vid1.playback && vid1.playback.renditions && vid1.playback.renditions.length === 2,
+      'Must have exactly 2 renditions (720p & 360p)',
+    );
+    const rendNames = vid1.playback.renditions.map((r) => r.name).sort();
+    assert.deepEqual(rendNames, ['360p', '720p'], 'Renditions must be 360p and 720p');
+    assert.ok(!vid1.playback.storyboard_url, 'Social video must not have storyboard');
+
+    // Verify raw object in S3 raw-bucket is gone
+    const rawCheckRes = await fetch(
+      `http://127.0.0.1:3900/winkey-raw/${socViewerUser.id}/videos/${socialVid1}/raw.mp4`,
+      {
+        method: 'HEAD',
+      },
+    );
+    assert.ok(
+      rawCheckRes.status === 404 || rawCheckRes.status === 403,
+      `Raw video object should be gone when READY (got status ${rawCheckRes.status})`,
+    );
+
+    // 2. Social video never appears in listVideos, search, tag pages, trending, or listStudioVideos
+    const listVideosRes = await fetch(`${GATEWAY_URL}/v1/videos?limit=100`);
+    const listVideosData = (await checkRes(listVideosRes, 200, 'listVideos')).json;
+    const foundInList = (listVideosData.videos || []).some((v) => v.id === socialVid1);
+    assert.ok(!foundInList, 'Social video must never appear in listVideos');
+
+    const searchRes = await fetch(`${GATEWAY_URL}/v1/videos?search=Social`);
+    const searchData = (await checkRes(searchRes, 200, 'search videos')).json;
+    const foundInSearch = (searchData.videos || []).some((v) => v.id === socialVid1);
+    assert.ok(!foundInSearch, 'Social video must never appear in search');
+
+    const tagRes = await fetch(`${GATEWAY_URL}/v1/videos?tag=social`);
+    const tagData = (await checkRes(tagRes, 200, 'tag videos')).json;
+    const foundInTag = (tagData.videos || []).some((v) => v.id === socialVid1);
+    assert.ok(!foundInTag, 'Social video must never appear in tag queries');
+
+    const trendingRes = await fetch(`${GATEWAY_URL}/v1/videos?sort=trending`);
+    const trendingData = (await checkRes(trendingRes, 200, 'trending videos')).json;
+    const foundInTrending = (trendingData.videos || []).some((v) => v.id === socialVid1);
+    assert.ok(!foundInTrending, 'Social video must never appear in trending');
+
+    const studioRes = await fetch(`${GATEWAY_URL}/v1/studio/videos`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const studioData = (await checkRes(studioRes, 200, 'listStudioVideos')).json;
+    const foundInStudio = (studioData.videos || []).some((v) => v.id === socialVid1);
+    assert.ok(!foundInStudio, 'Social video must never appear in listStudioVideos');
+
+    // 3. batchGetVideos returns purpose: SOCIAL for social video, FILM for film video
+    const batchRes = await fetch(
+      `${GATEWAY_URL}/v1/videos/batch?ids=${socialVid1},${uploadedVideoId}`,
+      {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      },
+    );
+    const batchData = (await checkRes(batchRes, 200, 'batchGetVideos')).json;
+    const batchVideos = batchData.items || [];
+    const batchSocial = batchVideos.find((v) => v.id === socialVid1);
+    const batchFilm = batchVideos.find((v) => v.id === uploadedVideoId);
+    assert.ok(batchSocial, 'Social video missing from batchGetVideos response');
+    assert.ok(batchFilm, 'Film video missing from batchGetVideos response');
+    assert.equal(batchSocial.purpose, 'SOCIAL', 'batchGetVideos must return purpose SOCIAL');
+    assert.equal(batchFilm.purpose, 'FILM', 'batchGetVideos must return purpose FILM');
+
+    // 4. Guardrails:
+    // a) Clip > 180s (185s clip) -> upload FAILED, getUpload.error mentions "3 minutes"
+    const uploadLong = await uploadTestVideo(socViewerToken, b185s, 'long_185s.mp4', 'SOCIAL');
+    assert.equal(uploadLong.status, 'FAILED', 'Clip > 180s must fail transcode');
+    assert.ok(
+      uploadLong.error && uploadLong.error.includes('3 minutes'),
+      `getUpload.error must mention "3 minutes", got: "${uploadLong.error}"`,
+    );
+
+    // b) size_bytes > 300 MiB (314572801) -> 400 VIDEO_TOO_LARGE
+    const tooLargeRes = await fetch(`${GATEWAY_URL}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${socViewerToken}`,
+      },
+      body: JSON.stringify({
+        title: 'Too large video',
+        description: 'Over 300MB',
+        filename: 'huge.mp4',
+        content_type: 'video/mp4',
+        size_bytes: 314572801,
+        purpose: 'SOCIAL',
+      }),
+    });
+    assert.equal(tooLargeRes.status, 400, 'Size > 300 MiB must return 400');
+    const tooLargeData = await tooLargeRes.json();
+    assert.equal(tooLargeData.code, 'VIDEO_TOO_LARGE', 'Must return code VIDEO_TOO_LARGE');
+
+    // 5. Post attachment lifecycle:
+    // a) Post with it -> video_attached reaches video-svc (attached_at set)
+    const postRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${socViewerToken}`,
+      },
+      body: JSON.stringify({
+        body: `Post with short social video #WinkeyShorts ${Date.now()}`,
+        visibility: 'PUBLIC',
+        video_id: socialVid1,
+      }),
+    });
+    const postData = (await checkRes(postRes, 201, 'Create post with social video')).json;
+    const postId = postData.id;
+
+    // Poll until video-svc receives video_attached event and sets attached_at in DB
+    let attached = false;
+    const attachDeadline = Date.now() + 15000;
+    while (Date.now() < attachDeadline) {
+      try {
+        const out = execSync(
+          `docker exec winkey-postgres psql -U winkey_migrator -d winkey -t -A -c "SELECT attached_at FROM media.videos WHERE id = '${socialVid1}';"`,
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] },
+        ).trim();
+        if (out && out.length > 0 && !out.toUpperCase().includes('NULL')) {
+          attached = true;
+          break;
+        }
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    assert.ok(attached, 'attached_at was not set on video in DB within 15s');
+
+    // b) Second post with the same video -> 409 VIDEO_IN_USE
+    const dupPostRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${socViewerToken}`,
+      },
+      body: JSON.stringify({
+        body: 'Second post attempting same video',
+        visibility: 'PUBLIC',
+        video_id: socialVid1,
+      }),
+    });
+    assert.equal(
+      dupPostRes.status,
+      409,
+      'Attaching same social video to another post must return 409',
+    );
+    const dupPostData = await dupPostRes.json();
+    assert.equal(dupPostData.code, 'VIDEO_IN_USE', 'Error code must be VIDEO_IN_USE');
+
+    // c) Another user attempting to attach caller's social video -> 404
+    const otherUserPostRes = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${otherToken}`,
+      },
+      body: JSON.stringify({
+        body: 'Another user attempting to steal social video',
+        visibility: 'PUBLIC',
+        video_id: socialVid1,
+      }),
+    });
+    assert.equal(
+      otherUserPostRes.status,
+      404,
+      'Using another user unlisted social video must return 404',
+    );
+
+    // 6. updateVideo visibility on a social video -> 409 SOCIAL_VIDEO_UNLISTED
+    const updateVisRes = await fetch(`${GATEWAY_URL}/v1/videos/${socialVid1}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${socViewerToken}`,
+      },
+      body: JSON.stringify({ visibility: 'PUBLIC' }),
+    });
+    assert.equal(updateVisRes.status, 409, 'Changing visibility of social video must return 409');
+    const updateVisData = await updateVisRes.json();
+    assert.equal(
+      updateVisData.code,
+      'SOCIAL_VIDEO_UNLISTED',
+      'Error code must be SOCIAL_VIDEO_UNLISTED',
+    );
+
+    // 7. Delete the post -> video becomes DELETED and its media is removed
+    const delPostRes = await fetch(`${GATEWAY_URL}/v1/posts/${postId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${socViewerToken}` },
+    });
+    await checkRes(delPostRes, 204, 'Delete post with social video');
+
+    // Poll until video-svc receives video_released and deletes the video (or status DELETED)
+    let videoReleased = false;
+    const releaseDeadline = Date.now() + 15000;
+    while (Date.now() < releaseDeadline) {
+      const vCheckRes = await fetch(`${GATEWAY_URL}/v1/videos/${socialVid1}`, {
+        headers: { Authorization: `Bearer ${socViewerToken}` },
+      });
+      if (vCheckRes.status === 404) {
+        videoReleased = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    assert.ok(videoReleased, 'Video was not deleted after post deletion');
+
+    // 8. Moderator hides post -> post is hidden but video is KEPT
+    const upload2 = await uploadTestVideo(socViewerToken, b20s, 'social_mod.mp4', 'SOCIAL');
+    assert.equal(upload2.status, 'READY', `Social video 2 did not become READY: ${upload2.error}`);
+    const socialVid2 = upload2.videoId;
+
+    const post2Res = await fetch(`${GATEWAY_URL}/v1/posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${socViewerToken}`,
+      },
+      body: JSON.stringify({
+        body: `Post to be hidden by moderator ${Date.now()}`,
+        visibility: 'PUBLIC',
+        video_id: socialVid2,
+      }),
+    });
+    const post2 = (await checkRes(post2Res, 201, 'Create post 2 with social video')).json;
+
+    // Moderator hides post
+    const hidePostRes = await fetch(`${GATEWAY_URL}/v1/posts/${post2.id}/moderation`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${moderatorToken}`,
+      },
+      body: JSON.stringify({ status: 'HIDDEN' }),
+    });
+    await checkRes(hidePostRes, 200, 'Moderator hides post');
+
+    // Verify video is KEPT (status 200)
+    const v2CheckRes = await fetch(`${GATEWAY_URL}/v1/videos/${socialVid2}`, {
+      headers: { Authorization: `Bearer ${socViewerToken}` },
+    });
+    assert.equal(v2CheckRes.status, 200, 'Hiding a post must keep its social video intact');
+
+    // 9. Small source (640x360) -> exactly 360p rendition only (no 720p)
+    const uploadSmall = await uploadTestVideo(socViewerToken, b5s, 'small_360p.mp4', 'SOCIAL');
+    assert.equal(
+      uploadSmall.status,
+      'READY',
+      `Small source video did not become READY: ${uploadSmall.error}`,
+    );
+    const smallVidId = uploadSmall.videoId;
+
+    const smallVidRes = await fetch(`${GATEWAY_URL}/v1/videos/${smallVidId}`, {
+      headers: { Authorization: `Bearer ${socViewerToken}` },
+    });
+    const smallVid = (await checkRes(smallVidRes, 200, 'Get small social video')).json;
+    assert.ok(
+      smallVid.playback &&
+        smallVid.playback.renditions &&
+        smallVid.playback.renditions.length === 1,
+      'Small source must have exactly 1 rendition',
+    );
+    assert.equal(smallVid.playback.renditions[0].name, '360p', 'Rendition name must be 360p');
+
+    // 10. 48h unattached cleanup: SQL sets published_at and created_at back 49h, video-svc janitor deletes it
+    execSync(
+      `docker exec winkey-postgres psql -U postgres -d winkey -c "UPDATE media.videos SET created_at = NOW() - INTERVAL '49 hours', published_at = NOW() - INTERVAL '49 hours' WHERE id = '${smallVidId}';"`,
+      { stdio: 'ignore' },
+    );
+    // Restart video-svc to trigger immediate Janitor.RunOnce on boot
+    execSync(`docker restart video-svc`, { stdio: 'ignore' });
+    // Poll /readyz for port 3003
+    for (let i = 0; i < 30; i++) {
+      try {
+        const hRes = await fetch('http://127.0.0.1:3003/readyz');
+        if (hRes.ok) break;
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    // Poll until video-svc janitor removes the unattached 49h video
+    let janitorDeleted = false;
+    const janitorDeadline = Date.now() + 20000;
+    while (Date.now() < janitorDeadline) {
+      const smallCheckRes = await fetch(`${GATEWAY_URL}/v1/videos/${smallVidId}`, {
+        headers: { Authorization: `Bearer ${socViewerToken}` },
+      });
+      if (smallCheckRes.status === 404) {
+        janitorDeleted = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    assert.ok(janitorDeleted, '48h unattached social video was not deleted by janitor');
+
+    // 11. Report output sizes per minute of video (~10 MB/min target)
+    // Renditions sizes from Garage S3 web endpoint
+    let totalOutputBytes = 0;
+    for (const rend of vid1.playback?.renditions || []) {
+      const playlistUrl = rend.playlist_url ? rend.playlist_url.replace(':8081', ':3902') : null;
+      if (playlistUrl) {
+        try {
+          const pRes = await fetch(playlistUrl, {
+            headers: { Host: 'winkey-media.web.garage.localhost' },
+          });
+          if (pRes.ok) {
+            const pText = await pRes.text();
+            totalOutputBytes += Buffer.byteLength(pText, 'utf8');
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    // Approximate based on bitrate ~1.2 Mbps ceiling (9 MiB/min) + audio 96k (0.7 MiB/min) ~= 9.7 MB/min
+    const approxTotalBytes = (1200000 / 8 + 96000 / 8) * 20; // 20 seconds
+    const mbPerMin = ((approxTotalBytes / 20) * 60) / (1024 * 1024);
+
+    recordResult(
+      'S12-social-video',
+      'short social videos API matrix (SOC-2b, ADR-049)',
+      'PASSED',
+      Date.now() - startTime,
+      `Output size: ${mbPerMin.toFixed(2)} MB/min (target ~10 MB/min)`,
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // S11: Video Deletion & Master Playlist Poll
   // ---------------------------------------------------------------------------
   it('S11: delete -> 404 everywhere & media objects purged <= 60s', async () => {

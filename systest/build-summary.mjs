@@ -41,8 +41,12 @@ export function parsePlaywright(playwrightJson) {
       persona: 'role-upgrade (ADR-046 viewer upgrade flow)',
       viewport: 'Desktop (1440x900)',
     },
-    { id: 'social-user-desktop', persona: 'social-user (SOC-2a)', viewport: 'Desktop (1440x900)' },
-    { id: 'social-user-mobile', persona: 'social-user (SOC-2a)', viewport: 'Mobile (360px)' },
+    {
+      id: 'social-user-desktop',
+      persona: 'social-user (SOC-2a/2b)',
+      viewport: 'Desktop (1440x900)',
+    },
+    { id: 'social-user-mobile', persona: 'social-user (SOC-2a/2b)', viewport: 'Mobile (360px)' },
   ];
 
   if (!playwrightJson) {
