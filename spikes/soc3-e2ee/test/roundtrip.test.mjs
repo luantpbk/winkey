@@ -1,15 +1,22 @@
 /* global TextDecoder */
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import init, { Account, GroupSession, InboundGroupSession } from '../pkg/vodozemac_winkey.js';
 
 // Setup Olm backend for Node environment tests
 import Olm from '@matrix-org/olm';
 globalThis.Olm = Olm;
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 describe('Vodozemac WASM / Olm Cryptographic Roundtrips', () => {
   before(async () => {
-    await init();
+    const wasmPath = path.resolve(__dirname, '../pkg/vodozemac_winkey_bg.wasm');
+    const wasmBuffer = fs.readFileSync(wasmPath);
+    await init(wasmBuffer);
   });
 
   test('Olm 1-1: Account generation, OTKs, and mutual ratcheted session', () => {

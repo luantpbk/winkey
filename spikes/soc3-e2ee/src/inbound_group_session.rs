@@ -18,9 +18,12 @@ pub struct InboundGroupSession {
 impl InboundGroupSession {
     #[wasm_bindgen(constructor)]
     pub fn new(session_key: &str) -> Result<InboundGroupSession, JsValue> {
-        let key = vodozemac::megolm::GroupSessionKey::from_base64(session_key)
+        let key = vodozemac::megolm::SessionKey::from_base64(session_key)
             .map_err(|e| JsValue::from_str(&format!("Invalid group session key: {e}")))?;
-        let session = vodozemac::megolm::InboundGroupSession::new(&key);
+        let session = vodozemac::megolm::InboundGroupSession::new(
+            &key,
+            vodozemac::megolm::SessionConfig::version_1(),
+        );
         Ok(InboundGroupSession { inner: session })
     }
 

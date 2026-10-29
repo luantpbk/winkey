@@ -3,291 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- CSP1 Compliant Meta tag: requires 'wasm-unsafe-eval' for WebAssembly compilation -->
+    <!-- Strict CSP1 Policy: 'wasm-unsafe-eval' for WebAssembly compilation; no external CDNs -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:;"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self';"
     />
-    <title>SOC-3 E2EE Browser Library Spike — Benchmark & Verification</title>
-    <script src="https://cdn.jsdelivr.net/npm/@matrix-org/olm@3.2.15/olm.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hash-wasm@4.12.0/dist/argon2.umd.min.js"></script>
+    <title>Winkey SOC-3 E2EE — Browser Benchmark & CSP1 Audit</title>
     <style>
       body {
-        font-family:
-          system-ui,
-          -apple-system,
-          sans-serif;
-        background: #0f0f0f;
-        color: #f3f4f6;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: #0b0f19;
+        color: #f1f5f9;
         margin: 0;
         padding: 24px;
-        line-height: 1.5;
+        line-height: 1.6;
       }
       .card {
-        background: #1a1a1a;
-        border: 1px solid #2e2e2e;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
       }
       h1 {
-        font-size: 20px;
+        font-size: 18px;
+        color: #38bdf8;
         margin-top: 0;
-        color: #ef4444;
-      }
-      h2 {
-        font-size: 16px;
-        margin-top: 0;
-        border-bottom: 1px solid #333;
-        padding-bottom: 8px;
-        color: #e5e7eb;
-      }
-      button {
-        background: #dc2626;
-        color: white;
-        border: none;
-        padding: 10px 18px;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s;
-      }
-      button:hover {
-        background: #b91c1c;
-      }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
       }
       pre {
-        background: #111;
-        padding: 14px;
-        border-radius: 8px;
-        overflow-x: auto;
-        font-size: 12px;
-        color: #10b981;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 16px;
-      }
-      .metric {
-        background: #222;
+        background: #030712;
+        border: 1px solid #1f2937;
         padding: 12px;
-        border-radius: 8px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        color: #4ade80;
       }
-      .metric-val {
-        font-size: 20px;
-        font-weight: bold;
-        color: #3b82f6;
-        margin-top: 4px;
-      }
-      .status-ok {
-        color: #10b981;
-        font-weight: bold;
+      .violations-box {
+        color: #ef4444;
       }
     </style>
   </head>
   <body>
     <div class="card">
-      <h1>Winkey SOC-3 — E2EE Browser Library Spike</h1>
-      <p style="color: #9ca3af; font-size: 13px">
-        Kiểm thử và đo lường trực tiếp thư viện mã hoá đầu-cuối trong trình duyệt: Vodozemac / Olm,
-        Megolm (nhóm 50), Lưu trữ an toàn (WebCrypto non-extractable Key + IndexedDB), Web Worker,
-        CSP1 Policy, và Sao lưu khoá (Argon2id WASM 64 MiB).
+      <h1>Winkey SOC-3 E2EE: Browser Benchmark & CSP1 Audit</h1>
+      <p style="color: #94a3b8; font-size: 13px">
+        Chạy kiểm định mã hoá đầu-cuối trong trình duyệt: vodozemac-winkey (Primary WASM), libolm
+        (Baseline C), Web Worker offloading, và kiểm tra vi phạm chính sách bảo mật CSP1.
       </p>
-      <button id="runBtn" onclick="runFullSuite()">Bắt đầu chạy toàn bộ Benchmark</button>
-    </div>
-
-    <div class="grid">
-      <div class="card metric">
-        <div>Thời gian khởi tạo WASM</div>
-        <div id="statStartup" class="metric-val">—</div>
-      </div>
-      <div class="card metric">
-        <div>Olm 1-1 Encrypt (1 KiB median)</div>
-        <div id="statOlmEnc" class="metric-val">—</div>
-      </div>
-      <div class="card metric">
-        <div>Megolm Chia khoá (100 thiết bị)</div>
-        <div id="statMegolmShare" class="metric-val">—</div>
-      </div>
-      <div class="card metric">
-        <div>Khôi phục Argon2id (64 MiB)</div>
-        <div id="statArgon" class="metric-val">—</div>
-      </div>
-      <div class="card metric">
-        <div>Main Thread Long Tasks (>50ms)</div>
-        <div id="statWorkerJank" class="metric-val">—</div>
-      </div>
+      <div id="status">Đang khởi chạy benchmark...</div>
     </div>
 
     <div class="card">
-      <h2>Kết quả JSON nguyên văn (Verbatim Tool Output)</h2>
-      <pre id="jsonOutput">Chưa chạy. Bấm "Bắt đầu chạy toàn bộ Benchmark" ở trên để thực thi.</pre>
+      <h2 style="font-size: 14px; margin-top: 0">Kết quả Benchmark (JSON)</h2>
+      <pre id="output">Đang chạy...</pre>
     </div>
 
-    <script>
-      let longTasksDetected = 0;
-      if (typeof PerformanceObserver !== 'undefined') {
-        try {
-          const observer = new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-              if (entry.duration > 50) longTasksDetected++;
-            }
-          });
-          observer.observe({ entryTypes: ['longtask'] });
-        } catch (_) {}
-      }
-
-      async function runFullSuite() {
-        const btn = document.getElementById('runBtn');
-        btn.disabled = true;
-        btn.innerText = 'Đang đo lường...';
-
-        const results = {};
-
-        // 1. Startup & WASM instantiation
-        const tStart0 = performance.now();
-        await Olm.init();
-        results.startup_ms = performance.now() - tStart0;
-        document.getElementById('statStartup').innerText = results.startup_ms.toFixed(1) + ' ms';
-
-        // 2. Olm 1-1
-        const alice = new Olm.Account();
-        alice.create();
-        alice.generate_one_time_keys(50);
-        const aliceOtks = JSON.parse(alice.one_time_keys());
-
-        const bob = new Olm.Account();
-        bob.create();
-        const firstOtk = Object.values(aliceOtks.curve25519)[0];
-
-        const bobSession = new Olm.Session();
-        bobSession.create_outbound(bob, JSON.parse(alice.identity_keys()).curve25519, firstOtk);
-        const initMsg = bobSession.encrypt('init');
-        const aliceSession = new Olm.Session();
-        aliceSession.create_inbound(alice, initMsg.body);
-
-        const payload1k = 'W'.repeat(1024);
-        const encTimes = [];
-        const decTimes = [];
-        for (let i = 0; i < 1000; i++) {
-          const tE0 = performance.now();
-          const enc = bobSession.encrypt(payload1k);
-          encTimes.push(performance.now() - tE0);
-
-          const tD0 = performance.now();
-          aliceSession.decrypt(enc.type, enc.body);
-          decTimes.push(performance.now() - tD0);
-        }
-        encTimes.sort((a, b) => a - b);
-        decTimes.sort((a, b) => a - b);
-        results.olm_1kib_enc_median_ms = encTimes[500];
-        results.olm_1kib_enc_p95_ms = encTimes[950];
-        results.olm_1kib_dec_median_ms = decTimes[500];
-        results.olm_1kib_dec_p95_ms = decTimes[950];
-        document.getElementById('statOlmEnc').innerText =
-          results.olm_1kib_enc_median_ms.toFixed(3) + ' ms';
-
-        // 3. Megolm Group of 50 (100 devices)
-        const groupSession = new Olm.OutboundGroupSession();
-        groupSession.create();
-        const sessionKey = groupSession.session_key();
-
-        const tShare0 = performance.now();
-        for (let i = 0; i < 100; i++) {
-          bobSession.encrypt(sessionKey);
-        }
-        results.megolm_share_100_devices_ms = performance.now() - tShare0;
-        document.getElementById('statMegolmShare').innerText =
-          results.megolm_share_100_devices_ms.toFixed(1) + ' ms';
-
-        const inboundGroup = new Olm.InboundGroupSession();
-        inboundGroup.create(sessionKey);
-        const grpMsg = groupSession.encrypt('Hello group 50: ' + payload1k);
-        results.megolm_decrypt_ms = performance.now() - tShare0; // quick sanity
-
-        // 4. Persistence: Non-extractable WebCrypto key & IndexedDB isolation
-        const subtle = window.crypto.subtle;
-        const masterKey = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
-          'encrypt',
-          'decrypt',
-        ]);
-        results.webcrypto_key_non_extractable = masterKey.extractable === false;
-
-        const pickleKey = '01234567890123456789012345678901';
-        const sessionPickle = aliceSession.pickle(pickleKey);
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const encryptedPickle = await subtle.encrypt(
-          { name: 'AES-GCM', iv },
-          masterKey,
-          new TextEncoder().encode(sessionPickle),
-        );
-        results.pickle_sizes = {
-          account_bytes: alice.pickle(pickleKey).length,
-          olm_session_bytes: sessionPickle.length,
-          inbound_group_bytes: inboundGroup.pickle(pickleKey).length,
-          encrypted_envelope_bytes: encryptedPickle.byteLength,
-        };
-
-        // 5. Argon2id Key Backup (64 MiB, 3 iterations)
-        const tArgon0 = performance.now();
-        if (window.hashwasm && window.hashwasm.argon2id) {
-          await window.hashwasm.argon2id({
-            password: 'secure-recovery-passphrase',
-            salt: window.crypto.getRandomValues(new Uint8Array(16)),
-            iterations: 3,
-            memorySize: 64 * 1024,
-            parallelism: 1,
-            hashLength: 32,
-            outputType: 'hex',
-          });
-        }
-        results.argon2id_derivation_ms = performance.now() - tArgon0;
-        document.getElementById('statArgon').innerText =
-          results.argon2id_derivation_ms.toFixed(1) + ' ms';
-
-        // 6. Worker Execution: Encrypt 100 messages off-thread
-        const workerBlob = new Blob(
-          [
-            `
-        importScripts('https://cdn.jsdelivr.net/npm/@matrix-org/olm@3.2.15/olm.js');
-        self.onmessage = async () => {
-          await Olm.init();
-          const gs = new Olm.OutboundGroupSession();
-          gs.create();
-          const t0 = performance.now();
-          for(let i=0; i<100; i++) {
-            gs.encrypt('W'.repeat(1024));
-          }
-          self.postMessage({ done: true, time: performance.now() - t0 });
-        };
-      `,
-          ],
-          { type: 'application/javascript' },
-        );
-
-        const workerUrl = URL.createObjectURL(workerBlob);
-        const worker = new Worker(workerUrl);
-        const workerPromise = new Promise((resolve) => {
-          worker.onmessage = (e) => resolve(e.data);
-        });
-        worker.postMessage('start');
-        const workerRes = await workerPromise;
-        worker.terminate();
-        URL.revokeObjectURL(workerUrl);
-
-        results.worker_encrypt_100_msgs_ms = workerRes.time;
-        results.main_thread_long_tasks = longTasksDetected;
-        document.getElementById('statWorkerJank').innerText = longTasksDetected + ' (jank-free)';
-
-        // Display Final JSON
-        document.getElementById('jsonOutput').innerText = JSON.stringify(results, null, 2);
-        btn.disabled = false;
-        btn.innerText = 'Chạy lại Benchmark';
-      }
-    </script>
+    <!-- Self-hosted UMD libraries for Olm and Argon2id -->
+    <script src="/node_modules/@matrix-org/olm/olm.js"></script>
+    <script src="/node_modules/hash-wasm/dist/argon2.umd.min.js"></script>
+    <!-- ES Module Main Runner -->
+    <script type="module" src="/index.js"></script>
   </body>
 </html>

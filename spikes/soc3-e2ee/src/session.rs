@@ -1,23 +1,33 @@
 use crate::pickle::parse_pickle_key;
-use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
-
-#[derive(Serialize)]
-struct OlmMessageDto {
-    #[serde(rename = "type")]
-    msg_type: usize,
-    body: String,
-}
 
 #[wasm_bindgen]
 pub struct Session {
     inner: vodozemac::olm::Session,
+    initial_plaintext: Option<Vec<u8>>,
+    initial_ciphertext: Option<String>,
 }
 
 impl Session {
     pub(crate) fn from_inner(session: vodozemac::olm::Session) -> Self {
-        Self { inner: session }
+        Self {
+            inner: session,
+            initial_plaintext: None,
+            initial_ciphertext: None,
+        }
+    }
+
+    pub(crate) fn from_inbound(
+        session: vodozemac::olm::Session,
+        plaintext: Vec<u8>,
+        ciphertext: String,
+    ) -> Self {
+        Self {
+            inner: session,
+            initial_plaintext: Some(plaintext),
+            initial_ciphertext: Some(ciphertext),
+        }
     }
 }
 
@@ -28,24 +38,31 @@ impl Session {
         self.inner.session_id()
     }
 
-    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<String, JsValue> {
-        let msg = self.inner.encrypt(plaintext);
-        let (msg_type, body_bytes) = msg.to_parts();
-        let dto = OlmMessageDto {
-            msg_type: msg_type as usize,
-            body: String::from_utf8_lossy(&body_bytes).to_string(),
-        };
-        serde_json::to_string(&dto).map_err(|e| JsValue::from_str(&e.to_string()))
+    pub fn encrypt(&mut self, plaintext: &str) -> Result<String, JsValue> {
+        let msg = self
+            .inner
+            .encrypt(plaintext.as_bytes())
+            .map_err(|e| JsValue::from_str(&format!("Encryption failed: {e}")))?;
+        serde_json::to_string(&msg).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     pub fn decrypt(&mut self, message_type: usize, ciphertext: &str) -> Result<Vec<u8>, JsValue> {
-        let olm_msg = match message_type {
-            0 => vodozemac::olm::OlmMessage::from_parts(0, ciphertext.as_bytes())
-                .map_err(|e| JsValue::from_str(&format!("Invalid PreKey message: {e}")))?,
-            1 => vodozemac::olm::OlmMessage::from_parts(1, ciphertext.as_bytes())
-                .map_err(|e| JsValue::from_str(&format!("Invalid Normal message: {e}")))?,
-            _ => return Err(JsValue::from_str("Invalid Olm message type (must be 0 or 1)")),
-        };
+        if message_type == 0 {
+            if let Some(ref init_c) = self.initial_ciphertext {
+                if init_c == ciphertext {
+                    if let Some(ref init_p) = self.initial_plaintext {
+                        return Ok(init_p.clone());
+                    }
+                }
+            }
+        }
+
+        let json = serde_json::json!({
+            "type": message_type,
+            "body": ciphertext,
+        });
+        let olm_msg: vodozemac::olm::OlmMessage = serde_json::from_value(json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid Olm message: {e}")))?;
 
         let plaintext = self
             .inner
@@ -70,6 +87,10 @@ impl Session {
         key_arr.zeroize();
 
         let session = vodozemac::olm::Session::from_pickle(encrypted_pickle);
-        Ok(Session { inner: session })
+        Ok(Session {
+            inner: session,
+            initial_plaintext: None,
+            initial_ciphertext: None,
+        })
     }
 }

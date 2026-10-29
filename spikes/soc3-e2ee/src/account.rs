@@ -10,6 +10,11 @@ struct IdentityKeysDto {
     ed25519: String,
 }
 
+#[derive(Serialize)]
+struct OneTimeKeysDto {
+    curve25519: std::collections::BTreeMap<String, String>,
+}
+
 #[wasm_bindgen]
 pub struct Account {
     inner: vodozemac::olm::Account,
@@ -54,9 +59,10 @@ impl Account {
         let otks = self.inner.one_time_keys();
         let map: std::collections::BTreeMap<String, String> = otks
             .into_iter()
-            .map(|(key_id, key)| (key_id.to_string(), key.to_base64()))
+            .map(|(key_id, key)| (key_id.to_base64(), key.to_base64()))
             .collect();
-        serde_json::to_string(&map).map_err(|e| JsValue::from_str(&e.to_string()))
+        let dto = OneTimeKeysDto { curve25519: map };
+        serde_json::to_string(&dto).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     #[wasm_bindgen(js_name = markKeysAsPublished)]
@@ -75,7 +81,10 @@ impl Account {
         let otk = vodozemac::Curve25519PublicKey::from_base64(their_one_time_key)
             .map_err(|e| JsValue::from_str(&format!("Invalid one-time key: {e}")))?;
 
-        let session = self.inner.create_outbound_session(id_key, otk);
+        let session = self
+            .inner
+            .create_outbound_session(vodozemac::olm::SessionConfig::version_1(), id_key, otk)
+            .map_err(|e| JsValue::from_str(&format!("Failed to create outbound session: {e}")))?;
         Ok(Session::from_inner(session))
     }
 
@@ -89,20 +98,28 @@ impl Account {
         let id_key = vodozemac::Curve25519PublicKey::from_base64(their_identity_key)
             .map_err(|e| JsValue::from_str(&format!("Invalid identity key: {e}")))?;
 
-        let olm_msg = match message_type {
-            0 => vodozemac::olm::OlmMessage::from_parts(0, ciphertext.as_bytes())
-                .map_err(|e| JsValue::from_str(&format!("Invalid PreKey message: {e}")))?,
-            1 => vodozemac::olm::OlmMessage::from_parts(1, ciphertext.as_bytes())
-                .map_err(|e| JsValue::from_str(&format!("Invalid Normal message: {e}")))?,
-            _ => return Err(JsValue::from_str("Invalid Olm message type (must be 0 or 1)")),
+        let json = serde_json::json!({
+            "type": message_type,
+            "body": ciphertext,
+        });
+        let olm_msg: vodozemac::olm::OlmMessage = serde_json::from_value(json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid Olm message: {e}")))?;
+
+        let prekey_msg = match olm_msg {
+            vodozemac::olm::OlmMessage::PreKey(pk) => pk,
+            _ => return Err(JsValue::from_str("createInboundSession requires a PreKey message")),
         };
 
         let result = self
             .inner
-            .create_inbound_session(id_key, &olm_msg)
+            .create_inbound_session(vodozemac::olm::SessionConfig::version_1(), id_key, &prekey_msg)
             .map_err(|e| JsValue::from_str(&format!("Failed to create inbound session: {e}")))?;
 
-        Ok(Session::from_inner(result.session))
+        Ok(Session::from_inbound(
+            result.session,
+            result.plaintext,
+            ciphertext.to_string(),
+        ))
     }
 
     pub fn pickle(&self, pickle_key: &[u8]) -> Result<String, JsValue> {

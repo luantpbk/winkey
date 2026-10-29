@@ -6,6 +6,7 @@
   "description": "SOC-3 E2EE Browser Library Spike (vodozemac, libsignal, OpenMLS, Argon2id)",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:browser": "node test-browser-cdp.mjs",
     "bench": "node benchmark.mjs",
     "serve": "npx serve ."
   },

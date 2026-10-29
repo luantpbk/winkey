@@ -1,54 +1,48 @@
-/* global importScripts, self, Olm, performance */
-/**
- * Web Worker for Offloaded E2EE Operations (SOC-3).
- * Keeps cryptographic computations off the browser main thread.
- */
+/* global self, performance */
+// worker.js — Local ES Module Web Worker (Zero CDN Dependency, CSP1 Compliant)
+import init, { GroupSession, InboundGroupSession } from './pkg/vodozemac_winkey.js';
 
-// Import Olm inside worker scope
-importScripts('https://cdn.jsdelivr.net/npm/@matrix-org/olm@3.2.15/olm.js');
+let wasmReadyPromise = null;
 
-let isReady = false;
+function ensureWasmInitialized() {
+  if (!wasmReadyPromise) {
+    wasmReadyPromise = init('./pkg/vodozemac_winkey_bg.wasm');
+  }
+  return wasmReadyPromise;
+}
 
 self.onmessage = async (event) => {
-  const { type, payload, id } = event.data;
+  try {
+    await ensureWasmInitialized();
 
-  if (type === 'INIT') {
-    if (!isReady) {
-      await Olm.init();
-      isReady = true;
-    }
-    self.postMessage({ id, type: 'INIT_OK' });
-    return;
-  }
-
-  if (type === 'ENCRYPT_BATCH') {
-    if (!isReady) {
-      await Olm.init();
-      isReady = true;
-    }
-
-    const count = payload.count || 100;
-    const messageSize = payload.messageSize || 1024;
-    const text = 'W'.repeat(messageSize);
-
-    const groupSession = new Olm.OutboundGroupSession();
-    groupSession.create();
+    const count = event.data?.count ?? 50;
+    const basePayload = event.data?.payload ?? 'W'.repeat(1024);
 
     const t0 = performance.now();
-    const ciphertexts = [];
 
+    // Khởi tạo phiên Megolm Outbound & Inbound độc lập trên luồng Worker
+    const outboundGroup = new GroupSession();
+    const sessionKey = outboundGroup.sessionKey();
+    const inboundGroup = new InboundGroupSession(sessionKey);
+
+    let lastCiphertext = '';
     for (let i = 0; i < count; i++) {
-      ciphertexts.push(groupSession.encrypt(text));
+      lastCiphertext = outboundGroup.encrypt(`${basePayload}:${i}`);
+      inboundGroup.decrypt(lastCiphertext);
     }
 
-    const durationMs = performance.now() - t0;
+    const durationMs = Number((performance.now() - t0).toFixed(3));
 
     self.postMessage({
-      id,
-      type: 'BATCH_DONE',
+      status: 'ok',
       count,
-      durationMs,
-      avgPerMsgMs: durationMs / count,
+      duration_ms: durationMs,
+      sample_ciphertext: lastCiphertext.slice(0, 32),
+    });
+  } catch (err) {
+    self.postMessage({
+      status: 'error',
+      error: err?.message || String(err),
     });
   }
 };

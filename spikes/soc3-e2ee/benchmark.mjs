@@ -1,218 +1,370 @@
 /* global console, process, performance, TextEncoder */
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { argon2id } from 'hash-wasm';
 import Olm from '@matrix-org/olm';
+import initVodozemac, {
+  Account as VodozemacAccount,
+  GroupSession as VodozemacGroupSession,
+  InboundGroupSession as VodozemacInboundGroupSession,
+} from './pkg/vodozemac_winkey.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const subtle = crypto.webcrypto.subtle;
+
+function percentile(arr, p) {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = Math.min(Math.floor(sorted.length * p), sorted.length - 1);
+  return sorted[idx];
+}
 
 async function runBenchmark() {
   console.log('========================================================================');
-  console.log(' SOC-3 E2EE Browser Library Spike — Benchmark Suite');
+  console.log(' SOC-3 E2EE Browser Library Spike — Comprehensive Benchmark Suite');
   console.log(
-    ' Measured on: Node.js ' + process.version + ' / ' + process.platform + ' ' + process.arch,
+    ' Environment: Node.js ' + process.version + ' / ' + process.platform + ' ' + process.arch,
   );
+  console.log(' Primary: vodozemac-winkey (Rust vodozemac 0.11.1 compiled to WebAssembly)');
+  console.log(' Baseline: @matrix-org/olm (v3.2.15, C libolm compiled via Emscripten)');
   console.log('========================================================================\n');
 
   // 1. Startup & Instantiation
-  const tStartup0 = performance.now();
+  const wasmPath = path.resolve(__dirname, './pkg/vodozemac_winkey_bg.wasm');
+  const wasmBytes = fs.readFileSync(wasmPath);
+
+  const tVodoStart0 = performance.now();
+  await initVodozemac(wasmBytes);
+  const vodoStartupMs = performance.now() - tVodoStart0;
+
+  const tOlmStart0 = performance.now();
   await Olm.init();
-  const startupTimeMs = performance.now() - tStartup0;
-  console.log(
-    `[Startup] WASM fetch, compile & instantiate: ${startupTimeMs.toFixed(2)} ms (Desktop)`,
+  const olmStartupMs = performance.now() - tOlmStart0;
+
+  console.log('[1. Startup & Instantiation]');
+  console.log(`  - vodozemac-winkey (Primary): ${vodoStartupMs.toFixed(2)} ms`);
+  console.log(`  - @matrix-org/olm (Baseline): ${olmStartupMs.toFixed(2)} ms\n`);
+
+  // 2. Olm 1-1: Account Creation & Session Establishment
+  // 2A. Vodozemac
+  const tVodoAcc0 = performance.now();
+  const vodoAlice = new VodozemacAccount();
+  vodoAlice.generateOneTimeKeys(50);
+  const vodoAliceOtks = JSON.parse(vodoAlice.oneTimeKeys());
+  const vodoAliceId = vodoAlice.curve25519Key();
+  const vodoFirstOtk = Object.values(vodoAliceOtks.curve25519)[0];
+  const tVodoAccountMs = performance.now() - tVodoAcc0;
+
+  const vodoBob = new VodozemacAccount();
+  const vodoBobId = vodoBob.curve25519Key();
+
+  const tVodoSess0 = performance.now();
+  const vodoBobSession = vodoBob.createOutboundSession(vodoAliceId, vodoFirstOtk);
+  const vodoPrekeyMsg = JSON.parse(vodoBobSession.encrypt('init'));
+  const vodoAliceSession = vodoAlice.createInboundSession(
+    vodoBobId,
+    vodoPrekeyMsg.type,
+    vodoPrekeyMsg.body,
   );
-  console.log(
-    `[Startup] Estimated mid-range mobile / 4x CPU throttle: ${(startupTimeMs * 4).toFixed(2)} ms\n`,
-  );
+  const tVodoSessionEstMs = performance.now() - tVodoSess0;
 
-  // 2. Olm 1-1
-  const tAcc0 = performance.now();
-  const alice = new Olm.Account();
-  alice.create();
-  alice.generate_one_time_keys(50);
-  const aliceOtks = JSON.parse(alice.one_time_keys());
-  const tAccount = performance.now() - tAcc0;
+  // 2B. Libolm
+  const tOlmAcc0 = performance.now();
+  const olmAlice = new Olm.Account();
+  olmAlice.create();
+  olmAlice.generate_one_time_keys(50);
+  const olmAliceOtks = JSON.parse(olmAlice.one_time_keys());
+  const olmAliceId = JSON.parse(olmAlice.identity_keys()).curve25519;
+  const olmFirstOtk = Object.values(olmAliceOtks.curve25519)[0];
+  const tOlmAccountMs = performance.now() - tOlmAcc0;
 
-  const bob = new Olm.Account();
-  bob.create();
-  const _bobId = JSON.parse(bob.identity_keys()).curve25519;
-  const aliceId = JSON.parse(alice.identity_keys()).curve25519;
-  const firstOtk = Object.values(aliceOtks.curve25519)[0];
+  const olmBob = new Olm.Account();
+  olmBob.create();
 
-  const tSess0 = performance.now();
-  const bobSession = new Olm.Session();
-  bobSession.create_outbound(bob, aliceId, firstOtk);
-  const initMsg = bobSession.encrypt('init');
-  const aliceSession = new Olm.Session();
-  aliceSession.create_inbound(alice, initMsg.body);
-  const tSessionEst = performance.now() - tSess0;
+  const tOlmSess0 = performance.now();
+  const olmBobSession = new Olm.Session();
+  olmBobSession.create_outbound(olmBob, olmAliceId, olmFirstOtk);
+  const olmPrekeyMsg = olmBobSession.encrypt('init');
+  const olmAliceSession = new Olm.Session();
+  olmAliceSession.create_inbound(olmAlice, olmPrekeyMsg.body);
+  const tOlmSessionEstMs = performance.now() - tOlmSess0;
 
-  // 1,000 runs of 1 KiB encrypt and decrypt
+  // 3. 1 KiB Encrypt & Decrypt (1,000 runs)
   const payload1KiB = 'W'.repeat(1024);
-  const encTimes = [];
-  const decTimes = [];
+  const vodoEncTimes = [];
+  const vodoDecTimes = [];
+  const olmEncTimes = [];
+  const olmDecTimes = [];
 
-  for (let i = 0; i < 1000; i++) {
-    const tE = performance.now();
-    const enc = bobSession.encrypt(payload1KiB);
-    encTimes.push(performance.now() - tE);
+  const RUNS = 1000;
+  for (let i = 0; i < RUNS; i++) {
+    // Vodozemac
+    const tVE0 = performance.now();
+    const vEnc = JSON.parse(vodoBobSession.encrypt(payload1KiB));
+    vodoEncTimes.push(performance.now() - tVE0);
 
-    const tD = performance.now();
-    aliceSession.decrypt(enc.type, enc.body);
-    decTimes.push(performance.now() - tD);
+    const tVD0 = performance.now();
+    vodoAliceSession.decrypt(vEnc.type, vEnc.body);
+    vodoDecTimes.push(performance.now() - tVD0);
+
+    // Libolm
+    const tOE0 = performance.now();
+    const oEnc = olmBobSession.encrypt(payload1KiB);
+    olmEncTimes.push(performance.now() - tOE0);
+
+    const tOD0 = performance.now();
+    olmAliceSession.decrypt(oEnc.type, oEnc.body);
+    olmDecTimes.push(performance.now() - tOD0);
   }
 
-  encTimes.sort((a, b) => a - b);
-  decTimes.sort((a, b) => a - b);
-  const encMedian = encTimes[Math.floor(encTimes.length * 0.5)];
-  const encP95 = encTimes[Math.floor(encTimes.length * 0.95)];
-  const decMedian = decTimes[Math.floor(decTimes.length * 0.5)];
-  const decP95 = decTimes[Math.floor(decTimes.length * 0.95)];
+  const vodoEncMedian = percentile(vodoEncTimes, 0.5);
+  const vodoEncP95 = percentile(vodoEncTimes, 0.95);
+  const vodoDecMedian = percentile(vodoDecTimes, 0.5);
+  const vodoDecP95 = percentile(vodoDecTimes, 0.95);
 
-  console.log('[Olm 1-1]');
-  console.log(`  - Account creation (50 OTKs): ${tAccount.toFixed(2)} ms`);
-  console.log(`  - Session establishment:      ${tSessionEst.toFixed(2)} ms`);
+  const olmEncMedian = percentile(olmEncTimes, 0.5);
+  const olmEncP95 = percentile(olmEncTimes, 0.95);
+  const olmDecMedian = percentile(olmDecTimes, 0.5);
+  const olmDecP95 = percentile(olmDecTimes, 0.95);
+
+  console.log('[2. Olm 1-1 Direct Ratchet Performance]');
   console.log(
-    `  - 1 KiB Encrypt: median = ${encMedian.toFixed(3)} ms, p95 = ${encP95.toFixed(3)} ms`,
+    `  - Account Creation (50 OTKs): vodozemac=${tVodoAccountMs.toFixed(2)} ms | libolm=${tOlmAccountMs.toFixed(2)} ms`,
   );
   console.log(
-    `  - 1 KiB Decrypt: median = ${decMedian.toFixed(3)} ms, p95 = ${decP95.toFixed(3)} ms\n`,
+    `  - Session Establishment:      vodozemac=${tVodoSessionEstMs.toFixed(2)} ms | libolm=${tOlmSessionEstMs.toFixed(2)} ms`,
+  );
+  console.log(
+    `  - 1 KiB Encrypt (Median):     vodozemac=${vodoEncMedian.toFixed(3)} ms | libolm=${olmEncMedian.toFixed(3)} ms`,
+  );
+  console.log(
+    `  - 1 KiB Encrypt (p95):        vodozemac=${vodoEncP95.toFixed(3)} ms | libolm=${olmEncP95.toFixed(3)} ms`,
+  );
+  console.log(
+    `  - 1 KiB Decrypt (Median):     vodozemac=${vodoDecMedian.toFixed(3)} ms | libolm=${olmDecMedian.toFixed(3)} ms`,
+  );
+  console.log(
+    `  - 1 KiB Decrypt (p95):        vodozemac=${vodoDecP95.toFixed(3)} ms | libolm=${olmDecP95.toFixed(3)} ms\n`,
   );
 
-  // 3. Megolm Group of 50 (50 users x 2 devices = 100 devices)
-  const tGrp0 = performance.now();
-  const groupSession = new Olm.OutboundGroupSession();
-  groupSession.create();
-  const tGroupCreate = performance.now() - tGrp0;
+  // 4. Megolm Group of 50 (100 devices)
+  // 4A. Vodozemac
+  const tVodoGrp0 = performance.now();
+  const vodoGroup = new VodozemacGroupSession();
+  const tVodoGroupCreate = performance.now() - tVodoGrp0;
+  const vodoSessionKey = vodoGroup.sessionKey();
 
-  const sessionKey = groupSession.session_key();
-  const tShare0 = performance.now();
+  const tVodoShare0 = performance.now();
   for (let i = 0; i < 100; i++) {
-    bobSession.encrypt(sessionKey);
+    vodoBobSession.encrypt(vodoSessionKey);
   }
-  const tShare100 = performance.now() - tShare0;
+  const tVodoShare100 = performance.now() - tVodoShare0;
 
-  const inboundGroup = new Olm.InboundGroupSession();
-  inboundGroup.create(sessionKey);
+  const vodoInbound = new VodozemacInboundGroupSession(vodoSessionKey);
+  const tVodoMsgEnc0 = performance.now();
+  const vodoGrpMsg = vodoGroup.encrypt('Group message 1 KiB: ' + payload1KiB);
+  const tVodoMsgEnc = performance.now() - tVodoMsgEnc0;
 
-  const tMsgEnc0 = performance.now();
-  const grpMsg = groupSession.encrypt('Group message 1 KiB payload: ' + payload1KiB);
-  const tMsgEnc = performance.now() - tMsgEnc0;
+  const tVodoMsgDec0 = performance.now();
+  vodoInbound.decrypt(vodoGrpMsg);
+  const tVodoMsgDec = performance.now() - tVodoMsgDec0;
 
-  const tMsgDec0 = performance.now();
-  inboundGroup.decrypt(grpMsg);
-  const tMsgDec = performance.now() - tMsgDec0;
-
-  // Key rotation after 1 member leaves (reshare to remaining 49 users x 2 devices = 98 devices)
-  const tRot0 = performance.now();
-  const newGroup = new Olm.OutboundGroupSession();
-  newGroup.create();
-  const newKey = newGroup.session_key();
+  const tVodoRot0 = performance.now();
+  const vodoNewGroup = new VodozemacGroupSession();
+  const vodoNewKey = vodoNewGroup.sessionKey();
   for (let i = 0; i < 98; i++) {
-    bobSession.encrypt(newKey);
+    vodoBobSession.encrypt(vodoNewKey);
   }
-  const tRotation = performance.now() - tRot0;
+  const tVodoRotation = performance.now() - tVodoRot0;
 
-  console.log('[Megolm Group of 50]');
-  console.log(`  - Create OutboundGroupSession:      ${tGroupCreate.toFixed(2)} ms`);
+  // 4B. Libolm
+  const tOlmGrp0 = performance.now();
+  const olmGroup = new Olm.OutboundGroupSession();
+  olmGroup.create();
+  const tOlmGroupCreate = performance.now() - tOlmGrp0;
+  const olmSessionKey = olmGroup.session_key();
+
+  const tOlmShare0 = performance.now();
+  for (let i = 0; i < 100; i++) {
+    olmBobSession.encrypt(olmSessionKey);
+  }
+  const tOlmShare100 = performance.now() - tOlmShare0;
+
+  const olmInbound = new Olm.InboundGroupSession();
+  olmInbound.create(olmSessionKey);
+  const tOlmMsgEnc0 = performance.now();
+  const olmGrpMsg = olmGroup.encrypt('Group message 1 KiB: ' + payload1KiB);
+  const tOlmMsgEnc = performance.now() - tOlmMsgEnc0;
+
+  const tOlmMsgDec0 = performance.now();
+  olmInbound.decrypt(olmGrpMsg);
+  const tOlmMsgDec = performance.now() - tOlmMsgDec0;
+
+  const tOlmRot0 = performance.now();
+  const olmNewGroup = new Olm.OutboundGroupSession();
+  olmNewGroup.create();
+  const olmNewKey = olmNewGroup.session_key();
+  for (let i = 0; i < 98; i++) {
+    olmBobSession.encrypt(olmNewKey);
+  }
+  const tOlmRotation = performance.now() - tOlmRot0;
+
+  console.log('[3. Megolm Group of 50 Performance (100 devices)]');
   console.log(
-    `  - Share key to 100 devices (Olm):   ${tShare100.toFixed(2)} ms (avg ${(tShare100 / 100).toFixed(2)} ms/dev)`,
+    `  - Create GroupSession:        vodozemac=${tVodoGroupCreate.toFixed(2)} ms | libolm=${tOlmGroupCreate.toFixed(2)} ms`,
   );
-  console.log(`  - Message Encrypt (1 KiB):          ${tMsgEnc.toFixed(3)} ms`);
-  console.log(`  - Message Decrypt (1 KiB):          ${tMsgDec.toFixed(3)} ms`);
-  console.log(`  - Key Rotation (new session + 98 enc): ${tRotation.toFixed(2)} ms\n`);
+  console.log(
+    `  - Share Key (100 devices):    vodozemac=${tVodoShare100.toFixed(2)} ms | libolm=${tOlmShare100.toFixed(2)} ms`,
+  );
+  console.log(
+    `  - Group Msg Encrypt (1 KiB):  vodozemac=${tVodoMsgEnc.toFixed(3)} ms | libolm=${tOlmMsgEnc.toFixed(3)} ms`,
+  );
+  console.log(
+    `  - Group Msg Decrypt (1 KiB):  vodozemac=${tVodoMsgDec.toFixed(3)} ms | libolm=${tOlmMsgDec.toFixed(3)} ms`,
+  );
+  console.log(
+    `  - Key Rotation (98 devices):  vodozemac=${tVodoRotation.toFixed(2)} ms | libolm=${tOlmRotation.toFixed(2)} ms\n`,
+  );
 
-  // 4. Persistence & Pickle Sizes
-  const key32 = '01234567890123456789012345678901';
-  const alicePickle = alice.pickle(key32);
-  const sessionPickle = aliceSession.pickle(key32);
-  const inboundPickle = inboundGroup.pickle(key32);
+  // 5. Persistence & Pickle Sizes
+  const key32 = new Uint8Array(32).fill(7);
+  const key32Str = '01234567890123456789012345678901';
 
-  // WebCrypto AES-GCM envelope overhead
+  const vodoAlicePickle = vodoAlice.pickle(key32);
+  const vodoSessionPickle = vodoAliceSession.pickle(key32);
+  const vodoInboundPickle = vodoInbound.pickle(key32);
+
+  const olmAlicePickle = olmAlice.pickle(key32Str);
+  const olmSessionPickle = olmAliceSession.pickle(key32Str);
+  const olmInboundPickle = olmInbound.pickle(key32Str);
+
   const masterKey = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
     'encrypt',
     'decrypt',
   ]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encSessionPickle = await subtle.encrypt(
+  const encEnvelope = await subtle.encrypt(
     { name: 'AES-GCM', iv },
     masterKey,
-    new TextEncoder().encode(sessionPickle),
+    new TextEncoder().encode(vodoSessionPickle),
   );
 
-  console.log('[Persistence & Pickle Sizes]');
-  console.log(`  - Account (with 50 OTKs):        ${alicePickle.length} bytes`);
+  console.log('[4. Persistence & Pickle Sizes]');
   console.log(
-    `  - Olm Session:                   ${sessionPickle.length} bytes (encrypted envelope: ${encSessionPickle.byteLength} bytes)`,
+    `  - Account (50 OTKs):          vodozemac=${vodoAlicePickle.length} bytes | libolm=${olmAlicePickle.length} bytes`,
   );
-  console.log(`  - InboundGroupSession:           ${inboundPickle.length} bytes`);
-  console.log(`  - Non-extractable WebCrypto key: extractable = ${masterKey.extractable}\n`);
+  console.log(
+    `  - Olm Session:                vodozemac=${vodoSessionPickle.length} bytes | libolm=${olmSessionPickle.length} bytes`,
+  );
+  console.log(
+    `  - InboundGroupSession:        vodozemac=${vodoInboundPickle.length} bytes | libolm=${olmInboundPickle.length} bytes`,
+  );
+  console.log(
+    `  - WebCrypto AES-GCM Envelope: ${encEnvelope.byteLength} bytes (non-extractable=${!masterKey.extractable})\n`,
+  );
 
-  // 5. Key Backup with Argon2id WASM
-  const tArgon0 = performance.now();
+  // 6. Argon2id Key Backup
+  const tArg0 = performance.now();
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const derivedKeyHex = await argon2id({
-    password: 'user-sample-backup-passphrase',
+  const _derivedHex = await argon2id({
+    password: 'winkey-user-e2ee-recovery-phrase',
     salt,
     iterations: 3,
-    memorySize: 64 * 1024, // 64 MiB
+    memorySize: 64 * 1024,
     parallelism: 1,
     hashLength: 32,
     outputType: 'hex',
   });
-  const tArgon = performance.now() - tArgon0;
+  const tArgonMs = performance.now() - tArg0;
 
-  const derivedKeyBytes = new Uint8Array(
-    derivedKeyHex.match(/.{1,2}/g).map((b) => parseInt(b, 16)),
-  );
-  const backupKey = await subtle.importKey('raw', derivedKeyBytes, { name: 'AES-GCM' }, false, [
-    'encrypt',
-  ]);
-  const backupBlob = new TextEncoder().encode(
-    JSON.stringify({ sessions: [inboundPickle], account: alicePickle }),
-  );
-  const backupIv = crypto.getRandomValues(new Uint8Array(12));
-  const encBackup = await subtle.encrypt({ name: 'AES-GCM', iv: backupIv }, backupKey, backupBlob);
+  console.log('[5. Key Backup (Argon2id WASM: m=65536, t=3, p=1)]');
+  console.log(`  - Key Derivation Time:        ${tArgonMs.toFixed(1)} ms\n`);
 
-  console.log('[Key Backup (Argon2id WASM + AES-256-GCM)]');
-  console.log(`  - Memory: 64 MiB, Iterations: 3, Parallelism: 1`);
-  console.log(`  - Derivation time (Desktop):     ${tArgon.toFixed(1)} ms`);
-  console.log(`  - Estimated time (Mobile 4x):    ${(tArgon * 4).toFixed(1)} ms`);
-  console.log(`  - Encrypted backup blob size:    ${encBackup.byteLength} bytes\n`);
-
-  // 6. Output JSON result for programmatic reporting
-  const report = {
-    startup: { desktop_ms: startupTimeMs, mobile_estimated_ms: startupTimeMs * 4 },
+  const results = {
+    metadata: {
+      platform: process.platform,
+      arch: process.arch,
+      node_version: process.version,
+      timestamp: new Date().toISOString(),
+    },
+    startup_ms: {
+      vodozemac_primary: vodoStartupMs,
+      libolm_baseline: olmStartupMs,
+    },
     olm_1to1: {
-      account_creation_ms: tAccount,
-      session_establishment_ms: tSessionEst,
-      encrypt_1kib_median_ms: encMedian,
-      encrypt_1kib_p95_ms: encP95,
-      decrypt_1kib_median_ms: decMedian,
-      decrypt_1kib_p95_ms: decP95,
+      account_creation_ms: {
+        vodozemac_primary: tVodoAccountMs,
+        libolm_baseline: tOlmAccountMs,
+      },
+      session_establishment_ms: {
+        vodozemac_primary: tVodoSessionEstMs,
+        libolm_baseline: tOlmSessionEstMs,
+      },
+      encrypt_1kib_median_ms: {
+        vodozemac_primary: vodoEncMedian,
+        libolm_baseline: olmEncMedian,
+      },
+      encrypt_1kib_p95_ms: {
+        vodozemac_primary: vodoEncP95,
+        libolm_baseline: olmEncP95,
+      },
+      decrypt_1kib_median_ms: {
+        vodozemac_primary: vodoDecMedian,
+        libolm_baseline: olmDecMedian,
+      },
+      decrypt_1kib_p95_ms: {
+        vodozemac_primary: vodoDecP95,
+        libolm_baseline: olmDecP95,
+      },
     },
     megolm_group_50: {
-      create_session_ms: tGroupCreate,
-      share_key_100_devices_ms: tShare100,
-      encrypt_msg_ms: tMsgEnc,
-      decrypt_msg_ms: tMsgDec,
-      key_rotation_ms: tRotation,
+      create_session_ms: {
+        vodozemac_primary: tVodoGroupCreate,
+        libolm_baseline: tOlmGroupCreate,
+      },
+      share_key_100_devices_ms: {
+        vodozemac_primary: tVodoShare100,
+        libolm_baseline: tOlmShare100,
+      },
+      encrypt_msg_ms: {
+        vodozemac_primary: tVodoMsgEnc,
+        libolm_baseline: tOlmMsgEnc,
+      },
+      decrypt_msg_ms: {
+        vodozemac_primary: tVodoMsgDec,
+        libolm_baseline: tOlmMsgDec,
+      },
+      key_rotation_ms: {
+        vodozemac_primary: tVodoRotation,
+        libolm_baseline: tOlmRotation,
+      },
     },
-    persistence: {
-      account_pickle_bytes: alicePickle.length,
-      olm_session_pickle_bytes: sessionPickle.length,
-      inbound_megolm_pickle_bytes: inboundPickle.length,
-      non_extractable_crypto_key: true,
+    pickle_sizes_bytes: {
+      account_50_otks: {
+        vodozemac_primary: vodoAlicePickle.length,
+        libolm_baseline: olmAlicePickle.length,
+      },
+      olm_session: {
+        vodozemac_primary: vodoSessionPickle.length,
+        libolm_baseline: olmSessionPickle.length,
+      },
+      inbound_megolm_session: {
+        vodozemac_primary: vodoInboundPickle.length,
+        libolm_baseline: olmInboundPickle.length,
+      },
+      envelope_aes_gcm: encEnvelope.byteLength,
     },
-    backup: {
-      kdf: 'Argon2id WASM (hash-wasm v4.12.0)',
-      params: 'm=65536, t=3, p=1',
-      derivation_desktop_ms: tArgon,
-      derivation_mobile_estimated_ms: tArgon * 4,
-    },
+    argon2id_derivation_ms: tArgonMs,
   };
 
-  console.log('### JSON RESULT SUMMARY ###');
-  console.log(JSON.stringify(report, null, 2));
+  return results;
 }
 
-runBenchmark().catch(console.error);
+runBenchmark()
+  .then((res) => {
+    console.log('### JSON RESULT SUMMARY ###');
+    console.log(JSON.stringify(res, null, 2));
+  })
+  .catch(console.error);

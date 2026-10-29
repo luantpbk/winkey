@@ -26,6 +26,5 @@ use wasm_bindgen::prelude::*;
 /// Initializer for WASM environment (panic hook and logging)
 #[wasm_bindgen(start)]
 pub fn init_panic_hook() {
-    #[cfg(feature = "console_error_panic_hook")]
-    console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(|_| {}));
 }

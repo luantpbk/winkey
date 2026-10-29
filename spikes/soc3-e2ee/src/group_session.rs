@@ -12,7 +12,7 @@ impl GroupSession {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
-            inner: vodozemac::megolm::GroupSession::new(),
+            inner: vodozemac::megolm::GroupSession::new(vodozemac::megolm::SessionConfig::version_1()),
         }
     }
 
@@ -31,8 +31,8 @@ impl GroupSession {
         self.inner.message_index()
     }
 
-    pub fn encrypt(&mut self, plaintext: &[u8]) -> String {
-        let msg = self.inner.encrypt(plaintext);
+    pub fn encrypt(&mut self, plaintext: &str) -> String {
+        let msg = self.inner.encrypt(plaintext.as_bytes());
         msg.to_base64()
     }
 
