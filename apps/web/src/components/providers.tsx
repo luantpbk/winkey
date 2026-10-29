@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../lib/auth/auth-context';
 import { MswProvider } from '../mocks/msw-provider';
@@ -8,7 +8,13 @@ import { ThemeProvider } from './theme-provider';
 import { ToastProvider } from './ui/toast';
 import { RealtimeProvider } from '../lib/realtime/realtime-context';
 
-export function Providers({ children }: { children: ReactNode }) {
+const NonceContext = createContext<string | undefined>(undefined);
+
+export function useNonce(): string | undefined {
+  return useContext(NonceContext);
+}
+
+export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -23,16 +29,18 @@ export function Providers({ children }: { children: ReactNode }) {
   );
 
   return (
-    <MswProvider>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <AuthProvider>
-            <ToastProvider>
-              <RealtimeProvider>{children}</RealtimeProvider>
-            </ToastProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </MswProvider>
+    <NonceContext.Provider value={nonce}>
+      <MswProvider>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <AuthProvider>
+              <ToastProvider>
+                <RealtimeProvider>{children}</RealtimeProvider>
+              </ToastProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </MswProvider>
+    </NonceContext.Provider>
   );
 }
