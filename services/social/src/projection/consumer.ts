@@ -140,6 +140,7 @@ export class VideoProjectionConsumer {
         const videoId = data?.video_id;
         const ownerId = data?.owner_id;
         const rawVisibility = data?.visibility;
+        const rawPurpose = data?.purpose;
 
         if (
           typeof videoId !== 'string' ||
@@ -149,11 +150,12 @@ export class VideoProjectionConsumer {
           (rawVisibility !== undefined &&
             rawVisibility !== 'PUBLIC' &&
             rawVisibility !== 'UNLISTED' &&
-            rawVisibility !== 'PRIVATE')
+            rawVisibility !== 'PRIVATE') ||
+          (rawPurpose !== undefined && rawPurpose !== 'FILM' && rawPurpose !== 'SOCIAL')
         ) {
           this.logger.error(
             { event, subject: m.subject },
-            'Poison message: missing fields or invalid UUIDs/visibility in video.ready event; terminating message',
+            'Poison message: missing fields or invalid UUIDs/visibility/purpose in video.ready event; terminating message',
           );
           m.term();
           return;
@@ -163,7 +165,7 @@ export class VideoProjectionConsumer {
           await this.db.transaction().execute(async (trx) => {
             const prev = await trx
               .selectFrom('social.videos')
-              .select(['id', 'owner_id', 'hidden', 'visibility'])
+              .select(['id', 'owner_id', 'hidden', 'visibility', 'purpose'])
               .where('id', '=', videoId)
               .forUpdate()
               .executeTakeFirst();
@@ -172,32 +174,31 @@ export class VideoProjectionConsumer {
 
             const visibility: VideoVisibility =
               (rawVisibility as VideoVisibility) ?? prev?.visibility ?? 'PUBLIC';
-
-            if (rawVisibility !== undefined) {
-              await trx
-                .insertInto('social.videos')
-                .values({ id: videoId, owner_id: ownerId, visibility })
-                .onConflict((oc) =>
-                  oc.column('id').doUpdateSet({
-                    owner_id: ownerId,
-                    visibility,
-                  }),
-                )
-                .execute();
-            } else {
-              await trx
-                .insertInto('social.videos')
-                .values({ id: videoId, owner_id: ownerId })
-                .onConflict((oc) =>
-                  oc.column('id').doUpdateSet({
-                    owner_id: ownerId,
-                  }),
-                )
-                .execute();
-            }
-
             const isNowHidden = prev ? Boolean(prev.hidden) : false;
             const isNowPublic = visibility === 'PUBLIC' && !isNowHidden;
+
+            const insertValues: Record<string, unknown> = {
+              id: videoId,
+              owner_id: ownerId,
+            };
+            const updateSet: Record<string, unknown> = {
+              owner_id: ownerId,
+            };
+
+            if (rawVisibility !== undefined) {
+              insertValues.visibility = visibility;
+              updateSet.visibility = visibility;
+            }
+            if (rawPurpose !== undefined) {
+              insertValues.purpose = rawPurpose;
+              updateSet.purpose = rawPurpose;
+            }
+
+            await trx
+              .insertInto('social.videos')
+              .values(insertValues as any)
+              .onConflict((oc) => oc.column('id').doUpdateSet(updateSet as any))
+              .execute();
 
             if (!wasPublic && isNowPublic) {
               await this.fanoutVideoPublished(trx, ownerId, videoId);

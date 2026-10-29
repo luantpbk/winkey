@@ -7,6 +7,7 @@ import type { Env } from '../config/env.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildPostCreateRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import { ProblemError } from '../errors/problem.js';
+import { enqueue } from '@winkey/outbox';
 import { getCaller, requireAuth, isValidUuid, isVideoClosedForCaller } from '../utils/auth.js';
 import { canSeePost } from '../utils/visibility.js';
 import { extractCandidates, resolveHashtags, resolveMentions } from '../utils/text-parser.js';
@@ -167,15 +168,50 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
     }
 
     // Validate Video
+    let isVideoSocial = false;
     if (hasVideo && video_id) {
       const video = await db
         .selectFrom('social.videos')
-        .select(['id', 'owner_id', 'hidden', 'visibility'])
+        .select(['id', 'owner_id', 'hidden', 'visibility', 'purpose'])
         .where('id', '=', video_id)
         .executeTakeFirst();
 
-      if (!video || isVideoClosedForCaller(video, caller)) {
+      if (!video || video.hidden) {
         throw ProblemError.notFound('Video not found or not accessible', 'VIDEO_NOT_FOUND');
+      }
+
+      if (video.purpose === 'SOCIAL') {
+        // Security: Check ownership FIRST before checking in-use (404 instead of 403/409 to prevent enumeration)
+        if (video.owner_id !== caller.userId) {
+          throw ProblemError.notFound('Video not found or not accessible', 'VIDEO_NOT_FOUND');
+        }
+
+        if (video.visibility === 'PRIVATE') {
+          throw ProblemError.notFound('Video not found or not accessible', 'VIDEO_NOT_FOUND');
+        }
+
+        // Pre-check if this social video is already attached to an active post
+        const activeAttachment = await db
+          .selectFrom('social.posts')
+          .select('id')
+          .where('video_id', '=', video.id)
+          .where('video_social', '=', true)
+          .where('status', '<>', 'DELETED')
+          .executeTakeFirst();
+
+        if (activeAttachment) {
+          throw ProblemError.conflict(
+            'This social video is already attached to an active post',
+            'VIDEO_IN_USE',
+          );
+        }
+
+        isVideoSocial = true;
+      } else {
+        if (isVideoClosedForCaller(video, caller)) {
+          throw ProblemError.notFound('Video not found or not accessible', 'VIDEO_NOT_FOUND');
+        }
+        isVideoSocial = false;
       }
     }
 
@@ -286,12 +322,27 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
             visibility: effectiveVisibility,
             status: 'VISIBLE',
             video_id: video_id ?? null,
+            video_social: isVideoSocial,
             reshare_of: targetOriginalId,
             media_count: readyImages.length,
             created_at: sql`now()`,
             updated_at: sql`now()`,
           })
           .execute();
+
+        if (isVideoSocial && video_id) {
+          await enqueue(
+            trx,
+            'social',
+            'social.post.video_attached',
+            {
+              post_id: postId,
+              video_id: video_id,
+              author_id: caller.userId,
+            },
+            { producer: 'social-svc', version: 1 },
+          );
+        }
 
         if (readyImages.length > 0 && image_ids) {
           const imageMap = new Map(readyImages.map((img) => [img.id, img]));
@@ -379,8 +430,17 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
         }
       });
     } catch (err: unknown) {
-      const pgErr = err as { code?: string };
+      const pgErr = err as { code?: string; constraint?: string; message?: string };
       if (pgErr.code === '23505') {
+        if (
+          pgErr.constraint === 'posts_one_per_social_video' ||
+          pgErr.message?.includes('posts_one_per_social_video')
+        ) {
+          throw ProblemError.conflict(
+            'This social video is already attached to an active post',
+            'VIDEO_IN_USE',
+          );
+        }
         if (hasImages) {
           throw ProblemError.badRequest('Image already used in a post', undefined, 'IMAGE_INVALID');
         }
@@ -651,7 +711,7 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
 
     const post = await db
       .selectFrom('social.posts')
-      .select(['id', 'author_id', 'status'])
+      .select(['id', 'author_id', 'status', 'video_id', 'video_social'])
       .where('id', '=', post_id)
       .executeTakeFirst();
 
@@ -685,6 +745,20 @@ export const postsRoute: FastifyPluginAsync<PostsRouteOptions> = async (
       await trx.deleteFrom('social.post_mentions').where('post_id', '=', post_id).execute();
       await trx.deleteFrom('social.post_scores').where('post_id', '=', post_id).execute();
       // Keep social.post_comments intact!
+
+      if (post.video_social && post.video_id) {
+        await enqueue(
+          trx,
+          'social',
+          'social.post.video_released',
+          {
+            post_id: post.id,
+            video_id: post.video_id,
+            author_id: post.author_id,
+          },
+          { producer: 'social-svc', version: 1 },
+        );
+      }
     });
 
     if (redis) {
