@@ -57,6 +57,7 @@ jobs:
               - 'services/auth/**'
               - 'services/social/**'
               - 'services/realtime/**'
+              - 'services/chat/**'
             go_libs:
               - 'libs/go/**'
               - 'go.work*'

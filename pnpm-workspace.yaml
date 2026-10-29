@@ -4,6 +4,7 @@ packages:
   - 'services/auth'
   - 'services/social'
   - 'services/realtime'
+  - 'services/chat'
   - 'e2e'
 
 allowBuilds:
