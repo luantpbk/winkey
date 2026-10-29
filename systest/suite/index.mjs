@@ -3324,7 +3324,8 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     }
     // Approximate based on bitrate ~1.2 Mbps ceiling (9 MiB/min) + audio 96k (0.7 MiB/min) ~= 9.7 MB/min
     const approxTotalBytes = (1200000 / 8 + 96000 / 8) * 20; // 20 seconds
-    const mbPerMin = ((approxTotalBytes / 20) * 60) / (1024 * 1024);
+    const finalBytes = totalOutputBytes > 0 ? totalOutputBytes : approxTotalBytes;
+    const mbPerMin = ((finalBytes / 20) * 60) / (1024 * 1024);
 
     recordResult(
       'S12-social-video',

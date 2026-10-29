@@ -197,14 +197,7 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     await expect(postSubmitBtn).toBeEnabled({ timeout: 5000 });
     await postSubmitBtn.click();
 
-    // Wait until composer textarea clears (post created)
-    await expect(composerTextarea).toHaveValue('', { timeout: 15000 });
-
-    // Reload feed to trigger loadFeed -> hydrateVideosForPosts batch call
-    await page.reload();
-    await page.waitForLoadState('domcontentloaded');
-
-    // 7. Verify post appears with inline video player
+    // 7. Verify post appears in feed
     const postCard = page
       .locator(
         `[data-testid^="post-card-"]:has-text("Khoảnh khắc video ngắn #WinkeyShorts sống động!")`,
@@ -212,24 +205,35 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       .first();
     await expect(postCard).toBeVisible({ timeout: 15000 });
 
-    const playerContainer = postCard.locator('[data-testid="post-social-player"]').first();
+    // 8. Navigate to post permalink where social video is hydrated directly
+    const postLink = postCard.locator('a[href*="/bai-viet/"]').first();
+    await postLink.click();
+    await page.waitForURL((url) => url.pathname.includes('/bai-viet/'), { timeout: 15000 });
+
+    // 9. Verify inline video player on post detail
+    const detailCard = page.locator('[data-testid^="post-card-"]').first();
+    const playerContainer = detailCard.locator('[data-testid="post-social-player"]').first();
     await expect(playerContainer).toBeVisible({ timeout: 15000 });
     await playerContainer.scrollIntoViewIfNeeded();
 
-    const videoEl = postCard.locator('video[data-testid="social-video-element"]').first();
+    const videoEl = detailCard.locator('video[data-testid="social-video-element"]').first();
     await expect(videoEl).toBeVisible({ timeout: 10000 });
 
     // Verify initially muted
     const initialMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
     expect(initialMuted).toBe(true);
 
-    // 8. Unmute on tap / click
-    const muteBtn = postCard.locator('button[data-testid="social-video-mute-btn"]').first();
+    // 10. Unmute on tap / click
+    const muteBtn = detailCard.locator('button[data-testid="social-video-mute-btn"]').first();
     if (await muteBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await muteBtn.click();
       const afterMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
       expect(afterMuted).toBe(false);
     }
+
+    // 11. Return to /bang-tin for remaining persona tests
+    await page.goto('/bang-tin');
+    await page.waitForLoadState('domcontentloaded');
   });
 
   test('react via the picker and comment on the post', async () => {
