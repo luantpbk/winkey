@@ -45,6 +45,14 @@ spec:
               value: '0'
             - name: NEXT_PUBLIC_MEDIA_BASE_URL
               value: 'https://media.winkey.vn'
+            - name: CSP_MEDIA_ORIGIN
+              value: 'https://media.winkey.vn'
+            - name: CSP_UPLOAD_ORIGIN
+              valueFrom:
+                secretKeyRef:
+                  name: r2-upload-svc
+                  key: S3_PUBLIC_ENDPOINT
+                  optional: true
             - name: CINEMA_CURATOR_HANDLE
               value: ''
             - name: FEEDBACK_URL

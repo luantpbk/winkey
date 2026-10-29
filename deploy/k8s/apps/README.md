@@ -90,6 +90,9 @@ This generates and provisions:
   The cluster uses K3s Flannel CNI with no default-deny egress NetworkPolicies in `default` namespace; direct outbound HTTPS traffic from pods is enabled.
 - **Country Header**: Configured with `TRUSTED_COUNTRY_HEADER=CF-IPCountry`. Production apex domain `winkey.vn` currently resolves directly to the Oracle Cloud edge host (`138.2.93.173`) with direct Nginx ingress (unproxied / grey-clouded), so `CF-IPCountry` is null on inbound requests; `country` field in `auth.sessions` gracefully remains null per ADR-049 specification.
 
+### Content Security Policy Origins (CSP1, ADR-049)
+- `web-svc` reads `CSP_MEDIA_ORIGIN` (`https://media.winkey.vn`) and `CSP_UPLOAD_ORIGIN` (`S3_PUBLIC_ENDPOINT` from `r2-upload-svc`, e.g. Cloudflare R2 origin) at runtime to populate `img-src`, `media-src`, and `connect-src` directives. Both values are origins only (scheme + host + optional port, no path or trailing slash).
+
 ### Step 2: Apply Kustomization
 ```bash
 kubectl apply -k deploy/k8s/apps

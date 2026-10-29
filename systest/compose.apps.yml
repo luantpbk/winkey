@@ -246,6 +246,8 @@ services:
       CINEMA_CURATOR_HANDLE: sim_curator
       NEXT_PUBLIC_ANALYTICS_ENABLED: 'true'
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ''
+      CSP_MEDIA_ORIGIN: ${CSP_MEDIA_ORIGIN:-http://127.0.0.1:8081}
+      CSP_UPLOAD_ORIGIN: ${CSP_UPLOAD_ORIGIN:-http://127.0.0.1:3900}
     healthcheck:
       test:
         ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:3000/healthz']
