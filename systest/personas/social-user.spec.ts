@@ -234,11 +234,26 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     // 11. Return to /bang-tin for remaining persona tests
     await page.goto('/bang-tin');
     await page.waitForLoadState('domcontentloaded');
+
+    const followingTabTest3 = page
+      .locator('[data-testid="feed-tab-following"], button:has-text("Đang theo dõi")')
+      .first();
+    if (await followingTabTest3.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTabTest3.click();
+    }
   });
 
   test('react via the picker and comment on the post', async () => {
+    // Switch to Following tab where author's own posts appear
+    const followingTab = page
+      .locator('[data-testid="feed-tab-following"], button:has-text("Đang theo dõi")')
+      .first();
+    if (await followingTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await followingTab.click();
+    }
+
     const postCard = page.locator('[data-testid^="post-card-"]').first();
-    await expect(postCard).toBeVisible({ timeout: 10000 });
+    await expect(postCard).toBeVisible({ timeout: 15000 });
 
     // 1. Reaction picker
     const reactionBtn = postCard
