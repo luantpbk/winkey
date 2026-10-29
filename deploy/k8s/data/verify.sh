@@ -368,6 +368,17 @@ if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "video.ready" "
     exit 1
 fi
 echo "  PASS: video user blocked from video.ready (Permissions Violation)."
+
+echo "Test 5.25: social user publishes to social.post.video_attached (SOC-2b)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "social.post.video_attached" "test-post-video-attached" --server="nats://social:${SOCIAL_PWD}@nats:4222"' >/dev/null
+echo "  PASS: social user published to social.post.video_attached."
+
+echo "Test 5.26: video user CANNOT publish to social.post.video_attached (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "social.post.video_attached" "test-exploit" --server="nats://video:${VIDEO_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: video user was able to publish to social.post.video_attached!" >&2
+    exit 1
+fi
+echo "  PASS: video user blocked from social.post.video_attached (Permissions Violation)."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true

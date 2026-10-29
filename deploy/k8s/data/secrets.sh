@@ -87,15 +87,15 @@ authorization: {
       user: "video"
       password: "${VIDEO_PWD}"
       permissions: {
-        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["social.video.like_changed", "social.subscription.changed", "_INBOX.>"]
+        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.SOCIAL.video-social-posts.>"]
+        subscribe: ["social.video.like_changed", "social.subscription.changed", "social.post.video_attached", "social.post.video_released", "_INBOX.>"]
       }
     },
     {
       user: "social"
       password: "${SOCIAL_PWD}"
       permissions: {
-        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>"]
+        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "social.post.video_attached", "social.post.video_released", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["video.ready", "video.deleted", "video.moderated", "_INBOX.>"]
       }
     },
@@ -199,15 +199,15 @@ authorization: {
       user: "video"
       password: "${VIDEO_PWD}"
       permissions: {
-        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>"]
-        subscribe: ["social.video.like_changed", "social.subscription.changed", "_INBOX.>"]
+        publish: ["video.deleted", "video.moderated", "video.visibility_changed", "analytics.>", "_INBOX.>", "\$JS.API.>", "\$JS.ACK.SOCIAL.video-social-posts.>"]
+        subscribe: ["social.video.like_changed", "social.subscription.changed", "social.post.video_attached", "social.post.video_released", "_INBOX.>"]
       }
     },
     {
       user: "social"
       password: "${SOCIAL_PWD}"
       permissions: {
-        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "_INBOX.>", "\$JS.API.>"]
+        publish: ["social.comment.created", "social.video.like_changed", "social.subscription.changed", "social.post.video_attached", "social.post.video_released", "_INBOX.>", "\$JS.API.>"]
         subscribe: ["video.ready", "video.deleted", "video.moderated", "_INBOX.>"]
       }
     },
