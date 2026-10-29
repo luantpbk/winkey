@@ -65,8 +65,10 @@ export function AddMyVideosDialog({
       .then((res) => {
         if (cancelled) return;
         const allItems = res.data?.items || [];
-        // Only READY videos
-        const readyVideos = allItems.filter((v) => v.status === 'READY');
+        // Only READY videos, excluding SOCIAL purpose videos (SOC-2b)
+        const readyVideos = allItems.filter(
+          (v: any) => v.status === 'READY' && v.purpose !== 'SOCIAL',
+        );
         setVideos(readyVideos);
         setNextCursor(res.data?.next_cursor || null);
       })
@@ -103,7 +105,7 @@ export function AddMyVideosDialog({
         params: { query: { limit: 50, cursor: nextCursor } },
       });
       const newItems = res.data?.items || [];
-      const newReady = newItems.filter((v) => v.status === 'READY');
+      const newReady = newItems.filter((v: any) => v.status === 'READY' && v.purpose !== 'SOCIAL');
       setVideos((prev) => [...prev, ...newReady]);
       setNextCursor(res.data?.next_cursor || null);
     } catch (err) {

@@ -51,7 +51,8 @@ export default function StudioPage() {
     },
   });
 
-  const videos = data?.items || [];
+  // In task SOC-2b, social videos are never shown in studio
+  const videos = (data?.items || []).filter((v: any) => v.purpose !== 'SOCIAL');
 
   const pendingIds = React.useMemo(() => {
     const items = data?.items || [];

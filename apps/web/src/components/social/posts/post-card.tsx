@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Post, VideoSummary } from '@winkey/api-client';
+import type { HydratedPostVideo } from '../../../lib/video/hydrate-posts-videos';
 import { api } from '../../../lib/api-client';
 import { Link, useRouter } from '../../../i18n/routing';
 import { formatRelativeTime } from '../../../lib/format';
@@ -30,7 +31,7 @@ import { ReportDialog } from '../../moderation/report-dialog';
 
 export interface PostCardProps {
   post: Post;
-  hydratedVideo?: VideoSummary | null;
+  hydratedVideo?: HydratedPostVideo | VideoSummary | null;
   onPostUpdated?: (updated: Post) => void;
   onPostDeleted?: (postId: string) => void;
   onQuoteReshare?: (post: Post) => void;

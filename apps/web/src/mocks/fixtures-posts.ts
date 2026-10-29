@@ -11,6 +11,40 @@ export const mockTrendingHashtags: TrendingHashtag[] = [
 
 export const mockPosts: Post[] = [
   {
+    id: '0192f5e4-7c1a-7b3e-9d2a-000000000099',
+    author: {
+      id: mockUsers.creator.id,
+      handle: mockUsers.creator.handle,
+      display_name: mockUsers.creator.display_name,
+      avatar_url: mockUsers.creator.avatar_url,
+    },
+    body: 'Trải nghiệm video ngắn hoàn toàn mới trên Winkey! Tự động phát khi cuộn trên bảng tin. #winkey #shorts',
+    visibility: 'PUBLIC',
+    status: 'VISIBLE',
+    mentions: [],
+    hashtags: [
+      { tag: 'winkey', slug: 'winkey' },
+      { tag: 'shorts', slug: 'shorts' },
+    ],
+    images: [],
+    video_id: '0192f5e4-7c1a-7b3e-9d2a-social-video-01',
+    reshare_of: null,
+    reshared_post: null,
+    reshare_unavailable: false,
+    reaction_count: 56,
+    my_reaction: 'LOVE',
+    top_reactions: [
+      { reaction: 'LOVE', count: 36 },
+      { reaction: 'LIKE', count: 20 },
+    ],
+    comment_count: 8,
+    reshare_count: 3,
+    created_at: '2026-10-28T12:00:00Z',
+    edited_at: null,
+    can_edit: true,
+    can_delete: true,
+  },
+  {
     id: '0192f5e4-7c1a-7b3e-9d2a-000000000001',
     author: {
       id: mockUsers.creator.id,

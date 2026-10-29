@@ -4,9 +4,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Post, PostVisibility, PostImage, VideoSummary } from '@winkey/api-client';
 import { api } from '../../../lib/api-client';
 import { compressPostImageFile, uploadImage } from '../../../lib/media/upload-image';
+import { MultipartUploader } from '../../../lib/uploader/uploader';
+import { validateSocialVideoFile, pollVideoProcessing } from '../../../lib/video/social-video';
 import {
   Image as ImageIcon,
   Video as VideoIcon,
+  Film,
   X,
   AlertCircle,
   Loader2,
@@ -35,6 +38,19 @@ interface UploadingImage {
   error?: string;
 }
 
+interface UploadingSocialVideo {
+  file: File;
+  previewUrl: string;
+  status: 'validating' | 'uploading' | 'processing' | 'ready' | 'error';
+  progress: number;
+  progressMsg: string;
+  videoId?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  error?: string;
+}
+
 export function PostComposer({
   onPostCreated,
   reshareOf = null,
@@ -46,12 +62,21 @@ export function PostComposer({
   const [body, setBody] = useState('');
   const [visibility, setVisibility] = useState<PostVisibility>('PUBLIC');
   const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([]);
+
+  // Film attach (existing Winkey video URL)
   const [attachedVideoId, setAttachedVideoId] = useState<string | null>(null);
   const [attachedVideo, setAttachedVideo] = useState<VideoSummary | null>(null);
   const [showVideoInput, setShowVideoInput] = useState(false);
   const [videoUrlInput, setVideoUrlInput] = useState('');
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+
+  // Social Video upload (SOC-2b, purpose: SOCIAL)
+  const [uploadingSocialVideo, setUploadingSocialVideo] = useState<UploadingSocialVideo | null>(
+    null,
+  );
+  const socialUploaderRef = useRef<MultipartUploader | null>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,16 +96,145 @@ export function PostComposer({
 
   const charCount = body.length;
   const isOverLimit = charCount > 2000;
+
   const hasImages = uploadingImages.some((img) => img.status === 'ready');
-  const hasUploading = uploadingImages.some(
+  const hasUploadingImages = uploadingImages.some(
     (img) => img.status === 'compressing' || img.status === 'uploading',
   );
-  const hasVideo = !!attachedVideoId;
+
+  const isSocialVideoReady = uploadingSocialVideo?.status === 'ready';
+  const isSocialVideoBusy =
+    uploadingSocialVideo &&
+    (uploadingSocialVideo.status === 'validating' ||
+      uploadingSocialVideo.status === 'uploading' ||
+      uploadingSocialVideo.status === 'processing');
+
+  const hasFilm = !!attachedVideoId && !uploadingSocialVideo;
+  const hasSocialVideo = isSocialVideoReady;
   const hasReshare = !!reshareOf;
-  const hasAttachment = hasImages || hasVideo || hasReshare;
+
+  const hasUploading = hasUploadingImages || !!isSocialVideoBusy;
+  const hasAttachment = hasImages || hasFilm || hasSocialVideo || hasReshare;
   const isValid = !isOverLimit && !hasUploading && (body.trim().length > 0 || hasAttachment);
 
-  // Handle Video URL attach
+  // Handle Social Video File Selection (SOC-2b)
+  const handleSelectVideoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // Reset input
+
+    setErrorMessage(null);
+    const previewUrl = URL.createObjectURL(file);
+
+    const initialItem: UploadingSocialVideo = {
+      file,
+      previewUrl,
+      status: 'validating',
+      progress: 0,
+      progressMsg: 'Đang kiểm tra tệp video…',
+    };
+    setUploadingSocialVideo(initialItem);
+
+    try {
+      // 1. Browser checks: size <= 300 MiB, duration <= 180s
+      const meta = await validateSocialVideoFile(file);
+
+      setUploadingSocialVideo((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'uploading',
+              progressMsg: 'Đang tải lên video…',
+              duration: meta.duration,
+              width: meta.width,
+              height: meta.height,
+            }
+          : null,
+      );
+
+      // 2. Start multipart upload with purpose: 'SOCIAL'
+      const title = body.trim().slice(0, 100) || 'Video bài đăng';
+      const uploader = new MultipartUploader({
+        file,
+        title,
+        purpose: 'SOCIAL',
+        visibility: 'UNLISTED',
+        onProgress: (p) => {
+          setUploadingSocialVideo((prev) =>
+            prev && prev.status === 'uploading'
+              ? {
+                  ...prev,
+                  progress: Math.round(p.percent),
+                  progressMsg: `Đang tải lên ${Math.round(p.percent)}%...`,
+                }
+              : prev,
+          );
+        },
+      });
+      socialUploaderRef.current = uploader;
+
+      const videoId = await uploader.start();
+
+      // 3. Follow processing until READY
+      setUploadingSocialVideo((prev) =>
+        prev
+          ? {
+              ...prev,
+              videoId,
+              status: 'processing',
+              progressMsg: 'Đang xử lý video…',
+            }
+          : null,
+      );
+
+      await pollVideoProcessing(videoId, {
+        onProgress: (_percent, msg) => {
+          setUploadingSocialVideo((prev) =>
+            prev && prev.status === 'processing' ? { ...prev, progressMsg: msg } : prev,
+          );
+        },
+      });
+
+      // 4. Finished & READY
+      setAttachedVideoId(videoId);
+      setUploadingSocialVideo((prev) =>
+        prev
+          ? {
+              ...prev,
+              videoId,
+              status: 'ready',
+              progressMsg: 'Video đã sẵn sàng',
+            }
+          : null,
+      );
+    } catch (err: any) {
+      const msg = err?.message || 'Tải lên video thất bại.';
+      setUploadingSocialVideo((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'error',
+              error: msg,
+            }
+          : null,
+      );
+      setErrorMessage(msg);
+    }
+  };
+
+  const handleRemoveSocialVideo = () => {
+    if (uploadingSocialVideo?.previewUrl) {
+      URL.revokeObjectURL(uploadingSocialVideo.previewUrl);
+    }
+    if (socialUploaderRef.current) {
+      socialUploaderRef.current.cancel();
+      socialUploaderRef.current = null;
+    }
+    setUploadingSocialVideo(null);
+    setAttachedVideoId(null);
+  };
+
+  // Handle Film Video URL attach (SOC-2a)
   const handleAttachVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoUrlInput.trim()) return;
@@ -89,7 +243,6 @@ export function PostComposer({
     setIsLoadingVideo(true);
 
     try {
-      // Extract video ID from URL or bare ID
       let vid = videoUrlInput.trim();
       const match = vid.match(/[?&]v=([a-zA-Z0-9_-]+)/) || vid.match(/\/watch\/([a-zA-Z0-9_-]+)/);
       if (match) {
@@ -155,7 +308,6 @@ export function PostComposer({
       // Execute upload pipeline
       (async () => {
         try {
-          // 1. Compress in browser (max 1600px edge, WebP/JPEG ~0.8)
           const compressedBlob = await compressPostImageFile(file);
 
           setUploadingImages((prev) =>
@@ -166,7 +318,6 @@ export function PostComposer({
             ),
           );
 
-          // 2. Upload to S3 & complete & poll READY
           const result = await uploadImage({
             blob: compressedBlob,
             purpose: 'POST',
@@ -270,15 +421,18 @@ export function PostComposer({
         // Reset composer
         setBody('');
         setUploadingImages([]);
+        handleRemoveSocialVideo();
         setAttachedVideoId(null);
         setAttachedVideo(null);
         onPostCreated?.(data);
       } else {
-        if (response.status === 429) {
+        if (response.status === 409 || (error as any)?.code === 'VIDEO_IN_USE') {
+          setErrorMessage('Video này đã được gắn vào một bài viết khác.');
+        } else if (response.status === 429) {
           setErrorMessage(
             'Bạn đã vượt quá giới hạn đăng bài (tối đa 30 bài/giờ). Vui lòng thử lại sau.',
           );
-        } else if (error?.code === 'IMAGE_INVALID') {
+        } else if ((error as any)?.code === 'IMAGE_INVALID') {
           setErrorMessage(
             'Một hoặc nhiều ảnh không hợp lệ hoặc đã được sử dụng trong bài viết khác.',
           );
@@ -325,40 +479,24 @@ export function PostComposer({
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder={placeholder}
-            className="w-full bg-transparent text-sm sm:text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 resize-none focus:outline-none"
+            className="w-full bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none resize-none"
           />
-
-          {/* Character counter */}
-          <div className="flex justify-end text-xs">
+          {/* Realtime character counter */}
+          <div className="flex justify-end pt-1">
             <span
               data-testid="post-char-counter"
-              className={`font-mono ${
+              className={`text-xs ${
                 isOverLimit
                   ? 'text-red-500 font-bold'
-                  : charCount > 1800
+                  : 2000 - charCount < 100
                     ? 'text-amber-500'
-                    : 'text-zinc-400'
+                    : 'text-zinc-400 dark:text-zinc-500'
               }`}
             >
               {2000 - charCount}
             </span>
           </div>
         </div>
-
-        {/* Reshare Preview Card */}
-        {reshareOf && (
-          <div className="p-3 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-950/50 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-zinc-500">
-              <span className="font-bold text-zinc-900 dark:text-zinc-200">
-                {reshareOf.author?.display_name}
-              </span>
-              <span>@{reshareOf.author?.handle}</span>
-            </div>
-            <p className="text-xs text-zinc-700 dark:text-zinc-300 line-clamp-3">
-              {reshareOf.body}
-            </p>
-          </div>
-        )}
 
         {/* Uploading & Attached Images Grid */}
         {uploadingImages.length > 0 && (
@@ -435,17 +573,67 @@ export function PostComposer({
           </div>
         )}
 
-        {/* Video Embed Preview */}
-        {attachedVideo && (
-          <div className="relative p-3 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between gap-3">
+        {/* Uploading Social Video Preview Card (SOC-2b) */}
+        {uploadingSocialVideo && (
+          <div
+            data-testid="composer-social-video-preview"
+            className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between gap-3 text-white"
+          >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-16 h-10 bg-zinc-900 rounded overflow-hidden shrink-0 relative">
-                {attachedVideo.thumbnail_url && (
+              <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0">
+                {uploadingSocialVideo.status === 'ready' ? (
+                  <VideoIcon className="w-5 h-5 text-emerald-500" />
+                ) : uploadingSocialVideo.status === 'error' ? (
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                ) : (
+                  <Loader2 className="w-5 h-5 text-red-500 animate-spin" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <span className="text-xs font-bold truncate block">
+                  {uploadingSocialVideo.file.name}
+                </span>
+                <span
+                  className={`text-[11px] block truncate ${
+                    uploadingSocialVideo.status === 'error'
+                      ? 'text-red-400 font-medium'
+                      : uploadingSocialVideo.status === 'ready'
+                        ? 'text-emerald-400 font-medium'
+                        : 'text-zinc-400'
+                  }`}
+                >
+                  {uploadingSocialVideo.status === 'error'
+                    ? uploadingSocialVideo.error
+                    : uploadingSocialVideo.progressMsg}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveSocialVideo}
+              className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
+              title="Gỡ video"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Attached Film Card (SOC-2a) */}
+        {attachedVideo && !uploadingSocialVideo && (
+          <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-16 h-10 rounded-lg overflow-hidden bg-zinc-900 shrink-0">
+                {attachedVideo.thumbnail_url ? (
                   <img
                     src={attachedVideo.thumbnail_url}
                     alt={attachedVideo.title}
                     className="w-full h-full object-cover"
                   />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                    <Film className="w-4 h-4" />
+                  </div>
                 )}
               </div>
               <div className="min-w-0">
@@ -471,8 +659,8 @@ export function PostComposer({
           </div>
         )}
 
-        {/* Video input form */}
-        {showVideoInput && !attachedVideoId && (
+        {/* Video input form for Film link */}
+        {showVideoInput && !attachedVideoId && !uploadingSocialVideo && (
           <div className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">
             <div className="flex items-center gap-2">
               <input
@@ -532,7 +720,14 @@ export function PostComposer({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isSubmitting || hasVideo || hasReshare || uploadingImages.length >= 10}
+              disabled={
+                isSubmitting ||
+                hasFilm ||
+                hasSocialVideo ||
+                isSocialVideoBusy ||
+                hasReshare ||
+                uploadingImages.length >= 10
+              }
               className="p-2 text-zinc-500 hover:text-red-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 text-xs"
               title="Đính kèm ảnh (tối đa 10 ảnh)"
               aria-label="Đính kèm ảnh"
@@ -541,17 +736,55 @@ export function PostComposer({
               <span className="hidden sm:inline">Ảnh</span>
             </button>
 
-            {/* Video attach button */}
+            {/* Social Video attach button (SOC-2b) */}
+            <input
+              type="file"
+              ref={videoFileInputRef}
+              data-testid="post-video-file-input"
+              accept="video/mp4,video/quicktime,video/webm,video/x-matroska"
+              onChange={handleSelectVideoFile}
+              className="hidden"
+            />
             <button
               type="button"
-              onClick={() => setShowVideoInput((prev) => !prev)}
-              disabled={isSubmitting || hasImages || hasReshare || !!attachedVideoId}
+              data-testid="post-attach-video-btn"
+              onClick={() => videoFileInputRef.current?.click()}
+              disabled={
+                isSubmitting ||
+                hasImages ||
+                hasUploadingImages ||
+                hasFilm ||
+                hasSocialVideo ||
+                isSocialVideoBusy ||
+                hasReshare
+              }
               className="p-2 text-zinc-500 hover:text-red-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 text-xs"
-              title="Gắn video Winkey"
-              aria-label="Gắn video Winkey"
+              title="Tải lên video bài đăng (tối đa 3 phút, 300 MiB)"
+              aria-label="Đính kèm video"
             >
               <VideoIcon className="w-4 h-4 text-red-500" />
               <span className="hidden sm:inline">Video</span>
+            </button>
+
+            {/* Film attach button (SOC-2a URL attach) */}
+            <button
+              type="button"
+              onClick={() => setShowVideoInput((prev) => !prev)}
+              disabled={
+                isSubmitting ||
+                hasImages ||
+                hasUploadingImages ||
+                hasSocialVideo ||
+                isSocialVideoBusy ||
+                hasFilm ||
+                hasReshare
+              }
+              className="p-2 text-zinc-500 hover:text-red-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 text-xs"
+              title="Gắn liên kết phim Winkey"
+              aria-label="Gắn phim Winkey"
+            >
+              <Film className="w-4 h-4 text-blue-500" />
+              <span className="hidden sm:inline">Gắn phim</span>
             </button>
 
             {/* Visibility Selector */}
