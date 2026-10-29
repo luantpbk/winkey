@@ -2,7 +2,6 @@ import type { VideoSummary } from '@winkey/api-client';
 import { api } from '../api-client';
 
 export type HydratedPostVideo = VideoSummary & {
-  purpose?: 'FILM' | 'SOCIAL';
   playback?: {
     hls_url: string;
     thumbnail_url: string;

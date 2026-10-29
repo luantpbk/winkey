@@ -5,17 +5,11 @@ import Hls from 'hls.js';
 import { Volume2, VolumeX, Play, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../../../lib/api-client';
 import type { VideoSummary } from '@winkey/api-client';
+import type { HydratedPostVideo } from '../../../lib/video/hydrate-posts-videos';
 
 export interface PostSocialVideoPlayerProps {
   videoId: string;
-  initialVideo?:
-    | (VideoSummary & {
-        purpose?: string;
-        width?: number | null;
-        height?: number | null;
-        playback?: any;
-      })
-    | null;
+  initialVideo?: HydratedPostVideo | null;
   className?: string;
 }
 

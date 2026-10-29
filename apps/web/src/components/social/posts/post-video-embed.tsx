@@ -2,20 +2,14 @@
 
 import React from 'react';
 import type { VideoSummary } from '@winkey/api-client';
+import type { HydratedPostVideo } from '../../../lib/video/hydrate-posts-videos';
 import { Link } from '../../../i18n/routing';
 import { Play, Eye } from 'lucide-react';
 import { formatCompactNumber, formatDuration } from '../../../lib/format';
 import { PostSocialVideoPlayer } from './post-social-player';
 
 export interface PostVideoEmbedProps {
-  video:
-    | (VideoSummary & {
-        purpose?: string;
-        width?: number | null;
-        height?: number | null;
-        playback?: any;
-      })
-    | null;
+  video: HydratedPostVideo | null;
   videoId?: string;
 }
 

@@ -63,6 +63,8 @@ import {
 import { PostComposer } from '../src/components/social/posts/post-composer';
 import { PostVideoEmbed } from '../src/components/social/posts/post-video-embed';
 import { PostSocialVideoPlayer } from '../src/components/social/posts/post-social-player';
+import type { HydratedPostVideo } from '../src/lib/video/hydrate-posts-videos';
+import type { VideoSummary } from '@winkey/api-client';
 import { api } from '../src/lib/api-client';
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -298,10 +300,15 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
 
   describe('4. PostVideoEmbed: FILM vs SOCIAL Rendering', () => {
     it('renders watch link card when purpose is FILM or undefined', () => {
-      const filmVideo = {
+      const filmVideo: VideoSummary = {
         id: 'film-123',
         title: 'Phim bom tấn 2026',
-        owner: { id: 'u1', handle: 'winkey_studio', display_name: 'Winkey Studio' },
+        owner: {
+          id: 'u1',
+          handle: 'winkey_studio',
+          display_name: 'Winkey Studio',
+          avatar_url: 'https://images.winkey.vn/avatar.webp',
+        },
         duration_ms: 7200000,
         view_count: 50000,
         published_at: '2026-01-01T00:00:00Z',
@@ -309,7 +316,7 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
         purpose: 'FILM',
       };
 
-      renderWithProviders(<PostVideoEmbed video={filmVideo as any} />);
+      renderWithProviders(<PostVideoEmbed video={filmVideo} />);
 
       const filmEmbed = screen.getByTestId('post-film-embed');
       expect(filmEmbed).toBeDefined();
@@ -320,10 +327,15 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
     });
 
     it('renders inline player when purpose is SOCIAL', () => {
-      const socialVideo = {
+      const socialVideo: HydratedPostVideo = {
         id: 'social-123',
         title: 'Video ngắn thú vị',
-        owner: { id: 'u2', handle: 'alex', display_name: 'Alex' },
+        owner: {
+          id: 'u2',
+          handle: 'alex',
+          display_name: 'Alex',
+          avatar_url: 'https://images.winkey.vn/avatar.webp',
+        },
         duration_ms: 30000,
         view_count: 1200,
         published_at: '2026-10-28T00:00:00Z',
@@ -335,7 +347,7 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
         },
       };
 
-      renderWithProviders(<PostVideoEmbed video={socialVideo as any} />);
+      renderWithProviders(<PostVideoEmbed video={socialVideo} />);
 
       const player = screen.getByTestId('post-social-player');
       expect(player).toBeDefined();
@@ -350,10 +362,15 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
 
   describe('5. PostSocialVideoPlayer: Autoplay, Reduced Motion & Mute Toggle', () => {
     it('toggles mute/unmute when clicking volume button', () => {
-      const socialVideo = {
+      const socialVideo: HydratedPostVideo = {
         id: 'social-456',
         title: 'Short video reel',
-        owner: { id: 'u2', handle: 'alex', display_name: 'Alex' },
+        owner: {
+          id: 'u2',
+          handle: 'alex',
+          display_name: 'Alex',
+          avatar_url: 'https://images.winkey.vn/avatar.webp',
+        },
         duration_ms: 15000,
         view_count: 500,
         published_at: '2026-10-28T00:00:00Z',
@@ -366,7 +383,7 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
       };
 
       renderWithProviders(
-        <PostSocialVideoPlayer videoId="social-456" initialVideo={socialVideo as any} />,
+        <PostSocialVideoPlayer videoId="social-456" initialVideo={socialVideo} />,
       );
 
       const videoEl = screen.getByTestId('social-video-element') as HTMLVideoElement;
@@ -413,19 +430,22 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
       renderWithProviders(
         <PostSocialVideoPlayer
           videoId="social-motion"
-          initialVideo={
-            {
-              id: 'social-motion',
-              title: 'Reduced motion test',
-              owner: { id: 'u1', handle: 'test', display_name: 'Test' },
-              duration_ms: 10000,
-              view_count: 10,
-              published_at: '2026-10-28T00:00:00Z',
-              thumbnail_url: '',
-              purpose: 'SOCIAL',
-              playback: { hls_url: 'https://media.winkey.vn/test.m3u8', thumbnail_url: '' },
-            } as any
-          }
+          initialVideo={{
+            id: 'social-motion',
+            title: 'Reduced motion test',
+            owner: {
+              id: 'u1',
+              handle: 'test',
+              display_name: 'Test',
+              avatar_url: 'https://images.winkey.vn/avatar.webp',
+            },
+            duration_ms: 10000,
+            view_count: 10,
+            published_at: '2026-10-28T00:00:00Z',
+            thumbnail_url: '',
+            purpose: 'SOCIAL',
+            playback: { hls_url: 'https://media.winkey.vn/test.m3u8', thumbnail_url: '' },
+          }}
         />,
       );
 
@@ -472,19 +492,22 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
       renderWithProviders(
         <PostSocialVideoPlayer
           videoId="social-autoplay"
-          initialVideo={
-            {
-              id: 'social-autoplay',
-              title: 'Autoplay test',
-              owner: { id: 'u1', handle: 'test', display_name: 'Test' },
-              duration_ms: 10000,
-              view_count: 10,
-              published_at: '2026-10-28T00:00:00Z',
-              thumbnail_url: '',
-              purpose: 'SOCIAL',
-              playback: { hls_url: 'https://media.winkey.vn/test.m3u8', thumbnail_url: '' },
-            } as any
-          }
+          initialVideo={{
+            id: 'social-autoplay',
+            title: 'Autoplay test',
+            owner: {
+              id: 'u1',
+              handle: 'test',
+              display_name: 'Test',
+              avatar_url: 'https://images.winkey.vn/avatar.webp',
+            },
+            duration_ms: 10000,
+            view_count: 10,
+            published_at: '2026-10-28T00:00:00Z',
+            thumbnail_url: '',
+            purpose: 'SOCIAL',
+            playback: { hls_url: 'https://media.winkey.vn/test.m3u8', thumbnail_url: '' },
+          }}
         />,
       );
 
