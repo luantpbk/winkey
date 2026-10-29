@@ -3024,6 +3024,79 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       `Raw video object should be gone when READY (got status ${rawCheckRes.status})`,
     );
 
+    // Measure real output sizes per minute of video and assert 720p bitrate limit (ADR-049)
+    assert.ok(vid1.playback?.hls_url, 'hls_url missing from social video playback');
+    const masterPlRes = await fetch(vid1.playback.hls_url);
+    const masterPlText = (await checkRes(masterPlRes, 200, 'Social video master HLS fetch')).text;
+    assert.ok(masterPlText.includes('#EXTM3U'), 'Invalid master playlist');
+
+    const variantPlaylists = [];
+    for (const line of masterPlText.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#EXT-X-MEDIA:TYPE=AUDIO') && trimmed.includes('URI="')) {
+        const audioUri = trimmed.match(/URI="([^"]+)"/)?.[1];
+        if (audioUri) {
+          variantPlaylists.push({
+            type: 'audio',
+            url: new URL(audioUri, vid1.playback.hls_url).toString(),
+          });
+        }
+      } else if (trimmed && !trimmed.startsWith('#') && trimmed.endsWith('.m3u8')) {
+        const type = trimmed.includes('720p')
+          ? '720p'
+          : trimmed.includes('360p')
+            ? '360p'
+            : 'variant';
+        variantPlaylists.push({ type, url: new URL(trimmed, vid1.playback.hls_url).toString() });
+      }
+    }
+    assert.ok(variantPlaylists.length > 0, 'No variant playlists found in master playlist');
+
+    let totalOutputBytes = 0;
+    let bytes720p = 0;
+
+    for (const pl of variantPlaylists) {
+      const plRes = await fetch(pl.url);
+      const plText = (await checkRes(plRes, 200, `Fetch playlist ${pl.type}`)).text;
+      for (const line of plText.split('\n')) {
+        const t = line.trim();
+        let segUri = null;
+        if (t.startsWith('#EXT-X-MAP:URI="')) {
+          segUri = t.match(/URI="([^"]+)"/)?.[1];
+        } else if (t && !t.startsWith('#')) {
+          segUri = t;
+        }
+        if (segUri) {
+          const segUrl = new URL(segUri, pl.url).toString();
+          const headRes = await fetch(segUrl, { method: 'HEAD' });
+          assert.equal(
+            headRes.status,
+            200,
+            `Segment HEAD failed (${headRes.status}) for ${segUrl}`,
+          );
+          const segLength = Number(headRes.headers.get('content-length') || 0);
+          assert.ok(segLength > 0, `Segment length must be > 0 for ${segUrl}`);
+          totalOutputBytes += segLength;
+          if (pl.type === '720p') {
+            bytes720p += segLength;
+          }
+        }
+      }
+    }
+
+    const clipDurationSec = vid1.duration_ms ? vid1.duration_ms / 1000 : 20;
+    const bitrate720pBps = (bytes720p * 8) / clipDurationSec;
+    const maxAllowed720pBps = 1200000 * 1.15; // 1.2 Mbps ceiling with 15% tolerance (1.38 Mbps)
+
+    assert.ok(bytes720p > 0, '720p segment bytes must be measured and > 0');
+    assert.ok(
+      bitrate720pBps <= maxAllowed720pBps,
+      `720p bitrate (${(bitrate720pBps / 1000000).toFixed(2)} Mbps) must not exceed 1.2 Mbps * 1.15 ceiling (${(maxAllowed720pBps / 1000000).toFixed(2)} Mbps)`,
+    );
+    assert.ok(totalOutputBytes > 0, 'Total measured output bytes must be > 0');
+
+    const realMbPerMin = ((totalOutputBytes / clipDurationSec) * 60) / (1024 * 1024);
+
     // 2. Social video never appears in listVideos, search, tag pages, trending, or listStudioVideos
     const listVideosRes = await fetch(`${GATEWAY_URL}/v1/videos?limit=100`);
     const listVideosData = (await checkRes(listVideosRes, 200, 'listVideos')).json;
@@ -3303,36 +3376,13 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     }
     assert.ok(janitorDeleted, '48h unattached social video was not deleted by janitor');
 
-    // 11. Report output sizes per minute of video (~10 MB/min target)
-    // Renditions sizes from Garage S3 web endpoint
-    let totalOutputBytes = 0;
-    for (const rend of vid1.playback?.renditions || []) {
-      const playlistUrl = rend.playlist_url ? rend.playlist_url.replace(':8081', ':3902') : null;
-      if (playlistUrl) {
-        try {
-          const pRes = await fetch(playlistUrl, {
-            headers: { Host: 'winkey-media.web.garage.localhost' },
-          });
-          if (pRes.ok) {
-            const pText = await pRes.text();
-            totalOutputBytes += Buffer.byteLength(pText, 'utf8');
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-    // Approximate based on bitrate ~1.2 Mbps ceiling (9 MiB/min) + audio 96k (0.7 MiB/min) ~= 9.7 MB/min
-    const approxTotalBytes = (1200000 / 8 + 96000 / 8) * 20; // 20 seconds
-    const finalBytes = totalOutputBytes > 0 ? totalOutputBytes : approxTotalBytes;
-    const mbPerMin = ((finalBytes / 20) * 60) / (1024 * 1024);
-
+    // 11. Report measured output sizes per minute of video (ADR-049)
     recordResult(
       'S12-social-video',
       'short social videos API matrix (SOC-2b, ADR-049)',
       'PASSED',
       Date.now() - startTime,
-      `Output size: ${mbPerMin.toFixed(2)} MB/min (target ~10 MB/min)`,
+      `Measured output size: ${realMbPerMin.toFixed(2)} MB/min across renditions (720p bitrate: ${(bitrate720pBps / 1000000).toFixed(2)} Mbps <= 1.38 Mbps ceiling)`,
     );
   });
 

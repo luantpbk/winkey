@@ -71,11 +71,16 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
       try {
         execSync(
           `ffmpeg -y -f lavfi -i testsrc=size=640x360:rate=24:duration=5 -f lavfi -i sine=frequency=440:duration=5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 64k "${videoPath}"`,
-          { stdio: 'ignore' },
+          { stdio: 'pipe' },
         );
       } catch (err) {
-        console.warn(
-          `[persona:social-user] ffmpeg video generation warning: ${(err as Error)?.message || err}`,
+        throw new Error(
+          `Failed to generate soc_video.mp4 test fixture using ffmpeg: ${(err as Error)?.message || err}`,
+        );
+      }
+      if (!fs.existsSync(videoPath)) {
+        throw new Error(
+          `Failed to generate soc_video.mp4 test fixture: file not found at ${videoPath}`,
         );
       }
     }
@@ -225,11 +230,10 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
 
     // 10. Unmute on tap / click
     const muteBtn = detailCard.locator('button[data-testid="social-video-mute-btn"]').first();
-    if (await muteBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await muteBtn.click();
-      const afterMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
-      expect(afterMuted).toBe(false);
-    }
+    await expect(muteBtn).toBeVisible({ timeout: 10000 });
+    await muteBtn.click();
+    const afterMuted = await videoEl.evaluate((v: HTMLVideoElement) => v.muted);
+    expect(afterMuted).toBe(false);
 
     // 11. Return to /bang-tin for remaining persona tests
     await page.goto('/bang-tin');
@@ -276,6 +280,11 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     if (await modalCloseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await page.keyboard.press('Escape');
     }
+
+    // Hard assertion: reaction state must become active ("Bỏ bày tỏ cảm xúc...")
+    await expect(postCard.locator('button[aria-label^="Bỏ bày tỏ cảm xúc"]').first()).toBeVisible({
+      timeout: 10000,
+    });
 
     // 2. Open comments and post a comment
     const commentToggleBtn = postCard.locator('a[aria-label^="Bình luận"]').first();
