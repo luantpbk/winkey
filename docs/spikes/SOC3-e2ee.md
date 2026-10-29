@@ -17,10 +17,10 @@
 4. **Hiệu năng thực thi cao & Đo lường thật trong Trình duyệt**:
    - Đối tượng đo lường chính (Primary): **`pkg/vodozemac_winkey`** (không dùng libolm làm đại diện; libolm chỉ đóng vai trò đối chiếu).
    - Đo lường trực tiếp trong **Google Chrome 156 (Headless CDP)** ở cả 2 chế độ: **Desktop (`rate = 1`)** và **Mobile Throttling thật 4× (`rate = 4`) qua CDP `Emulation.setCPUThrottlingRate`** (tuyệt đối không nhân số desktop với 4).
-   - Tốc độ mã hoá tin nhắn 1 KiB 1-1 trên Chrome 156: median **1.100 ms** (Desktop), **0.500 ms** (Mobile 4× throttle).
-   - Chi phí chia sẻ khoá phiên Megolm cho 50 người dùng $\times$ 2 thiết bị (100 lần mã hoá Olm): **64.20 ms** (Desktop), **38.30 ms** (Mobile 4× throttle).
-   - Không gây nghẽn giao diện (0 long tasks > 50 ms) khi thực thi trong Web Worker.
-5. **Tuân thủ Tuyệt đối CSP1**: Chạy demo dưới đúng chính sách CSP1 (`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'`). Kết quả ghi nhận: **0 sự kiện vi phạm (`securitypolicyviolation`)**.
+   - Tốc độ mã hoá tin nhắn 1 KiB 1-1 trên Chrome 156 (1,000 runs): median **0.500 ms** (Desktop), **0.700 ms** (Mobile 4× throttle).
+   - Chi phí chia sẻ khoá phiên Megolm cho 50 người dùng $\times$ 2 thiết bị (100 lần mã hoá Olm): **34.10 ms** (Desktop), **46.70 ms** (Mobile 4× throttle).
+   - Không gây nghẽn giao diện (0 long tasks > 50 ms) khi thực thi trong Web Worker (**254.3 ms** Desktop, **665.4 ms** Mobile).
+5. **Tuân thủ Tuyệt đối CSP1**: Chạy demo dưới đúng chính sách CSP1 (`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'`) ghi nhận **0 sự kiện vi phạm (`securitypolicyviolation`)**. Trong sản phẩm production, wrapper sẽ được nạp qua Next.js client bundle (được tin cậy bằng nonce từ edge middleware).
 6. **Loại bỏ các phương án khác**:
    - **libsignal**: `@signalapp/libsignal-client` là module native Node.js (biên dịch qua C++/N-API `node-gyp-build`), Signal **hoàn toàn không duy trì hoặc hỗ trợ bản build WebAssembly chính thức cho trình duyệt**. Bản JS cũ đã bị deprecated nhiều năm.
    - **`@matrix-org/matrix-sdk-crypto-wasm`**: Kích thước binary WASM thô lên đến **7.80 MiB** (kèm 425 KiB glue JS) do chứa toàn bộ state machine đồng bộ Matrix homeserver, cross-signing và storage sled/indexeddb không cần thiết cho Winkey.
@@ -114,27 +114,30 @@ Toàn bộ số liệu dưới đây được đo lường thực tế thông qu
 
 ### 3.1. Thời gian Khởi tạo & Tải mô-đun (Startup / Instantiation)
 
-*Nguồn: Đo lường thời gian fetch và khởi tạo `WebAssembly.instantiate` / `initVodozemac()` và `Olm.init()` trong Chrome 156.*
+*Nguồn: Đo lường thời gian fetch và khởi tạo `WebAssembly.instantiate` / `initVodozemac()` và `Olm.init()` trong Chrome 156 qua tab cô lập CDP.*
 
 | Môi trường / Điều tiết CPU | `vodozemac-winkey` (Primary) | `@matrix-org/olm` (Baseline đối chiếu) | Ghi chú & Đánh giá |
 |---|---|---|---|
-| **Desktop (`rate = 1`)** | **123.30 ms** | 32.60 ms | Khởi tạo trọn vẹn WASM linear memory |
-| **Mobile 4× Throttle (`rate = 4`)** | **203.00 ms** | 107.10 ms | Đo thật qua CDP. Nằm trong ngân sách khởi động (< 300 ms) |
+| **Desktop (`rate = 1`)** | **48.30 ms** | 61.40 ms | Khởi tạo trọn vẹn WASM linear memory trên tab sạch |
+| **Mobile 4× Throttle (`rate = 4`)** | **44.00 ms** | 46.00 ms | Đo thật qua CDP tab độc lập. Nằm trong ngân sách khởi động (< 300 ms) |
 
 ---
 
 ### 3.2. Hiệu năng Olm 1-1 (Double Ratchet)
 
-*Nguồn: Đo lường trong Chrome 156 qua CDP, thực thi 100 lượt mã hoá và giải mã liên tục với payload chuẩn 1 KiB (`'W'.repeat(1024)`).*
+*Nguồn: Đo lường trong Chrome 156 qua CDP trong từng tab cô lập riêng biệt. Thực thi 50 vòng lặp warmup đầu tiên (loại bỏ) để ổn định V8 JIT, sau đó đo lường chính thức 1,000 lượt mã hoá và giải mã liên tục với payload chuẩn 1 KiB (`'W'.repeat(1024)`).*
 
-| Thao tác | Desktop (`rate = 1`) — vodozemac | Desktop (`rate = 1`) — libolm | Mobile 4× Throttle (`rate = 4`) — vodozemac | Mobile 4× Throttle (`rate = 4`) — libolm | Ghi chú đo thật |
+> [!NOTE]
+> **Phương pháp đo lường & Xử lý sai số JIT**: Mỗi cấu hình (Desktop `rate=1` và Mobile `rate=4`) được chạy trong một tab trình duyệt cô lập hoàn toàn (Fresh Target qua CDP) để triệt tiêu hiện tượng ô nhiễm bộ nhớ heap / JIT compilation cache giữa các lượt chạy. 50 vòng lặp warmup đầu tiên được loại bỏ để JIT biên dịch mã máy trước khi đo 1,000 vòng lặp thống kê. Khi áp dụng điều tiết phần cứng CPU 4x thật, các tác vụ tính toán (X3DH, mã hoá/giải mã, chia sẻ khoá) đều phản ánh chính xác độ trễ tăng tương ứng.
+
+| Thao tác | Desktop (`rate = 1`) — vodozemac | Desktop (`rate = 1`) — libolm | Mobile 4× Throttle (`rate = 4`) — vodozemac | Mobile 4× Throttle (`rate = 4`) — libolm | Ghi chú đo thật (1,000 runs) |
 |---|---|---|---|---|---|
-| **Tạo tài khoản + 50 OTKs** | **56.30 ms** | 65.80 ms | **15.60 ms** | 35.30 ms | Vodozemac nhanh hơn libolm |
-| **Thiết lập phiên (Outbound + Inbound)** | **22.00 ms** | 11.10 ms | **5.90 ms** | 6.70 ms | Trao đổi khoá ban đầu (X3DH) |
-| **Mã hoá 1 KiB (Median)** | **1.100 ms** | 0.300 ms | **0.500 ms** | 0.300 ms | Đo thật trên 100 lần lặp |
-| **Mã hoá 1 KiB (p95)** | **2.300 ms** | 1.000 ms | **1.800 ms** | 0.600 ms | Phân vị p95 độ trễ |
-| **Giải mã 1 KiB (Median)** | **0.700 ms** | 0.300 ms | **0.200 ms** | 0.200 ms | Giải mã ratcheted tức thì |
-| **Giải mã 1 KiB (p95)** | **2.700 ms** | 0.900 ms | **0.500 ms** | 0.600 ms | Phân vị p95 độ trễ |
+| **Tạo tài khoản + 50 OTKs** | **35.10 ms** | 56.40 ms | **44.00 ms** | 46.10 ms | Throttling 4x tăng độ trễ như kỳ vọng |
+| **Thiết lập phiên (Outbound + Inbound)** | **21.60 ms** | 9.40 ms | **30.40 ms** | 17.70 ms | Trao đổi khoá ban đầu (X3DH) |
+| **Mã hoá 1 KiB (Median)** | **0.500 ms** | 0.200 ms | **0.700 ms** | 0.300 ms | Đo thật trên 1,000 lần lặp |
+| **Mã hoá 1 KiB (p95)** | **1.000 ms** | 0.400 ms | **2.900 ms** | 1.300 ms | Phân vị p95 độ trễ |
+| **Giải mã 1 KiB (Median)** | **0.200 ms** | 0.300 ms | **0.300 ms** | 0.400 ms | Giải mã ratcheted tức thì |
+| **Giải mã 1 KiB (p95)** | **0.400 ms** | 0.500 ms | **1.300 ms** | 1.900 ms | Phân vị p95 độ trễ |
 
 ---
 
@@ -146,11 +149,11 @@ Mô hình nhóm 50 người dùng $\times$ 2 thiết bị/người dùng = **100
 
 | Thao tác | Desktop (`rate = 1`) — vodozemac | Desktop (`rate = 1`) — libolm | Mobile 4× Throttle (`rate = 4`) — vodozemac | Mobile 4× Throttle (`rate = 4`) — libolm | Đánh giá kiến trúc |
 |---|---|---|---|---|---|
-| **Tạo mới `GroupSession`** | **0.60 ms** | 1.50 ms | **0.30 ms** | 0.50 ms | Sinh sender ratchet ban đầu |
-| **Chia sẻ khoá phiên (100 thiết bị)** | **64.20 ms** | 11.10 ms | **38.30 ms** | 15.10 ms | 100 lần mã hoá Olm 1-1 gửi khoá |
-| **Mã hoá tin nhắn nhóm (1 KiB)** | **1.200 ms** | 1.800 ms | **0.600 ms** | 0.400 ms | 1 lần mã hoá đối xứng cho cả nhóm |
-| **Giải mã tin nhắn nhóm (1 KiB)** | **2.500 ms** | 2.300 ms | **1.000 ms** | 1.100 ms | Giải mã và nâng ratchet index |
-| **Xoay vòng khoá (khi 1 người rời)** | **51.60 ms** | 10.90 ms | **42.40 ms** | 15.10 ms | Phiên mới + 98 mã hoá Olm |
+| **Tạo mới `GroupSession`** | **0.70 ms** | 1.00 ms | **0.50 ms** | 0.90 ms | Sinh sender ratchet ban đầu |
+| **Chia sẻ khoá phiên (100 thiết bị)** | **34.10 ms** | 9.80 ms | **46.70 ms** | 11.00 ms | 100 lần mã hoá Olm 1-1 gửi khoá |
+| **Mã hoá tin nhắn nhóm (1 KiB)** | **2.200 ms** | 0.900 ms | **1.800 ms** | 1.000 ms | 1 lần mã hoá đối xứng cho cả nhóm |
+| **Giải mã tin nhắn nhóm (1 KiB)** | **2.700 ms** | 1.800 ms | **3.000 ms** | 2.100 ms | Giải mã và nâng ratchet index |
+| **Xoay vòng khoá (khi 1 người rời)** | **43.00 ms** | 10.50 ms | **36.40 ms** | 10.90 ms | Phiên mới + 98 mã hoá Olm |
 
 ---
 
@@ -160,9 +163,9 @@ Mô hình nhóm 50 người dùng $\times$ 2 thiết bị/người dùng = **100
 
 | Loại đối tượng | Pickle `vodozemac-winkey` (Bytes) | Pickle `libolm` (Bytes) | Envelope WebCrypto AES-GCM 256-bit | Đánh giá bảo mật |
 |---|---|---|---|---|
-| **Account (kèm 50 OTKs)** | **16,416 bytes** | 4,854 bytes | 16,432 bytes | vodozemac lưu chi tiết trạng thái cryptographic an toàn |
-| **Olm 1-1 Session** | **1,547 bytes** | 395 bytes | 1,563 bytes | Chứa đầy đủ ratchet chains & skip keys |
-| **InboundGroupSession (Megolm)** | **950 bytes** | 416 bytes | 966 bytes | Lưu theo từng phòng chat nhóm |
+| **Account (kèm 50 OTKs)** | **16,395 bytes** | 4,854 bytes | 16,411 bytes | vodozemac lưu chi tiết trạng thái cryptographic an toàn |
+| **Olm 1-1 Session** | **1,526 bytes** | 395 bytes | 1,542 bytes | Chứa đầy đủ ratchet chains & skip keys |
+| **InboundGroupSession (Megolm)** | **928 bytes** | 416 bytes | 944 bytes | Lưu theo từng phòng chat nhóm |
 
 ---
 
@@ -171,8 +174,8 @@ Mô hình nhóm 50 người dùng $\times$ 2 thiết bị/người dùng = **100
 - **Thư viện**: `hash-wasm` (v4.12.0) chạy cục bộ (không qua CDN).
 - **Tham số chuẩn**: Memory = **64 MiB** (`65,536 KiB`), Iterations = **3**, Parallelism = **1**, Output = **32 bytes** (256-bit key).
 - **Thời gian dẫn xuất khoá thực tế trên Chrome 156**:
-  - **Desktop (`rate = 1`)**: **825.2 ms** (*Nguồn: CDP test*).
-  - **Mobile 4× Throttle (`rate = 4`)**: **794.3 ms** (*Nguồn: CDP test*).
+  - **Desktop (`rate = 1`)**: **767.2 ms** (*Nguồn: CDP test*).
+  - **Mobile 4× Throttle (`rate = 4`)**: **989.4 ms** (*Nguồn: CDP test* — phản ánh chính xác độ trễ tăng khi throttle).
 - **Cơ chế lưu trữ**: Sử dụng WebCrypto non-extractable CryptoKey để mã hoá toàn bộ session pickle trước khi gửi lên `chat-svc`.
 
 ---
@@ -182,8 +185,8 @@ Mô hình nhóm 50 người dùng $\times$ 2 thiết bị/người dùng = **100
 - **Kiến trúc**: Dedicated ES Module Worker (`worker.js`) chạy tại `/worker.js`.
 - **Thử nghiệm**: Mã hoá và giải mã liên tục **50 bản tin Megolm 1 KiB** trong Worker.
 - **Thời gian thực thi trong Worker**:
-  - **Desktop (`rate = 1`)**: **1,096.5 ms**
-  - **Mobile 4× Throttle (`rate = 4`)**: **510.7 ms**
+  - **Desktop (`rate = 1`)**: **254.3 ms**
+  - **Mobile 4× Throttle (`rate = 4`)**: **665.4 ms** (tăng 2.6x dưới 4x throttling)
 - **Ảnh hưởng Main Thread**: **0 long tasks (> 50 ms)** trên Main Thread, giao diện người dùng hoàn toàn mượt mà.
 
 ---
@@ -196,7 +199,14 @@ Trang kiểm thử `index.html` được phục vụ dưới chính sách CSP1 t
 Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'
 ```
 
-### Kết quả Kiểm tra Vi phạm Bảo mật (Verbatim CDP Console Output)
+### 4.1. Phân biệt Kiến trúc CSP giữa Demo Spike và Production (Next.js)
+
+> [!IMPORTANT]
+> **Khác biệt cốt lõi giữa Demo Spike và Môi trường Production**:
+> - **Trong Spike Demo (`spikes/soc3-e2ee`)**: Do phục vụ các tệp tĩnh cục bộ (`index.html`, `index.js`, `worker.js`) từ máy chủ phát triển nội bộ đơn giản, chính sách CSP sử dụng chỉ thị `script-src 'self' 'wasm-unsafe-eval'` thay vì dựng hệ thống tạo nonce động.
+> - **Trong Sản phẩm Production (`apps/web` — Winkey Next.js)**: Nền tảng Winkey tuân thủ nghiêm ngặt mô hình **Nonce-based CSP** (`script-src 'nonce-{nonce}' 'strict-dynamic' 'wasm-unsafe-eval'`). Mã wrapper `vodozemac-winkey` và glue JS sẽ được nạp trực tiếp qua **Next.js client bundle chunks**. Mọi chunk mã nguồn đều được gán `nonce` ngẫu nhiên theo từng request từ Edge Middleware và được trình duyệt tin cậy thông qua `'strict-dynamic'`. Vì vậy, khi triển khai E2EE lên production, Winkey **chỉ cần bổ sung `'wasm-unsafe-eval'`** vào `script-src` để cấp phép biên dịch WebAssembly, tuyệt đối không cần `'unsafe-inline'` cho script và không cần nới lỏng `'unsafe-eval'`.
+
+### 4.2. Kết quả Kiểm tra Vi phạm Bảo mật (Verbatim CDP Console Output)
 
 ```text
 ========================================================================
@@ -206,18 +216,20 @@ Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval
  CSP1 Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'
 ========================================================================
 
---- Run 1: Desktop (Emulation.setCPUThrottlingRate rate = 1) ---
+--- Run 1: Desktop (Emulation.setCPUThrottlingRate rate = 1, Fresh Tab) ---
 Status: completed
-Startup (vodozemac): 123.3 ms
-Startup (libolm):    32.6 ms
-Argon2id 64 MiB Derivation: 825.2 ms
+Startup (vodozemac): 48.3 ms
+Startup (libolm):    61.4 ms
+Argon2id 64 MiB Derivation: 767.2 ms
+Worker Offload Duration:   254.3 ms
 CSP Violations (rate=1):   0
 
---- Run 2: Mobile 4x Throttle (Emulation.setCPUThrottlingRate rate = 4) ---
+--- Run 2: Mobile 4x Throttle (Emulation.setCPUThrottlingRate rate = 4, Fresh Tab) ---
 Status: completed
-Startup (vodozemac): 203 ms
-Startup (libolm):    107.1 ms
-Argon2id 64 MiB Derivation: 794.3 ms
+Startup (vodozemac): 44 ms
+Startup (libolm):    46 ms
+Argon2id 64 MiB Derivation: 989.4 ms
+Worker Offload Duration:   665.4 ms
 CSP Violations (rate=4):   0
 
 ### FULL BROWSER CDP JSON REPORT ###

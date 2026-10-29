@@ -96,34 +96,51 @@ class CdpSession {
   }
 }
 
-// 3. Chạy kịch bản với mức CPU Throttling chỉ định
-async function executeBenchmarkRun(cdp, url, rate) {
+// 3. Chạy benchmark trong một tab hoàn toàn mới được cô lập qua CDP HTTP API
+async function runProfileInFreshTab(cdpPort, targetUrl, rate) {
+  const createRes = await fetch(`http://127.0.0.1:${cdpPort}/json/new`, {
+    method: 'PUT',
+  });
+  const targetInfo = await createRes.json();
+  const tabId = targetInfo.id;
+  const cdp = new CdpSession(targetInfo.webSocketDebuggerUrl);
+
+  await cdp.connect();
+  await cdp.send('Page.enable');
+  await cdp.send('Runtime.enable');
   await cdp.send('Emulation.setCPUThrottlingRate', { rate });
-  await cdp.send('Page.navigate', { url: `${url}?rate=${rate}&t=${Date.now()}` });
+  await cdp.send('Page.navigate', { url: `${targetUrl}?rate=${rate}&t=${Date.now()}` });
 
-  const deadline = Date.now() + 60000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 400));
-    const evalRes = await cdp.send('Runtime.evaluate', {
-      expression: `JSON.stringify({
-        bench: window.__BENCHMARK_RESULTS__ || null,
-        csp: window.__CSP_VIOLATIONS__ || []
-      })`,
-      returnByValue: true,
-    });
+  try {
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 600));
+      const evalRes = await cdp.send('Runtime.evaluate', {
+        expression: `JSON.stringify({
+          bench: window.__BENCHMARK_RESULTS__ || null,
+          csp: window.__CSP_VIOLATIONS__ || []
+        })`,
+        returnByValue: true,
+      });
 
-    const rawVal = evalRes?.result?.value;
-    if (!rawVal) continue;
+      const rawVal = evalRes?.result?.value;
+      if (!rawVal) continue;
 
-    const { bench, csp } = JSON.parse(rawVal);
-    if (bench && (bench.status === 'completed' || bench.status === 'error')) {
-      if (bench.status === 'error') {
-        throw new Error(`Browser benchmark failed at rate=${rate}: ${bench.error}`);
+      const { bench, csp } = JSON.parse(rawVal);
+      if (bench && (bench.status === 'completed' || bench.status === 'error')) {
+        if (bench.status === 'error') {
+          throw new Error(`Benchmark error at rate=${rate}: ${bench.error}`);
+        }
+        return { bench, csp };
       }
-      return { bench, csp };
     }
+    throw new Error(`Timeout (90s) waiting for 1000 iterations benchmark at rate=${rate}`);
+  } finally {
+    cdp.close();
+    await fetch(`http://127.0.0.1:${cdpPort}/json/close/${tabId}`).catch(() => {
+      /* ignore */
+    });
   }
-  throw new Error(`Timeout (60s) waiting for window.__BENCHMARK_RESULTS__ at rate=${rate}`);
 }
 
 async function main() {
@@ -141,7 +158,6 @@ async function main() {
     'about:blank',
   ]);
 
-  let cdp;
   try {
     let versionInfo = null;
     for (let i = 0; i < 40; i++) {
@@ -157,15 +173,6 @@ async function main() {
     }
     if (!versionInfo) throw new Error('Failed to attach to Headless Chrome on port 9223');
 
-    const targets = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json());
-    const pageTarget = targets.find((t) => t.type === 'page');
-    if (!pageTarget) throw new Error('No debuggable page target found');
-
-    cdp = new CdpSession(pageTarget.webSocketDebuggerUrl);
-    await cdp.connect();
-    await cdp.send('Page.enable');
-    await cdp.send('Runtime.enable');
-
     const targetUrl = `http://127.0.0.1:${HTTP_PORT}/index.html`;
 
     console.log('========================================================================');
@@ -175,9 +182,9 @@ async function main() {
     console.log(` CSP1 Policy: ${CSP1_POLICY}`);
     console.log('========================================================================\n');
 
-    // Run 1: Desktop unthrottled (rate = 1)
-    console.log('--- Run 1: Desktop (Emulation.setCPUThrottlingRate rate = 1) ---');
-    const run1 = await executeBenchmarkRun(cdp, targetUrl, 1);
+    // Test 1: Desktop (rate = 1) trong Fresh Tab
+    console.log('--- Run 1: Desktop (Emulation.setCPUThrottlingRate rate = 1, Fresh Tab) ---');
+    const run1 = await runProfileInFreshTab(CDP_PORT, targetUrl, 1);
     console.log(`Status: ${run1.bench.status}`);
     console.log(`Startup (vodozemac): ${run1.bench.startup_ms.vodozemac_primary} ms`);
     console.log(`Startup (libolm):    ${run1.bench.startup_ms.libolm_baseline} ms`);
@@ -191,16 +198,18 @@ async function main() {
       `Megolm Share 100 devices: vodozemac=${run1.bench.megolm_group_50.share_key_100_devices_ms} ms | libolm=${run1.bench.megolm_group_50.share_key_100_devices_ms} ms`,
     );
     console.log(`Argon2id 64 MiB Derivation: ${run1.bench.argon2id_derivation_ms} ms`);
-    console.log(`Worker Offload Duration:   ${run1.bench.worker_offload?.duration_ms} ms`);
+    console.log(`Worker Offload Duration:   ${run1.bench.worker_offload?.durationMs} ms`);
     console.log(`CSP Violations (rate=1):   ${run1.csp.length}`);
     if (run1.csp.length > 0) {
       console.log('Violations detail:', run1.csp);
     }
     console.log('');
 
-    // Run 2: Mobile Simulation (rate = 4)
-    console.log('--- Run 2: Mobile 4x Throttle (Emulation.setCPUThrottlingRate rate = 4) ---');
-    const run4 = await executeBenchmarkRun(cdp, targetUrl, 4);
+    // Test 2: Mobile Simulation (rate = 4) trong Fresh Tab hoàn toàn độc lập
+    console.log(
+      '--- Run 2: Mobile 4x Throttle (Emulation.setCPUThrottlingRate rate = 4, Fresh Tab) ---',
+    );
+    const run4 = await runProfileInFreshTab(CDP_PORT, targetUrl, 4);
     console.log(`Status: ${run4.bench.status}`);
     console.log(`Startup (vodozemac): ${run4.bench.startup_ms.vodozemac_primary} ms`);
     console.log(`Startup (libolm):    ${run4.bench.startup_ms.libolm_baseline} ms`);
@@ -214,7 +223,7 @@ async function main() {
       `Megolm Share 100 devices: vodozemac=${run4.bench.megolm_group_50.share_key_100_devices_ms} ms | libolm=${run4.bench.megolm_group_50.share_key_100_devices_ms} ms`,
     );
     console.log(`Argon2id 64 MiB Derivation: ${run4.bench.argon2id_derivation_ms} ms`);
-    console.log(`Worker Offload Duration:   ${run4.bench.worker_offload?.duration_ms} ms`);
+    console.log(`Worker Offload Duration:   ${run4.bench.worker_offload?.durationMs} ms`);
     console.log(`CSP Violations (rate=4):   ${run4.csp.length}`);
     if (run4.csp.length > 0) {
       console.log('Violations detail:', run4.csp);
@@ -241,7 +250,6 @@ async function main() {
       console.log('SUCCESS: 0 CSP violations detected under strict CSP1 policy!');
     }
   } finally {
-    if (cdp) cdp.close();
     chromeProc.kill();
     server.close();
     try {

@@ -113,14 +113,23 @@ async function runSuite() {
   oAliceSession.create_inbound(oAlice, oPrekey.body);
   const tOSessionEst = performance.now() - tOSess0;
 
-  // 1 KiB Encrypt & Decrypt (100 runs in browser)
+  // Warmup run (50 iterations, discarded) to stabilize V8 JIT
   const payload1k = 'W'.repeat(1024);
+  for (let w = 0; w < 50; w++) {
+    const vEncW = JSON.parse(vBobSession.encrypt(payload1k));
+    vAliceSession.decrypt(vEncW.type, vEncW.body);
+    const oEncW = oBobSession.encrypt(payload1k);
+    oAliceSession.decrypt(oEncW.type, oEncW.body);
+  }
+
+  // 1 KiB Encrypt & Decrypt (1,000 runs)
+  const RUNS = 1000;
   const vEncTimes = [];
   const vDecTimes = [];
   const oEncTimes = [];
   const oDecTimes = [];
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < RUNS; i++) {
     const tE0 = performance.now();
     const vEnc = JSON.parse(vBobSession.encrypt(payload1k));
     vEncTimes.push(performance.now() - tE0);
