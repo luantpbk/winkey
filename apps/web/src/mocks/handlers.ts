@@ -3683,12 +3683,12 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
 
     if (upload.title === 'trigger-too-long') {
       upload.status = 'FAILED';
-      upload.error = 'TOO_LONG';
+      upload.error = 'The video is longer than 3 minutes.';
       const resp: UploadStatus = {
         video_id: videoId,
         status: 'FAILED',
         progress: 0,
-        error: 'TOO_LONG',
+        error: 'The video is longer than 3 minutes.',
       };
       return HttpResponse.json(resp, { status: 202 });
     }

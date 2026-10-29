@@ -177,26 +177,26 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
   });
 
   describe('2. Processing & Error Handling', () => {
-    it('translates TOO_LONG error during video processing into clear explanation', async () => {
+    it('throws descriptive error from data.error on FAILED status', async () => {
       const getSpy = vi.spyOn(api.upload, 'GET').mockResolvedValueOnce({
         response: new Response(null, { status: 200 }),
         data: {
-          video_id: 'vid-too-long',
+          video_id: 'vid-failed',
           status: 'FAILED',
           progress: 0,
-          error: 'TOO_LONG',
+          error: 'The video is longer than 3 minutes.',
         },
         error: undefined,
       } as any);
 
-      await expect(pollVideoProcessing('vid-too-long')).rejects.toThrow(
-        'Video bị từ chối do vượt quá thời lượng cho phép (tối đa 180 giây).',
+      await expect(pollVideoProcessing('vid-failed')).rejects.toThrow(
+        'The video is longer than 3 minutes.',
       );
 
       getSpy.mockRestore();
     });
 
-    it('successfully waits for READY status', async () => {
+    it('successfully waits for READY status and supports visibilitychange wake up', async () => {
       const getSpy = vi
         .spyOn(api.upload, 'GET')
         .mockResolvedValueOnce({
@@ -210,9 +210,39 @@ describe('SOC-2b: Short Social Videos in Posts', () => {
           error: undefined,
         } as any);
 
-      const res = await pollVideoProcessing('vid-ready', { intervalMs: 10 });
+      const promise = pollVideoProcessing('vid-ready', {
+        initialIntervalMs: 50,
+        subsequentIntervalMs: 100,
+        firstPhaseDurationMs: 500,
+      });
+
+      // Simulate tab visibility restored
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'visible',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const res = await promise;
       expect(res.status).toBe('READY');
       expect(res.videoId).toBe('vid-ready');
+
+      getSpy.mockRestore();
+    });
+
+    it('throws error when polling reaches timeout limit', async () => {
+      const getSpy = vi.spyOn(api.upload, 'GET').mockResolvedValue({
+        response: new Response(null, { status: 200 }),
+        data: { video_id: 'vid-timeout', status: 'PROCESSING', progress: 10, error: null },
+        error: undefined,
+      } as any);
+
+      await expect(
+        pollVideoProcessing('vid-timeout', {
+          timeoutMs: 30,
+          initialIntervalMs: 15,
+        }),
+      ).rejects.toThrow('Quá thời gian chờ xử lý video (15 phút).');
 
       getSpy.mockRestore();
     });

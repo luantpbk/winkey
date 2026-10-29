@@ -79,46 +79,98 @@ export async function validateSocialVideoFile(file: File): Promise<SocialVideoMe
   return { duration: 0, width: 720, height: 1280 };
 }
 
+export interface PollVideoProcessingOptions {
+  onProgress?: (percent: number, message: string) => void;
+  timeoutMs?: number;
+  initialIntervalMs?: number;
+  subsequentIntervalMs?: number;
+  firstPhaseDurationMs?: number;
+}
+
 /**
  * Follows processing of an uploaded video until READY or FAILED (SOC-2b).
- * Polls GET /v1/uploads/{id} and translates errors (e.g. TOO_LONG).
+ * Polls GET /v1/uploads/{video_id} up to 15 minutes (2s for first 60s, 5s thereafter).
+ * Stops immediately on READY or FAILED.
+ * Resumes / polls immediately on visibilitychange when tab is restored.
  */
 export async function pollVideoProcessing(
   videoId: string,
-  options?: {
-    onProgress?: (percent: number, message: string) => void;
-    maxAttempts?: number;
-    intervalMs?: number;
-  },
+  options?: PollVideoProcessingOptions,
 ): Promise<{ status: 'READY'; videoId: string }> {
-  const maxAttempts = options?.maxAttempts ?? 60;
-  const intervalMs = options?.intervalMs ?? 1000;
+  const timeoutMs = options?.timeoutMs ?? 15 * 60 * 1000; // 15 minutes
+  const initialIntervalMs = options?.initialIntervalMs ?? 2000; // 2s during first minute
+  const subsequentIntervalMs = options?.subsequentIntervalMs ?? 5000; // 5s thereafter
+  const firstPhaseDurationMs = options?.firstPhaseDurationMs ?? 60 * 1000; // 1 minute
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const { data, response } = await api.upload.GET('/v1/uploads/{video_id}', {
-      params: { path: { video_id: videoId } },
-    });
+  const startTime = Date.now();
+  let finished = false;
+  let resolveWait: (() => void) | null = null;
 
-    if (response.ok && data) {
-      if (data.status === 'READY') {
-        options?.onProgress?.(100, 'Video đã sẵn sàng');
-        return { status: 'READY', videoId };
-      }
-
-      if (data.status === 'FAILED') {
-        const errCode = (data as any)?.error_code || data.error;
-        if (errCode === 'TOO_LONG') {
-          throw new Error('Video bị từ chối do vượt quá thời lượng cho phép (tối đa 180 giây).');
-        }
-        throw new Error(data.error || 'Xử lý video thất bại.');
-      }
-
-      const progress = typeof data.progress === 'number' ? data.progress : 50;
-      options?.onProgress?.(progress, 'Đang xử lý video…');
+  const handleVisibilityChange = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible' && !finished) {
+      resolveWait?.();
     }
+  };
 
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
-  throw new Error('Quá thời gian chờ xử lý video.');
+  try {
+    while (!finished) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= timeoutMs) {
+        throw new Error('Quá thời gian chờ xử lý video (15 phút).');
+      }
+
+      const { data, response } = await api.upload.GET('/v1/uploads/{video_id}', {
+        params: { path: { video_id: videoId } },
+      });
+
+      if (response.ok && data) {
+        if (data.status === 'READY') {
+          options?.onProgress?.(100, 'Video đã sẵn sàng');
+          finished = true;
+          return { status: 'READY', videoId };
+        }
+
+        if (data.status === 'FAILED') {
+          finished = true;
+          throw new Error(data.error || 'Xử lý video thất bại.');
+        }
+
+        const progress = typeof data.progress === 'number' ? data.progress : 50;
+        options?.onProgress?.(progress, 'Đang xử lý video…');
+      }
+
+      const currentElapsed = Date.now() - startTime;
+      if (currentElapsed >= timeoutMs) {
+        throw new Error('Quá thời gian chờ xử lý video (15 phút).');
+      }
+
+      const delay =
+        currentElapsed < firstPhaseDurationMs ? initialIntervalMs : subsequentIntervalMs;
+      const sleepTime = Math.min(delay, timeoutMs - currentElapsed);
+
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          resolveWait = null;
+          resolve();
+        }, sleepTime);
+
+        resolveWait = () => {
+          clearTimeout(timer);
+          resolveWait = null;
+          resolve();
+        };
+      });
+    }
+
+    throw new Error('Quá thời gian chờ xử lý video (15 phút).');
+  } finally {
+    finished = true;
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+  }
 }
