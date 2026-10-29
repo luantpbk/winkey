@@ -1,7 +1,6 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import { setRequestLocale } from 'next-intl/server';
-import { routing } from '../../../i18n/routing';
 import { LegalDoc } from '../../../components/legal/legal-doc';
 import { getLegalContent } from '../../../lib/legal';
 
@@ -10,10 +9,6 @@ export const metadata: Metadata = {
   description:
     'Quy tắc cộng đồng và tiêu chuẩn nội dung trên nền tảng Winkey (bản thử nghiệm beta).',
 };
-
-export function generateStaticParams() {
-  return routing.locales.map((locale) => ({ locale }));
-}
 
 interface CommunityRulesPageProps {
   params: Promise<{ locale: string }>;

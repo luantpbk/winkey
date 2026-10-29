@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
+import { buildCsp, generateNonce } from './lib/security/csp';
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -43,9 +44,39 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl, 308);
   }
 
-  return intlMiddleware(request);
+  // API routes bypass intl middleware
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
+  // Generate per-request nonce (16 bytes base64)
+  const nonce = generateNonce();
+  const isEmbed = pathname === '/embed' || pathname.startsWith('/embed/');
+  const csp = buildCsp({ nonce, embed: isEmbed });
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('content-security-policy', csp);
+
+  if (isEmbed) {
+    const response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+    response.headers.set('Content-Security-Policy-Report-Only', csp);
+    return response;
+  }
+
+  const reqWithHeaders = new NextRequest(request, {
+    headers: requestHeaders,
+  });
+  const response = intlMiddleware(reqWithHeaders);
+  response.headers.set('Content-Security-Policy-Report-Only', csp);
+  return response;
 }
 
 export const config = {
-  matcher: ['/((?!api|_next|_vercel|v1|embed|mockServiceWorker.js|healthz|readyz|.*\\..*).*)'],
+  runtime: 'nodejs',
+  matcher: ['/((?!_next/static|_next/image|v1|healthz|readyz|api/csp-report|.*\\..*).*)'],
 };
