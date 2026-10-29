@@ -1736,3 +1736,28 @@ Quyết định cho SOC-2a:
   - kiến trúc sư: upload-svc, transcoder, video-svc (`purpose`, ladder, consumer sự kiện bài đăng, janitor);
   - Antigravity 3: social-svc (projection `purpose`, luật tạo bài, phát sự kiện);
   - Antigravity 1: web; Antigravity 2: quyền NATS, durable consumer; Antigravity 4: test.
+
+*Bổ sung 2026-10-29 (CSP1, CSP chặt bằng nonce, kiến trúc sư).* Mục 3 (Web) yêu cầu CSP chặt, nhưng hiện tại:
+- `next.config.ts` gửi `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com`, tức là script inline nào cũng chạy;
+- `/embed/*` chỉ có `frame-ancestors *`, hoàn toàn không giới hạn script;
+- không có `default-src`, `object-src`, `base-uri`, `frame-ancestors` (ngoài embed), `connect-src`, `img-src`, `media-src`.
+
+*Quyết định.* Chỉ sửa web (Antigravity 1) và cấu hình triển khai (Antigravity 2); không đổi contract hay Go.
+- **Nonce mỗi request:** middleware (Next 15.5, `runtime: 'nodejs'` để đọc env lúc chạy) tạo 16 byte ngẫu nhiên (base64), đặt header `Content-Security-Policy` trên response và cùng giá trị trên request (`content-security-policy` + `x-nonce`). Next tự gắn nonce vào script của framework khi đọc được nonce từ header request. Code của Winkey lấy nonce qua `headers().get('x-nonce')` cho `next/script` (Turnstile).
+  - Hệ quả: trang HTML phải render động. Các trang tĩnh hiện có (`generateStaticParams` ở layout locale và ba trang pháp lý) chuyển sang render động; chi phí nhỏ.
+- **Chính sách (production):**
+  - `default-src 'self'`
+  - `script-src 'self' 'nonce-{N}' 'strict-dynamic' https://challenges.cloudflare.com` (không `unsafe-inline`, không `unsafe-eval`; dev thêm `'unsafe-eval'` cho HMR);
+  - `style-src 'self' 'unsafe-inline'` (inline style của React/Tailwind; style không chạy code, chấp nhận);
+  - `img-src 'self' data: blob: {MEDIA}`; `media-src 'self' blob: {MEDIA}` (hls.js dùng MSE `blob:`);
+  - `connect-src 'self' {MEDIA} {UPLOAD} https://challenges.cloudflare.com` (`'self'` gồm cả `wss:` realtime cùng host; `{UPLOAD}` là origin của URL ký PUT của upload-svc, tức `S3_PUBLIC_ENDPOINT`);
+  - `worker-src 'self' blob:`; `frame-src https://challenges.cloudflare.com`;
+  - `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`; `frame-ancestors 'self'` (trang `/embed/*`: `frame-ancestors *`, các chỉ thị còn lại giữ nguyên);
+  - `upgrade-insecure-requests`; `report-uri /api/csp-report`.
+  - `{MEDIA}` và `{UPLOAD}` là origin (scheme + host + port) đọc từ env `CSP_MEDIA_ORIGIN`, `CSP_UPLOAD_ORIGIN` lúc chạy; thiếu env thì bỏ qua nguồn đó (không bao giờ dùng `*`).
+- **Báo cáo vi phạm:** route `POST /api/csp-report` (nhận `application/csp-report` và `application/reports+json`), log JSON một dòng mỗi vi phạm với `effective-directive`, `blocked-uri` và `document-uri` đã **bỏ query và fragment** (có thể chứa token), `disposition`; giới hạn 8 KiB mỗi body và 60 báo cáo/phút mỗi IP (bộ nhớ trong tiến trình); luôn trả `204`.
+- **Hai bước triển khai:**
+  1. **Report-Only:** giữ nguyên header CSP đang chạy, thêm `Content-Security-Policy-Report-Only` với chính sách mới. Chạy trên production ít nhất 24 giờ, kèm persona và synthetic.
+  2. **Enforce:** khi log `/api/csp-report` sạch (chỉ còn vi phạm do extension trình duyệt, `blocked-uri` dạng `chrome-extension:`/`moz-extension:`), một PR riêng đổi thành `Content-Security-Policy` và bỏ chính sách cũ khỏi `next.config.ts`.
+  - Chuyển bước bằng code (PR), không bằng env, để chính sách đang áp dụng luôn khớp với `main`.
+- **Ngoài phạm vi (làm sau):** Trusted Types (`require-trusted-types-for 'script'`), HSTS preload (ở ingress, Antigravity 2).
