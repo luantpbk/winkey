@@ -75,6 +75,7 @@ type summaryJSON struct {
 	ViewCount    int64       `json:"view_count"`
 	PublishedAt  time.Time   `json:"published_at"`
 	ThumbnailURL string      `json:"thumbnail_url"`
+	Purpose      string      `json:"purpose"` // SOC-2b; only batchGetVideos can return SOCIAL
 }
 
 type studioJSON struct {
@@ -202,6 +203,7 @@ func (h *Handler) summary(s domain.Summary) summaryJSON {
 	return summaryJSON{
 		ID: s.ID.String(), Title: s.Title, Owner: h.profile(s.Owner), DurationMs: s.DurationMs,
 		ViewCount: s.ViewCount, PublishedAt: s.PublishedAt.UTC(), ThumbnailURL: h.mediaURL(s.ThumbnailKey),
+		Purpose: domain.PurposeFilm, // listings never contain a SOCIAL video
 	}
 }
 

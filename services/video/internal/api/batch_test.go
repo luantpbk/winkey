@@ -54,6 +54,17 @@ func TestBatchKeepsTheOrderOfIdsNotTheOrderOfCreation(t *testing.T) {
 	}
 }
 
+// SOC-2b: batch is how clients hydrating a post learn that its video is a SOCIAL one; a film says FILM.
+func TestBatchReturnsPurpose(t *testing.T) {
+	e := newEnv(t, false)
+	film := e.video(alice)
+	clip := e.video(alice, visibility(domain.VisUnlisted), func(v *domain.Video) { v.Purpose = domain.PurposeSocial })
+	items := decode[batchJSON](t, e.req(bob, "GET", batchPath(film, clip), "")).Items
+	if len(items) != 2 || items[0].Purpose != "FILM" || items[1].Purpose != "SOCIAL" {
+		t.Fatalf("%+v", items)
+	}
+}
+
 func TestBatchOmitsWhatGetVideoWouldNotReturn(t *testing.T) {
 	e := newEnv(t, false)
 	ok := e.video(alice)
