@@ -87,8 +87,12 @@ func (h *Handler) batchSummary(v domain.Video) summaryJSON {
 	if owner.ID == "" {
 		owner.ID = v.OwnerID.String()
 	}
+	purpose := v.Purpose
+	if purpose == "" { // a cache entry written before SOC-2b
+		purpose = domain.PurposeFilm
+	}
 	return summaryJSON{ID: v.ID.String(), Title: v.Title, Owner: owner, DurationMs: *v.DurationMs, ViewCount: v.ViewCount,
-		PublishedAt: v.PublishedAt.UTC(), ThumbnailURL: thumb}
+		PublishedAt: v.PublishedAt.UTC(), ThumbnailURL: thumb, Purpose: purpose}
 }
 
 // parseBatchIDs accepts ids=a,b,c (or a repeated ids parameter), 1..50 valid distinct UUIDs.
