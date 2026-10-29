@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Strict CSP1 Policy: 'wasm-unsafe-eval' for WebAssembly compilation; no external CDNs -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self';"
+    />
+    <title>Winkey SOC-3 E2EE — Browser Benchmark & CSP1 Audit</title>
+    <style>
+      body {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: #0b0f19;
+        color: #f1f5f9;
+        margin: 0;
+        padding: 24px;
+        line-height: 1.6;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 18px;
+        color: #38bdf8;
+        margin-top: 0;
+      }
+      pre {
+        background: #030712;
+        border: 1px solid #1f2937;
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 13px;
+        color: #4ade80;
+      }
+      .violations-box {
+        color: #ef4444;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Winkey SOC-3 E2EE: Browser Benchmark & CSP1 Audit</h1>
+      <p style="color: #94a3b8; font-size: 13px">
+        Chạy kiểm định mã hoá đầu-cuối trong trình duyệt: vodozemac-winkey (Primary WASM), libolm
+        (Baseline C), Web Worker offloading, và kiểm tra vi phạm chính sách bảo mật CSP1.
+      </p>
+      <div id="status">Đang khởi chạy benchmark...</div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size: 14px; margin-top: 0">Kết quả Benchmark (JSON)</h2>
+      <pre id="output">Đang chạy...</pre>
+    </div>
+
+    <!-- Self-hosted UMD libraries for Olm and Argon2id -->
+    <script src="/node_modules/@matrix-org/olm/olm.js"></script>
+    <script src="/node_modules/hash-wasm/dist/argon2.umd.min.js"></script>
+    <!-- ES Module Main Runner -->
+    <script type="module" src="/index.js"></script>
+  </body>
+</html>
