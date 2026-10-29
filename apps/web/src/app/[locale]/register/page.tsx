@@ -282,6 +282,7 @@ function RegisterForm() {
               id="invite-code-input"
               ref={inviteInputRef}
               type="text"
+              autoFocus={!!fieldErrors.invite_code}
               maxLength={64}
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}

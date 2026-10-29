@@ -200,7 +200,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
-    expect(document.activeElement).toBe(inviteInput);
+    await waitFor(() => expect(inviteInput).toHaveFocus());
   });
 
   it('maps 403 INVITE_INVALID to Vietnamese message and focuses invite field', async () => {
@@ -238,7 +238,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
-    expect(document.activeElement).toBe(inviteInput);
+    await waitFor(() => expect(inviteInput).toHaveFocus());
   });
 
   it('reads ?error=INVITE_REQUIRED from Google callback redirect, shows message and focuses field', async () => {
@@ -251,7 +251,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
-    expect(document.activeElement).toBe(inviteInput);
+    await waitFor(() => expect(inviteInput).toHaveFocus());
   });
 
   it('reads ?error=INVITE_INVALID from Google callback redirect, shows message and focuses field', async () => {
@@ -264,7 +264,7 @@ describe('Task BETA1-web: Register Page with Closed Beta Invites & Legal Checkbo
     });
 
     const inviteInput = screen.getByLabelText(/Mã mời/i);
-    expect(document.activeElement).toBe(inviteInput);
+    await waitFor(() => expect(inviteInput).toHaveFocus());
   });
 
   it('checkbox gates both Submit and Google buttons until checked', () => {
