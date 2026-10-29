@@ -47,7 +47,8 @@ type Handler struct {
 func (h *Handler) Routes(r chi.Router) {
 	r.Route("/v1/uploads", func(r chi.Router) {
 		r.Use(httpx.Authenticate)
-		r.With(httpx.RequireRole(httpx.RoleCreator)).Post("/", h.create)
+		// createUpload checks the creator role itself: a SOCIAL upload (SOC-2b) is open to every signed-in user.
+		r.Post("/", h.create)
 		r.Route("/{video_id}", func(r chi.Router) {
 			r.Get("/", h.get)
 			r.Delete("/", h.abort)
@@ -76,6 +77,7 @@ type createRequest struct {
 	Filename    string  `json:"filename"`
 	ContentType string  `json:"content_type"`
 	SizeBytes   int64   `json:"size_bytes"`
+	Purpose     *string `json:"purpose"`
 }
 
 type createResponse struct {
@@ -85,8 +87,19 @@ type createResponse struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	id, _ := httpx.IdentityFrom(r.Context())
 	var req createRequest
 	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	purpose := domain.PurposeFilm
+	if req.Purpose != nil {
+		purpose = *req.Purpose
+	}
+	social := purpose == domain.PurposeSocial
+	// ROLE1 (ADR-046): films need the creator role; SOC-2b (ADR-049): a short video for a post does not.
+	if !social && !id.HasRole(httpx.RoleCreator) {
+		httpx.Forbidden(w, r, "missing required role: "+httpx.RoleCreator)
 		return
 	}
 	var fe []httpx.FieldError
@@ -109,6 +122,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if !allowedVisibility[vis] {
 		bad("visibility", "must be PUBLIC, UNLISTED or PRIVATE")
 	}
+	if purpose != domain.PurposeFilm && !social {
+		bad("purpose", "must be FILM or SOCIAL")
+	}
+	if social {
+		vis = "UNLISTED" // a social video is reachable only through its post (DB CHECK videos_social_unlisted)
+	}
 	if n := utf8.RuneCountInString(req.Filename); n < 1 || n > 255 {
 		bad("filename", "must be 1-255 characters")
 	}
@@ -120,17 +139,23 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		bad("size_bytes", "must be at least 1")
 	case req.SizeBytes > partsize.MaxSize:
 		bad("size_bytes", "must be at most 20 GiB")
+	case social && req.SizeBytes > domain.MaxSocialVideoSizeBytes:
+		bad("size_bytes", "a social video must be at most 300 MiB")
 	}
 	if len(fe) > 0 {
 		code := "VALIDATION_ERROR"
-		if req.SizeBytes > partsize.MaxSize && len(fe) == 1 && fe[0].Field == "size_bytes" {
-			code = "UPLOAD_TOO_LARGE"
+		if len(fe) == 1 && fe[0].Field == "size_bytes" {
+			switch {
+			case req.SizeBytes > partsize.MaxSize:
+				code = "UPLOAD_TOO_LARGE"
+			case social && req.SizeBytes > domain.MaxSocialVideoSizeBytes:
+				code = "VIDEO_TOO_LARGE"
+			}
 		}
 		httpx.BadRequest(w, r, code, "request validation failed", fe...)
 		return
 	}
 
-	id, _ := httpx.IdentityFrom(r.Context())
 	videoID := ids.New()
 	size, count := partsize.Compute(req.SizeBytes)
 	rawKey := id.UserID.String() + "/" + videoID.String() + "/source"
@@ -141,7 +166,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			RawBucket: h.RawBucket, RawKey: rawKey,
 			ContentType: req.ContentType, SizeBytes: req.SizeBytes,
 		},
-		Title: req.Title, Description: desc, Visibility: vis,
+		Title: req.Title, Description: desc, Visibility: vis, Purpose: purpose,
 	}
 	// Quota (UQ1, ADR-027): checked inside the transaction that inserts the row, under the owner's
 	// advisory lock, BEFORE the S3 multipart upload exists. Admins skip it.

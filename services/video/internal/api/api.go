@@ -338,6 +338,11 @@ func (h *Handler) updateVideo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if v.Social() && req.Visibility != nil && *req.Visibility != domain.VisUnlisted {
+		// SOC-2b: the video belongs to a post; the CHECK videos_social_unlisted refuses it too.
+		httpx.Conflict(w, r, "SOCIAL_VIDEO_UNLISTED", "a video attached to a post is always unlisted")
+		return
+	}
 	updated, err := h.Store.UpdateVideo(r.Context(), id, who.ID, domain.Update{
 		Title: req.Title, Description: req.Description, Visibility: req.Visibility, Tags: tags,
 	})

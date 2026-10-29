@@ -80,6 +80,16 @@ social-svc owns likes and publishes `social.video.like_changed` (JetStream strea
 
 Metric: `video_like_events_total{result=applied|unchanged|malformed|ignored_version|error}`. It is not a readiness dependency.
 
+### Social videos (SOC-2b, ADR-049)
+
+A video uploaded with `purpose: SOCIAL` belongs to a post. It is always `UNLISTED` (DB CHECK), so no listing, feed, search, tag page, trending, recommendation or sitemap shows it; `listStudioVideos` and `adminListVideos` filter `purpose = 'FILM'`. `Video.purpose` is returned (`FILM` for cache entries written before SOC-2b). `updateVideo` refuses any other visibility with `409 SOCIAL_VIDEO_UNLISTED`.
+
+- durable pull consumer `video-social-posts` on stream `SOCIAL`, `filter_subjects: [social.post.video_attached, social.post.video_released]`, explicit ack, `ack_wait 30s`, `max_deliver 10` (Nak delay 10 s);
+- `video_attached` sets `attached_at = coalesce(attached_at, now())`; `video_released` deletes the video and writes `video.deleted` in the same transaction (the media janitor removes the files). Both act only on a `SOCIAL` video owned by `author_id`, and are idempotent: anything else is acked and ignored;
+- the janitor (every replica, every 10 min, batches of 100, `FOR UPDATE SKIP LOCKED`) deletes `SOCIAL` videos never attached: `READY` for 48 h (counted from `published_at`, set when the video became `READY`), or `FAILED` and created 48 h ago. Each one gets a `video.deleted`.
+
+Metrics: `video_social_post_events_total{type,result}`, `video_social_unattached_deleted_total`, `video_social_janitor_errors_total`. NATS: the `video` user needs subscribe on both subjects and `$JS.ACK.SOCIAL.video-social-posts.>` (AG2, SOC-2b rollout).
+
 ### View counter
 
 `POST /v1/videos/{id}/views` with `{playback_id, watched_ms}` (the player calls it once per playback). Rules, in the order they are applied:

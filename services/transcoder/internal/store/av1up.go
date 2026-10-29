@@ -32,7 +32,7 @@ func (p *Postgres) SelectAV1(ctx context.Context, minStarts int64, limit int) ([
 		)
 		SELECT v.id, v.raw_bucket, v.raw_key, coalesce(s.starts, 0)
 		FROM media.videos v LEFT JOIN starts s ON s.video_id = v.id
-		WHERE v.status = 'READY' AND v.hls_av1_master_key IS NULL AND coalesce(s.starts, 0) >= $1
+		WHERE v.status = 'READY' AND v.purpose = 'FILM' AND v.hls_av1_master_key IS NULL AND coalesce(s.starts, 0) >= $1
 		ORDER BY coalesce(s.starts, 0) DESC, v.created_at DESC, v.id
 		LIMIT $2`, minStarts, limit, av1Window)
 	if err != nil {
@@ -141,7 +141,7 @@ func (p *Postgres) RankAV1(ctx context.Context) ([]av1up.Rank, error) {
 		)
 		SELECT v.id, coalesce(s.starts, 0), v.hls_av1_master_key IS NOT NULL
 		FROM media.videos v LEFT JOIN starts s ON s.video_id = v.id
-		WHERE v.status = 'READY'
+		WHERE v.status = 'READY' AND v.purpose = 'FILM'
 		ORDER BY coalesce(s.starts, 0) DESC, v.created_at DESC, v.id`, av1Window)
 	if err != nil {
 		return nil, fmt.Errorf("rank videos: %w", err)

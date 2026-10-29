@@ -29,7 +29,7 @@ var _ domain.Store = (*Postgres)(nil)
 // videoCols joins the owner profile (LEFT: a suspended/deleted owner has no
 // row in the view) and reads everything GetVideo/UpdateVideo return.
 const videoSelect = `
-	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.tag_slugs, v.visibility::text, v.status::text,
+	SELECT v.id, v.owner_id, v.title, v.description, v.tags, v.tag_slugs, v.visibility::text, v.purpose::text, v.status::text,
 	       v.duration_ms, v.width, v.height, v.view_count, v.like_count, v.published_at, v.created_at,
 	       v.hls_master_key, v.thumbnail_key, v.storyboard_key, v.hls_av1_master_key,
 	       p.id IS NOT NULL, coalesce(p.handle, ''), coalesce(p.display_name, ''), p.avatar_key,
@@ -40,7 +40,7 @@ const videoSelect = `
 func scanVideo(row pgx.Row) (domain.Video, error) {
 	var v domain.Video
 	var ownerActive bool
-	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.TagSlugs, &v.Visibility, &v.Status,
+	err := row.Scan(&v.ID, &v.OwnerID, &v.Title, &v.Description, &v.Tags, &v.TagSlugs, &v.Visibility, &v.Purpose, &v.Status,
 		&v.DurationMs, &v.Width, &v.Height, &v.ViewCount, &v.LikeCount, &v.PublishedAt, &v.CreatedAt,
 		&v.HLSMasterKey, &v.ThumbnailKey, &v.StoryboardKey, &v.HLSAV1MasterKey,
 		&ownerActive, &v.Owner.Handle, &v.Owner.DisplayName, &v.Owner.AvatarKey,
@@ -232,7 +232,7 @@ func studioSQL(q domain.StudioQuery) (string, []any) {
 		LEFT JOIN LATERAL (
 		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
 		) j ON true
-		WHERE v.owner_id = `)
+		WHERE v.purpose = 'FILM' AND v.owner_id = `)
 	var args []any
 	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
 	sb.WriteString(arg(q.UserID))
@@ -289,7 +289,7 @@ func adminVideosSQL(q domain.AdminVideoQuery) (string, []any) {
 		LEFT JOIN LATERAL (
 		    SELECT progress FROM media.transcode_jobs WHERE video_id = v.id ORDER BY attempt DESC LIMIT 1
 		) j ON true
-		WHERE true`)
+		WHERE v.purpose = 'FILM'`)
 	var args []any
 	arg := func(v any) string { args = append(args, v); return "$" + strconv.Itoa(len(args)) }
 	if q.Q != "" {

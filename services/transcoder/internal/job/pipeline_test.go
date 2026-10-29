@@ -316,3 +316,60 @@ func TestX264Speed(t *testing.T) {
 		f.Pipeline.Cfg.X264Preset, runtime.NumCPU(), res.Stats.MediaSec, res.Stats.EncodeWall.Seconds(),
 		res.Stats.XRealtime(), res.Stats.TotalWall.Seconds(), res.Stats.UploadBytes>>20)
 }
+
+// SOC-2b (ADR-049): a social video gets only 720p + 360p, no storyboard, and its raw goes when READY.
+func TestProcessSocialVideo(t *testing.T) {
+	f, _ := newFlow(t, media.EncoderX264, testutil.ClipPortrait)
+	f.Store.Video.Purpose = job.PurposeSocial
+	res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3})
+	if res.Action != job.ActionAck || len(f.Store.Ready) != 1 {
+		t.Fatalf("result %+v, ready %d, fails %+v", res, len(f.Store.Ready), f.Store.Fails)
+	}
+	r := f.Store.Ready[0]
+	var names []string
+	for _, rd := range r.Renditions {
+		names = append(names, fmt.Sprintf("%s %dx%d", rd.Name, rd.Width, rd.Height))
+	}
+	if strings.Join(names, ",") != "720p 720x1280,360p 360x640" {
+		t.Fatalf("renditions %v, want the portrait social ladder", names)
+	}
+	if r.StoryboardKey != "" {
+		t.Errorf("social video got a storyboard: %s", r.StoryboardKey)
+	}
+	if _, ok := f.Objs.Get(testutil.RawBucket, f.Video.RawKey); ok {
+		t.Error("the social raw must be deleted once READY")
+	}
+	for _, k := range f.Objs.Keys(testutil.MediaBucket) {
+		if strings.Contains(k, "/storyboard/") || strings.Contains(k, "/1080p/") {
+			t.Errorf("unexpected social output %s", k)
+		}
+	}
+}
+
+// A film keeps its raw (only social raws are deleted).
+func TestProcessFilmKeepsRaw(t *testing.T) {
+	f, _ := newFlow(t, media.EncoderX264, testutil.ClipSmall)
+	if res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3}); res.Action != job.ActionAck {
+		t.Fatalf("result %+v", res)
+	}
+	if _, ok := f.Objs.Get(testutil.RawBucket, f.Video.RawKey); !ok {
+		t.Error("a film's raw must be kept")
+	}
+}
+
+// A social video longer than 3 minutes fails for good (INVALID_INPUT) before encoding and keeps its raw.
+func TestProcessSocialTooLong(t *testing.T) {
+	f, _ := newFlow(t, media.EncoderX264, testutil.Clip{Name: "long", W: 160, H: 120, Seconds: 181, Audio: false, PixFmt: "yuv420p"})
+	f.Store.Video.Purpose = job.PurposeSocial
+	res := f.Pipeline.Process(context.Background(), f.Event(), job.Delivery{Num: 1, Max: 3})
+	if res.Action != job.ActionTerm || len(f.Store.Ready) != 0 || len(f.Store.Fails) != 1 {
+		t.Fatalf("result %+v, ready %d, fails %+v", res, len(f.Store.Ready), f.Store.Fails)
+	}
+	fl := f.Store.Fails[0].Failure
+	if fl.Reason != job.ReasonInvalidInput || fl.Retryable || !strings.Contains(fl.Message, "longer than 3 minutes") {
+		t.Fatalf("failure %+v", fl)
+	}
+	if keys := f.Objs.Keys(testutil.MediaBucket); len(keys) != 0 {
+		t.Errorf("nothing may be published for a refused video: %v", keys)
+	}
+}

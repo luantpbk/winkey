@@ -299,7 +299,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	// The source remains alive until the copy joins, including on failure/cancel.
 	archiveCtx, cancelArchive := context.WithCancel(ctx)
 	archiveDone := make(chan struct{})
-	if p.Cfg.ArchiveDir != "" {
+	if p.Cfg.ArchiveDir != "" && !v.Social() { // social raws are deleted when READY: nothing to archive
 		copyRaw := p.archiveCopy
 		if copyRaw == nil {
 			copyRaw = archive
@@ -334,8 +334,17 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 		return Stats{}, err
 	}
 
-	// 4-5. Ladder and encode (NVENC falls back to x264 within the attempt).
+	// 4-5. Ladder and encode (NVENC falls back to x264 within the attempt). A social video (SOC-2b) is at most
+	// 3 minutes and gets the 720p/360p ladder, capped CRF and 96 kbps audio, whatever the worker's defaults.
 	rs := media.Select(info.DisplayW, info.DisplayH)
+	rateControl, x264CRF, nvencCQ, audioK := p.Cfg.RateControl, p.Cfg.X264CRF, p.Cfg.NVENCCQ, 0
+	if v.Social() {
+		if info.DurationSec > media.SocialMaxDurationSec {
+			return Stats{}, &media.InvalidInputError{Msg: "the video is longer than 3 minutes"}
+		}
+		rs = media.SelectSocial(info.DisplayW, info.DisplayH)
+		rateControl, x264CRF, nvencCQ, audioK = media.RateControlCappedCRF, media.SocialX264CRF, media.SocialNVENCCQ, media.SocialAudioK
+	}
 	outDir := filepath.Join(work, "out")
 	hlsDir := filepath.Join(outDir, "hls")
 	encoder := p.Cfg.Encoder
@@ -358,7 +367,7 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 		start := time.Now()
 		err := p.Tools.RunHLS(rctx, media.HLSPlan{
 			Input: source, OutDir: hlsDir, Encoder: enc, X264Preset: p.Cfg.X264Preset,
-			RateControl: p.Cfg.RateControl, X264CRF: p.Cfg.X264CRF, NVENCCQ: p.Cfg.NVENCCQ,
+			RateControl: rateControl, X264CRF: x264CRF, NVENCCQ: nvencCQ, AudioBitrateK: audioK,
 			Renditions: rs, FPS: info.FPS, HasAudio: info.HasAudio, DurationSec: info.DurationSec, NoHWDecode: p.Cfg.NoHWDecode,
 		}, info.DurationSec, func(pct float64) {
 			rep.report(ctx, StageTranscoding, progressTranscode+(progressUpload-progressTranscode)*pct/100)
@@ -420,11 +429,16 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 
 	// 6b. Seek-preview storyboard (V5a): best effort, the video is READY without it. It reads the
 	// smallest HLS rendition on the CPU (or the source when none qualifies), which keeps it cheap.
-	storyboardKey, storyboardWall, err := p.buildStoryboard(ctx, storyboardInput(rs, hlsDir, source), outDir, prefix, info.DurationSec, log)
-	// The step counts as failed when there is no storyboard: the job goes on, the metric shows it.
-	tm.add(StepStoryboard, storyboardWall, err != nil || storyboardKey == "")
-	if err != nil {
-		return Stats{}, err
+	// Social videos (SOC-2b) have none.
+	var storyboardKey string
+	var storyboardWall time.Duration
+	if !v.Social() {
+		storyboardKey, storyboardWall, err = p.buildStoryboard(ctx, storyboardInput(rs, hlsDir, source), outDir, prefix, info.DurationSec, log)
+		// The step counts as failed when there is no storyboard: the job goes on, the metric shows it.
+		tm.add(StepStoryboard, storyboardWall, err != nil || storyboardKey == "")
+		if err != nil {
+			return Stats{}, err
+		}
 	}
 
 	// 7. Upload under v/{video_id}/a{attempt}/.
@@ -475,6 +489,13 @@ func (p *Pipeline) run(ctx context.Context, b BeginResult, log *slog.Logger, tm 
 	// After READY: drop the output of older attempts (V3 hygiene).
 	if err := p.RemoveOldAttempts(ctx, v.ID, b.Attempt); err != nil {
 		log.WarnContext(ctx, "remove old attempts", "error", err)
+	}
+	// SOC-2b: a social video keeps only its HLS output; its raw upload goes as soon as it is READY (films keep
+	// theirs). Best effort: a raw left behind is harmless and storage-gc reports it.
+	if v.Social() {
+		if err := p.Objects.DeleteObject(ctx, v.RawBucket, v.RawKey); err != nil {
+			log.WarnContext(ctx, "delete social raw", "error", err)
+		}
 	}
 	return Stats{
 		Encoder: encoder, MediaSec: info.DurationSec, EncodeWall: encodeWall,

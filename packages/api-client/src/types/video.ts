@@ -1117,19 +1117,19 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Rate limit exceeded. See `Retry-After`. */
-        TooManyRequests: {
+        /** @description Resource is in a state that does not allow this operation. */
+        Conflict: {
             headers: {
-                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Resource is in a state that does not allow this operation. */
-        Conflict: {
+        /** @description Rate limit exceeded. See `Retry-After`. */
+        TooManyRequests: {
             headers: {
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -1291,6 +1291,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listRelatedVideos: {
