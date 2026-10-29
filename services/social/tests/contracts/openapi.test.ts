@@ -1236,5 +1236,174 @@ describe('OpenAPI Contract Verification against social.v1.yaml and common.yaml',
       expect(validateProblem(problem)).toBe(true);
       expect(problem.code).toBe('POST_DELETED');
     });
+
+    describe('SOC-2b Short Social Videos in Posts Lifecycle', () => {
+      const socialVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c99';
+      const foreignSocialVideoId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c98';
+      let socialPostId: string;
+
+      beforeAll(() => {
+        mockStore.videos.push(
+          {
+            id: socialVideoId,
+            owner_id: authorId,
+            like_count: 0,
+            comment_count: 0,
+            hidden: false,
+            visibility: 'UNLISTED',
+            purpose: 'SOCIAL',
+            created_at: new Date(),
+          },
+          {
+            id: foreignSocialVideoId,
+            owner_id: ownerId,
+            like_count: 0,
+            comment_count: 0,
+            hidden: false,
+            visibility: 'UNLISTED',
+            purpose: 'SOCIAL',
+            created_at: new Date(),
+          },
+        );
+      });
+
+      it('POST /v1/posts with another user social video returns 404 VIDEO_NOT_FOUND (no leak)', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/posts',
+          headers: { 'x-user-id': authorId },
+          payload: {
+            body: 'Trying to use foreign social video',
+            video_id: foreignSocialVideoId,
+          },
+        });
+        expect(res.statusCode).toBe(404);
+        const problem = res.json();
+        expect(validateProblem(problem)).toBe(true);
+        expect(problem.code).toBe('VIDEO_NOT_FOUND');
+      });
+
+      it('POST /v1/posts with own social video creates post and emits social.post.video_attached', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/posts',
+          headers: { 'x-user-id': authorId },
+          payload: {
+            body: 'My short social video!',
+            video_id: socialVideoId,
+          },
+        });
+        expect(res.statusCode).toBe(201);
+        const post = res.json();
+        socialPostId = post.id;
+        expect(validatePost(post)).toBe(true);
+        expect(post.video_id).toBe(socialVideoId);
+
+        // Verify outbox contains social.post.video_attached
+        const attachedEvent = mockStore.outbox.find(
+          (o) => o.subject === 'social.post.video_attached',
+        );
+        expect(attachedEvent).toBeDefined();
+        const payload = attachedEvent!.payload as any;
+        expect(payload.type).toBe('social.post.video_attached');
+        expect(payload.data.post_id).toBe(socialPostId);
+        expect(payload.data.video_id).toBe(socialVideoId);
+        expect(payload.data.author_id).toBe(authorId);
+      });
+
+      it('POST /v1/posts with already attached social video returns 409 VIDEO_IN_USE', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/posts',
+          headers: { 'x-user-id': authorId },
+          payload: {
+            body: 'Trying to reuse my social video',
+            video_id: socialVideoId,
+          },
+        });
+        expect(res.statusCode).toBe(409);
+        const problem = res.json();
+        expect(validateProblem(problem)).toBe(true);
+        expect(problem.code).toBe('VIDEO_IN_USE');
+      });
+
+      it('PUT /v1/posts/:post_id/moderation (HIDDEN) keeps video attached and does NOT emit video_released', async () => {
+        const outboxCountBefore = mockStore.outbox.length;
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/v1/posts/${socialPostId}/moderation`,
+          headers: { 'x-user-id': authorId, 'x-user-roles': 'moderator' },
+          payload: { status: 'HIDDEN' },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(mockStore.outbox.length).toBe(outboxCountBefore);
+        expect(mockStore.outbox.some((o) => o.subject === 'social.post.video_released')).toBe(
+          false,
+        );
+
+        // While HIDDEN, video is still in use
+        const reuseRes = await app.inject({
+          method: 'POST',
+          url: '/v1/posts',
+          headers: { 'x-user-id': authorId },
+          payload: {
+            body: 'Reusing while hidden',
+            video_id: socialVideoId,
+          },
+        });
+        expect(reuseRes.statusCode).toBe(409);
+        expect(reuseRes.json().code).toBe('VIDEO_IN_USE');
+      });
+
+      it('DELETE /v1/posts/:post_id releases social video and emits social.post.video_released', async () => {
+        const res = await app.inject({
+          method: 'DELETE',
+          url: `/v1/posts/${socialPostId}`,
+          headers: { 'x-user-id': authorId },
+        });
+        expect(res.statusCode).toBe(204);
+
+        const releasedEvents = mockStore.outbox.filter(
+          (o) => o.subject === 'social.post.video_released',
+        );
+        expect(releasedEvents).toHaveLength(1);
+        const payload = releasedEvents[0].payload as any;
+        expect(payload.type).toBe('social.post.video_released');
+        expect(payload.data.post_id).toBe(socialPostId);
+        expect(payload.data.video_id).toBe(socialVideoId);
+        expect(payload.data.author_id).toBe(authorId);
+      });
+
+      it('DELETE /v1/posts/:post_id second call is idempotent and does not emit again', async () => {
+        const countBefore = mockStore.outbox.filter(
+          (o) => o.subject === 'social.post.video_released',
+        ).length;
+        const res = await app.inject({
+          method: 'DELETE',
+          url: `/v1/posts/${socialPostId}`,
+          headers: { 'x-user-id': authorId },
+        });
+        expect(res.statusCode).toBe(204);
+        const countAfter = mockStore.outbox.filter(
+          (o) => o.subject === 'social.post.video_released',
+        ).length;
+        expect(countAfter).toBe(countBefore);
+      });
+
+      it('POST /v1/posts with released social video can now be attached to a new post', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/posts',
+          headers: { 'x-user-id': authorId },
+          payload: {
+            body: 'Re-attaching previously released social video',
+            video_id: socialVideoId,
+          },
+        });
+        expect(res.statusCode).toBe(201);
+        const post = res.json();
+        expect(post.video_id).toBe(socialVideoId);
+      });
+    });
   });
 });

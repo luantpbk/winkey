@@ -21,6 +21,21 @@ var Ladder = []Rung{
 	{ShortEdge: 480, TargetK: 1400, MaxrateK: 1498, BufsizeK: 2100},
 }
 
+// SocialLadder is the ladder of short social videos (SOC-2b, ADR-049): 720p and 360p only, strongly
+// compressed. Encoded in capped-CRF mode, where TargetK is the ceiling (≈ 10 MB per minute at 720p).
+var SocialLadder = []Rung{
+	{ShortEdge: 720, TargetK: 1200, MaxrateK: 1200, BufsizeK: 2400},
+	{ShortEdge: 360, TargetK: 500, MaxrateK: 500, BufsizeK: 1000},
+}
+
+// Social video encoding (SOC-2b, ADR-049).
+const (
+	SocialMaxDurationSec = 180 // longer social videos fail as INVALID_INPUT
+	SocialX264CRF        = 28
+	SocialNVENCCQ        = 30
+	SocialAudioK         = 96
+)
+
 // Rendition is one output variant.
 type Rendition struct {
 	Name     string // "1080p": named after the short edge; matches ^[0-9]{3,4}p$
@@ -36,10 +51,15 @@ type Rendition struct {
 // always returns at least one rendition: when the source is smaller than the
 // lowest rung, a single rendition at the source size is returned with the
 // lowest rung's bitrate scaled down by pixel count (floor 300 kbps).
-func Select(dispW, dispH int) []Rendition {
+func Select(dispW, dispH int) []Rendition { return selectFrom(Ladder, dispW, dispH) }
+
+// SelectSocial is Select over SocialLadder (SOC-2b): at most 720p and 360p.
+func SelectSocial(dispW, dispH int) []Rendition { return selectFrom(SocialLadder, dispW, dispH) }
+
+func selectFrom(ladder []Rung, dispW, dispH int) []Rendition {
 	short := min(dispW, dispH)
 	var out []Rendition
-	for _, r := range Ladder {
+	for _, r := range ladder {
 		if r.ShortEdge > short {
 			continue
 		}
@@ -54,8 +74,12 @@ func Select(dispW, dispH int) []Rendition {
 	}
 
 	w, h := floorEven(dispW), floorEven(dispH)
-	base := Ladder[len(Ladder)-1]
-	basePixels := 854 * 480
+	base := ladder[len(ladder)-1]
+	baseWidth := base.ShortEdge * 16 / 9 // the 16:9 width of the lowest rung: 854 for 480p (ADR-006), 640 for 360p
+	if base.ShortEdge == 480 {
+		baseWidth = 854
+	}
+	basePixels := baseWidth * base.ShortEdge
 	target := base.TargetK * (w * h) / basePixels
 	target = max(300, min(base.TargetK, target))
 	return []Rendition{{

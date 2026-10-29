@@ -2,6 +2,7 @@ import type { Generated } from 'kysely';
 
 export type CommentStatus = 'VISIBLE' | 'DELETED' | 'HIDDEN';
 export type VideoVisibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
+export type VideoPurpose = 'FILM' | 'SOCIAL';
 
 export interface VideosTable {
   id: string;
@@ -10,6 +11,7 @@ export interface VideosTable {
   comment_count: Generated<string | number>;
   hidden: Generated<boolean>;
   visibility: Generated<VideoVisibility>;
+  purpose: Generated<VideoPurpose>;
   created_at: Generated<Date>;
 }
 
@@ -161,6 +163,7 @@ export interface PostsTable {
   visibility: Generated<PostVisibility>;
   status: Generated<PostStatus>;
   video_id: string | null;
+  video_social: Generated<boolean>;
   reshare_of: string | null;
   media_count: Generated<number>;
   reaction_count: Generated<string | number>;

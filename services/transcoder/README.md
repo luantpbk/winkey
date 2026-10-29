@@ -19,6 +19,17 @@ It follows ADR-003 and ADR-015: **standalone binary + FFmpeg, no inbound ports f
 
 **Progress** is one bar for the whole job (download 0–5, probe 5, transcode 5–90, upload 90–99, 100 when READY). It is written to `transcode_jobs.progress` and published on core NATS `rt.video.{id}.progress`, at most once per 5 s. `stage` says what the worker is doing.
 
+### Social videos (SOC-2b, ADR-049)
+
+A video with `purpose = SOCIAL` (read by `BeginJob`) is handled differently:
+- longer than 180 s → `INVALID_INPUT`, not retried, nothing published;
+- only the `media.SocialLadder` renditions (720p and 360p by short edge, never upscaled);
+- capped CRF (x264 CRF 28 / NVENC CQ 30, ceiling 1.2 Mbps at 720p and 0.5 Mbps at 360p) and AAC 96 kbps, whatever `RATE_CONTROL` says;
+- no storyboard, no archive copy;
+- its raw object is deleted right after READY (films keep theirs).
+
+`video.ready` carries `purpose`. AV1 upgrade, storyboard backfill and `cmd/reencode` only select `FILM` videos.
+
 ## Failure handling (contracts/events/README.md)
 
 | Situation | `video.failed.reason` | Retryable | What happens |

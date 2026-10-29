@@ -229,6 +229,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
     delete:
       tags: [videos]
       operationId: deleteVideo
@@ -1305,6 +1307,11 @@ components:
         thumbnail_url:
           type: string
           format: uri
+        purpose:
+          $ref: './common.yaml#/components/schemas/VideoPurpose'
+          description: |
+            SOC-2b. Sent by every SOC-2b server; a missing value means `FILM`. Only `batchGetVideos` can return a
+            `SOCIAL` video (listings never contain one): clients hydrating a post play a `SOCIAL` video inline.
 
     StatsTotals:
       type: object

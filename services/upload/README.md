@@ -23,6 +23,10 @@ Non-owners, unknown ids and malformed ids all get **404**, never 403. Identity c
 
 **Two S3 endpoints** (shared client `libs/go/s3x`): `S3_ENDPOINT` (internal) for server-side calls; `S3_PUBLIC_ENDPOINT` (e.g. `https://s3.winkey.vn`) only for presigning, because the signature is bound to the host. Both are path-style with `S3_REGION=garage`. SDK request checksums are disabled (`WhenRequired`) so presigned URLs carry no checksum headers a browser would not send.
 
+## Social videos (SOC-2b, ADR-049)
+
+`createUpload` with `"purpose": "SOCIAL"` starts a short video for a post. It needs no `creator` role (films still do: checked in the handler, before the S3 upload exists), is stored `UNLISTED` whatever `visibility` says, and is capped at 300 MiB (`400 VIDEO_TOO_LARGE`). Quotas apply as for films. The transcoder enforces the 3-minute limit.
+
 ## Quotas (UQ1, ADR-027)
 
 `POST /v1/uploads` refuses a caller who is over one of three limits (checked in this order), unless their `X-User-Roles` contains `admin`:

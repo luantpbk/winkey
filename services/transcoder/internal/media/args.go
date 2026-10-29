@@ -65,6 +65,8 @@ type HLSPlan struct {
 	// the infinite anullsrc is cut by -shortest, which ends at a muxer-timing-dependent
 	// point (different segment counts and bytes from run to run).
 	DurationSec float64
+	// AudioBitrateK is the AAC bitrate; 0 means 128 kbps (films). Social videos use SocialAudioK (SOC-2b).
+	AudioBitrateK int
 	// NoHWDecode makes NVENC runs decode on the CPU (no -hwaccel cuda). It is
 	// the hook for a possible HWACCEL_DECODE=false when NVDEC is unavailable or
 	// slow on a shared GPU; it is not wired to configuration yet.
@@ -188,7 +190,7 @@ func BuildHLSArgs(p HLSPlan) []string {
 			"-bufsize"+s, fmt.Sprintf("%dk", r.BufsizeK))
 	}
 	a = append(a, "-force_key_frames", "expr:gte(t,n_forced*2)")
-	a = append(a, "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2")
+	a = append(a, "-c:a", "aac", "-b:a", strconv.Itoa(orDefault(p.AudioBitrateK, 128))+"k", "-ar", "48000", "-ac", "2")
 	if !p.HasAudio && p.DurationSec <= 0 {
 		a = append(a, "-shortest") // anullsrc is infinite
 	}

@@ -604,6 +604,29 @@ func TestPatchOwnerOnly(t *testing.T) {
 	}
 }
 
+// SOC-2b: a social video stays UNLISTED; other edits work, and purpose is rendered (FILM when unset).
+func TestPatchSocialVideoStaysUnlisted(t *testing.T) {
+	e := newEnv(t, false)
+	v := e.video(alice, visibility(domain.VisUnlisted), func(v *domain.Video) { v.Purpose = domain.PurposeSocial })
+	path := "/v1/videos/" + v.ID.String()
+	for _, vis := range []string{domain.VisPublic, domain.VisPrivate} {
+		if w := e.req(alice, "PATCH", path, `{"title":"x","visibility":"`+vis+`"}`); w.Code != 409 || problemCode(t, w) != "SOCIAL_VIDEO_UNLISTED" {
+			t.Errorf("%s: %d %s", vis, w.Code, w.Body)
+		}
+	}
+	if got := e.store.videos[v.ID]; got.Visibility != domain.VisUnlisted || got.Title == "x" {
+		t.Fatalf("a refused PATCH changed the video: %+v", got)
+	}
+	out := decode[videoJSON](t, e.req(alice, "PATCH", path, `{"title":"Clip","visibility":"UNLISTED"}`))
+	if out.Title != "Clip" || out.Visibility != "UNLISTED" || out.Purpose != "SOCIAL" {
+		t.Fatalf("%+v", out)
+	}
+	film := e.video(alice)
+	if out := decode[videoJSON](t, e.req(bob, "GET", "/v1/videos/"+film.ID.String(), "")); out.Purpose != "FILM" {
+		t.Fatalf("film purpose %q", out.Purpose)
+	}
+}
+
 func TestPatchValidation(t *testing.T) {
 	e := newEnv(t, false)
 	v := e.video(alice)

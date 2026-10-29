@@ -47,6 +47,7 @@ type videoJSON struct {
 	TagSlugs    []string      `json:"tag_slugs"`
 	Owner       profileJSON   `json:"owner"`
 	Visibility  string        `json:"visibility"`
+	Purpose     string        `json:"purpose"`
 	Status      string        `json:"status"`
 	DurationMs  *int          `json:"duration_ms"`
 	Width       *int          `json:"width"`
@@ -74,6 +75,7 @@ type summaryJSON struct {
 	ViewCount    int64       `json:"view_count"`
 	PublishedAt  time.Time   `json:"published_at"`
 	ThumbnailURL string      `json:"thumbnail_url"`
+	Purpose      string      `json:"purpose"` // SOC-2b; only batchGetVideos can return SOCIAL
 }
 
 type studioJSON struct {
@@ -147,6 +149,9 @@ func (h *Handler) video(v domain.Video, who domain.Viewer) videoJSON {
 	if out.Owner.ID == "" {
 		out.Owner.ID = v.OwnerID.String()
 	}
+	if out.Purpose = v.Purpose; out.Purpose == "" { // a cache entry written before SOC-2b
+		out.Purpose = domain.PurposeFilm
+	}
 	if out.Tags == nil { // e.g. a cache entry written before TAG1
 		out.Tags = []string{}
 	}
@@ -198,6 +203,7 @@ func (h *Handler) summary(s domain.Summary) summaryJSON {
 	return summaryJSON{
 		ID: s.ID.String(), Title: s.Title, Owner: h.profile(s.Owner), DurationMs: s.DurationMs,
 		ViewCount: s.ViewCount, PublishedAt: s.PublishedAt.UTC(), ThumbnailURL: h.mediaURL(s.ThumbnailKey),
+		Purpose: domain.PurposeFilm, // listings never contain a SOCIAL video
 	}
 }
 

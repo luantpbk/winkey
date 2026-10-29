@@ -717,6 +717,11 @@ export interface components {
             published_at: string;
             /** Format: uri */
             thumbnail_url: string;
+            /**
+             * @description SOC-2b. Sent by every SOC-2b server; a missing value means `FILM`. Only `batchGetVideos` can return a
+             *     `SOCIAL` video (listings never contain one): clients hydrating a post play a `SOCIAL` video inline.
+             */
+            purpose?: components["schemas"]["VideoPurpose"];
         };
         StatsTotals: {
             /** @description Player sessions started in the range. */
@@ -1046,6 +1051,12 @@ export interface components {
             /** Format: uri */
             avatar_url: string | null;
         };
+        /**
+         * @description `FILM`: a video of the catalogue (every video before SOC-2b). `SOCIAL`: a short video uploaded for a post (task
+         *     SOC-2b, ADR-049): at most 3 minutes and 300 MiB, encoded to 720p + 360p only, always `UNLISTED`.
+         * @enum {string}
+         */
+        VideoPurpose: "FILM" | "SOCIAL";
         /** @description RFC 9457 problem details. Content type `application/problem+json`. */
         Problem: {
             /**
@@ -1071,12 +1082,6 @@ export interface components {
          * @enum {string}
          */
         Visibility: "PUBLIC" | "UNLISTED" | "PRIVATE";
-        /**
-         * @description `FILM`: a video of the catalogue (every video before SOC-2b). `SOCIAL`: a short video uploaded for a post (task
-         *     SOC-2b, ADR-049): at most 3 minutes and 300 MiB, encoded to 720p + 360p only, always `UNLISTED`.
-         * @enum {string}
-         */
-        VideoPurpose: "FILM" | "SOCIAL";
         /** @enum {string} */
         VideoStatus: "UPLOADING" | "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
     };
@@ -1117,19 +1122,19 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Rate limit exceeded. See `Retry-After`. */
-        TooManyRequests: {
+        /** @description Resource is in a state that does not allow this operation. */
+        Conflict: {
             headers: {
-                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Resource is in a state that does not allow this operation. */
-        Conflict: {
+        /** @description Rate limit exceeded. See `Retry-After`. */
+        TooManyRequests: {
             headers: {
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -1291,6 +1296,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listRelatedVideos: {
