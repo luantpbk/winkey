@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { POST } from '../src/app/api/csp-report/route';
-import {
-  stripQueryAndFragment,
-  resetRateLimitsForTest,
-} from '../src/lib/security/csp-report';
+import { stripQueryAndFragment, resetRateLimitsForTest } from '../src/lib/security/csp-report';
 
 describe('/api/csp-report route handler', () => {
   beforeEach(() => {

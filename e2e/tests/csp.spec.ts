@@ -4,21 +4,24 @@ import { test, expect, Page } from '@playwright/test';
 const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';
 
 async function setupCspCollector(page: Page, enableTurnstile = false) {
-  await page.addInitScript(({ enableTurnstileKey, siteKey }) => {
-    (window as any).__csp = [];
-    window.addEventListener('securitypolicyviolation', (e) => {
-      (window as any).__csp.push({
-        violatedDirective: e.violatedDirective,
-        blockedURI: e.blockedURI,
-        documentURI: e.documentURI,
-        disposition: e.disposition,
-        originalPolicy: e.originalPolicy,
+  await page.addInitScript(
+    ({ enableTurnstileKey, siteKey }) => {
+      (window as any).__csp = [];
+      window.addEventListener('securitypolicyviolation', (e) => {
+        (window as any).__csp.push({
+          violatedDirective: e.violatedDirective,
+          blockedURI: e.blockedURI,
+          documentURI: e.documentURI,
+          disposition: e.disposition,
+          originalPolicy: e.originalPolicy,
+        });
       });
-    });
-    if (enableTurnstileKey) {
-      (window as any).__TURNSTILE_SITE_KEY__ = siteKey;
-    }
-  }, { enableTurnstileKey: enableTurnstile, siteKey: TURNSTILE_TEST_SITE_KEY });
+      if (enableTurnstileKey) {
+        (window as any).__TURNSTILE_SITE_KEY__ = siteKey;
+      }
+    },
+    { enableTurnstileKey: enableTurnstile, siteKey: TURNSTILE_TEST_SITE_KEY },
+  );
 }
 
 async function assertZeroCspViolations(page: Page) {
@@ -58,7 +61,9 @@ test.describe('CSP1: Strict Content Security Policy Nonce & Zero Violations E2E'
 
   test('2. Watch page starts HLS playback with zero CSP violations', async ({ page }) => {
     await setupCspCollector(page);
-    await page.goto('/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', { waitUntil: 'domcontentloaded' });
+    await page.goto('/watch/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', {
+      waitUntil: 'domcontentloaded',
+    });
     await page.waitForLoadState('domcontentloaded');
 
     const video = page.locator('video');
@@ -68,9 +73,13 @@ test.describe('CSP1: Strict Content Security Policy Nonce & Zero Violations E2E'
     await assertZeroCspViolations(page);
   });
 
-  test('3. /embed/{id} renders VideoPlayer with frame-ancestors and zero CSP violations', async ({ page }) => {
+  test('3. /embed/{id} renders VideoPlayer with frame-ancestors and zero CSP violations', async ({
+    page,
+  }) => {
     await setupCspCollector(page);
-    await page.goto('/embed/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', { waitUntil: 'domcontentloaded' });
+    await page.goto('/embed/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', {
+      waitUntil: 'domcontentloaded',
+    });
     await page.waitForLoadState('domcontentloaded');
 
     const video = page.locator('video');
@@ -80,7 +89,9 @@ test.describe('CSP1: Strict Content Security Policy Nonce & Zero Violations E2E'
     await assertZeroCspViolations(page);
   });
 
-  test('4. Login page with Turnstile renders and executes with zero CSP violations', async ({ page }) => {
+  test('4. Login page with Turnstile renders and executes with zero CSP violations', async ({
+    page,
+  }) => {
     await setupCspCollector(page, true);
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('domcontentloaded');
@@ -117,7 +128,9 @@ test.describe('CSP1: Strict Content Security Policy Nonce & Zero Violations E2E'
     await assertZeroCspViolations(page);
   });
 
-  test('7. /bang-tin with social video post renders and plays with zero CSP violations', async ({ page }) => {
+  test('7. /bang-tin with social video post renders and plays with zero CSP violations', async ({
+    page,
+  }) => {
     await setupCspCollector(page);
     await page.goto('/bang-tin', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('domcontentloaded');
@@ -129,7 +142,9 @@ test.describe('CSP1: Strict Content Security Policy Nonce & Zero Violations E2E'
     await assertZeroCspViolations(page);
   });
 
-  test('8. Settings / security (/cai-dat/bao-mat) renders with zero CSP violations', async ({ page }) => {
+  test('8. Settings / security (/cai-dat/bao-mat) renders with zero CSP violations', async ({
+    page,
+  }) => {
     await setupCspCollector(page);
     await page.goto('/cai-dat/bao-mat', { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('domcontentloaded');

@@ -14,13 +14,7 @@ export function useNonce(): string | undefined {
   return useContext(NonceContext);
 }
 
-export function Providers({
-  children,
-  nonce,
-}: {
-  children: ReactNode;
-  nonce?: string;
-}) {
+export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({

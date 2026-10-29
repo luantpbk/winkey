@@ -63,9 +63,11 @@ export function extractViolations(body: unknown): ViolationData[] {
     for (const item of body) {
       if (item && typeof item === 'object') {
         const itemRecord = item as Record<string, unknown>;
-        const b = (typeof itemRecord.body === 'object' && itemRecord.body !== null
-          ? itemRecord.body
-          : itemRecord) as Record<string, unknown>;
+        const b = (
+          typeof itemRecord.body === 'object' && itemRecord.body !== null
+            ? itemRecord.body
+            : itemRecord
+        ) as Record<string, unknown>;
 
         const effectiveDirective =
           b.effectiveDirective ||
@@ -73,21 +75,13 @@ export function extractViolations(body: unknown): ViolationData[] {
           b.effective_directive ||
           b.violatedDirective ||
           '';
-        const blockedUri =
-          b.blockedURL ||
-          b['blocked-uri'] ||
-          b.blocked_uri ||
-          b.blockedURI ||
-          '';
+        const blockedUri = b.blockedURL || b['blocked-uri'] || b.blocked_uri || b.blockedURI || '';
         const documentUri =
-          b.documentURL ||
-          b['document-uri'] ||
-          b.document_uri ||
-          itemRecord.url ||
-          '';
+          b.documentURL || b['document-uri'] || b.document_uri || itemRecord.url || '';
         const disposition = b.disposition || 'report';
         const rawCode = b.statusCode ?? b['status-code'] ?? b.status_code ?? 0;
-        const statusCode = typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10) || 0;
+        const statusCode =
+          typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10) || 0;
 
         violations.push({
           effectiveDirective: String(effectiveDirective),
@@ -100,9 +94,11 @@ export function extractViolations(body: unknown): ViolationData[] {
     }
   } else {
     const record = body as Record<string, unknown>;
-    const rep = (typeof record['csp-report'] === 'object' && record['csp-report'] !== null
-      ? record['csp-report']
-      : record) as Record<string, unknown>;
+    const rep = (
+      typeof record['csp-report'] === 'object' && record['csp-report'] !== null
+        ? record['csp-report']
+        : record
+    ) as Record<string, unknown>;
 
     const effectiveDirective =
       rep['effective-directive'] ||
@@ -110,16 +106,8 @@ export function extractViolations(body: unknown): ViolationData[] {
       rep.effectiveDirective ||
       rep['violated-directive'] ||
       '';
-    const blockedUri =
-      rep['blocked-uri'] ||
-      rep.blocked_uri ||
-      rep.blockedURI ||
-      '';
-    const documentUri =
-      rep['document-uri'] ||
-      rep.document_uri ||
-      rep.documentURI ||
-      '';
+    const blockedUri = rep['blocked-uri'] || rep.blocked_uri || rep.blockedURI || '';
+    const documentUri = rep['document-uri'] || rep.document_uri || rep.documentURI || '';
     const disposition = rep.disposition || 'report';
     const rawCode = rep['status-code'] ?? rep.status_code ?? rep.statusCode ?? 0;
     const statusCode = typeof rawCode === 'number' ? rawCode : parseInt(String(rawCode), 10) || 0;

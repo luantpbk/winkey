@@ -57,7 +57,9 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     expect(first).toBeUndefined();
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[csp] ignoring invalid origin for CSP_MEDIA_ORIGIN: "invalid-origin"'),
+      expect.stringContaining(
+        '[csp] ignoring invalid origin for CSP_MEDIA_ORIGIN: "invalid-origin"',
+      ),
     );
 
     // Second validation of identical invalid origin does not log again
@@ -100,7 +102,7 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     expect(scriptSrc).toContain(`'nonce-${nonce}'`);
   });
 
-  it('embed: true emits frame-ancestors *, non-embed emits frame-ancestors \'self\'', () => {
+  it("embed: true emits frame-ancestors *, non-embed emits frame-ancestors 'self'", () => {
     const nonce = 'embednonce12345678==';
     const embedPolicy = buildCsp({ nonce, embed: true });
     expect(embedPolicy).toContain('frame-ancestors *');
@@ -137,7 +139,9 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
 
     expect(policy).toContain(`img-src 'self' data: blob: ${mediaOrigin}`);
     expect(policy).toContain(`media-src 'self' blob: ${mediaOrigin}`);
-    expect(policy).toContain(`connect-src 'self' ${mediaOrigin} ${uploadOrigin} https://challenges.cloudflare.com`);
+    expect(policy).toContain(
+      `connect-src 'self' ${mediaOrigin} ${uploadOrigin} https://challenges.cloudflare.com`,
+    );
   });
 
   it('deduplicates connect-src when mediaOrigin and uploadOrigin are identical', () => {

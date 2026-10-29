@@ -93,7 +93,7 @@ export function buildCsp(options: BuildCspOptions): string {
     `media-src ${mediaSrc.join(' ')}`,
     `connect-src ${connectSrc.join(' ')}`,
     "worker-src 'self' blob:",
-    "frame-src https://challenges.cloudflare.com",
+    'frame-src https://challenges.cloudflare.com',
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

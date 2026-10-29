@@ -30,7 +30,11 @@ interface TurnstileWidgetProps {
   nonce?: string;
 }
 
-export function TurnstileWidget({ onToken, className = '', nonce: propNonce }: TurnstileWidgetProps) {
+export function TurnstileWidget({
+  onToken,
+  className = '',
+  nonce: propNonce,
+}: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const contextNonce = useNonce();

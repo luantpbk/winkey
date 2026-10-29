@@ -55,7 +55,9 @@ describe('Content-Security-Policy headers in next.config.ts & middleware (CSP1 P
       const embedRouteConfig = headers.find((h) => h.source === '/embed/:path*');
       expect(embedRouteConfig).toBeDefined();
 
-      const csp = embedRouteConfig?.headers.find((entry) => entry.key === 'Content-Security-Policy');
+      const csp = embedRouteConfig?.headers.find(
+        (entry) => entry.key === 'Content-Security-Policy',
+      );
       expect(csp).toBeDefined();
       expect(csp?.value).toBe('frame-ancestors *');
     });
