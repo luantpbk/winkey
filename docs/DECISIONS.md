@@ -1761,3 +1761,40 @@ Quyết định cho SOC-2a:
   2. **Enforce:** khi log `/api/csp-report` sạch (chỉ còn vi phạm do extension trình duyệt, `blocked-uri` dạng `chrome-extension:`/`moz-extension:`), một PR riêng đổi thành `Content-Security-Policy` và bỏ chính sách cũ khỏi `next.config.ts`.
   - Chuyển bước bằng code (PR), không bằng env, để chính sách đang áp dụng luôn khớp với `main`.
 - **Ngoài phạm vi (làm sau):** Trusted Types (`require-trusted-types-for 'script'`), HSTS preload (ở ingress, Antigravity 2).
+
+*Bổ sung 2026-10-30 (SOC-3, nhắn tin E2EE, kiến trúc sư).* Spike của Antigravity 1 (`docs/spikes/SOC3-e2ee.md`, PR #512): chọn **vodozemac 0.11.1** qua một lớp bọc `wasm-bindgen` mỏng. Kiến trúc sư tự build lại từ `Cargo.lock`: khoảng 205 KB gzip, 171 KB brotli. libsignal không có bản cho trình duyệt. `matrix-sdk-crypto-wasm` lớn gấp khoảng 10 lần.
+
+SOC-3 chia hai đợt:
+- **SOC-3a:** thiết bị, khoá, hội thoại, tin nhắn, lời mời nhắn tin, gợi ý realtime.
+- **SOC-3b** (làm sau): tệp đính kèm mã hoá (R2, hết hạn 30 ngày) và sao lưu khoá bằng cụm mật khẩu (Argon2id).
+
+Contract `chat.v1.yaml`, migration `000033_chat_e2ee`, realtime `chat.hint`.
+
+*Quyết định cho SOC-3a.*
+- **`chat-svc` mới** (Node, Antigravity 3, schema `chat`), gateway `PathPrefix(/v1/chat)`. Server chỉ giữ khoá công khai, ciphertext và metadata (thành viên, tiêu đề nhóm, thời điểm, kích thước); không bao giờ thấy nội dung hay khoá riêng.
+- **Mô hình mã hoá kiểu Matrix:**
+  - mọi hội thoại, kể cả 1-1, mã hoá mỗi tin **một lần** bằng phiên Megolm của thiết bị gửi;
+  - khoá phiên Megolm tới từng thiết bị nhận qua tin **to-device** mã hoá Olm, dùng one-time key lấy từ chat-svc.
+  - Lý do: một đường đi duy nhất cho 1-1 và nhóm, mỗi tin chỉ lưu một bản ciphertext.
+  - Đổi lại: 1-1 không có ratchet theo từng tin như Double Ratchet thuần. Client xoay phiên Megolm sau 100 tin, sau 7 ngày, và khi thành viên hoặc thiết bị thay đổi.
+- **Thiết bị:**
+  - client tự sinh `device_id` (UUID) và ký khoá thiết bị bằng ed25519 trên JSON chuẩn hoá; chat-svc kiểm chữ ký;
+  - khoá của một `device_id` không bao giờ đổi;
+  - tối đa 10 thiết bị, 100 one-time key mỗi thiết bị, kèm một fallback key;
+  - tin cậy theo thiết bị, lần đầu (TOFU): mã an toàn và cảnh báo thiết bị mới ở client;
+  - chưa có cross-signing.
+- **Lời mời nhắn tin:**
+  - người được thêm mà không theo dõi người thêm (`social.subscriptions`) → `REQUESTED`: đọc được nhưng không gửi được, tới khi chấp nhận hoặc từ chối;
+  - quan hệ chặn (`social.blocks`, cả hai chiều) → không thêm được, `DIRECT` không gửi được.
+- **Thành viên mới không đọc được lịch sử** (`joined_seq`), vì không có khoá Megolm cũ.
+- **Gợi ý realtime:** chat-svc publish core NATS `rt.chat.user.{user_id}` (không JetStream, không outbox, không nội dung). realtime-gw chuyển thành `chat.hint` tới room `user:`. Client tải lại qua REST.
+- **Giới hạn:** ciphertext ≤ 64 KiB/tin, ≤ 16 KiB/tin to-device; 50 thành viên/hội thoại; rate limit theo user (60 tin/phút, 2 000 to-device/phút, 20 hội thoại mới/giờ, 20 lời mời/ngày). To-device chưa ack bị xoá sau 30 ngày.
+- **CSP:** thêm `'wasm-unsafe-eval'` vào `script-src` trong `buildCsp` khi web bắt đầu nạp vodozemac. Không bao giờ thêm `'unsafe-eval'`. Lớp bọc được nạp từ bundle Next (đã được nonce tin cậy qua `'strict-dynamic'`). Crypto chạy trong Web Worker (`worker-src 'self' blob:`).
+- **Lưu trữ ở client:** state vodozemac pickle bằng khoá 32 byte. Khoá này được bọc bởi khoá AES-GCM WebCrypto **không xuất được**, lưu trong IndexedDB. Không dùng `localStorage`.
+- **Ngoài phạm vi SOC-3a:**
+  - tệp đính kèm, sao lưu khoá (SOC-3b);
+  - báo cáo tin nhắn có kiểm chứng (message franking);
+  - đồng bộ đã đọc/đang gõ giữa các thiết bị;
+  - xoá tài khoản (mục `LEGAL`);
+  - cross-signing.
+- **Pháp lý:** như mục 7 của ADR này. Chỉ bật trên beta kín cho tới khi task `LEGAL` xong.

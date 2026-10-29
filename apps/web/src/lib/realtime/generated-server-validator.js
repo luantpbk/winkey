@@ -86,6 +86,7 @@ const schema31 = {
             'comment.reply',
             'like.count',
             'notification.hint',
+            'chat.hint',
           ],
         },
         data: { type: 'object' },
@@ -176,6 +177,18 @@ const schema31 = {
             },
           },
         },
+        {
+          if: {
+            properties: { event: { const: 'chat.hint', type: 'string' } },
+            required: ['event'],
+          },
+          then: {
+            properties: {
+              room: { pattern: '^user:', type: 'string' },
+              data: { $ref: '#/$defs/chatHint' },
+            },
+          },
+        },
       ],
     },
     videoProgress: {
@@ -234,6 +247,43 @@ const schema31 = {
       required: ['kind'],
       additionalProperties: false,
       properties: { kind: { enum: ['VIDEO_COMMENT', 'COMMENT_REPLY', 'NEW_SUBSCRIBER'] } },
+    },
+    chatHint: {
+      description:
+        "Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user's E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user's devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. At-most-once: clients also refetch after every (re)connect.",
+      oneOf: [
+        {
+          type: 'object',
+          required: ['kind', 'conversation_id', 'seq'],
+          additionalProperties: false,
+          properties: {
+            kind: { const: 'MESSAGE' },
+            conversation_id: { $ref: '#/$defs/uuid' },
+            seq: { type: 'integer', minimum: 1 },
+          },
+        },
+        {
+          type: 'object',
+          required: ['kind'],
+          additionalProperties: false,
+          properties: { kind: { const: 'TO_DEVICE' } },
+        },
+        {
+          type: 'object',
+          required: ['kind', 'conversation_id'],
+          additionalProperties: false,
+          properties: {
+            kind: { const: 'CONVERSATION' },
+            conversation_id: { $ref: '#/$defs/uuid' },
+          },
+        },
+        {
+          type: 'object',
+          required: ['kind', 'user_id'],
+          additionalProperties: false,
+          properties: { kind: { const: 'DEVICES' }, user_id: { $ref: '#/$defs/uuid' } },
+        },
+      ],
     },
   },
 };
@@ -1192,6 +1242,7 @@ const schema41 = {
         'comment.reply',
         'like.count',
         'notification.hint',
+        'chat.hint',
       ],
     },
     data: { type: 'object' },
@@ -1273,6 +1324,15 @@ const schema41 = {
         },
       },
     },
+    {
+      if: { properties: { event: { const: 'chat.hint', type: 'string' } }, required: ['event'] },
+      then: {
+        properties: {
+          room: { pattern: '^user:', type: 'string' },
+          data: { $ref: '#/$defs/chatHint' },
+        },
+      },
+    },
   ],
 };
 const schema54 = {
@@ -1287,7 +1347,7 @@ const pattern6 = new RegExp('^upload:', 'u');
 const pattern8 = new RegExp('^(upload|user):', 'u');
 const pattern12 = new RegExp('^video:', 'u');
 const pattern16 = new RegExp('^user:', 'u');
-const pattern20 = new RegExp(
+const pattern24 = new RegExp(
   '^(video|upload|user):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
   'u',
 );
@@ -2270,6 +2330,602 @@ function validate39(
   return errors === 0;
 }
 validate39.evaluated = { props: true, dynamicProps: false, dynamicItems: false };
+const schema55 = {
+  description:
+    "Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user's E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user's devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. At-most-once: clients also refetch after every (re)connect.",
+  oneOf: [
+    {
+      type: 'object',
+      required: ['kind', 'conversation_id', 'seq'],
+      additionalProperties: false,
+      properties: {
+        kind: { const: 'MESSAGE' },
+        conversation_id: { $ref: '#/$defs/uuid' },
+        seq: { type: 'integer', minimum: 1 },
+      },
+    },
+    {
+      type: 'object',
+      required: ['kind'],
+      additionalProperties: false,
+      properties: { kind: { const: 'TO_DEVICE' } },
+    },
+    {
+      type: 'object',
+      required: ['kind', 'conversation_id'],
+      additionalProperties: false,
+      properties: { kind: { const: 'CONVERSATION' }, conversation_id: { $ref: '#/$defs/uuid' } },
+    },
+    {
+      type: 'object',
+      required: ['kind', 'user_id'],
+      additionalProperties: false,
+      properties: { kind: { const: 'DEVICES' }, user_id: { $ref: '#/$defs/uuid' } },
+    },
+  ],
+};
+function validate41(
+  data,
+  { instancePath = '', parentData, parentDataProperty, rootData = data, dynamicAnchors = {} } = {},
+) {
+  let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate41.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  const _errs0 = errors;
+  let valid0 = false;
+  let passing0 = null;
+  const _errs1 = errors;
+  if (data && typeof data == 'object' && !Array.isArray(data)) {
+    if (data.kind === undefined) {
+      const err0 = {
+        instancePath,
+        schemaPath: '#/oneOf/0/required',
+        keyword: 'required',
+        params: { missingProperty: 'kind' },
+        message: "must have required property '" + 'kind' + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err0];
+      } else {
+        vErrors.push(err0);
+      }
+      errors++;
+    }
+    if (data.conversation_id === undefined) {
+      const err1 = {
+        instancePath,
+        schemaPath: '#/oneOf/0/required',
+        keyword: 'required',
+        params: { missingProperty: 'conversation_id' },
+        message: "must have required property '" + 'conversation_id' + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err1];
+      } else {
+        vErrors.push(err1);
+      }
+      errors++;
+    }
+    if (data.seq === undefined) {
+      const err2 = {
+        instancePath,
+        schemaPath: '#/oneOf/0/required',
+        keyword: 'required',
+        params: { missingProperty: 'seq' },
+        message: "must have required property '" + 'seq' + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err2];
+      } else {
+        vErrors.push(err2);
+      }
+      errors++;
+    }
+    for (const key0 in data) {
+      if (!(key0 === 'kind' || key0 === 'conversation_id' || key0 === 'seq')) {
+        const err3 = {
+          instancePath,
+          schemaPath: '#/oneOf/0/additionalProperties',
+          keyword: 'additionalProperties',
+          params: { additionalProperty: key0 },
+          message: 'must NOT have additional properties',
+        };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+    }
+    if (data.kind !== undefined) {
+      if ('MESSAGE' !== data.kind) {
+        const err4 = {
+          instancePath: instancePath + '/kind',
+          schemaPath: '#/oneOf/0/properties/kind/const',
+          keyword: 'const',
+          params: { allowedValue: 'MESSAGE' },
+          message: 'must be equal to constant',
+        };
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+    }
+    if (data.conversation_id !== undefined) {
+      let data1 = data.conversation_id;
+      if (typeof data1 === 'string') {
+        if (!pattern4.test(data1)) {
+          const err5 = {
+            instancePath: instancePath + '/conversation_id',
+            schemaPath: '#/$defs/uuid/pattern',
+            keyword: 'pattern',
+            params: { pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' },
+            message:
+              'must match pattern "' +
+              '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' +
+              '"',
+          };
+          if (vErrors === null) {
+            vErrors = [err5];
+          } else {
+            vErrors.push(err5);
+          }
+          errors++;
+        }
+      } else {
+        const err6 = {
+          instancePath: instancePath + '/conversation_id',
+          schemaPath: '#/$defs/uuid/type',
+          keyword: 'type',
+          params: { type: 'string' },
+          message: 'must be string',
+        };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      }
+    }
+    if (data.seq !== undefined) {
+      let data2 = data.seq;
+      if (!(typeof data2 == 'number' && !(data2 % 1) && !isNaN(data2))) {
+        const err7 = {
+          instancePath: instancePath + '/seq',
+          schemaPath: '#/oneOf/0/properties/seq/type',
+          keyword: 'type',
+          params: { type: 'integer' },
+          message: 'must be integer',
+        };
+        if (vErrors === null) {
+          vErrors = [err7];
+        } else {
+          vErrors.push(err7);
+        }
+        errors++;
+      }
+      if (typeof data2 == 'number') {
+        if (data2 < 1 || isNaN(data2)) {
+          const err8 = {
+            instancePath: instancePath + '/seq',
+            schemaPath: '#/oneOf/0/properties/seq/minimum',
+            keyword: 'minimum',
+            params: { comparison: '>=', limit: 1 },
+            message: 'must be >= 1',
+          };
+          if (vErrors === null) {
+            vErrors = [err8];
+          } else {
+            vErrors.push(err8);
+          }
+          errors++;
+        }
+      }
+    }
+  } else {
+    const err9 = {
+      instancePath,
+      schemaPath: '#/oneOf/0/type',
+      keyword: 'type',
+      params: { type: 'object' },
+      message: 'must be object',
+    };
+    if (vErrors === null) {
+      vErrors = [err9];
+    } else {
+      vErrors.push(err9);
+    }
+    errors++;
+  }
+  var _valid0 = _errs1 === errors;
+  if (_valid0) {
+    valid0 = true;
+    passing0 = 0;
+    var props0 = true;
+  }
+  const _errs10 = errors;
+  if (data && typeof data == 'object' && !Array.isArray(data)) {
+    if (data.kind === undefined) {
+      const err10 = {
+        instancePath,
+        schemaPath: '#/oneOf/1/required',
+        keyword: 'required',
+        params: { missingProperty: 'kind' },
+        message: "must have required property '" + 'kind' + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err10];
+      } else {
+        vErrors.push(err10);
+      }
+      errors++;
+    }
+    for (const key1 in data) {
+      if (!(key1 === 'kind')) {
+        const err11 = {
+          instancePath,
+          schemaPath: '#/oneOf/1/additionalProperties',
+          keyword: 'additionalProperties',
+          params: { additionalProperty: key1 },
+          message: 'must NOT have additional properties',
+        };
+        if (vErrors === null) {
+          vErrors = [err11];
+        } else {
+          vErrors.push(err11);
+        }
+        errors++;
+      }
+    }
+    if (data.kind !== undefined) {
+      if ('TO_DEVICE' !== data.kind) {
+        const err12 = {
+          instancePath: instancePath + '/kind',
+          schemaPath: '#/oneOf/1/properties/kind/const',
+          keyword: 'const',
+          params: { allowedValue: 'TO_DEVICE' },
+          message: 'must be equal to constant',
+        };
+        if (vErrors === null) {
+          vErrors = [err12];
+        } else {
+          vErrors.push(err12);
+        }
+        errors++;
+      }
+    }
+  } else {
+    const err13 = {
+      instancePath,
+      schemaPath: '#/oneOf/1/type',
+      keyword: 'type',
+      params: { type: 'object' },
+      message: 'must be object',
+    };
+    if (vErrors === null) {
+      vErrors = [err13];
+    } else {
+      vErrors.push(err13);
+    }
+    errors++;
+  }
+  var _valid0 = _errs10 === errors;
+  if (_valid0 && valid0) {
+    valid0 = false;
+    passing0 = [passing0, 1];
+  } else {
+    if (_valid0) {
+      valid0 = true;
+      passing0 = 1;
+      if (props0 !== true) {
+        props0 = true;
+      }
+    }
+    const _errs14 = errors;
+    if (data && typeof data == 'object' && !Array.isArray(data)) {
+      if (data.kind === undefined) {
+        const err14 = {
+          instancePath,
+          schemaPath: '#/oneOf/2/required',
+          keyword: 'required',
+          params: { missingProperty: 'kind' },
+          message: "must have required property '" + 'kind' + "'",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      }
+      if (data.conversation_id === undefined) {
+        const err15 = {
+          instancePath,
+          schemaPath: '#/oneOf/2/required',
+          keyword: 'required',
+          params: { missingProperty: 'conversation_id' },
+          message: "must have required property '" + 'conversation_id' + "'",
+        };
+        if (vErrors === null) {
+          vErrors = [err15];
+        } else {
+          vErrors.push(err15);
+        }
+        errors++;
+      }
+      for (const key2 in data) {
+        if (!(key2 === 'kind' || key2 === 'conversation_id')) {
+          const err16 = {
+            instancePath,
+            schemaPath: '#/oneOf/2/additionalProperties',
+            keyword: 'additionalProperties',
+            params: { additionalProperty: key2 },
+            message: 'must NOT have additional properties',
+          };
+          if (vErrors === null) {
+            vErrors = [err16];
+          } else {
+            vErrors.push(err16);
+          }
+          errors++;
+        }
+      }
+      if (data.kind !== undefined) {
+        if ('CONVERSATION' !== data.kind) {
+          const err17 = {
+            instancePath: instancePath + '/kind',
+            schemaPath: '#/oneOf/2/properties/kind/const',
+            keyword: 'const',
+            params: { allowedValue: 'CONVERSATION' },
+            message: 'must be equal to constant',
+          };
+          if (vErrors === null) {
+            vErrors = [err17];
+          } else {
+            vErrors.push(err17);
+          }
+          errors++;
+        }
+      }
+      if (data.conversation_id !== undefined) {
+        let data5 = data.conversation_id;
+        if (typeof data5 === 'string') {
+          if (!pattern4.test(data5)) {
+            const err18 = {
+              instancePath: instancePath + '/conversation_id',
+              schemaPath: '#/$defs/uuid/pattern',
+              keyword: 'pattern',
+              params: { pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' },
+              message:
+                'must match pattern "' +
+                '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' +
+                '"',
+            };
+            if (vErrors === null) {
+              vErrors = [err18];
+            } else {
+              vErrors.push(err18);
+            }
+            errors++;
+          }
+        } else {
+          const err19 = {
+            instancePath: instancePath + '/conversation_id',
+            schemaPath: '#/$defs/uuid/type',
+            keyword: 'type',
+            params: { type: 'string' },
+            message: 'must be string',
+          };
+          if (vErrors === null) {
+            vErrors = [err19];
+          } else {
+            vErrors.push(err19);
+          }
+          errors++;
+        }
+      }
+    } else {
+      const err20 = {
+        instancePath,
+        schemaPath: '#/oneOf/2/type',
+        keyword: 'type',
+        params: { type: 'object' },
+        message: 'must be object',
+      };
+      if (vErrors === null) {
+        vErrors = [err20];
+      } else {
+        vErrors.push(err20);
+      }
+      errors++;
+    }
+    var _valid0 = _errs14 === errors;
+    if (_valid0 && valid0) {
+      valid0 = false;
+      passing0 = [passing0, 2];
+    } else {
+      if (_valid0) {
+        valid0 = true;
+        passing0 = 2;
+        if (props0 !== true) {
+          props0 = true;
+        }
+      }
+      const _errs21 = errors;
+      if (data && typeof data == 'object' && !Array.isArray(data)) {
+        if (data.kind === undefined) {
+          const err21 = {
+            instancePath,
+            schemaPath: '#/oneOf/3/required',
+            keyword: 'required',
+            params: { missingProperty: 'kind' },
+            message: "must have required property '" + 'kind' + "'",
+          };
+          if (vErrors === null) {
+            vErrors = [err21];
+          } else {
+            vErrors.push(err21);
+          }
+          errors++;
+        }
+        if (data.user_id === undefined) {
+          const err22 = {
+            instancePath,
+            schemaPath: '#/oneOf/3/required',
+            keyword: 'required',
+            params: { missingProperty: 'user_id' },
+            message: "must have required property '" + 'user_id' + "'",
+          };
+          if (vErrors === null) {
+            vErrors = [err22];
+          } else {
+            vErrors.push(err22);
+          }
+          errors++;
+        }
+        for (const key3 in data) {
+          if (!(key3 === 'kind' || key3 === 'user_id')) {
+            const err23 = {
+              instancePath,
+              schemaPath: '#/oneOf/3/additionalProperties',
+              keyword: 'additionalProperties',
+              params: { additionalProperty: key3 },
+              message: 'must NOT have additional properties',
+            };
+            if (vErrors === null) {
+              vErrors = [err23];
+            } else {
+              vErrors.push(err23);
+            }
+            errors++;
+          }
+        }
+        if (data.kind !== undefined) {
+          if ('DEVICES' !== data.kind) {
+            const err24 = {
+              instancePath: instancePath + '/kind',
+              schemaPath: '#/oneOf/3/properties/kind/const',
+              keyword: 'const',
+              params: { allowedValue: 'DEVICES' },
+              message: 'must be equal to constant',
+            };
+            if (vErrors === null) {
+              vErrors = [err24];
+            } else {
+              vErrors.push(err24);
+            }
+            errors++;
+          }
+        }
+        if (data.user_id !== undefined) {
+          let data7 = data.user_id;
+          if (typeof data7 === 'string') {
+            if (!pattern4.test(data7)) {
+              const err25 = {
+                instancePath: instancePath + '/user_id',
+                schemaPath: '#/$defs/uuid/pattern',
+                keyword: 'pattern',
+                params: {
+                  pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                },
+                message:
+                  'must match pattern "' +
+                  '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' +
+                  '"',
+              };
+              if (vErrors === null) {
+                vErrors = [err25];
+              } else {
+                vErrors.push(err25);
+              }
+              errors++;
+            }
+          } else {
+            const err26 = {
+              instancePath: instancePath + '/user_id',
+              schemaPath: '#/$defs/uuid/type',
+              keyword: 'type',
+              params: { type: 'string' },
+              message: 'must be string',
+            };
+            if (vErrors === null) {
+              vErrors = [err26];
+            } else {
+              vErrors.push(err26);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err27 = {
+          instancePath,
+          schemaPath: '#/oneOf/3/type',
+          keyword: 'type',
+          params: { type: 'object' },
+          message: 'must be object',
+        };
+        if (vErrors === null) {
+          vErrors = [err27];
+        } else {
+          vErrors.push(err27);
+        }
+        errors++;
+      }
+      var _valid0 = _errs21 === errors;
+      if (_valid0 && valid0) {
+        valid0 = false;
+        passing0 = [passing0, 3];
+      } else {
+        if (_valid0) {
+          valid0 = true;
+          passing0 = 3;
+          if (props0 !== true) {
+            props0 = true;
+          }
+        }
+      }
+    }
+  }
+  if (!valid0) {
+    const err28 = {
+      instancePath,
+      schemaPath: '#/oneOf',
+      keyword: 'oneOf',
+      params: { passingSchemas: passing0 },
+      message: 'must match exactly one schema in oneOf',
+    };
+    if (vErrors === null) {
+      vErrors = [err28];
+    } else {
+      vErrors.push(err28);
+    }
+    errors++;
+  } else {
+    errors = _errs0;
+    if (vErrors !== null) {
+      if (_errs0) {
+        vErrors.length = _errs0;
+      } else {
+        vErrors = null;
+      }
+    }
+  }
+  validate41.errors = vErrors;
+  evaluated0.props = props0;
+  return errors === 0;
+}
+validate41.evaluated = { dynamicProps: true, dynamicItems: false };
 const formats0 = fullFormats['date-time'];
 function validate29(
   data,
@@ -3245,9 +3901,139 @@ function validate29(
       Object.assign(props0, props6);
     }
   }
+  const _errs69 = errors;
+  let valid24 = true;
+  const _errs70 = errors;
+  if (data && typeof data == 'object' && !Array.isArray(data)) {
+    let missing7;
+    if (data.event === undefined && (missing7 = 'event')) {
+      const err46 = {};
+      if (vErrors === null) {
+        vErrors = [err46];
+      } else {
+        vErrors.push(err46);
+      }
+      errors++;
+    } else {
+      if (data.event !== undefined) {
+        let data22 = data.event;
+        if (typeof data22 !== 'string') {
+          const err47 = {};
+          if (vErrors === null) {
+            vErrors = [err47];
+          } else {
+            vErrors.push(err47);
+          }
+          errors++;
+        }
+        if ('chat.hint' !== data22) {
+          const err48 = {};
+          if (vErrors === null) {
+            vErrors = [err48];
+          } else {
+            vErrors.push(err48);
+          }
+          errors++;
+        }
+      }
+    }
+  }
+  var _valid7 = _errs70 === errors;
+  errors = _errs69;
+  if (vErrors !== null) {
+    if (_errs69) {
+      vErrors.length = _errs69;
+    } else {
+      vErrors = null;
+    }
+  }
+  if (_valid7) {
+    const _errs73 = errors;
+    if (data && typeof data == 'object' && !Array.isArray(data)) {
+      if (data.room !== undefined) {
+        let data23 = data.room;
+        if (typeof data23 === 'string') {
+          if (!pattern16.test(data23)) {
+            const err49 = {
+              instancePath: instancePath + '/room',
+              schemaPath: '#/allOf/7/then/properties/room/pattern',
+              keyword: 'pattern',
+              params: { pattern: '^user:' },
+              message: 'must match pattern "' + '^user:' + '"',
+            };
+            if (vErrors === null) {
+              vErrors = [err49];
+            } else {
+              vErrors.push(err49);
+            }
+            errors++;
+          }
+        } else {
+          const err50 = {
+            instancePath: instancePath + '/room',
+            schemaPath: '#/allOf/7/then/properties/room/type',
+            keyword: 'type',
+            params: { type: 'string' },
+            message: 'must be string',
+          };
+          if (vErrors === null) {
+            vErrors = [err50];
+          } else {
+            vErrors.push(err50);
+          }
+          errors++;
+        }
+      }
+      if (data.data !== undefined) {
+        if (
+          !validate41(data.data, {
+            instancePath: instancePath + '/data',
+            parentData: data,
+            parentDataProperty: 'data',
+            rootData,
+            dynamicAnchors,
+          })
+        ) {
+          vErrors = vErrors === null ? validate41.errors : vErrors.concat(validate41.errors);
+          errors = vErrors.length;
+        }
+      }
+    }
+    var _valid7 = _errs73 === errors;
+    valid24 = _valid7;
+    if (valid24) {
+      var props8 = {};
+      props8.room = true;
+      props8.data = true;
+      props8.event = true;
+    }
+  }
+  if (!valid24) {
+    const err51 = {
+      instancePath,
+      schemaPath: '#/allOf/7/if',
+      keyword: 'if',
+      params: { failingKeyword: 'then' },
+      message: 'must match "then" schema',
+    };
+    if (vErrors === null) {
+      vErrors = [err51];
+    } else {
+      vErrors.push(err51);
+    }
+    errors++;
+  }
+  if (props0 !== true && props8 !== undefined) {
+    if (props8 === true) {
+      props0 = true;
+    } else {
+      props0 = props0 || {};
+      Object.assign(props0, props8);
+    }
+  }
   if (data && typeof data == 'object' && !Array.isArray(data)) {
     if (data.type === undefined) {
-      const err46 = {
+      const err52 = {
         instancePath,
         schemaPath: '#/required',
         keyword: 'required',
@@ -3255,14 +4041,14 @@ function validate29(
         message: "must have required property '" + 'type' + "'",
       };
       if (vErrors === null) {
-        vErrors = [err46];
+        vErrors = [err52];
       } else {
-        vErrors.push(err46);
+        vErrors.push(err52);
       }
       errors++;
     }
     if (data.room === undefined) {
-      const err47 = {
+      const err53 = {
         instancePath,
         schemaPath: '#/required',
         keyword: 'required',
@@ -3270,14 +4056,14 @@ function validate29(
         message: "must have required property '" + 'room' + "'",
       };
       if (vErrors === null) {
-        vErrors = [err47];
+        vErrors = [err53];
       } else {
-        vErrors.push(err47);
+        vErrors.push(err53);
       }
       errors++;
     }
     if (data.event === undefined) {
-      const err48 = {
+      const err54 = {
         instancePath,
         schemaPath: '#/required',
         keyword: 'required',
@@ -3285,14 +4071,14 @@ function validate29(
         message: "must have required property '" + 'event' + "'",
       };
       if (vErrors === null) {
-        vErrors = [err48];
+        vErrors = [err54];
       } else {
-        vErrors.push(err48);
+        vErrors.push(err54);
       }
       errors++;
     }
     if (data.data === undefined) {
-      const err49 = {
+      const err55 = {
         instancePath,
         schemaPath: '#/required',
         keyword: 'required',
@@ -3300,14 +4086,14 @@ function validate29(
         message: "must have required property '" + 'data' + "'",
       };
       if (vErrors === null) {
-        vErrors = [err49];
+        vErrors = [err55];
       } else {
-        vErrors.push(err49);
+        vErrors.push(err55);
       }
       errors++;
     }
     if (data.ts === undefined) {
-      const err50 = {
+      const err56 = {
         instancePath,
         schemaPath: '#/required',
         keyword: 'required',
@@ -3315,9 +4101,9 @@ function validate29(
         message: "must have required property '" + 'ts' + "'",
       };
       if (vErrors === null) {
-        vErrors = [err50];
+        vErrors = [err56];
       } else {
-        vErrors.push(err50);
+        vErrors.push(err56);
       }
       errors++;
     }
@@ -3329,7 +4115,7 @@ function validate29(
         key1 === 'data' ||
         key1 === 'ts'
       )) {
-        const err51 = {
+        const err57 = {
           instancePath,
           schemaPath: '#/additionalProperties',
           keyword: 'additionalProperties',
@@ -3337,16 +4123,16 @@ function validate29(
           message: 'must NOT have additional properties',
         };
         if (vErrors === null) {
-          vErrors = [err51];
+          vErrors = [err57];
         } else {
-          vErrors.push(err51);
+          vErrors.push(err57);
         }
         errors++;
       }
     }
     if (data.type !== undefined) {
       if ('event' !== data.type) {
-        const err52 = {
+        const err58 = {
           instancePath: instancePath + '/type',
           schemaPath: '#/properties/type/const',
           keyword: 'const',
@@ -3354,18 +4140,18 @@ function validate29(
           message: 'must be equal to constant',
         };
         if (vErrors === null) {
-          vErrors = [err52];
+          vErrors = [err58];
         } else {
-          vErrors.push(err52);
+          vErrors.push(err58);
         }
         errors++;
       }
     }
     if (data.room !== undefined) {
-      let data23 = data.room;
-      if (typeof data23 === 'string') {
-        if (!pattern20.test(data23)) {
-          const err53 = {
+      let data26 = data.room;
+      if (typeof data26 === 'string') {
+        if (!pattern24.test(data26)) {
+          const err59 = {
             instancePath: instancePath + '/room',
             schemaPath: '#/properties/room/pattern',
             keyword: 'pattern',
@@ -3379,14 +4165,14 @@ function validate29(
               '"',
           };
           if (vErrors === null) {
-            vErrors = [err53];
+            vErrors = [err59];
           } else {
-            vErrors.push(err53);
+            vErrors.push(err59);
           }
           errors++;
         }
       } else {
-        const err54 = {
+        const err60 = {
           instancePath: instancePath + '/room',
           schemaPath: '#/properties/room/type',
           keyword: 'type',
@@ -3394,25 +4180,26 @@ function validate29(
           message: 'must be string',
         };
         if (vErrors === null) {
-          vErrors = [err54];
+          vErrors = [err60];
         } else {
-          vErrors.push(err54);
+          vErrors.push(err60);
         }
         errors++;
       }
     }
     if (data.event !== undefined) {
-      let data24 = data.event;
+      let data27 = data.event;
       if (!(
-        data24 === 'video.progress' ||
-        data24 === 'video.ready' ||
-        data24 === 'video.failed' ||
-        data24 === 'comment.created' ||
-        data24 === 'comment.reply' ||
-        data24 === 'like.count' ||
-        data24 === 'notification.hint'
+        data27 === 'video.progress' ||
+        data27 === 'video.ready' ||
+        data27 === 'video.failed' ||
+        data27 === 'comment.created' ||
+        data27 === 'comment.reply' ||
+        data27 === 'like.count' ||
+        data27 === 'notification.hint' ||
+        data27 === 'chat.hint'
       )) {
-        const err55 = {
+        const err61 = {
           instancePath: instancePath + '/event',
           schemaPath: '#/properties/event/enum',
           keyword: 'enum',
@@ -3420,17 +4207,17 @@ function validate29(
           message: 'must be equal to one of the allowed values',
         };
         if (vErrors === null) {
-          vErrors = [err55];
+          vErrors = [err61];
         } else {
-          vErrors.push(err55);
+          vErrors.push(err61);
         }
         errors++;
       }
     }
     if (data.data !== undefined) {
-      let data25 = data.data;
-      if (!(data25 && typeof data25 == 'object' && !Array.isArray(data25))) {
-        const err56 = {
+      let data28 = data.data;
+      if (!(data28 && typeof data28 == 'object' && !Array.isArray(data28))) {
+        const err62 = {
           instancePath: instancePath + '/data',
           schemaPath: '#/properties/data/type',
           keyword: 'type',
@@ -3438,18 +4225,18 @@ function validate29(
           message: 'must be object',
         };
         if (vErrors === null) {
-          vErrors = [err56];
+          vErrors = [err62];
         } else {
-          vErrors.push(err56);
+          vErrors.push(err62);
         }
         errors++;
       }
     }
     if (data.ts !== undefined) {
-      let data26 = data.ts;
-      if (typeof data26 === 'string') {
-        if (!formats0.validate(data26)) {
-          const err57 = {
+      let data29 = data.ts;
+      if (typeof data29 === 'string') {
+        if (!formats0.validate(data29)) {
+          const err63 = {
             instancePath: instancePath + '/ts',
             schemaPath: '#/properties/ts/format',
             keyword: 'format',
@@ -3457,14 +4244,14 @@ function validate29(
             message: 'must match format "' + 'date-time' + '"',
           };
           if (vErrors === null) {
-            vErrors = [err57];
+            vErrors = [err63];
           } else {
-            vErrors.push(err57);
+            vErrors.push(err63);
           }
           errors++;
         }
       } else {
-        const err58 = {
+        const err64 = {
           instancePath: instancePath + '/ts',
           schemaPath: '#/properties/ts/type',
           keyword: 'type',
@@ -3472,15 +4259,15 @@ function validate29(
           message: 'must be string',
         };
         if (vErrors === null) {
-          vErrors = [err58];
+          vErrors = [err64];
         } else {
-          vErrors.push(err58);
+          vErrors.push(err64);
         }
         errors++;
       }
     }
   } else {
-    const err59 = {
+    const err65 = {
       instancePath,
       schemaPath: '#/type',
       keyword: 'type',
@@ -3488,9 +4275,9 @@ function validate29(
       message: 'must be object',
     };
     if (vErrors === null) {
-      vErrors = [err59];
+      vErrors = [err65];
     } else {
-      vErrors.push(err59);
+      vErrors.push(err65);
     }
     errors++;
   }

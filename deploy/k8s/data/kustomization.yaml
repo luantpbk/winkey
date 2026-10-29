@@ -80,6 +80,8 @@ configMapGenerator:
       - migrations/000031_posts_feeds.down.sql
       - migrations/000032_social_video.up.sql
       - migrations/000032_social_video.down.sql
+      - migrations/000033_chat_e2ee.up.sql
+      - migrations/000033_chat_e2ee.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
