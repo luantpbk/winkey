@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import type { VideoSummary } from '@winkey/api-client';
 import type { HydratedPostVideo } from '../../../lib/video/hydrate-posts-videos';
 import { Link } from '../../../i18n/routing';
 import { Play, Eye } from 'lucide-react';

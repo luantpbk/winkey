@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Volume2, VolumeX, Play, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '../../../lib/api-client';
-import type { VideoSummary } from '@winkey/api-client';
 import type { HydratedPostVideo } from '../../../lib/video/hydrate-posts-videos';
 
 export interface PostSocialVideoPlayerProps {
