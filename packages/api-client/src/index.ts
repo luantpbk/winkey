@@ -4,6 +4,7 @@ import type { paths as UploadPaths, components as UploadComponents } from './typ
 import type { paths as VideoPaths, components as VideoComponents } from './types/video.js';
 import type { paths as SocialPaths, components as SocialComponents } from './types/social.js';
 import type { paths as RealtimePaths } from './types/realtime.js';
+import type { paths as ChatPaths, components as ChatComponents } from './types/chat.js';
 
 // Export raw generated paths and components
 export type { paths as AuthPaths, components as AuthComponents } from './types/auth.js';
@@ -11,6 +12,7 @@ export type { paths as UploadPaths, components as UploadComponents } from './typ
 export type { paths as VideoPaths, components as VideoComponents } from './types/video.js';
 export type { paths as SocialPaths, components as SocialComponents } from './types/social.js';
 export type { paths as RealtimePaths, components as RealtimeComponents } from './types/realtime.js';
+export type { paths as ChatPaths, components as ChatComponents } from './types/chat.js';
 
 // Convenient domain type shortcuts
 export type User = AuthComponents['schemas']['User'];
@@ -178,6 +180,25 @@ export type VideoModeration = VideoComponents['schemas']['VideoModeration'];
 export type AdminVideo = VideoComponents['schemas']['AdminVideo'];
 export type AdminVideoPage = VideoComponents['schemas']['AdminVideoPage'];
 
+export type Base64Key = ChatComponents['schemas']['Base64Key'];
+export type Base64Signature = ChatComponents['schemas']['Base64Signature'];
+export type SignedKey = ChatComponents['schemas']['SignedKey'];
+export type DeviceRegistration = ChatComponents['schemas']['DeviceRegistration'];
+export type OwnDevice = ChatComponents['schemas']['OwnDevice'];
+export type PublicDevice = ChatComponents['schemas']['PublicDevice'];
+export type OneTimeKeyCount = ChatComponents['schemas']['OneTimeKeyCount'];
+export type ClaimedKey = ChatComponents['schemas']['ClaimedKey'];
+export type ToDeviceMessage = ChatComponents['schemas']['ToDeviceMessage'];
+export type MemberRole = ChatComponents['schemas']['MemberRole'];
+export type MemberState = ChatComponents['schemas']['MemberState'];
+export type Member = ChatComponents['schemas']['Member'];
+export type Conversation = ChatComponents['schemas']['Conversation'];
+export type ConversationPage = ChatComponents['schemas']['ConversationPage'];
+export type CreateConversationRequest = ChatComponents['schemas']['CreateConversationRequest'];
+export type SendMessageRequest = ChatComponents['schemas']['SendMessageRequest'];
+export type SystemBody = ChatComponents['schemas']['SystemBody'];
+export type Message = ChatComponents['schemas']['Message'];
+
 export interface WinkeyClientOptions extends Omit<ClientOptions, 'baseUrl'> {
   baseUrl?: string;
   getAccessToken?: () => string | null | undefined | Promise<string | null | undefined>;
@@ -212,6 +233,7 @@ export type UploadClient = ReturnType<typeof createUploadClient>;
 export type VideoClient = ReturnType<typeof createVideoClient>;
 export type SocialClient = ReturnType<typeof createSocialClient>;
 export type RealtimeClient = ReturnType<typeof createRealtimeClient>;
+export type ChatClient = ReturnType<typeof createChatClient>;
 
 export function createAuthClient(options: WinkeyClientOptions = {}) {
   const { baseUrl = '', getAccessToken, ...clientOptions } = options;
@@ -258,6 +280,15 @@ export function createRealtimeClient(options: WinkeyClientOptions = {}) {
   return client;
 }
 
+export function createChatClient(options: WinkeyClientOptions = {}) {
+  const { baseUrl = '', getAccessToken, ...clientOptions } = options;
+  const client = createClient<ChatPaths>({ baseUrl, ...clientOptions });
+  if (getAccessToken) {
+    client.use(createAuthInterceptor(getAccessToken));
+  }
+  return client;
+}
+
 export function createWinkeyClient(options: WinkeyClientOptions = {}) {
   return {
     auth: createAuthClient(options),
@@ -265,5 +296,6 @@ export function createWinkeyClient(options: WinkeyClientOptions = {}) {
     video: createVideoClient(options),
     social: createSocialClient(options),
     realtime: createRealtimeClient(options),
+    chat: createChatClient(options),
   };
 }

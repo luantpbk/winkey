@@ -1,0 +1,140 @@
+[
+  {
+    "device_id": "0192df40-7e12-7000-8000-00000000000a",
+    "user_id": "0192df40-7e12-7000-8000-000000000001",
+    "display_name": "Chrome trên Windows (Desktop)",
+    "curve25519_key": "mLF6gnL9YWmmR6iRWeG5szU48K43biH1+WqvC6GOAwM",
+    "ed25519_key": "QdumO4fOr6TZHZ2yWLYjCMIcZX1iNYMvSn8MPnbllpE",
+    "device_keys_canonical_json": "{\"algorithms\":[\"m.megolm.v1.aes-sha2\",\"m.olm.v1.curve25519-aes-sha2\"],\"curve25519\":\"mLF6gnL9YWmmR6iRWeG5szU48K43biH1+WqvC6GOAwM\",\"device_id\":\"0192df40-7e12-7000-8000-00000000000a\",\"ed25519\":\"QdumO4fOr6TZHZ2yWLYjCMIcZX1iNYMvSn8MPnbllpE\",\"user_id\":\"0192df40-7e12-7000-8000-000000000001\"}",
+    "signature": "4YrTa9kuxSf1VwQpp+1yx9kDUAgqTP2ZejM6gKoc6DLHlm9OMFwYy1HPq9FQy6FIj4Mck1ynPxikzbluiraZCQ",
+    "registration_body": {
+      "display_name": "Chrome trên Windows (Desktop)",
+      "curve25519_key": "mLF6gnL9YWmmR6iRWeG5szU48K43biH1+WqvC6GOAwM",
+      "ed25519_key": "QdumO4fOr6TZHZ2yWLYjCMIcZX1iNYMvSn8MPnbllpE",
+      "signature": "4YrTa9kuxSf1VwQpp+1yx9kDUAgqTP2ZejM6gKoc6DLHlm9OMFwYy1HPq9FQy6FIj4Mck1ynPxikzbluiraZCQ",
+      "fallback_key": {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "LbeMkNohO4O3Pcmd6q58BlQbtN2x1+ZPajLvftBwSiY",
+        "signature": "SUd+1FOTvX9Z0XNiD2jB+zSGmV9fYNsIIpNmSRn7Zq1Mxvi9+VrFgOdkKWQ4UU+8pLI6qik3nEZSVYX5oJjvAA"
+      }
+    },
+    "one_time_keys": [
+      {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "SXXfto/9DDjSSfWmooAvkZBOIdk5kZPYykodl978zz0",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000a\",\"fallback\":false,\"key\":\"SXXfto/9DDjSSfWmooAvkZBOIdk5kZPYykodl978zz0\",\"key_id\":\"AAAAAAAAAAA\"}",
+        "signature": "CRxAzdE6qLqa7IMtVDskMYlztqxAwX8Q0u/T3GX/rRIL7Ao0Nl+mGOGVK7PR3XpLR7NXaS+hzwhVghFfKABXAw"
+      },
+      {
+        "key_id": "AAAAAAAAAAE",
+        "public_key": "XR7vWJftX9pfoR9/j/FCJdzL2F6eJik4AHOta2i/8hY",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000a\",\"fallback\":false,\"key\":\"XR7vWJftX9pfoR9/j/FCJdzL2F6eJik4AHOta2i/8hY\",\"key_id\":\"AAAAAAAAAAE\"}",
+        "signature": "lgt+hjkZAf46/qpJTrIR2HOfw16QMbJdxwscTyxqnDYpIHv36zwoWCEzH73A5kQ91ACEswFaTV4+nbqALlMgDA"
+      },
+      {
+        "key_id": "AAAAAAAAAAI",
+        "public_key": "UXUamdoG6SQ2qCL0J30kl5S0Oav6agzEKkqpvKAQl1k",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000a\",\"fallback\":false,\"key\":\"UXUamdoG6SQ2qCL0J30kl5S0Oav6agzEKkqpvKAQl1k\",\"key_id\":\"AAAAAAAAAAI\"}",
+        "signature": "EU9mnW2EOcafl6ASraSMtv7HdvC5FH1RtKqd04iBuFuyhA8ac+w4KYUo4I/pa/rahqtozOnUJpzfDiRUr/RJAA"
+      }
+    ],
+    "fallback_key": {
+      "key_id": "AAAAAAAAAAA",
+      "public_key": "LbeMkNohO4O3Pcmd6q58BlQbtN2x1+ZPajLvftBwSiY",
+      "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000a\",\"fallback\":true,\"key\":\"LbeMkNohO4O3Pcmd6q58BlQbtN2x1+ZPajLvftBwSiY\",\"key_id\":\"AAAAAAAAAAA\"}",
+      "signature": "SUd+1FOTvX9Z0XNiD2jB+zSGmV9fYNsIIpNmSRn7Zq1Mxvi9+VrFgOdkKWQ4UU+8pLI6qik3nEZSVYX5oJjvAA"
+    }
+  },
+  {
+    "device_id": "0192df40-7e12-7000-8000-00000000000b",
+    "user_id": "0192df40-7e12-7000-8000-000000000002",
+    "display_name": "Safari trên iPhone 15 (Mobile)",
+    "curve25519_key": "jdzlc+WcX2HbmCi/Oaxhzv9C9qc+n9hPvYC1bOUj1no",
+    "ed25519_key": "7qyJGsGXouL1DMJ0w0A0rf8sJ+RefEWyxPZ1AQ6a0PM",
+    "device_keys_canonical_json": "{\"algorithms\":[\"m.megolm.v1.aes-sha2\",\"m.olm.v1.curve25519-aes-sha2\"],\"curve25519\":\"jdzlc+WcX2HbmCi/Oaxhzv9C9qc+n9hPvYC1bOUj1no\",\"device_id\":\"0192df40-7e12-7000-8000-00000000000b\",\"ed25519\":\"7qyJGsGXouL1DMJ0w0A0rf8sJ+RefEWyxPZ1AQ6a0PM\",\"user_id\":\"0192df40-7e12-7000-8000-000000000002\"}",
+    "signature": "X+MQw9KMQ966XVVjS24ge6AJIGH07GYiF6/ZmsDg/ytj0s5rQeGtUqe9pTAjFMDV6OSBA4zOBbIACPbrAmfPAQ",
+    "registration_body": {
+      "display_name": "Safari trên iPhone 15 (Mobile)",
+      "curve25519_key": "jdzlc+WcX2HbmCi/Oaxhzv9C9qc+n9hPvYC1bOUj1no",
+      "ed25519_key": "7qyJGsGXouL1DMJ0w0A0rf8sJ+RefEWyxPZ1AQ6a0PM",
+      "signature": "X+MQw9KMQ966XVVjS24ge6AJIGH07GYiF6/ZmsDg/ytj0s5rQeGtUqe9pTAjFMDV6OSBA4zOBbIACPbrAmfPAQ",
+      "fallback_key": {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "U8GJKO8HyH1nzTRpIKMeF7kUoc6ZRbBgO/EpW4r6VzQ",
+        "signature": "b94eS8Oyggqi6prXRO/VBB8O3KHsh+Z8t/ap6/qgTG4peyLQR/uQG8lPSP7nJo2pWqc7REOp5h6nEVqsQJkDAA"
+      }
+    },
+    "one_time_keys": [
+      {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "8BG5a81N5RIY0vuytyBHv2SZMJAdxyPeGOEg36qU3iA",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000b\",\"fallback\":false,\"key\":\"8BG5a81N5RIY0vuytyBHv2SZMJAdxyPeGOEg36qU3iA\",\"key_id\":\"AAAAAAAAAAA\"}",
+        "signature": "nVQq6rARidaLHRKDt3Sts6zWiD37cfukpS4EdIzJTEcFlOV2syieeogXjlFWFnlshnDMkXwIF9zRscFcAZDjAg"
+      },
+      {
+        "key_id": "AAAAAAAAAAE",
+        "public_key": "oI9uUTCZR4I1dnTTAPkLO63elk81wt7IZ4y0f5J6dws",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000b\",\"fallback\":false,\"key\":\"oI9uUTCZR4I1dnTTAPkLO63elk81wt7IZ4y0f5J6dws\",\"key_id\":\"AAAAAAAAAAE\"}",
+        "signature": "PYiq8EXEQkzCgWyi/wgkOl3SjUdCmJ1qiHoLvmIx3K+kJ9yv8FAe1LBF8nlWmoS007/L74V5NYC19rzzcoj+BQ"
+      },
+      {
+        "key_id": "AAAAAAAAAAI",
+        "public_key": "3b/SZYnhGq0MYXXG99UqaxtDG1EyOz9YL2so7KkkBhI",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000b\",\"fallback\":false,\"key\":\"3b/SZYnhGq0MYXXG99UqaxtDG1EyOz9YL2so7KkkBhI\",\"key_id\":\"AAAAAAAAAAI\"}",
+        "signature": "JL9StThsKG6bgZ1FAODDKTsbw7804zO4LKEcJiZXD9Cd9dwCsFPMrsptafnEcEcxinacQCgeppe6oR635izJBw"
+      }
+    ],
+    "fallback_key": {
+      "key_id": "AAAAAAAAAAA",
+      "public_key": "U8GJKO8HyH1nzTRpIKMeF7kUoc6ZRbBgO/EpW4r6VzQ",
+      "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000b\",\"fallback\":true,\"key\":\"U8GJKO8HyH1nzTRpIKMeF7kUoc6ZRbBgO/EpW4r6VzQ\",\"key_id\":\"AAAAAAAAAAA\"}",
+      "signature": "b94eS8Oyggqi6prXRO/VBB8O3KHsh+Z8t/ap6/qgTG4peyLQR/uQG8lPSP7nJo2pWqc7REOp5h6nEVqsQJkDAA"
+    }
+  },
+  {
+    "device_id": "0192df40-7e12-7000-8000-00000000000c",
+    "user_id": "0192df40-7e12-7000-8000-000000000003",
+    "display_name": "Firefox trên Linux (Laptop)",
+    "curve25519_key": "LLhXNIHRndwbb/6MYc1UJD2RnEhkoi69bb2I+Rwu6Dk",
+    "ed25519_key": "7GmpCknWYVTosdmBIdIPQByqfGyQL/IdblYMJxY4rGU",
+    "device_keys_canonical_json": "{\"algorithms\":[\"m.megolm.v1.aes-sha2\",\"m.olm.v1.curve25519-aes-sha2\"],\"curve25519\":\"LLhXNIHRndwbb/6MYc1UJD2RnEhkoi69bb2I+Rwu6Dk\",\"device_id\":\"0192df40-7e12-7000-8000-00000000000c\",\"ed25519\":\"7GmpCknWYVTosdmBIdIPQByqfGyQL/IdblYMJxY4rGU\",\"user_id\":\"0192df40-7e12-7000-8000-000000000003\"}",
+    "signature": "uzQFcl1wBb8ALhNjiD2yliY1uWj5lWNcdbeU9vAd1s7fWuy92eWwJf6dnxOYkn8JNctuBbrboIfKb0xEHZ77Bg",
+    "registration_body": {
+      "display_name": "Firefox trên Linux (Laptop)",
+      "curve25519_key": "LLhXNIHRndwbb/6MYc1UJD2RnEhkoi69bb2I+Rwu6Dk",
+      "ed25519_key": "7GmpCknWYVTosdmBIdIPQByqfGyQL/IdblYMJxY4rGU",
+      "signature": "uzQFcl1wBb8ALhNjiD2yliY1uWj5lWNcdbeU9vAd1s7fWuy92eWwJf6dnxOYkn8JNctuBbrboIfKb0xEHZ77Bg",
+      "fallback_key": {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "06JaPNSZh4F844B1OH81H/Mw/qJl5RKkja6aT/ZLvgw",
+        "signature": "J3wJq0sPxTgfleDH5F6tCRrG+aolrGWvqQs/zIz+lSNhdw8Y4oidJJEiftPccs+y7K4ha60ENp18aZadtmgpAQ"
+      }
+    },
+    "one_time_keys": [
+      {
+        "key_id": "AAAAAAAAAAA",
+        "public_key": "eeECAUZMRWyiYmp36NejtCkPRuQ8ztwlUAiBTdZF1gc",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000c\",\"fallback\":false,\"key\":\"eeECAUZMRWyiYmp36NejtCkPRuQ8ztwlUAiBTdZF1gc\",\"key_id\":\"AAAAAAAAAAA\"}",
+        "signature": "76KuMLeE1rbsIy+ud0bvO31fZoxLPpN28/8iJ7GLy0bfqwLS40xxVqApyb1sWFtSUKAQEaEpN4bzisZvn189CA"
+      },
+      {
+        "key_id": "AAAAAAAAAAE",
+        "public_key": "O/4AYRj+X8AmLSttK9+1fqJv68jGBmfTbQK/IK4Lqhk",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000c\",\"fallback\":false,\"key\":\"O/4AYRj+X8AmLSttK9+1fqJv68jGBmfTbQK/IK4Lqhk\",\"key_id\":\"AAAAAAAAAAE\"}",
+        "signature": "wfU/mRUwQSbZRNb1Gt4sybOCcCnfJo/VzUkjFEIu33jfaRfJfCGbg6MMD9yG3BNvnxz1zXnHwSER8pOzdCnUDA"
+      },
+      {
+        "key_id": "AAAAAAAAAAI",
+        "public_key": "w2kBfEJR0sYPYsextk0B2HkJikKIPHvviIBOJiBXumY",
+        "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000c\",\"fallback\":false,\"key\":\"w2kBfEJR0sYPYsextk0B2HkJikKIPHvviIBOJiBXumY\",\"key_id\":\"AAAAAAAAAAI\"}",
+        "signature": "RA1pPhE9CebCNHjRPB1b5Qre6auAe/ykRvptGjkOXJVNdWIpBOY1oKvNOs35pHyu/g9dCiH03v3Bxn5BsXWzBQ"
+      }
+    ],
+    "fallback_key": {
+      "key_id": "AAAAAAAAAAA",
+      "public_key": "06JaPNSZh4F844B1OH81H/Mw/qJl5RKkja6aT/ZLvgw",
+      "canonical_json": "{\"device_id\":\"0192df40-7e12-7000-8000-00000000000c\",\"fallback\":true,\"key\":\"06JaPNSZh4F844B1OH81H/Mw/qJl5RKkja6aT/ZLvgw\",\"key_id\":\"AAAAAAAAAAA\"}",
+      "signature": "J3wJq0sPxTgfleDH5F6tCRrG+aolrGWvqQs/zIz+lSNhdw8Y4oidJJEiftPccs+y7K4ha60ENp18aZadtmgpAQ"
+    }
+  }
+]

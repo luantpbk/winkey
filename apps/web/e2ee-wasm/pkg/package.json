@@ -1,0 +1,20 @@
+{
+  "name": "vodozemac-winkey",
+  "type": "module",
+  "collaborators": [
+    "Antigravity 1 <antigravity1@winkey.vn>"
+  ],
+  "description": "Thin wasm-bindgen wrapper around vodozemac for Winkey SOC-3 E2EE",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "files": [
+    "vodozemac_winkey_bg.wasm",
+    "vodozemac_winkey.js",
+    "vodozemac_winkey.d.ts"
+  ],
+  "main": "vodozemac_winkey.js",
+  "types": "vodozemac_winkey.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
