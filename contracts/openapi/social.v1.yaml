@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Winkey social-svc API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Comments (two levels), video likes and channel subscriptions. Owner: Antigravity 3 (task C1).
 
@@ -83,6 +83,12 @@ tags:
       Finding people (task SOC-6a, ADR-049). Gateway: `/v1/people` goes to social-svc (`PathPrefix`). The path is not
       `/v1/users/search` because `/v1/users/*` belongs to auth-svc and `/v1/users/{handle}` would shadow a user whose
       handle is `search`.
+
+      **Friends** (task SOC-6b, decision 2026-10-31): two users are friends when each follows the other
+      (`social.subscriptions` in both directions). "Kết bạn" is `subscribe`; the other user accepts by following back.
+      There is no friendship table and no new event: every follow already emits `social.subscription.changed`. The
+      caller's relationship to one user (`following`, `followed_by`, `follow_requested`, `blocking`, `muting`) stays
+      `getRelationship`. Gateway: `/v1/me/friends` and `/v1/me/friend-requests` go to social-svc (`PathPrefix`).
   - name: moderation
     description: |
       User reports and the moderation queue (task A2). Reading and resolving reports needs `moderator` or
@@ -826,6 +832,81 @@ paths:
                 $ref: '#/components/schemas/PeoplePage'
         '400':
           $ref: './common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/me/friends:
+    get:
+      tags: [people]
+      operationId: listMyFriends
+      summary: The caller's friends (mutual follows), newest friendship first (task SOC-6b).
+      description: |
+        `friends_since` is when the pair became mutual, i.e. the later of the two follows. Users without an active
+        profile and users in a block relation with the caller are left out (a block removes both follows anyway).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of friends.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/friend-requests:
+    get:
+      tags: [people]
+      operationId: listFriendRequests
+      summary: People who follow the caller but whom the caller does not follow, newest follow first (task SOC-6b).
+      description: |
+        Leaves out dismissed requests (`dismissFriendRequest`), users without an active profile and users in a block
+        relation with the caller. Accepting is `subscribe` to the requester, which also clears a dismissal. A private
+        account's pending follow requests are a different list (`listFollowRequests`): those users do not follow the
+        caller yet. `pending_count` counts the whole list, not the page.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Cursor'
+        - $ref: './common.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of friend requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestPage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/me/friend-requests/{user_id}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/RelationUserId'
+    post:
+      tags: [people]
+      operationId: dismissFriendRequest
+      summary: Hide a friend request without unfollowing or telling anyone (task SOC-6b). Idempotent.
+      description: |
+        `user_id` must follow the caller and not be followed back by the caller, else `404`. The dismissal stays until
+        the caller follows them back (`subscribe` deletes it) or a block between the two deletes it. The other user is
+        not told and keeps following. Counts toward the 60 relationship changes per hour of blocks and mutes (`429`).
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Dismissed.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
@@ -2196,6 +2277,10 @@ components:
         `POST_MENTION` — someone mentioned you in a post (`post_id`; once per post).
         `POST_RESHARE` — someone reshared your post (`post_id` = the reshare).
         `POST_REACTION` — someone reacted to your post (`post_id`; once per reacting user and post).
+        `FRIEND_ACCEPTED` — someone you follow followed you back, so you are now friends (SOC-6b; actor = the new
+        friend; once per pair). Created in the same transaction as the `subscribe` that makes the pair mutual, for the
+        user who followed first. A follow-request approval that makes a pair mutual creates only
+        `FOLLOW_REQUEST_APPROVED`.
         No notification is created between users in a block relation, or for a muter from a muted actor. A post
         notification whose post or comment is gone, hidden or no longer visible to the recipient is not returned.
         Clients ignore kinds they do not know.
@@ -2211,6 +2296,7 @@ components:
         - POST_MENTION
         - POST_RESHARE
         - POST_REACTION
+        - FRIEND_ACCEPTED
 
     Notification:
       type: object
@@ -2807,6 +2893,57 @@ components:
             $ref: './common.yaml#/components/schemas/PublicProfile'
         next_cursor:
           type: [string, 'null']
+
+    FriendItem:
+      type: object
+      additionalProperties: false
+      required: [user, friends_since]
+      properties:
+        user:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        friends_since:
+          type: string
+          format: date-time
+          description: When the pair became mutual (the later of the two follows).
+
+    FriendPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendItem'
+        next_cursor:
+          type: [string, 'null']
+
+    FriendRequest:
+      type: object
+      additionalProperties: false
+      required: [user, followed_at]
+      properties:
+        user:
+          $ref: './common.yaml#/components/schemas/PublicProfile'
+        followed_at:
+          type: string
+          format: date-time
+          description: When they started following the caller.
+
+    FriendRequestPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, pending_count]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendRequest'
+        next_cursor:
+          type: [string, 'null']
+        pending_count:
+          type: integer
+          minimum: 0
 
     PostVisibility:
       type: string
