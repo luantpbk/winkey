@@ -84,9 +84,12 @@ export interface PublicProfilesTable {
   id: string;
   handle: string;
   display_name: string;
-  avatar_url: string | null;
-  bio: string | null;
-  status: string;
+  avatar_key: string | null;
+  bio?: string | null;
+  links?: unknown;
+  banner_key?: string | null;
+  is_private?: boolean;
+  created_at?: Generated<Date>;
 }
 
 export interface BlocksTable {

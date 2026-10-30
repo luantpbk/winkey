@@ -529,7 +529,6 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
       .selectFrom('auth.public_profiles')
       .select('id')
       .where('id', 'in', uniqueUids)
-      .where('status', '=', 'ACTIVE')
       .execute();
     const activeProfileSet = new Set(profiles.map((p) => p.id));
 
@@ -631,7 +630,7 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
       SELECT d.id, d.user_id, d.curve25519_key, d.ed25519_key,
              d.fallback_key_id, d.fallback_key, d.fallback_signature
       FROM chat.devices d
-      JOIN auth.public_profiles p ON p.id = d.user_id AND p.status = 'ACTIVE'
+      JOIN auth.public_profiles p ON p.id = d.user_id
       WHERE d.id = ANY(${uniqueDeviceIds}::uuid[])
         AND d.deleted_at IS NULL
         AND (

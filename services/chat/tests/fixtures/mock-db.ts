@@ -77,9 +77,9 @@ export interface MockStore {
     id: string;
     handle: string;
     display_name: string;
-    avatar_url: string | null;
-    bio: string | null;
-    status: string;
+    avatar_key: string | null;
+    bio?: string | null;
+    status?: string;
   }>;
   blocks: Array<{
     blocker_id: string;
@@ -932,17 +932,38 @@ export function createMockDb(store: MockStore): Kysely<Database> {
       // SELECT auth.public_profiles by in (...)
       if (sqlLower.includes('from "auth"."public_profiles"') && sqlLower.includes('"id" in')) {
         const userIds = params as string[];
-        const rows = store.public_profiles.filter(
-          (p) => userIds.includes(p.id) && p.status === 'ACTIVE',
-        );
+        const rows = store.public_profiles
+          .filter(
+            (p) => userIds.includes(p.id) && (p.status === undefined || p.status === 'ACTIVE'),
+          )
+          .map((p) => ({
+            id: p.id,
+            handle: p.handle,
+            display_name: p.display_name,
+            avatar_key: p.avatar_key,
+          }));
         return { rows, rowCount: rows.length };
       }
 
       // SELECT auth.public_profiles by id = $1
       if (sqlLower.includes('from "auth"."public_profiles"') && sqlLower.includes('"id" =')) {
         const id = String(params[0]);
-        const profile = store.public_profiles.find((p) => p.id === id && p.status === 'ACTIVE');
-        return { rows: profile ? [profile] : [], rowCount: profile ? 1 : 0 };
+        const profile = store.public_profiles.find(
+          (p) => p.id === id && (p.status === undefined || p.status === 'ACTIVE'),
+        );
+        return {
+          rows: profile
+            ? [
+                {
+                  id: profile.id,
+                  handle: profile.handle,
+                  display_name: profile.display_name,
+                  avatar_key: profile.avatar_key,
+                },
+              ]
+            : [],
+          rowCount: profile ? 1 : 0,
+        };
       }
 
       // SELECT from social.blocks (two-way check)

@@ -29,8 +29,6 @@ interface PublicProfileDto {
   handle: string;
   display_name: string;
   avatar_url: string | null;
-  bio: string | null;
-  status: string;
 }
 
 export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependencies> = async (
@@ -81,13 +79,22 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
       userIds.length > 0
         ? await db
             .selectFrom('auth.public_profiles')
-            .selectAll()
+            .select(['id', 'handle', 'display_name', 'avatar_key'])
             .where('id', 'in', userIds)
-            .where('status', '=', 'ACTIVE')
             .execute()
         : [];
 
-    const profileMap = new Map<string, PublicProfileDto>(profiles.map((p) => [p.id, p]));
+    const profileMap = new Map<string, PublicProfileDto>(
+      profiles.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          handle: p.handle,
+          display_name: p.display_name,
+          avatar_url: p.avatar_key ? `https://media.winkey.vn/${p.avatar_key}` : null,
+        },
+      ]),
+    );
 
     // Compute unread_count: messages after max(last_read_seq, joined_seq - 1) not sent by caller, capped at 99
     const unreadRes = await sql<{ count: string }>`
@@ -223,13 +230,22 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
       memberUserIds.length > 0
         ? await db
             .selectFrom('auth.public_profiles')
-            .selectAll()
+            .select(['id', 'handle', 'display_name', 'avatar_key'])
             .where('id', 'in', memberUserIds)
-            .where('status', '=', 'ACTIVE')
             .execute()
         : [];
 
-    const profileMap = new Map<string, PublicProfileDto>(profiles.map((p) => [p.id, p]));
+    const profileMap = new Map<string, PublicProfileDto>(
+      profiles.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          handle: p.handle,
+          display_name: p.display_name,
+          avatar_url: p.avatar_key ? `https://media.winkey.vn/${p.avatar_key}` : null,
+        },
+      ]),
+    );
 
     // Group members by conversation
     const membersByConv = new Map<string, typeof allMembersRes>();
@@ -351,7 +367,6 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
         .selectFrom('auth.public_profiles')
         .select('id')
         .where('id', '=', targetId)
-        .where('status', '=', 'ACTIVE')
         .executeTakeFirst();
 
       if (!targetProfile) {
@@ -511,7 +526,6 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
       .selectFrom('auth.public_profiles')
       .select('id')
       .where('id', 'in', uniqueUserIds)
-      .where('status', '=', 'ACTIVE')
       .execute();
 
     if (profiles.length !== uniqueUserIds.length) {
@@ -767,7 +781,6 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
       .selectFrom('auth.public_profiles')
       .select('id')
       .where('id', 'in', uniqueUserIds)
-      .where('status', '=', 'ACTIVE')
       .execute();
 
     if (profiles.length !== uniqueUserIds.length) {
@@ -1267,16 +1280,26 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
       };
     });
 
-    const profile = await db
+    const profileRow = await db
       .selectFrom('auth.public_profiles')
-      .selectAll()
+      .select(['id', 'handle', 'display_name', 'avatar_key'])
       .where('id', '=', user_id)
-      .where('status', '=', 'ACTIVE')
       .executeTakeFirst();
+
+    const profile: PublicProfileDto | null = profileRow
+      ? {
+          id: profileRow.id,
+          handle: profileRow.handle,
+          display_name: profileRow.display_name,
+          avatar_url: profileRow.avatar_key
+            ? `https://media.winkey.vn/${profileRow.avatar_key}`
+            : null,
+        }
+      : null;
 
     return reply.status(200).send({
       user_id: updatedMember!.user_id,
-      user: profile ?? null,
+      user: profile,
       role: updatedMember!.role,
       state: updatedMember!.state,
     });

@@ -116,29 +116,20 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     if (db) {
       await db.destroy();
     }
-    if (pool) {
-      await pool.end();
-    }
     if (stopPgContainer) {
       await stopPgContainer();
     }
   });
 
-  // Helper to create test user in auth.public_profiles
+  // Helper to create test user in auth.users (which feeds auth.public_profiles view)
   async function seedUser(userId: string, handle: string, name: string) {
-    if (!db) return;
-    await db
-      .insertInto('auth.public_profiles')
-      .values({
-        id: userId,
-        handle,
-        display_name: name,
-        avatar_url: null,
-        bio: null,
-        status: 'ACTIVE',
-      })
-      .onConflict((oc) => oc.column('id').doNothing())
-      .execute();
+    if (!pool) return;
+    await pool.query(
+      `INSERT INTO auth.users (id, email, handle, display_name, status)
+       VALUES ($1, $2, $3, $4, 'ACTIVE')
+       ON CONFLICT (id) DO NOTHING`,
+      [userId, `${handle}@test.local`, handle, name],
+    );
   }
 
   it('claims: 20 concurrent claims on a device with 10 OTKs yields 10 distinct OTKs + 10 fallback', async () => {
@@ -387,6 +378,21 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
 
     const testDev = uuidv7();
     const sender = uuidv7();
+    await seedUser(sender, 'sender_purge', 'Sender Purge');
+
+    // Register recipient device in chat.devices so foreign key constraint is satisfied
+    const devKeys = generateTestDeviceKeys(testDev, sender, 'Purge Device', false);
+    await db
+      .insertInto('chat.devices')
+      .values({
+        id: testDev,
+        user_id: sender,
+        display_name: devKeys.displayName,
+        curve25519_key: devKeys.curve25519Key,
+        ed25519_key: devKeys.ed25519Key,
+        signature: devKeys.signature,
+      })
+      .execute();
 
     // Insert to-device row from 35 days ago
     const oldDate = new Date(Date.now() - 35 * 86400 * 1000);
