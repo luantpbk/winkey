@@ -22,6 +22,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { NotificationBell } from '../notifications/notification-bell';
+import { ChatBadgeButton } from '../chat/chat-badge-button';
 import { BrandLogo } from '../brand/logo';
 
 interface TopBarProps {
@@ -130,6 +131,9 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
                 <LayoutDashboard className="h-5 w-5" />
               </Link>
             )}
+
+            {/* E2EE Chat Icon */}
+            <ChatBadgeButton />
 
             {/* Notification Bell */}
             <NotificationBell />

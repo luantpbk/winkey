@@ -60,7 +60,7 @@ export function buildCsp(options: BuildCspOptions): string {
   const validMedia = validateOrigin(mediaOrigin, 'CSP_MEDIA_ORIGIN');
   const validUpload = validateOrigin(uploadOrigin, 'CSP_UPLOAD_ORIGIN');
 
-  const scriptSrc = ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"];
+  const scriptSrc = ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", "'wasm-unsafe-eval'"];
   if (isDev) {
     scriptSrc.push("'unsafe-eval'");
   }

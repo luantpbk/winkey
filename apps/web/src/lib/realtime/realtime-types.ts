@@ -150,6 +150,23 @@ export interface ServerNotificationHintEvent {
   ts: string;
 }
 
+export type ChatHintKind = 'MESSAGE' | 'TO_DEVICE' | 'CONVERSATION' | 'DEVICES';
+
+export interface ChatHintData {
+  kind: ChatHintKind;
+  conversation_id?: string;
+  seq?: number;
+  user_id?: string;
+}
+
+export interface ServerChatHintEvent {
+  type: 'event';
+  room: string; // user:{user_id}
+  event: 'chat.hint';
+  data: ChatHintData;
+  ts: string;
+}
+
 export type ServerEventMessage =
   | ServerVideoProgressEvent
   | ServerVideoReadyEvent
@@ -157,7 +174,8 @@ export type ServerEventMessage =
   | ServerCommentCreatedEvent
   | ServerCommentReplyEvent
   | ServerLikeCountEvent
-  | ServerNotificationHintEvent;
+  | ServerNotificationHintEvent
+  | ServerChatHintEvent;
 
 export type ServerMessage =
   | ServerWelcomeMessage

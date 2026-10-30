@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw';
+import { chatHandlers } from './handlers-chat';
 import type {
   User,
   VideoSummary,
@@ -7004,4 +7005,6 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
     comment.status = body.status || (body.action === 'HIDE' ? 'HIDDEN' : 'VISIBLE');
     return HttpResponse.json(comment);
   }),
+
+  ...chatHandlers,
 ];
