@@ -171,7 +171,7 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
         url: '/v1/chat/keys/claim',
         headers: { 'x-user-id': bobId },
         payload: {
-          devices: [{ user_id: aliceId, device_id: aliceKeys.deviceId }],
+          device_ids: [aliceKeys.deviceId],
         },
       }),
     );
@@ -185,7 +185,7 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     let fallbackCount = 0;
 
     for (const res of responses) {
-      const claimedDev = res.json().devices[0];
+      const claimedDev = res.json().keys[0];
       if (claimedDev.one_time_key) {
         claimedOneTimeKeys.push(claimedDev.one_time_key.key_id);
       } else if (claimedDev.fallback_key) {
@@ -209,9 +209,12 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     const testUser = uuidv7();
     await seedUser(testUser, 'limit_user', 'Limit User');
 
+    let d1: ReturnType<typeof generateTestDeviceKeys> | undefined;
+
     // Register 10 active devices
     for (let i = 1; i <= 10; i++) {
       const d = generateTestDeviceKeys(uuidv7(), testUser, `Device ${i}`, false);
+      if (i === 1) d1 = d;
       const res = await app.inject({
         method: 'PUT',
         url: `/v1/chat/devices/${d.deviceId}`,
@@ -245,14 +248,20 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     // Reusing existing identity key curve25519 for different user/device fails with 409 IDENTITY_KEY_IN_USE
     const otherUser = uuidv7();
     await seedUser(otherUser, 'other_user', 'Other User');
-    const dReused = generateTestDeviceKeys(uuidv7(), otherUser, 'Reused Key Device', false);
+    const dReused = generateTestDeviceKeys(
+      uuidv7(),
+      otherUser,
+      'Reused Key Device',
+      false,
+      d1!.curve25519Key,
+    );
     const resReuse = await app.inject({
       method: 'PUT',
       url: `/v1/chat/devices/${dReused.deviceId}`,
       headers: { 'x-user-id': otherUser },
       payload: {
         display_name: dReused.displayName,
-        curve25519_key: d11.curve25519Key, // Reused key
+        curve25519_key: dReused.curve25519Key,
         ed25519_key: dReused.ed25519Key,
         signature: dReused.signature,
       },
@@ -367,9 +376,9 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
 
     seqs.sort((a, b) => a - b);
     expect(seqs.length).toBe(50);
-    // Every seq from 1 to 50 is present with zero gaps
+    // seq = 1 is the conversation_created SYSTEM message; user messages get seq 2..51
     for (let i = 0; i < 50; i++) {
-      expect(seqs[i]).toBe(i + 1);
+      expect(seqs[i]).toBe(i + 2);
     }
   });
 

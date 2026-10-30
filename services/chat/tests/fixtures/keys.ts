@@ -21,6 +21,7 @@ export function generateTestDeviceKeys(
   userId: string,
   displayName = 'Test Device',
   withFallback = true,
+  customCurve25519Key?: string,
 ): TestDeviceKeys {
   const edPair = crypto.generateKeyPairSync('ed25519');
   const xPair = crypto.generateKeyPairSync('x25519');
@@ -29,7 +30,7 @@ export function generateTestDeviceKeys(
   const xPubRaw = xPair.publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
 
   const ed25519Key = encodeUnpaddedBase64(edPubRaw);
-  const curve25519Key = encodeUnpaddedBase64(xPubRaw);
+  const curve25519Key = customCurve25519Key ?? encodeUnpaddedBase64(xPubRaw);
 
   const devicePayload = {
     algorithms: ['m.megolm.v1.aes-sha2', 'm.olm.v1.curve25519-aes-sha2'],
