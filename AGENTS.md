@@ -13,6 +13,7 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 | Antigravity 2 | Platform / DevOps | `deploy/`, `.github/workflows/*` (except `contracts.yml`), root tooling (`package.json`, `pnpm-workspace.yaml`, `turbo.json`, `go.work`) |
 | Antigravity 3 | Node product services | `services/auth`, `services/social`, `services/realtime`, `packages/outbox` and other shared TS packages |
 | Antigravity 4 (Linux) | QA: full-stack system tests, load/performance tests | `systest/`, `loadtest/` |
+| Claude Opus ("Opus B", joined 2026-10-31) | Full-stack product features while Antigravity 1 and 3 are paused (user decision); brief `docs/prompts/opus-b_onboarding.md` | `apps/web`, `e2e/`, `packages/*`, `services/auth`, `services/social`, `services/chat`, `services/realtime` |
 
 > **2026-10-10:** ChatGPT Astra (acting architect) and ChatGPT/Codex ("Sol", acting Go owner) have left the team for
 > now. Sonnet and Sonnet 2 stay paused. **Update 2026-10-10:** the user made the architect (Claude Opus) the acting owner
@@ -22,6 +23,7 @@ Read this file first, then `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, and the 
 
 1. **Stay in your directories.** If you need a change elsewhere, open an issue and assign it to the owner.
 2. **Contracts are law.** Implement `contracts/openapi/*.yaml` and `contracts/events/*.schema.json` exactly. Never edit them. If a contract is wrong or missing something, stop and open an issue labeled `contract-change` explaining why.
+   Exception (2026-10-31): Opus B may draft contract and migration changes in a separate PR labeled `contract-change` (contract, migration, DB test and generated `packages/api-client` types only); the architect reviews and merges it before any implementation builds on it.
 3. **Never write migrations.** Schema changes go through the architect (`db/migrations`).
 4. **One task per branch and per PR.** Branch: `agent/<agent>/<task-id>-<slug>` (for example `agent/sonnet/v2-transcoder`). Open the PR against `main`. Never push to `main`, never force-push a shared branch, never merge your own PR.
    Exception (user decision 2026-10-11): the architect (Claude Opus), as reviewer and merger, may merge its own PRs once
