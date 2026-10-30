@@ -16,6 +16,7 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     process.env = { ...originalEnv };
     delete process.env.CSP_MEDIA_ORIGIN;
     delete process.env.CSP_UPLOAD_ORIGIN;
+    delete process.env.CSP_CHAT_ORIGIN;
   });
 
   afterEach(() => {
@@ -156,6 +157,46 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     expect(policy).toContain(
       `connect-src 'self' ${mediaOrigin} ${uploadOrigin} https://challenges.cloudflare.com`,
     );
+  });
+
+  it('adds CSP_CHAT_ORIGIN to connect-src only (SOC-3b), validated and deduplicated', () => {
+    const nonce = 'chatnonce1234567890==';
+    const policy = buildCsp({
+      nonce,
+      mediaOrigin: 'https://media.winkey.vn',
+      uploadOrigin: 'https://s3.winkey.vn',
+      chatOrigin: 'http://localhost:3900',
+    });
+    expect(policy).toContain(
+      "connect-src 'self' https://media.winkey.vn https://s3.winkey.vn http://localhost:3900 https://challenges.cloudflare.com",
+    );
+    expect(policy).not.toMatch(/img-src[^;]*localhost:3900/);
+    expect(policy).not.toMatch(/media-src[^;]*localhost:3900/);
+
+    // Same origin as the upload endpoint (R2 in production): listed once.
+    const same = buildCsp({
+      nonce,
+      uploadOrigin: 'https://s3.winkey.vn',
+      chatOrigin: 'https://s3.winkey.vn',
+    });
+    expect(
+      same
+        .match(/connect-src ([^;]+)/)![1]!
+        .split(' ')
+        .filter((o) => o === 'https://s3.winkey.vn'),
+    ).toHaveLength(1);
+
+    // Invalid values (a path, a wildcard) are ignored with a warning, never emitted.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const bad of ['https://s3.winkey.vn/winkey-chat', '*', 'not a url']) {
+      const p = buildCsp({ nonce, chatOrigin: bad });
+      expect(p).toContain("connect-src 'self' https://challenges.cloudflare.com");
+    }
+    expect(warn).toHaveBeenCalled();
+
+    // Read from the environment when not passed.
+    process.env.CSP_CHAT_ORIGIN = 'http://localhost:3900';
+    expect(buildCsp({ nonce })).toContain("connect-src 'self' http://localhost:3900");
   });
 
   it('deduplicates connect-src when mediaOrigin and uploadOrigin are identical', () => {

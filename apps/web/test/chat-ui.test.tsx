@@ -193,8 +193,12 @@ describe('Chat UI Components (ADR-049 / SOC-3a)', () => {
     expect(textarea.disabled).toBe(true);
 
     // Send button must be disabled
-    const sendBtn = screen.getByRole('button', { name: '' }) as HTMLButtonElement;
+    const sendBtn = screen.getByRole('button', { name: 'Gửi' }) as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
+    // SOC-3b: no attachments either until the request is accepted
+    expect(
+      (screen.getByRole('button', { name: 'Đính kèm tệp' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it('handles message request acceptance and rejection callbacks', async () => {

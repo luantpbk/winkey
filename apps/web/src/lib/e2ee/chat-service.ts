@@ -13,12 +13,15 @@ import { getDeviceManager } from './device-manager';
 import { getE2eeClient } from './client';
 import type { Conversation, ConversationPage, Message, ToDeviceMessage } from '@winkey/api-client';
 import type { MemberDeviceRef, ClaimedOtkRef } from './protocol';
+import { parseChatEvent, serializeTextEvent, type AttachmentRef } from './events';
 
 export interface DecryptedMessageItem {
   message: Message;
   plaintext: string | null;
   status: 'DECRYPTED' | 'WAITING_FOR_KEY' | 'SYSTEM' | 'DELETED' | 'UNSUPPORTED' | 'ERROR';
   error?: string;
+  /** SOC-3b: files carried by the encrypted event, validated (events.ts). Lives only on this device. */
+  attachments?: AttachmentRef[];
 }
 
 export class ChatService {
@@ -226,27 +229,18 @@ export class ChatService {
       return { message: msg, plaintext: null, status: 'ERROR', error: result.error };
     }
 
-    try {
-      const parsed = JSON.parse(result.plaintext);
-      if (parsed?.type === 'text' && typeof parsed.body === 'string') {
-        return {
-          message: msg,
-          plaintext: parsed.body,
-          status: 'DECRYPTED',
-        };
-      }
-      return {
-        message: msg,
-        plaintext: null,
-        status: 'UNSUPPORTED',
-      };
-    } catch {
-      return {
-        message: msg,
-        plaintext: result.plaintext,
-        status: 'DECRYPTED',
-      };
+    const event = parseChatEvent(result.plaintext);
+    if (!event) {
+      return { message: msg, plaintext: null, status: 'UNSUPPORTED' };
     }
+    // An attachment the server no longer lists (deleted, expired by the janitor) is still shown from the event,
+    // and its download answers 404 / 410.
+    return {
+      message: msg,
+      plaintext: event.body,
+      status: 'DECRYPTED',
+      ...(event.attachments ? { attachments: event.attachments } : {}),
+    };
   }
 
   /**
@@ -257,8 +251,9 @@ export class ChatService {
     conversation: Conversation;
     text: string;
     clientMsgId?: string;
+    attachments?: AttachmentRef[];
   }): Promise<DecryptedMessageItem> {
-    const { conversation, text } = params;
+    const { conversation, text, attachments = [] } = params;
     const clientMsgId = params.clientMsgId || crypto.randomUUID();
 
     const senderDeviceId = this.deviceManager.getDeviceId();
@@ -350,10 +345,7 @@ export class ChatService {
     }
 
     // 5. Encrypt message plaintext: JSON {"type":"text","body":"..."}
-    const plaintextPayload = JSON.stringify({
-      type: 'text',
-      body: text.slice(0, 4000),
-    });
+    const plaintextPayload = serializeTextEvent(text, attachments);
 
     const encResult = await this.e2eeClient.encryptMessage(conversation.id, plaintextPayload);
 
@@ -369,12 +361,16 @@ export class ChatService {
         sender_device_id: senderDeviceId,
         megolm_session_id: encResult.megolmSessionId,
         ciphertext: encResult.ciphertext,
+        ...(attachments.length > 0 ? { attachment_ids: attachments.map((a) => a.id) } : {}),
       },
     });
 
     if (sendErr || !msgData) {
       if (response.status === 403) {
         throw new Error('Không thể gửi tin nhắn do quan hệ chặn hoặc chưa được chấp nhận.');
+      }
+      if (response.status === 409 && sendErr?.code === 'ATTACHMENT_UNAVAILABLE') {
+        throw new Error('Một tệp đính kèm đã hết hạn hoặc không còn, hãy đính kèm lại.');
       }
       if (response.status === 409) {
         throw new Error('Cuộc trò chuyện này đã kết thúc do đối phương đã rời đi.');
@@ -389,6 +385,7 @@ export class ChatService {
       message: msgData,
       plaintext: text,
       status: 'DECRYPTED',
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
   }
 

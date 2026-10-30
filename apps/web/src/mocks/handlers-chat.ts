@@ -126,6 +126,25 @@ const mockConversations: Conversation[] = [
 ];
 
 const mockMessages = new Map<string, Message[]>();
+
+// SOC-3b: attachment rows and a stand-in for the private winkey-chat bucket, served from the same origin so the
+// dev CSP needs nothing extra. Holds ciphertext only, like the real bucket.
+interface MockAttachment {
+  id: string;
+  conversation_id: string;
+  size_bytes: number;
+  state: 'PENDING' | 'UPLOADED';
+  expires_at: string;
+  created_at: string;
+  message_seq: number | null;
+}
+const mockAttachments = new Map<string, MockAttachment>();
+const mockBucket = new Map<string, ArrayBuffer>();
+
+function attachmentDto(a: MockAttachment) {
+  const { message_seq: _seq, ...dto } = a;
+  return dto;
+}
 mockMessages.set('0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10', [
   {
     id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c11',
@@ -511,10 +530,31 @@ export const chatHandlers = [
     conv.last_seq = newSeq;
     conv.last_message_at = new Date().toISOString();
 
+    const attachmentIds: string[] = Array.isArray(body.attachment_ids) ? body.attachment_ids : [];
+    const linked = attachmentIds.map((aid) => mockAttachments.get(aid));
+    if (
+      linked.some(
+        (a) => !a || a.state !== 'UPLOADED' || a.message_seq !== null || a.conversation_id !== id,
+      )
+    ) {
+      conv.last_seq = newSeq - 1;
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'ATTACHMENT_UNAVAILABLE',
+        },
+        { status: 409 },
+      );
+    }
+    for (const a of linked) a!.message_seq = newSeq;
+
     const newMsg: Message = {
       id: `0192f5e4-7c1a-7b3e-9d2a-${Math.random().toString(36).substring(2, 14)}`,
       conversation_id: id,
       seq: newSeq,
+      attachments: linked.map((a) => attachmentDto(a!)),
       kind: 'ENCRYPTED',
       sender_id: userId,
       sender_device_id: body.sender_device_id || 'mock_device',
@@ -529,6 +569,102 @@ export const chatHandlers = [
     mockMessages.set(id, messages);
 
     return HttpResponse.json(newMsg, { status: 201 });
+  }),
+
+  http.post('*/v1/chat/conversations/:id/attachments', async ({ params, request }) => {
+    const { id } = params as { id: string };
+    const body = (await request.json().catch(() => ({}))) as { size_bytes?: number };
+    const size = Number(body.size_bytes);
+    if (!Number.isInteger(size) || size < 1 || size > 26214400) {
+      return HttpResponse.json(
+        { type: '/problems/bad-request', title: 'Bad Request', status: 400, code: 'INVALID_SIZE' },
+        { status: 400 },
+      );
+    }
+    const now = new Date();
+    const attachment: MockAttachment = {
+      id: crypto.randomUUID(),
+      conversation_id: id,
+      size_bytes: size,
+      state: 'PENDING',
+      created_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + 30 * 24 * 3600_000).toISOString(),
+      message_seq: null,
+    };
+    mockAttachments.set(attachment.id, attachment);
+    const origin = new URL(request.url).origin;
+    return HttpResponse.json(
+      {
+        attachment: attachmentDto(attachment),
+        upload_url: `${origin}/__mock-s3/winkey-chat/c/${id}/${attachment.id}`,
+        upload_headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(size),
+        },
+        upload_expires_at: new Date(now.getTime() + 15 * 60_000).toISOString(),
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.put('*/__mock-s3/winkey-chat/c/:conv/:aid', async ({ params, request }) => {
+    const { aid } = params as { aid: string };
+    const bytes = await request.arrayBuffer();
+    const a = mockAttachments.get(aid);
+    if (!a || bytes.byteLength !== a.size_bytes) return new HttpResponse(null, { status: 403 });
+    mockBucket.set(aid, bytes);
+    return new HttpResponse(null, { status: 200 });
+  }),
+
+  http.get('*/__mock-s3/winkey-chat/c/:conv/:aid', ({ params }) => {
+    const bytes = mockBucket.get((params as { aid: string }).aid);
+    return bytes
+      ? new HttpResponse(bytes, {
+          status: 200,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        })
+      : new HttpResponse(null, { status: 404 });
+  }),
+
+  http.post('*/v1/chat/conversations/:id/attachments/:aid/complete', ({ params }) => {
+    const a = mockAttachments.get((params as { aid: string }).aid);
+    if (!a) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Not Found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (!mockBucket.has(a.id)) {
+      return HttpResponse.json(
+        { type: '/problems/conflict', title: 'Conflict', status: 409, code: 'UPLOAD_INCOMPLETE' },
+        { status: 409 },
+      );
+    }
+    a.state = 'UPLOADED';
+    return HttpResponse.json(attachmentDto(a));
+  }),
+
+  http.post('*/v1/chat/conversations/:id/attachments/:aid/download', ({ params, request }) => {
+    const { id, aid } = params as { id: string; aid: string };
+    const a = mockAttachments.get(aid);
+    if (!a || a.state !== 'UPLOADED') {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Not Found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (new Date(a.expires_at).getTime() <= Date.now()) {
+      return HttpResponse.json(
+        { type: '/problems/gone', title: 'Gone', status: 410, code: 'ATTACHMENT_EXPIRED' },
+        { status: 410 },
+      );
+    }
+    const origin = new URL(request.url).origin;
+    return HttpResponse.json({
+      url: `${origin}/__mock-s3/winkey-chat/c/${id}/${aid}`,
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+      size_bytes: a.size_bytes,
+    });
   }),
 
   http.delete('*/v1/chat/conversations/:id/messages/:seq', ({ params }) => {
