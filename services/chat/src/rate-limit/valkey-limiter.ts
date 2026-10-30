@@ -38,21 +38,40 @@ export class ValkeyRateLimiter implements RateLimiter {
   async consume(options: RateLimitOptions): Promise<void> {
     const { key, limit, windowSeconds, cost = 1 } = options;
 
+    if (cost <= 0) return;
+
     if (this.redis && this.redis.status === 'ready') {
       try {
         const lua = `
-          local current = redis.call('INCRBY', KEYS[1], ARGV[2])
-          if current == tonumber(ARGV[2]) then
-            redis.call('EXPIRE', KEYS[1], ARGV[1])
-          end
-          local ttl = redis.call('TTL', KEYS[1])
-          return {current, ttl}
-        `;
-        const res = (await this.redis.eval(lua, 1, key, windowSeconds, cost)) as [number, number];
-        const count = res[0];
-        const ttl = res[1] > 0 ? res[1] : windowSeconds;
+          local key = KEYS[1]
+          local window = tonumber(ARGV[1])
+          local limit = tonumber(ARGV[2])
+          local cost = tonumber(ARGV[3])
 
-        if (count > limit) {
+          local current = tonumber(redis.call('GET', key) or '0')
+          if current + cost > limit then
+            local ttl = redis.call('TTL', key)
+            if ttl < 0 then ttl = window end
+            return { 0, current, ttl }
+          end
+
+          local next_val = redis.call('INCRBY', key, cost)
+          if next_val == cost then
+            redis.call('EXPIRE', key, window)
+          end
+          local ttl = redis.call('TTL', key)
+          if ttl < 0 then ttl = window end
+          return { 1, next_val, ttl }
+        `;
+        const res = (await this.redis.eval(lua, 1, key, windowSeconds, limit, cost)) as [
+          number,
+          number,
+          number,
+        ];
+        const allowed = res[0];
+        const ttl = res[2] > 0 ? res[2] : windowSeconds;
+
+        if (allowed === 0) {
           throw ProblemError.tooManyRequests(ttl);
         }
         return;
@@ -67,18 +86,19 @@ export class ValkeyRateLimiter implements RateLimiter {
     const entry = this.memoryStore.get(key);
 
     if (!entry || entry.resetAt <= now) {
-      this.memoryStore.set(key, { count: cost, resetAt: now + windowSeconds * 1000 });
       if (cost > limit) {
+        this.memoryStore.set(key, { count: 0, resetAt: now + windowSeconds * 1000 });
         throw ProblemError.tooManyRequests(windowSeconds);
       }
+      this.memoryStore.set(key, { count: cost, resetAt: now + windowSeconds * 1000 });
       return;
     }
 
-    entry.count += cost;
-    if (entry.count > limit) {
+    if (entry.count + cost > limit) {
       const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
       throw ProblemError.tooManyRequests(Math.max(1, retryAfter));
     }
+    entry.count += cost;
   }
 
   async close(): Promise<void> {
@@ -86,6 +106,10 @@ export class ValkeyRateLimiter implements RateLimiter {
       await this.redis.quit().catch(() => {});
     }
   }
+}
+
+export function buildClaimKeysRateLimitKey(userId: string): string {
+  return `rl:chat:claim:${userId}`;
 }
 
 export function buildMessageRateLimitKey(userId: string): string {

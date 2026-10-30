@@ -21,6 +21,7 @@ import type { Conversation } from '@winkey/api-client';
 interface ConversationViewProps {
   conversation: Conversation;
   currentUserId: string;
+  realtimeVersion?: number;
   onBackMobile?: () => void;
   onConversationUpdated: (conversation: Conversation) => void;
   onConversationLeft: () => void;
@@ -29,6 +30,7 @@ interface ConversationViewProps {
 export function ConversationView({
   conversation,
   currentUserId,
+  realtimeVersion,
   onBackMobile,
   onConversationUpdated,
   onConversationLeft,
@@ -73,7 +75,7 @@ export function ConversationView({
 
   useEffect(() => {
     loadMessages();
-  }, [loadMessages]);
+  }, [loadMessages, realtimeVersion]);
 
   useEffect(() => {
     scrollToBottom();

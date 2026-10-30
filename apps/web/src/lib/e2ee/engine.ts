@@ -298,6 +298,17 @@ export class E2eeWorkerEngine {
       conversationId,
     );
 
+    // Target devices: all member devices except our own active device
+    const targetDevices = memberDevices.filter((d) => d.deviceId !== this.deviceId);
+    const currentDeviceIds = targetDevices.map((d) => d.deviceId).sort();
+
+    const prevDeviceIds = existing?.device_ids ? [...existing.device_ids].sort() : null;
+    const targetDevicesChanged =
+      !existing ||
+      !prevDeviceIds ||
+      currentDeviceIds.length !== prevDeviceIds.length ||
+      currentDeviceIds.some((id, idx) => id !== prevDeviceIds[idx]);
+
     const rotationCheck = shouldRotateMegolmSession(
       existing
         ? {
@@ -307,7 +318,7 @@ export class E2eeWorkerEngine {
           }
         : null,
       {
-        devicesChanged,
+        devicesChanged: devicesChanged || targetDevicesChanged,
         membershipChanged: membershipChanged || forceRotate,
       },
     );
@@ -333,9 +344,6 @@ export class E2eeWorkerEngine {
     });
 
     const toDeviceMessages: Array<{ deviceId: string; ciphertext: string }> = [];
-
-    // Target devices: all member devices except our own active device
-    const targetDevices = memberDevices.filter((d) => d.deviceId !== this.deviceId);
 
     for (const target of targetDevices) {
       // 1. Check existing 1-to-1 Olm session
@@ -383,6 +391,19 @@ export class E2eeWorkerEngine {
       message_index: 0,
       created_at: Date.now(),
       pickle: groupPickle,
+      device_ids: currentDeviceIds,
+    });
+
+    // Save corresponding InboundGroupSession so sender can decrypt own sent messages
+    const selfInbound = new InboundGroupSession(sessionKey);
+    const selfInboundPickle = selfInbound.pickle(this.pickleKey);
+    await this.storage.put('inbound_group_sessions', {
+      key: `${conversationId}:${sessionId}`,
+      conversation_id: conversationId,
+      session_id: sessionId,
+      sender_key: this.account.curve25519Key(),
+      pickle: selfInboundPickle,
+      created_at: Date.now(),
     });
 
     return {

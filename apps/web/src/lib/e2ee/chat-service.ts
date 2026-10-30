@@ -136,7 +136,7 @@ export class ChatService {
         const deviceKeyMap = new Map<string, string>();
         if (usersData?.users) {
           for (const u of usersData.users) {
-            for (const d of u.devices) {
+            for (const d of u.devices || []) {
               deviceKeyMap.set(d.id, d.curve25519_key);
             }
           }
@@ -287,8 +287,8 @@ export class ChatService {
     }
 
     const allMemberDevices: MemberDeviceRef[] = [];
-    for (const u of devicesData.users) {
-      for (const d of u.devices) {
+    for (const u of devicesData.users || []) {
+      for (const d of u.devices || []) {
         allMemberDevices.push({
           userId: u.user_id,
           deviceId: d.id,

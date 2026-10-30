@@ -110,7 +110,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     natsConfigured,
     getNatsStatus: options.getNatsStatus,
   });
-  await app.register(devicesRoute, { db, hints });
+  await app.register(devicesRoute, { db, hints, rateLimiter });
   await app.register(toDeviceRoute, { db, hints, rateLimiter });
   await app.register(conversationsRoute, { db, hints, rateLimiter });
   await app.register(messagesRoute, { db, hints, rateLimiter });

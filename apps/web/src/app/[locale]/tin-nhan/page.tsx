@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializingDevice, setIsInitializingDevice] = useState(false);
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
+  const [realtimeVersion, setRealtimeVersion] = useState(0);
 
   const chatService = getChatService();
 
@@ -39,7 +40,10 @@ export default function ChatPage() {
       chatService
         .ensureReady(user.id)
         .then(() => {
-          chatService.processToDeviceMessages();
+          return chatService.processToDeviceMessages();
+        })
+        .then(() => {
+          setRealtimeVersion((v) => v + 1);
         })
         .catch((err) => {
           console.warn('[ChatPage] Device initialization warning:', err);
@@ -90,11 +94,15 @@ export default function ChatPage() {
         if (evt.event === 'chat.hint') {
           const hint = evt.data as any;
           if (hint.kind === 'TO_DEVICE') {
-            chatService.processToDeviceMessages();
+            chatService.processToDeviceMessages().then(() => {
+              setRealtimeVersion((v) => v + 1);
+            });
           } else if (hint.kind === 'MESSAGE') {
             fetchConversationsList();
+            setRealtimeVersion((v) => v + 1);
           } else if (hint.kind === 'CONVERSATION' || hint.kind === 'DEVICES') {
             fetchConversationsList();
+            setRealtimeVersion((v) => v + 1);
           }
         }
       },
@@ -103,7 +111,9 @@ export default function ChatPage() {
     // On reconnect: refetch REST conversations and to-device messages
     useCallback(() => {
       fetchConversationsList();
-      chatService.processToDeviceMessages();
+      chatService.processToDeviceMessages().then(() => {
+        setRealtimeVersion((v) => v + 1);
+      });
     }, [fetchConversationsList, chatService]),
   );
 
@@ -149,6 +159,7 @@ export default function ChatPage() {
           <ConversationView
             conversation={activeConversation}
             currentUserId={user.id}
+            realtimeVersion={realtimeVersion}
             onBackMobile={() => setActiveConversation(null)}
             onConversationUpdated={(updated) => {
               setActiveConversation(updated);

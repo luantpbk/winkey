@@ -443,4 +443,70 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     expect(remaining.length).toBe(1);
     expect(remaining[0].ciphertext).toBe('recent_ciphertext');
   });
+
+  it('messages: cross-conversation client_msg_id reuse returns 409 CLIENT_MSG_ID_CONFLICT without 25P02', async () => {
+    if (!app || !db) return;
+
+    const sender = uuidv7();
+    const peer1 = uuidv7();
+    const peer2 = uuidv7();
+    await seedUser(sender, 'cross_sender', 'Cross Sender');
+    await seedUser(peer1, 'cross_peer1', 'Cross Peer 1');
+    await seedUser(peer2, 'cross_peer2', 'Cross Peer 2');
+
+    const dev = generateTestDeviceKeys(uuidv7(), sender, 'Sender Phone', false);
+    await app.inject({
+      method: 'PUT',
+      url: `/v1/chat/devices/${dev.deviceId}`,
+      headers: { 'x-user-id': sender },
+      payload: {
+        display_name: dev.displayName,
+        curve25519_key: dev.curve25519Key,
+        ed25519_key: dev.ed25519Key,
+        signature: dev.signature,
+      },
+    });
+
+    const conv1 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/conversations',
+      headers: { 'x-user-id': sender },
+      payload: { kind: 'GROUP', title: 'Conv 1', user_ids: [peer1] },
+    });
+    const conv2 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/conversations',
+      headers: { 'x-user-id': sender },
+      payload: { kind: 'GROUP', title: 'Conv 2', user_ids: [peer2] },
+    });
+
+    const sharedClientMsgId = uuidv7();
+
+    const send1 = await app.inject({
+      method: 'POST',
+      url: `/v1/chat/conversations/${conv1.json().id}/messages`,
+      headers: { 'x-user-id': sender },
+      payload: {
+        client_msg_id: sharedClientMsgId,
+        sender_device_id: dev.deviceId,
+        megolm_session_id: 'session_cross',
+        ciphertext: 'Message in conv 1',
+      },
+    });
+    expect(send1.statusCode).toBe(201);
+
+    const send2 = await app.inject({
+      method: 'POST',
+      url: `/v1/chat/conversations/${conv2.json().id}/messages`,
+      headers: { 'x-user-id': sender },
+      payload: {
+        client_msg_id: sharedClientMsgId,
+        sender_device_id: dev.deviceId,
+        megolm_session_id: 'session_cross',
+        ciphertext: 'Message in conv 2',
+      },
+    });
+    expect(send2.statusCode).toBe(409);
+    expect(send2.json().code).toBe('CLIENT_MSG_ID_CONFLICT');
+  });
 });

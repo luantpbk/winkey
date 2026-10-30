@@ -75,7 +75,8 @@ export type ServerEventName =
   | 'comment.created'
   | 'comment.reply'
   | 'like.count'
-  | 'notification.hint';
+  | 'notification.hint'
+  | 'chat.hint';
 
 export interface ServerEventMessage {
   type: 'event';
