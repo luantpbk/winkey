@@ -69,16 +69,18 @@ const mockAcceptConversation = vi.fn();
 const mockLeaveOrRemoveMember = vi.fn();
 const mockGetConversation = vi.fn();
 
+const mockChatService = {
+  fetchMessages: mockFetchMessages,
+  sendMessage: mockSendMessage,
+  deleteMessage: mockDeleteMessage,
+  markRead: mockMarkRead,
+  acceptConversation: mockAcceptConversation,
+  leaveOrRemoveMember: mockLeaveOrRemoveMember,
+  getConversation: mockGetConversation,
+};
+
 vi.mock('../src/lib/e2ee/chat-service', () => ({
-  getChatService: () => ({
-    fetchMessages: mockFetchMessages,
-    sendMessage: mockSendMessage,
-    deleteMessage: mockDeleteMessage,
-    markRead: mockMarkRead,
-    acceptConversation: mockAcceptConversation,
-    leaveOrRemoveMember: mockLeaveOrRemoveMember,
-    getConversation: mockGetConversation,
-  }),
+  getChatService: () => mockChatService,
 }));
 
 // Mock api-client for query devices in SafetyNumber
@@ -255,6 +257,50 @@ describe('Chat UI Components (ADR-049 / SOC-3a)', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Sao chép toàn bộ mã/i)).toBeTruthy();
+    });
+  });
+
+  it('refetches messages when realtimeVersion prop increments (chat.hint update)', async () => {
+    const { rerender } = render(
+      <ConversationView
+        conversation={mockActiveConversation}
+        currentUserId={mockCurrentUserId}
+        realtimeVersion={0}
+        onConversationUpdated={vi.fn()}
+        onConversationLeft={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchMessages).toHaveBeenCalledTimes(1);
+      expect(mockFetchMessages).toHaveBeenCalledWith(mockActiveConversation.id, { limit: 100 });
+    });
+
+    // Rerender with unchanged realtimeVersion: should not trigger extra fetch
+    rerender(
+      <ConversationView
+        conversation={mockActiveConversation}
+        currentUserId={mockCurrentUserId}
+        realtimeVersion={0}
+        onConversationUpdated={vi.fn()}
+        onConversationLeft={vi.fn()}
+      />,
+    );
+    expect(mockFetchMessages).toHaveBeenCalledTimes(1);
+
+    // Increment realtimeVersion to 1: triggers refetch
+    rerender(
+      <ConversationView
+        conversation={mockActiveConversation}
+        currentUserId={mockCurrentUserId}
+        realtimeVersion={1}
+        onConversationUpdated={vi.fn()}
+        onConversationLeft={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchMessages).toHaveBeenCalledTimes(2);
     });
   });
 });
