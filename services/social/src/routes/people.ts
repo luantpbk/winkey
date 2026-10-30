@@ -65,7 +65,11 @@ export const peopleRoute: FastifyPluginAsync<PeopleRouteOptions> = async (
       const rawLimit = request.query.limit;
       const limitNum = rawLimit === undefined ? 10 : Number(rawLimit);
       if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 20) {
-        throw ProblemError.badRequest('limit must be an integer from 1 to 20', undefined, 'INVALID_LIMIT');
+        throw ProblemError.badRequest(
+          'limit must be an integer from 1 to 20',
+          undefined,
+          'INVALID_LIMIT',
+        );
       }
 
       let offset = 0;

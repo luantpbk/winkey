@@ -96,7 +96,10 @@ describe('searchPeople on real PostgreSQL 17 (Task SOC-6a)', () => {
         "SELECT to_regclass('social.subscriptions') IS NOT NULL AS done",
       );
       if (!applied.rows[0].done) {
-        for (const f of fs.readdirSync(migrationsDir).filter((n) => n.endsWith('.up.sql')).sort()) {
+        for (const f of fs
+          .readdirSync(migrationsDir)
+          .filter((n) => n.endsWith('.up.sql'))
+          .sort()) {
           await client.query(fs.readFileSync(path.join(migrationsDir, f), 'utf8'));
         }
       }

@@ -11,7 +11,17 @@ import { A11Y_COLORS } from '../../../../lib/a11y-tokens';
 import { api } from '../../../../lib/api-client';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { useToast } from '../../../../components/ui/toast';
-import { MoreVertical, UserX, VolumeX, Volume2, Flag, Lock, ExternalLink } from 'lucide-react';
+import { Link } from '../../../../i18n/routing';
+import {
+  MoreVertical,
+  UserX,
+  VolumeX,
+  Volume2,
+  Flag,
+  Lock,
+  ExternalLink,
+  MessageCircle,
+} from 'lucide-react';
 
 export type UserProfile = PublicProfile & {
   bio?: string | null;
@@ -232,6 +242,20 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
               onSubscriberCountChange={setSubscriberCount}
               className="px-6 py-2.5 !text-sm"
             />
+          )}
+
+          {!isBlocked && !isOwnChannel && (
+            <Link
+              href={
+                isAuthenticated
+                  ? `/tin-nhan?to=${profile.id}`
+                  : `/login?return_to=${encodeURIComponent(`/tin-nhan?to=${profile.id}`)}`
+              }
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+            >
+              <MessageCircle className="w-4 h-4" aria-hidden="true" />
+              <span>Nhắn tin</span>
+            </Link>
           )}
 
           {isBlocked && (
