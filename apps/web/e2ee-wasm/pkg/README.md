@@ -1,60 +1,25 @@
-# SOC-3 E2EE Browser Library Spike (`spikes/soc3-e2ee`)
+# Winkey E2EE WebAssembly Crate (`vodozemac-winkey`)
 
-Standalone spike package evaluating WebAssembly end-to-end encryption (E2EE) libraries for Winkey (ADR-049 §5 and `docs/prompts/antigravity-1_SOC3_e2ee-spike.md`).
+Thin `wasm-bindgen` wrapper around [Matrix.org's vodozemac](https://gitlab.matrix.org/matrix-org/vodozemac) (0.11.1) for Winkey SOC-3a End-to-End Encrypted Messaging (ADR-049 §5).
 
-> [!NOTE]
-> This is a time-boxed research spike. It is **not** part of the `pnpm-workspace.yaml` and is never deployed to production.
+## Pinned Toolchain
 
----
+To ensure deterministic, byte-for-byte reproducible builds in local development and CI:
+- **Rust Toolchain**: `1.99.1` (pinned in `rust-toolchain.toml`)
+- **Target**: `wasm32-unknown-unknown`
+- **wasm-pack**: `0.15.0` (`https://github.com/wasm-bindgen/wasm-pack/releases/tag/v0.15.0`)
 
-## 1. Structure
+## How to Build
 
-```
-spikes/soc3-e2ee/
-├── Cargo.toml            # Rust crate vodozemac-winkey (opt-level="z", LTO, strip)
-├── build.sh              # Pinned toolchain (rustc 1.84.0, wasm-pack 0.13.1)
-├── src/
-│   ├── lib.rs            # wasm-bindgen exports & panic hook
-│   ├── account.rs        # Curve25519/Ed25519 identity & 50 One-Time Keys
-│   ├── session.rs        # Olm 1-1 Double Ratchet outbound/inbound sessions
-│   ├── group_session.rs  # Megolm outbound sender session
-│   ├── inbound_group_session.rs # Megolm inbound group ratchet
-│   ├── pickle.rs         # 32-byte pickle key validation & zeroizing buffers
-│   └── tests.rs          # Rust roundtrip unit tests
-├── pkg/
-│   ├── vodozemac_winkey.d.ts # TypeScript definitions
-│   └── vodozemac_winkey.js   # ESM/CJS initialization & bindings
-├── test/
-│   ├── roundtrip.test.mjs    # Olm 1-1, Megolm & pickle wrong-key rejection
-│   ├── persistence.test.mjs  # Non-extractable WebCrypto key & zero-leak isolation
-│   └── backup.test.mjs       # Argon2id (64 MiB) key derivation & AES-256-GCM
-├── index.html            # Browser benchmark UI & CSP1 demonstration
-├── worker.js             # Offloaded Web Worker cryptography
-├── benchmark.mjs         # Node/CLI benchmark suite runner
-└── package.json          # Standalone package definition
-```
-
----
-
-## 2. How to Run
-
-### Run Unit Tests
+From within `apps/web/e2ee-wasm`:
 ```bash
-npm test
+wasm-pack build --target web --release
 ```
 
-### Run Benchmarks
-```bash
-npm run bench
-```
+Output files:
+- Generated wrapper and typings in `pkg/`
+- Static WASM binary mirrored to `apps/web/public/wasm/vodozemac_winkey_bg.wasm`
 
-### Run Browser Demo
-```bash
-npx serve .
-# Open http://localhost:3000/index.html
-```
+## CI Verification
 
----
-
-## 3. Comprehensive Report
-The complete evaluation, verbatim tool measurements, browser compatibility matrix, CSP findings, and architectural recommendations are documented in [docs/spikes/SOC3-e2ee.md](../../docs/spikes/SOC3-e2ee.md).
+The `.github/workflows/ci.yml` workflow (`verify-wasm` job) compiles this crate on every PR touching `apps/web/e2ee-wasm/**` or `apps/web/public/wasm/**` and validates byte-for-byte parity against committed artifacts.
