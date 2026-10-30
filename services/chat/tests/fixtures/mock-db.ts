@@ -428,7 +428,51 @@ export function createMockDb(store: MockStore): Kysely<Database> {
         return { rows: [], rowCount: Math.floor(params.length / 4) };
       }
 
-      // Atomic claim DELETE FROM chat.one_time_keys
+      // Atomic claim batch DELETE FROM chat.one_time_keys via CTE unnest
+      if (
+        sqlLower.includes('with to_delete as') &&
+        sqlLower.includes('delete from chat.one_time_keys')
+      ) {
+        const rawDeviceIds = (params[0] as string[]) ?? [];
+        const returnedRows: Array<{
+          device_id: string;
+          key_id: string;
+          public_key: string;
+          signature: string;
+        }> = [];
+
+        for (const deviceId of rawDeviceIds) {
+          const candidates = store.one_time_keys
+            .filter((k) => k.device_id === deviceId)
+            .sort((a, b) => {
+              const tDiff = a.created_at.getTime() - b.created_at.getTime();
+              return tDiff !== 0 ? tDiff : a.key_id.localeCompare(b.key_id);
+            });
+
+          if (candidates.length > 0) {
+            const picked = candidates[0];
+            const idx = store.one_time_keys.findIndex(
+              (k) => k.device_id === picked.device_id && k.key_id === picked.key_id,
+            );
+            if (idx !== -1) {
+              store.one_time_keys.splice(idx, 1);
+            }
+            returnedRows.push({
+              device_id: picked.device_id,
+              key_id: picked.key_id,
+              public_key: picked.public_key,
+              signature: picked.signature,
+            });
+          }
+        }
+
+        return {
+          rows: returnedRows,
+          rowCount: returnedRows.length,
+        };
+      }
+
+      // Atomic claim single DELETE FROM chat.one_time_keys
       if (sqlLower.includes('delete from chat.one_time_keys') && sqlLower.includes('limit 1')) {
         const deviceId = String(params[0]);
         const idx = store.one_time_keys.findIndex((k) => k.device_id === deviceId);

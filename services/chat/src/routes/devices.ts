@@ -9,15 +9,18 @@ import {
   verifySignedKeySignature,
 } from '../crypto/canonical-ed25519.js';
 import type { RealtimeHintDispatcher } from '../realtime/hints.js';
+import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
+import { buildClaimKeysRateLimitKey } from '../rate-limit/valkey-limiter.js';
 
 export interface DevicesRouteDependencies {
   db: Kysely<Database>;
   hints: RealtimeHintDispatcher;
+  rateLimiter?: RateLimiter;
 }
 
 export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async (
   fastify,
-  { db, hints },
+  { db, hints, rateLimiter },
 ) => {
   // 1. GET /v1/chat/devices - The caller's active devices (newest first)
   fastify.get('/v1/chat/devices', async (request, reply) => {
@@ -617,6 +620,16 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
 
     const uniqueDeviceIds = [...new Set(device_ids)];
 
+    // Rate limit: 600 claimed keys per minute per caller, weighted by requested device count
+    if (rateLimiter) {
+      await rateLimiter.consume({
+        key: buildClaimKeysRateLimitKey(caller.userId),
+        limit: 600,
+        windowSeconds: 60,
+        cost: uniqueDeviceIds.length,
+      });
+    }
+
     // Fetch eligible devices
     const eligibleDevicesRes = await sql<{
       id: string;
@@ -643,6 +656,49 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
         )
     `.execute(db);
 
+    if (eligibleDevicesRes.rows.length === 0) {
+      return reply.status(200).send({ keys: [] });
+    }
+
+    // Sort device IDs for deterministic index scan & lock order across concurrent batches
+    const eligibleDeviceIds = eligibleDevicesRes.rows.map((d) => d.id).sort();
+
+    type DeletedOtkRow = {
+      device_id: string;
+      key_id: string;
+      public_key: string;
+      signature: string;
+    };
+
+    // Atomically claim at most one OTK per device in a single round-trip CTE
+    const otkResult = await sql<DeletedOtkRow>`
+      WITH to_delete AS (
+        SELECT k.device_id, k.key_id
+        FROM unnest(${eligibleDeviceIds}::uuid[]) AS did(id)
+        CROSS JOIN LATERAL (
+          SELECT otk.device_id, otk.key_id
+          FROM chat.one_time_keys otk
+          WHERE otk.device_id = did.id
+          ORDER BY otk.created_at ASC, otk.key_id ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        ) k
+      )
+      DELETE FROM chat.one_time_keys
+      USING to_delete
+      WHERE chat.one_time_keys.device_id = to_delete.device_id
+        AND chat.one_time_keys.key_id = to_delete.key_id
+      RETURNING
+        chat.one_time_keys.device_id,
+        chat.one_time_keys.key_id,
+        chat.one_time_keys.public_key,
+        chat.one_time_keys.signature
+    `.execute(db);
+
+    const otkByDevice = new Map<string, DeletedOtkRow>(
+      otkResult.rows.map((r) => [r.device_id, r]),
+    );
+
     const eligibleMap = new Map(eligibleDevicesRes.rows.map((d) => [d.id, d]));
     const claimedKeys: Array<{
       device_id: string;
@@ -655,38 +711,21 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
       fallback: boolean;
     }> = [];
 
-    // Atomically claim OTKs per device
+    // Map each requested eligible device to either claimed OTK or fallback key
     for (const did of uniqueDeviceIds) {
       const dev = eligibleMap.get(did);
       if (!dev) continue;
 
-      const otkRes = await sql<{
-        key_id: string;
-        public_key: string;
-        signature: string;
-      }>`
-        DELETE FROM chat.one_time_keys
-        WHERE (device_id, key_id) = (
-          SELECT device_id, key_id
-          FROM chat.one_time_keys
-          WHERE device_id = ${did}::uuid
-          ORDER BY created_at ASC, key_id ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        RETURNING key_id, public_key, signature
-      `.execute(db);
-
-      if (otkRes.rows.length > 0) {
-        const otk = otkRes.rows[0];
+      const popped = otkByDevice.get(dev.id);
+      if (popped) {
         claimedKeys.push({
           device_id: dev.id,
           user_id: dev.user_id,
           curve25519_key: dev.curve25519_key,
           ed25519_key: dev.ed25519_key,
-          key_id: otk.key_id,
-          public_key: otk.public_key,
-          signature: otk.signature,
+          key_id: popped.key_id,
+          public_key: popped.public_key,
+          signature: popped.signature,
           fallback: false,
         });
       } else if (dev.fallback_key_id && dev.fallback_key && dev.fallback_signature) {

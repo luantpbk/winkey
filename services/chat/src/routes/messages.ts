@@ -245,30 +245,18 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
         };
       } catch (err: unknown) {
         const pgErr = err as { code?: string; constraint?: string };
-        if (pgErr.code === '23505' && pgErr.constraint === 'messages_idempotency') {
-          // Concurrent race retry: fetch stored message
-          const raceMsg = await trx
-            .selectFrom('chat.messages')
-            .selectAll()
-            .where('sender_id', '=', caller.userId)
-            .where('client_msg_id', '=', client_msg_id)
-            .executeTakeFirstOrThrow();
-
-          isDuplicate = true;
-          messageResult = {
-            conversation_id: raceMsg.conversation_id,
-            seq: raceMsg.seq,
-            id: raceMsg.id,
-            kind: raceMsg.kind,
-            sender_id: raceMsg.sender_id,
-            sender_device_id: raceMsg.sender_device_id,
-            megolm_session_id: raceMsg.megolm_session_id,
-            ciphertext: raceMsg.ciphertext,
-            system_body: raceMsg.system_body,
-            deleted_at: raceMsg.deleted_at ? new Date(raceMsg.deleted_at) : null,
-            created_at: new Date(raceMsg.created_at),
-          };
-          return;
+        // The conversation row is locked FOR UPDATE at step 1 and checked at step 2,
+        // so same-conversation retries are already handled early. Any 23505 unique violation
+        // here is a cross-conversation client_msg_id collision. The transaction has been
+        // aborted by Postgres, so we must never query trx again (avoiding 25P02).
+        if (
+          pgErr.code === '23505' &&
+          (!pgErr.constraint || pgErr.constraint === 'messages_idempotency')
+        ) {
+          throw ProblemError.conflict(
+            'client_msg_id already used in another conversation',
+            'CLIENT_MSG_ID_CONFLICT',
+          );
         }
         throw err;
       }

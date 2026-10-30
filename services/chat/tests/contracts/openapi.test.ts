@@ -244,6 +244,57 @@ describe('OpenAPI Contract Verification against chat.v1.yaml and common.yaml', (
     expect(key.fallback).toBe(false);
   });
 
+  it('POST /v1/chat/keys/claim enforces 600 claimed keys per minute rate limit (429)', async () => {
+    // Generate 200 dummy valid UUIDs for batch testing
+    const batch200 = Array.from(
+      { length: 200 },
+      (_, i) => `018f0000-0000-7000-8000-${(i + 1).toString(16).padStart(12, '0')}`,
+    );
+
+    // Caller 1 (userBob) already claimed 1 key in earlier test, let's use userCharlie
+    const userSpammer = '018f0000-0000-7000-8000-000000000999';
+
+    // Call 1: 200 cost -> OK
+    const r1 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/keys/claim',
+      headers: { 'x-user-id': userSpammer },
+      payload: { device_ids: batch200 },
+    });
+    expect(r1.statusCode).toBe(200);
+
+    // Call 2: 200 cost -> OK (total 400)
+    const r2 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/keys/claim',
+      headers: { 'x-user-id': userSpammer },
+      payload: { device_ids: batch200 },
+    });
+    expect(r2.statusCode).toBe(200);
+
+    // Call 3: 200 cost -> OK (total 600)
+    const r3 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/keys/claim',
+      headers: { 'x-user-id': userSpammer },
+      payload: { device_ids: batch200 },
+    });
+    expect(r3.statusCode).toBe(200);
+
+    // Call 4: 1 cost -> 429 Too Many Requests
+    const r4 = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/keys/claim',
+      headers: { 'x-user-id': userSpammer },
+      payload: { device_ids: [batch200[0]] },
+    });
+    expect(r4.statusCode).toBe(429);
+    expect(r4.headers['retry-after']).toBeDefined();
+    const p = r4.json();
+    expect(p.code).toBe('RATE_LIMITED');
+    expect(validateProblem(p)).toBe(true);
+  });
+
   // ----------------------------------------------------
   // To-Device Messaging
   // ----------------------------------------------------
@@ -496,6 +547,25 @@ describe('OpenAPI Contract Verification against chat.v1.yaml and common.yaml', (
     const body = res.json();
     expect(validateMessage(body)).toBe(true);
     expect(body.seq).toBe(sentSeq);
+  });
+
+  it('POST /v1/chat/conversations/:conversation_id/messages returns 409 CLIENT_MSG_ID_CONFLICT on cross-conversation reuse', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/v1/chat/conversations/${directConvId}/messages`,
+      headers: { 'x-user-id': userAlice },
+      payload: {
+        client_msg_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8be001',
+        sender_device_id: aliceDevice.deviceId,
+        megolm_session_id: 'sess_1234567890',
+        ciphertext: 'TWVnb2xtRW5jcnlwdGVkTWVzc2FnZVBheWxvYWQ=',
+      },
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = res.json();
+    expect(body.code).toBe('CLIENT_MSG_ID_CONFLICT');
+    expect(validateProblem(body)).toBe(true);
   });
 
   it('GET /v1/chat/conversations/:conversation_id/messages lists messages in seq order', async () => {
