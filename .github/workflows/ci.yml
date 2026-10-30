@@ -336,43 +336,45 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check if e2ee-wasm crate exists
-        id: check
+      - name: Assert e2ee-wasm crate exists
         run: |
-          if [ -f "apps/web/e2ee-wasm/Cargo.toml" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip: apps/web/e2ee-wasm/Cargo.toml not present yet"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          if [ ! -f "apps/web/e2ee-wasm/Cargo.toml" ]; then
+            echo "ERROR: apps/web/e2ee-wasm/Cargo.toml missing!" >&2
+            exit 1
           fi
 
-      - name: Set up Rust toolchain
-        if: steps.check.outputs.exists == 'true'
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust toolchain (pinned 1.84.0)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: '1.84.0'
           targets: wasm32-unknown-unknown
 
       - name: Cache wasm-pack
-        if: steps.check.outputs.exists == 'true'
         id: cache-wasm-pack
         uses: actions/cache@v6
         with:
           path: /home/runner/.cargo/bin/wasm-pack
-          key: wasm-pack-0.13.1
+          key: wasm-pack-0.15.0
 
-      - name: Install wasm-pack (pinned 0.13.1)
-        if: steps.check.outputs.exists == 'true' && steps.cache-wasm-pack.outputs.cache-hit != 'true'
+      - name: Install wasm-pack (pinned 0.15.0)
+        if: steps.cache-wasm-pack.outputs.cache-hit != 'true'
         run: |
-          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- --version v0.13.1
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- --version v0.15.0
 
       - name: Build wasm-pack release
-        if: steps.check.outputs.exists == 'true'
         working-directory: apps/web/e2ee-wasm
         run: |
           wasm-pack build --target web --release
 
+      - name: Upload built pkg artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vodozemac-wasm-pkg
+          path: apps/web/e2ee-wasm/pkg/
+          if-no-files-found: warn
+
       - name: Verify build artifacts match committed files
-        if: steps.check.outputs.exists == 'true'
         run: |
           cmp apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm apps/web/public/wasm/vodozemac_winkey_bg.wasm || {
             echo "ERROR: apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm does not match apps/web/public/wasm/vodozemac_winkey_bg.wasm"
