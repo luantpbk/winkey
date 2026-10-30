@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Winkey chat-svc API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     End-to-end encrypted messaging (tasks SOC-3a and SOC-3b, ADR-049 section 5 and the SOC-3 addenda 2026-10-30 and
     2026-10-31). Owner:
@@ -45,6 +45,11 @@ info:
     - **Key backup (SOC-3b):** optional, one per user. The client derives a key from a recovery passphrase with
       Argon2id, wraps a random backup key with it (`auth_data`), and uploads Megolm inbound session keys encrypted
       with the backup key. chat-svc stores opaque blobs only and cannot recover a forgotten passphrase.
+    - **Calls (SOC-4a):** 1-1 voice and video calls use WebRTC peer to peer. Call signaling (invite with the SDP
+      offer, answer, ICE candidates, hangup) travels **end-to-end encrypted** as ordinary Megolm messages and Olm
+      to-device messages, so chat-svc never sees SDP, DTLS fingerprints or ICE candidates, and a malicious
+      signaling server cannot swap fingerprints. chat-svc only issues short-lived TURN credentials
+      (`getTurnCredentials`).
     - Ids: devices are identified by a UUID the client generates (it is part of the signed device keys);
       everything else is UUIDv7 from chat-svc. Message order is the per-conversation `seq` (1, 2, 3…).
   license:
@@ -69,6 +74,8 @@ tags:
     description: Encrypted files attached to messages (SOC-3b).
   - name: key-backup
     description: The caller's optional passphrase-protected backup of Megolm session keys (SOC-3b).
+  - name: calls
+    description: TURN relay credentials for 1-1 WebRTC calls (SOC-4a).
 
 paths:
   /v1/chat/devices:
@@ -252,6 +259,34 @@ paths:
           $ref: './common.yaml#/components/responses/BadRequest'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/chat/calls/turn-credentials:
+    post:
+      tags: [calls]
+      operationId: getTurnCredentials
+      summary: Short-lived TURN credentials for a WebRTC call.
+      description: |
+        Time-limited credentials in the coturn REST API scheme (`use-auth-secret`): `username` is
+        `<expiry unix seconds>:<caller user id>` and `credential` is base64(HMAC-SHA1(TURN_SECRET, username)).
+        Valid for `ttl_seconds` (600). The server never returns `TURN_SECRET`. Not configured → `503`.
+        Rate limit 30/hour per user (`429`).
+      responses:
+        '200':
+          description: Credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnCredentials'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+        '503':
+          description: TURN is not configured.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
 
   /v1/chat/keys/claim:
     post:
@@ -1614,6 +1649,27 @@ components:
         replace:
           type: boolean
           default: false
+
+    TurnCredentials:
+      type: object
+      required: [urls, username, credential, ttl_seconds, expires_at]
+      properties:
+        urls:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: '`turn:` / `turns:` URLs (and optionally `stun:`), passed to `RTCPeerConnection` `iceServers`.'
+        username:
+          type: string
+        credential:
+          type: string
+          description: Never log it.
+        ttl_seconds:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
 
     BackedUpSession:
       type: object

@@ -84,6 +84,8 @@ configMapGenerator:
       - migrations/000033_chat_e2ee.down.sql
       - migrations/000034_chat_attachments_backup.up.sql
       - migrations/000034_chat_attachments_backup.down.sql
+      - migrations/000035_people_search.up.sql
+      - migrations/000035_people_search.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
