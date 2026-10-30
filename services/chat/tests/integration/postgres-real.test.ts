@@ -186,11 +186,11 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
 
     for (const res of responses) {
       const claimedDev = res.json().keys[0];
-      if (claimedDev.one_time_key) {
-        claimedOneTimeKeys.push(claimedDev.one_time_key.key_id);
-      } else if (claimedDev.fallback_key) {
+      if (!claimedDev.fallback) {
+        claimedOneTimeKeys.push(claimedDev.key_id);
+      } else {
         fallbackCount++;
-        expect(claimedDev.fallback_key.key_id).toBe(aliceKeys.fallbackKey?.key_id);
+        expect(claimedDev.key_id).toBe(aliceKeys.fallbackKey?.key_id);
       }
     }
 
