@@ -24,3 +24,6 @@ packages/api-client/src/types/
 
 # Generated MSW browser service worker script
 apps/web/public/mockServiceWorker.js
+
+# Generated wasm-pack bindings and typings (freshness enforced by verify-wasm)
+apps/web/e2ee-wasm/pkg/

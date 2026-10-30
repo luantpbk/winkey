@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/coverage/**',
       'deploy/**',
       'tmp/**',
+      'apps/web/e2ee-wasm/pkg/**',
       '**/*.log',
       '**/next-env.d.ts',
     ],
