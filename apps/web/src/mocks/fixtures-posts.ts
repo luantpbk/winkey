@@ -63,25 +63,22 @@ export const mockPosts: Post[] = [
     images: [
       {
         id: 'img-1',
-        url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1600&auto=format&fit=crop',
-        thumb_url:
-          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop',
+        url: '/placeholder-thumbnail.svg',
+        thumb_url: '/placeholder-thumbnail.svg',
         width: 1600,
         height: 1067,
       },
       {
         id: 'img-2',
-        url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=1600&auto=format&fit=crop',
-        thumb_url:
-          'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=400&auto=format&fit=crop',
+        url: '/placeholder-thumbnail.svg',
+        thumb_url: '/placeholder-thumbnail.svg',
         width: 1600,
         height: 1200,
       },
       {
         id: 'img-3',
-        url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=1600&auto=format&fit=crop',
-        thumb_url:
-          'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=400&auto=format&fit=crop',
+        url: '/placeholder-thumbnail.svg',
+        thumb_url: '/placeholder-thumbnail.svg',
         width: 1600,
         height: 1067,
       },

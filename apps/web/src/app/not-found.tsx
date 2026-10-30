@@ -1,8 +1,15 @@
 import React from 'react';
 import Link from 'next/link';
+import { connection } from 'next/server';
 import { A11Y_COLORS } from '../lib/a11y-tokens';
 
-export default function RootNotFound() {
+export default async function RootNotFound() {
+  try {
+    await connection();
+  } catch {
+    // Graceful fallback for unit tests running outside Next request scope
+  }
+
   return (
     <html lang="vi" className="dark">
       <body className="min-h-screen bg-[#0f0f0f] text-gray-100 antialiased flex flex-col items-center justify-center px-4 text-center">

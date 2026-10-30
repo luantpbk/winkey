@@ -172,13 +172,15 @@ describe('Generate and verify signed key fixtures for AG3 (SOC-3a)', () => {
       });
     }
 
-    // Save fixtures to disk
+    // Save fixtures to disk if file does not exist or UPDATE_FIXTURES is set
     const fixturesDir = path.resolve(__dirname, '../fixtures');
     if (!fs.existsSync(fixturesDir)) {
       fs.mkdirSync(fixturesDir, { recursive: true });
     }
     const fixtureFilePath = path.join(fixturesDir, 'chat-e2ee-signed-keys.json');
-    fs.writeFileSync(fixtureFilePath, JSON.stringify(fixtures, null, 2), 'utf8');
+    if (!fs.existsSync(fixtureFilePath) || process.env.UPDATE_FIXTURES) {
+      fs.writeFileSync(fixtureFilePath, JSON.stringify(fixtures, null, 2) + '\n', 'utf8');
+    }
 
     expect(fixtures.length).toBe(3);
     expect(fs.existsSync(fixtureFilePath)).toBe(true);

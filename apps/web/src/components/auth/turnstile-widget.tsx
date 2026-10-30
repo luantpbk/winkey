@@ -6,7 +6,6 @@ import { useNonce } from '../providers';
 
 declare global {
   interface Window {
-    __TURNSTILE_SITE_KEY__?: string;
     turnstile?: {
       render: (
         container: HTMLElement | string,
@@ -41,9 +40,7 @@ export function TurnstileWidget({
   const nonce = propNonce || contextNonce;
 
   const [scriptLoaded, setScriptLoaded] = useState(false);
-  const siteKey =
-    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
-    (typeof window !== 'undefined' ? window.__TURNSTILE_SITE_KEY__ : undefined);
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.turnstile) {

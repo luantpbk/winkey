@@ -19,8 +19,7 @@ export const mockUsers: Record<string, User> = {
     email_verified: true,
     handle: 'winkey_creator',
     display_name: 'Winkey Official Creator',
-    avatar_url:
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    avatar_url: '/placeholder-avatar.svg',
     roles: ['viewer', 'creator'],
     has_password: true,
     created_at: '2026-01-01T00:00:00Z',
@@ -31,8 +30,7 @@ export const mockUsers: Record<string, User> = {
     email_verified: true,
     handle: 'viet_coder',
     display_name: 'Việt Coder Channel',
-    avatar_url:
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
+    avatar_url: '/placeholder-avatar.svg',
     roles: ['viewer', 'creator'],
     has_password: true,
     created_at: '2026-01-15T00:00:00Z',
@@ -43,8 +41,7 @@ export const mockUsers: Record<string, User> = {
     email_verified: true,
     handle: 'admin_winkey',
     display_name: 'Winkey Administrator',
-    avatar_url:
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+    avatar_url: '/placeholder-avatar.svg',
     roles: ['viewer', 'admin'],
     has_password: true,
     created_at: '2026-01-01T00:00:00Z',
@@ -55,8 +52,7 @@ export const mockUsers: Record<string, User> = {
     email_verified: true,
     handle: 'mod_winkey',
     display_name: 'Winkey Moderator',
-    avatar_url:
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80',
+    avatar_url: '/placeholder-avatar.svg',
     roles: ['viewer', 'moderator'],
     has_password: true,
     created_at: '2026-01-05T00:00:00Z',
@@ -154,8 +150,7 @@ export const mockSocialVideo: Video = {
   tag_slugs: ['reel', 'winkey'],
   playback: {
     hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-    thumbnail_url:
-      'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800&auto=format&fit=crop&q=80',
+    thumbnail_url: '/placeholder-thumbnail.svg',
     renditions: [
       { name: '720p', width: 720, height: 1280, bitrate_kbps: 1200, codec: 'h264' },
       { name: '360p', width: 360, height: 640, bitrate_kbps: 500, codec: 'h264' },
@@ -185,8 +180,7 @@ export const mockVideos: Video[] = [
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
       hls_av1_url:
         'https://cdn.winkey.vn/v/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c10/av1/0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c20/master.m3u8',
-      thumbnail_url:
-        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: '/placeholder-thumbnail.svg',
       renditions: [
         { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000, codec: 'h264' },
         { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800, codec: 'h264' },
@@ -251,8 +245,7 @@ export const mockVideos: Video[] = [
     tag_slugs: ['cong-nghe', 'hoc-lap-trinh'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      thumbnail_url:
-        'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: '/placeholder-thumbnail.svg',
       renditions: [
         { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 },
         { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800 },
@@ -278,8 +271,7 @@ export const mockVideos: Video[] = [
     tag_slugs: ['phim-ngan'],
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      thumbnail_url:
-        'https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: '/placeholder-thumbnail.svg',
       renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
     },
   },
@@ -300,8 +292,7 @@ export const mockVideos: Video[] = [
     created_at: '2026-09-24T15:00:00Z',
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      thumbnail_url:
-        'https://images.unsplash.com/photo-1544383835-bda2bc66a55d?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: '/placeholder-thumbnail.svg',
       renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
     },
   },
@@ -342,7 +333,7 @@ export const mockVideos: Video[] = [
     created_at: '2026-09-28T09:00:00Z',
     playback: {
       hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-      thumbnail_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800',
+      thumbnail_url: '/placeholder-thumbnail.svg',
       renditions: [{ name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 }],
     },
   },

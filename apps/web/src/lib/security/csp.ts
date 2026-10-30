@@ -14,6 +14,7 @@ export interface BuildCspOptions {
   embed?: boolean;
   mediaOrigin?: string;
   uploadOrigin?: string;
+  upgradeInsecureRequests?: boolean;
 }
 
 export function isValidOrigin(val: unknown): val is string {
@@ -55,6 +56,7 @@ export function buildCsp(options: BuildCspOptions): string {
     embed = false,
     mediaOrigin = process.env.CSP_MEDIA_ORIGIN,
     uploadOrigin = process.env.CSP_UPLOAD_ORIGIN,
+    upgradeInsecureRequests = false,
   } = options;
 
   const validMedia = validateOrigin(mediaOrigin, 'CSP_MEDIA_ORIGIN');
@@ -98,9 +100,13 @@ export function buildCsp(options: BuildCspOptions): string {
     "base-uri 'self'",
     "form-action 'self'",
     `frame-ancestors ${embed ? '*' : "'self'"}`,
-    'upgrade-insecure-requests',
-    'report-uri /api/csp-report',
   ];
+
+  if (upgradeInsecureRequests) {
+    directives.push('upgrade-insecure-requests');
+  }
+
+  directives.push('report-uri /api/csp-report');
 
   return directives.join('; ');
 }

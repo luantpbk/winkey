@@ -3,15 +3,17 @@ import { NextRequest } from 'next/server';
 import middleware, { config } from '../src/middleware';
 
 describe('Middleware CSP & Redirects (CSP1)', () => {
-  it('generates different nonces for distinct requests', () => {
+  it('generates different nonces for distinct requests in enforced Content-Security-Policy', () => {
     const req1 = new NextRequest('http://localhost:3000/');
     const res1 = middleware(req1);
-    const csp1 = res1.headers.get('Content-Security-Policy-Report-Only');
+    const csp1 = res1.headers.get('Content-Security-Policy');
+    const reportOnly1 = res1.headers.get('Content-Security-Policy-Report-Only');
 
     const req2 = new NextRequest('http://localhost:3000/');
     const res2 = middleware(req2);
-    const csp2 = res2.headers.get('Content-Security-Policy-Report-Only');
+    const csp2 = res2.headers.get('Content-Security-Policy');
 
+    expect(reportOnly1).toBeNull();
     expect(csp1).toBeDefined();
     expect(csp2).toBeDefined();
     expect(csp1).not.toBe(csp2);
@@ -23,14 +25,15 @@ describe('Middleware CSP & Redirects (CSP1)', () => {
     expect(nonce1Match![1]).not.toBe(nonce2Match![1]);
   });
 
-  it('sets identical nonce on request x-nonce and response Content-Security-Policy-Report-Only', () => {
+  it('sets identical nonce on request x-nonce and response Content-Security-Policy', () => {
     const req = new NextRequest('http://localhost:3000/kham-pha');
     const res = middleware(req);
 
-    const cspReportOnly = res.headers.get('Content-Security-Policy-Report-Only');
-    expect(cspReportOnly).toBeDefined();
+    const cspEnforced = res.headers.get('Content-Security-Policy');
+    expect(cspEnforced).toBeDefined();
+    expect(res.headers.get('Content-Security-Policy-Report-Only')).toBeNull();
 
-    const nonceMatch = cspReportOnly?.match(/'nonce-([^']+)'/);
+    const nonceMatch = cspEnforced?.match(/'nonce-([^']+)'/);
     expect(nonceMatch).not.toBeNull();
     const nonceInCsp = nonceMatch![1];
 
@@ -39,7 +42,7 @@ describe('Middleware CSP & Redirects (CSP1)', () => {
     expect(forwardedNonce).toBe(nonceInCsp);
   });
 
-  it('/embed/:id receives embed policy (frame-ancestors *) and no locale redirect', () => {
+  it('/embed/:id receives embed policy (frame-ancestors *) with enforced Content-Security-Policy', () => {
     const req = new NextRequest('http://localhost:3000/embed/video-abc-123');
     const res = middleware(req);
 
@@ -47,13 +50,58 @@ describe('Middleware CSP & Redirects (CSP1)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('location')).toBeNull();
 
-    const csp = res.headers.get('Content-Security-Policy-Report-Only');
+    const csp = res.headers.get('Content-Security-Policy');
     expect(csp).toBeDefined();
+    expect(res.headers.get('Content-Security-Policy-Report-Only')).toBeNull();
     expect(csp).toContain('frame-ancestors *');
     expect(csp).not.toContain("frame-ancestors 'self'");
 
     const forwardedNonce = res.headers.get('x-middleware-request-x-nonce');
     expect(forwardedNonce).toBeTruthy();
+  });
+
+  describe('upgrade-insecure-requests directive', () => {
+    it('omits upgrade-insecure-requests on plain HTTP requests', () => {
+      const req = new NextRequest('http://localhost:3000/');
+      const res = middleware(req);
+      const csp = res.headers.get('Content-Security-Policy');
+      expect(csp).toBeDefined();
+      expect(csp).not.toContain('upgrade-insecure-requests');
+    });
+
+    it('includes upgrade-insecure-requests when x-forwarded-proto is https', () => {
+      const req = new NextRequest('http://localhost:3000/', {
+        headers: { 'x-forwarded-proto': 'https' },
+      });
+      const res = middleware(req);
+      const csp = res.headers.get('Content-Security-Policy');
+      expect(csp).toBeDefined();
+      expect(csp).toContain('upgrade-insecure-requests');
+    });
+
+    it('includes upgrade-insecure-requests when request URL is https', () => {
+      const req = new NextRequest('https://winkey.vn/');
+      const res = middleware(req);
+      const csp = res.headers.get('Content-Security-Policy');
+      expect(csp).toBeDefined();
+      expect(csp).toContain('upgrade-insecure-requests');
+    });
+
+    it('omits upgrade-insecure-requests on embed route when plain HTTP', () => {
+      const req = new NextRequest('http://localhost:3000/embed/video-123');
+      const res = middleware(req);
+      const csp = res.headers.get('Content-Security-Policy');
+      expect(csp).not.toContain('upgrade-insecure-requests');
+    });
+
+    it('includes upgrade-insecure-requests on embed route when x-forwarded-proto is https', () => {
+      const req = new NextRequest('http://localhost:3000/embed/video-123', {
+        headers: { 'x-forwarded-proto': 'https' },
+      });
+      const res = middleware(req);
+      const csp = res.headers.get('Content-Security-Policy');
+      expect(csp).toContain('upgrade-insecure-requests');
+    });
   });
 
   describe('Existing redirect preservation', () => {

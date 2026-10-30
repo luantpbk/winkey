@@ -176,9 +176,9 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     expect(occurrences).toBe(1);
   });
 
-  it('contains all required ADR-049 directives', () => {
+  it('contains all required ADR-049 directives when upgradeInsecureRequests is enabled', () => {
     const nonce = 'allrulesnonce12345==';
-    const policy = buildCsp({ nonce, isDev: false });
+    const policy = buildCsp({ nonce, isDev: false, upgradeInsecureRequests: true });
 
     expect(policy).toContain("default-src 'self'");
     expect(policy).toContain("style-src 'self' 'unsafe-inline'");
@@ -189,5 +189,14 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
     expect(policy).toContain("form-action 'self'");
     expect(policy).toContain('upgrade-insecure-requests');
     expect(policy).toContain('report-uri /api/csp-report');
+  });
+
+  it('omits upgrade-insecure-requests when upgradeInsecureRequests is false or default', () => {
+    const nonce = 'allrulesnonce12345==';
+    const policy = buildCsp({ nonce, isDev: false });
+    expect(policy).not.toContain('upgrade-insecure-requests');
+
+    const policyExplicitFalse = buildCsp({ nonce, isDev: false, upgradeInsecureRequests: false });
+    expect(policyExplicitFalse).not.toContain('upgrade-insecure-requests');
   });
 });

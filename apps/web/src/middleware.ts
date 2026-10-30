@@ -52,7 +52,13 @@ export default function middleware(request: NextRequest) {
   // Generate per-request nonce (16 bytes base64)
   const nonce = generateNonce();
   const isEmbed = pathname === '/embed' || pathname.startsWith('/embed/');
-  const csp = buildCsp({ nonce, embed: isEmbed });
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.toLowerCase();
+  const isHttps =
+    forwardedProto === 'https' || (!forwardedProto && request.nextUrl.protocol === 'https:');
+  const isDev = process.env.NODE_ENV === 'development';
+  const upgradeInsecureRequests = isHttps && !isDev;
+
+  const csp = buildCsp({ nonce, embed: isEmbed, upgradeInsecureRequests });
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
@@ -64,7 +70,7 @@ export default function middleware(request: NextRequest) {
         headers: requestHeaders,
       },
     });
-    response.headers.set('Content-Security-Policy-Report-Only', csp);
+    response.headers.set('Content-Security-Policy', csp);
     return response;
   }
 
@@ -72,7 +78,7 @@ export default function middleware(request: NextRequest) {
     headers: requestHeaders,
   });
   const response = intlMiddleware(reqWithHeaders);
-  response.headers.set('Content-Security-Policy-Report-Only', csp);
+  response.headers.set('Content-Security-Policy', csp);
   return response;
 }
 

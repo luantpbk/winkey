@@ -59,6 +59,8 @@ export default defineConfig({
       API_MOCKS: '1',
       NEXT_PUBLIC_API_MOCKS: '1',
       PORT: '3000',
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
+      CSP_MEDIA_ORIGIN: 'https://test-streams.mux.dev',
     },
   },
 });
