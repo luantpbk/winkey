@@ -250,7 +250,7 @@ const schema31 = {
     },
     chatHint: {
       description:
-        "Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user's E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user's devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. At-most-once: clients also refetch after every (re)connect.",
+        'Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user\'s E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user\'s devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. READ (task B3): user_id moved their read marker in conversation_id to seq -> update "đã xem"; never sent for a REQUESTED member. At-most-once: clients also refetch after every (re)connect.',
       oneOf: [
         {
           type: 'object',
@@ -282,6 +282,17 @@ const schema31 = {
           required: ['kind', 'user_id'],
           additionalProperties: false,
           properties: { kind: { const: 'DEVICES' }, user_id: { $ref: '#/$defs/uuid' } },
+        },
+        {
+          type: 'object',
+          required: ['kind', 'conversation_id', 'user_id', 'seq'],
+          additionalProperties: false,
+          properties: {
+            kind: { const: 'READ' },
+            conversation_id: { $ref: '#/$defs/uuid' },
+            user_id: { $ref: '#/$defs/uuid' },
+            seq: { type: 'integer', minimum: 0 },
+          },
         },
       ],
     },
@@ -1347,7 +1358,7 @@ const pattern6 = new RegExp('^upload:', 'u');
 const pattern8 = new RegExp('^(upload|user):', 'u');
 const pattern12 = new RegExp('^video:', 'u');
 const pattern16 = new RegExp('^user:', 'u');
-const pattern24 = new RegExp(
+const pattern26 = new RegExp(
   '^(video|upload|user):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
   'u',
 );
@@ -2332,7 +2343,7 @@ function validate39(
 validate39.evaluated = { props: true, dynamicProps: false, dynamicItems: false };
 const schema55 = {
   description:
-    "Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user's E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user's devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. At-most-once: clients also refetch after every (re)connect.",
+    'Task SOC-3a (ADR-049 SOC-3 addendum): something changed in the user\'s E2EE chat. Never carries content. MESSAGE: a message was sent or deleted in conversation_id (seq is the new last_seq) -> fetch listMessages after the last known seq. TO_DEVICE: one of the user\'s devices has pending to-device messages -> each device fetches listToDevice. CONVERSATION: membership, state or title of conversation_id changed -> refetch getConversation. DEVICES: user_id added or removed a device -> refetch queryDevices for them and rotate Megolm sessions shared with them. READ (task B3): user_id moved their read marker in conversation_id to seq -> update "đã xem"; never sent for a REQUESTED member. At-most-once: clients also refetch after every (re)connect.',
   oneOf: [
     {
       type: 'object',
@@ -2361,6 +2372,17 @@ const schema55 = {
       required: ['kind', 'user_id'],
       additionalProperties: false,
       properties: { kind: { const: 'DEVICES' }, user_id: { $ref: '#/$defs/uuid' } },
+    },
+    {
+      type: 'object',
+      required: ['kind', 'conversation_id', 'user_id', 'seq'],
+      additionalProperties: false,
+      properties: {
+        kind: { const: 'READ' },
+        conversation_id: { $ref: '#/$defs/uuid' },
+        user_id: { $ref: '#/$defs/uuid' },
+        seq: { type: 'integer', minimum: 0 },
+      },
     },
   ],
 };
@@ -2894,11 +2916,253 @@ function validate41(
             props0 = true;
           }
         }
+        const _errs28 = errors;
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+          if (data.kind === undefined) {
+            const err28 = {
+              instancePath,
+              schemaPath: '#/oneOf/4/required',
+              keyword: 'required',
+              params: { missingProperty: 'kind' },
+              message: "must have required property '" + 'kind' + "'",
+            };
+            if (vErrors === null) {
+              vErrors = [err28];
+            } else {
+              vErrors.push(err28);
+            }
+            errors++;
+          }
+          if (data.conversation_id === undefined) {
+            const err29 = {
+              instancePath,
+              schemaPath: '#/oneOf/4/required',
+              keyword: 'required',
+              params: { missingProperty: 'conversation_id' },
+              message: "must have required property '" + 'conversation_id' + "'",
+            };
+            if (vErrors === null) {
+              vErrors = [err29];
+            } else {
+              vErrors.push(err29);
+            }
+            errors++;
+          }
+          if (data.user_id === undefined) {
+            const err30 = {
+              instancePath,
+              schemaPath: '#/oneOf/4/required',
+              keyword: 'required',
+              params: { missingProperty: 'user_id' },
+              message: "must have required property '" + 'user_id' + "'",
+            };
+            if (vErrors === null) {
+              vErrors = [err30];
+            } else {
+              vErrors.push(err30);
+            }
+            errors++;
+          }
+          if (data.seq === undefined) {
+            const err31 = {
+              instancePath,
+              schemaPath: '#/oneOf/4/required',
+              keyword: 'required',
+              params: { missingProperty: 'seq' },
+              message: "must have required property '" + 'seq' + "'",
+            };
+            if (vErrors === null) {
+              vErrors = [err31];
+            } else {
+              vErrors.push(err31);
+            }
+            errors++;
+          }
+          for (const key4 in data) {
+            if (!(
+              key4 === 'kind' ||
+              key4 === 'conversation_id' ||
+              key4 === 'user_id' ||
+              key4 === 'seq'
+            )) {
+              const err32 = {
+                instancePath,
+                schemaPath: '#/oneOf/4/additionalProperties',
+                keyword: 'additionalProperties',
+                params: { additionalProperty: key4 },
+                message: 'must NOT have additional properties',
+              };
+              if (vErrors === null) {
+                vErrors = [err32];
+              } else {
+                vErrors.push(err32);
+              }
+              errors++;
+            }
+          }
+          if (data.kind !== undefined) {
+            if ('READ' !== data.kind) {
+              const err33 = {
+                instancePath: instancePath + '/kind',
+                schemaPath: '#/oneOf/4/properties/kind/const',
+                keyword: 'const',
+                params: { allowedValue: 'READ' },
+                message: 'must be equal to constant',
+              };
+              if (vErrors === null) {
+                vErrors = [err33];
+              } else {
+                vErrors.push(err33);
+              }
+              errors++;
+            }
+          }
+          if (data.conversation_id !== undefined) {
+            let data9 = data.conversation_id;
+            if (typeof data9 === 'string') {
+              if (!pattern4.test(data9)) {
+                const err34 = {
+                  instancePath: instancePath + '/conversation_id',
+                  schemaPath: '#/$defs/uuid/pattern',
+                  keyword: 'pattern',
+                  params: {
+                    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                  },
+                  message:
+                    'must match pattern "' +
+                    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' +
+                    '"',
+                };
+                if (vErrors === null) {
+                  vErrors = [err34];
+                } else {
+                  vErrors.push(err34);
+                }
+                errors++;
+              }
+            } else {
+              const err35 = {
+                instancePath: instancePath + '/conversation_id',
+                schemaPath: '#/$defs/uuid/type',
+                keyword: 'type',
+                params: { type: 'string' },
+                message: 'must be string',
+              };
+              if (vErrors === null) {
+                vErrors = [err35];
+              } else {
+                vErrors.push(err35);
+              }
+              errors++;
+            }
+          }
+          if (data.user_id !== undefined) {
+            let data10 = data.user_id;
+            if (typeof data10 === 'string') {
+              if (!pattern4.test(data10)) {
+                const err36 = {
+                  instancePath: instancePath + '/user_id',
+                  schemaPath: '#/$defs/uuid/pattern',
+                  keyword: 'pattern',
+                  params: {
+                    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                  },
+                  message:
+                    'must match pattern "' +
+                    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' +
+                    '"',
+                };
+                if (vErrors === null) {
+                  vErrors = [err36];
+                } else {
+                  vErrors.push(err36);
+                }
+                errors++;
+              }
+            } else {
+              const err37 = {
+                instancePath: instancePath + '/user_id',
+                schemaPath: '#/$defs/uuid/type',
+                keyword: 'type',
+                params: { type: 'string' },
+                message: 'must be string',
+              };
+              if (vErrors === null) {
+                vErrors = [err37];
+              } else {
+                vErrors.push(err37);
+              }
+              errors++;
+            }
+          }
+          if (data.seq !== undefined) {
+            let data11 = data.seq;
+            if (!(typeof data11 == 'number' && !(data11 % 1) && !isNaN(data11))) {
+              const err38 = {
+                instancePath: instancePath + '/seq',
+                schemaPath: '#/oneOf/4/properties/seq/type',
+                keyword: 'type',
+                params: { type: 'integer' },
+                message: 'must be integer',
+              };
+              if (vErrors === null) {
+                vErrors = [err38];
+              } else {
+                vErrors.push(err38);
+              }
+              errors++;
+            }
+            if (typeof data11 == 'number') {
+              if (data11 < 0 || isNaN(data11)) {
+                const err39 = {
+                  instancePath: instancePath + '/seq',
+                  schemaPath: '#/oneOf/4/properties/seq/minimum',
+                  keyword: 'minimum',
+                  params: { comparison: '>=', limit: 0 },
+                  message: 'must be >= 0',
+                };
+                if (vErrors === null) {
+                  vErrors = [err39];
+                } else {
+                  vErrors.push(err39);
+                }
+                errors++;
+              }
+            }
+          }
+        } else {
+          const err40 = {
+            instancePath,
+            schemaPath: '#/oneOf/4/type',
+            keyword: 'type',
+            params: { type: 'object' },
+            message: 'must be object',
+          };
+          if (vErrors === null) {
+            vErrors = [err40];
+          } else {
+            vErrors.push(err40);
+          }
+          errors++;
+        }
+        var _valid0 = _errs28 === errors;
+        if (_valid0 && valid0) {
+          valid0 = false;
+          passing0 = [passing0, 4];
+        } else {
+          if (_valid0) {
+            valid0 = true;
+            passing0 = 4;
+            if (props0 !== true) {
+              props0 = true;
+            }
+          }
+        }
       }
     }
   }
   if (!valid0) {
-    const err28 = {
+    const err41 = {
       instancePath,
       schemaPath: '#/oneOf',
       keyword: 'oneOf',
@@ -2906,9 +3170,9 @@ function validate41(
       message: 'must match exactly one schema in oneOf',
     };
     if (vErrors === null) {
-      vErrors = [err28];
+      vErrors = [err41];
     } else {
-      vErrors.push(err28);
+      vErrors.push(err41);
     }
     errors++;
   } else {
@@ -4150,7 +4414,7 @@ function validate29(
     if (data.room !== undefined) {
       let data26 = data.room;
       if (typeof data26 === 'string') {
-        if (!pattern24.test(data26)) {
+        if (!pattern26.test(data26)) {
           const err59 = {
             instancePath: instancePath + '/room',
             schemaPath: '#/properties/room/pattern',
