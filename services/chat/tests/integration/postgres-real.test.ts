@@ -89,6 +89,14 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
 
     try {
       pool = new pg.Pool({ connectionString: testDbUrl });
+      // pool.end() resolves before its clients' sockets finish closing, so stopping the container
+      // right after db.destroy() can deliver 57P01 (admin shutdown) to a client that has no
+      // 'error' listener any more and crash the run. Ignore exactly that; anything else rethrows.
+      const ignoreAdminShutdown = (err: Error & { code?: string }) => {
+        if (err.code !== '57P01') throw err;
+      };
+      pool.on('error', ignoreAdminShutdown);
+      pool.on('connect', (client) => client.on('error', ignoreAdminShutdown));
       const repoRoot = findRepoRoot();
       const migrationsDir = path.join(repoRoot, 'db', 'migrations');
       await applyMigrations(pool, migrationsDir);

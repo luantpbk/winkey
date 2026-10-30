@@ -1,10 +1,11 @@
-import { connect as connectNats, type NatsConnection } from 'nats';
 import { Redis } from 'ioredis';
 import { loadEnv } from './config/env.js';
 import { getDb, closeDb } from './db/client.js';
 import { ValkeyRateLimiter } from './rate-limit/valkey-limiter.js';
 import { ToDevicePurgeJob } from './janitor/to-device-purge-job.js';
 import { buildApp } from './server.js';
+import { createLogger, sanitizeEndpointUrl } from './infra/logger.js';
+import { ManagedNatsConnection } from './realtime/nats-manager.js';
 
 function parseDurationMs(duration: string): number {
   const match = duration.match(/^(\d+)(ms|s|m|h|d)?$/);
@@ -29,6 +30,18 @@ function parseDurationMs(duration: string): number {
 
 async function main() {
   const env = loadEnv();
+  const logger = createLogger();
+
+  logger.info(
+    {
+      env: env.NODE_ENV,
+      port: env.HTTP_PORT,
+      database: sanitizeEndpointUrl(env.DATABASE_URL),
+      valkey: sanitizeEndpointUrl(env.VALKEY_URL),
+      nats: sanitizeEndpointUrl(env.NATS_URL),
+    },
+    'Starting chat-svc...',
+  );
 
   // 1. Connect to database
   const { db, pool } = getDb(env.DATABASE_URL);
@@ -41,22 +54,21 @@ async function main() {
       enableOfflineQueue: false,
     });
   } catch (err) {
-    console.warn('Warning: Could not connect to Valkey on startup:', err);
+    logger.warn(
+      { err, valkey: sanitizeEndpointUrl(env.VALKEY_URL) },
+      'Could not connect to Valkey on startup',
+    );
   }
 
   const rateLimiter = new ValkeyRateLimiter(env.VALKEY_URL, valkeyClient ?? undefined);
 
-  // 3. Connect to NATS (core NATS publishing rt.chat.user.*)
-  let natsConnection: NatsConnection | null = null;
-  try {
-    natsConnection = await connectNats({
-      servers: env.NATS_URL,
-      name: 'chat-svc',
-    });
-    console.log('Connected to NATS');
-  } catch (err) {
-    console.warn('Warning: Could not connect to NATS on startup:', (err as Error).message);
-  }
+  // 3. Connect to NATS with auto-recovery and readiness tracking
+  const natsManager = new ManagedNatsConnection(env.NATS_URL, logger);
+  const natsInitialConnect = natsManager.start();
+
+  // Allow up to 250ms for initial NATS connection so /readyz is green immediately if NATS is up;
+  // if NATS is down at boot, waitOnFirstConnect continues in the background and /readyz serves 503.
+  await Promise.race([natsInitialConnect, new Promise((resolve) => setTimeout(resolve, 250))]);
 
   // 4. Build and listen HTTP app
   const app = await buildApp({
@@ -64,11 +76,14 @@ async function main() {
     db,
     rateLimiter,
     redis: valkeyClient,
-    natsConnection,
+    getNatsStatus: () => natsManager.getReadinessState(),
+    getNatsConnection: () => natsManager.getConnection(),
+    natsConfigured: Boolean(env.NATS_URL),
+    loggerInstance: logger,
   });
 
   await app.listen({ port: env.HTTP_PORT, host: '0.0.0.0' });
-  app.log.info({ port: env.HTTP_PORT, service: 'chat-svc' }, 'chat-svc started');
+  logger.info({ port: env.HTTP_PORT, service: 'chat-svc' }, 'chat-svc started');
 
   // 5. Start To-Device Purge Janitor (hourly cleanup of >30d messages)
   const purgeJob = new ToDevicePurgeJob({
@@ -76,26 +91,21 @@ async function main() {
     valkey: valkeyClient,
     retentionDays: 30,
     intervalMs: parseDurationMs(env.TO_DEVICE_PURGE_INTERVAL),
-    logger: app.log,
+    logger,
   });
   purgeJob.start();
 
   // 6. Graceful shutdown handler
   const shutdown = async (signal: string) => {
-    app.log.info({ signal }, 'Graceful shutdown initiated');
+    logger.info({ signal }, 'Graceful shutdown initiated');
 
     purgeJob.stop();
     await app.close();
-
-    if (natsConnection) {
-      await natsConnection.drain().catch(() => {});
-      await natsConnection.close().catch(() => {});
-    }
-
+    await natsManager.close();
     await rateLimiter.close();
     await closeDb();
 
-    app.log.info('Graceful shutdown completed');
+    logger.info('Graceful shutdown completed');
     process.exit(0);
   };
 
@@ -104,6 +114,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal error starting chat-svc:', err);
+  const fallbackLogger = createLogger();
+  fallbackLogger.fatal({ err }, 'Fatal error starting chat-svc');
   process.exit(1);
 });
