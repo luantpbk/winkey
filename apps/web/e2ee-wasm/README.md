@@ -7,7 +7,7 @@ Thin `wasm-bindgen` wrapper around [Matrix.org's vodozemac](https://gitlab.matri
 To ensure deterministic, byte-for-byte reproducible builds in local development and CI:
 - **Rust Toolchain**: `1.99.1` (pinned in `rust-toolchain.toml`)
 - **Target**: `wasm32-unknown-unknown`
-- **wasm-pack**: `0.15.0` (`curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- --version v0.15.0`)
+- **wasm-pack**: `0.15.0` (`https://github.com/wasm-bindgen/wasm-pack/releases/tag/v0.15.0`)
 
 ## How to Build
 

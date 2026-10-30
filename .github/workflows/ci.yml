@@ -354,12 +354,16 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /home/runner/.cargo/bin/wasm-pack
-          key: wasm-pack-0.15.0
+          key: wasm-pack-0.15.0-v2
 
       - name: Install wasm-pack (pinned 0.15.0)
         if: steps.cache-wasm-pack.outputs.cache-hit != 'true'
         run: |
-          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- --version v0.15.0
+          mkdir -p /home/runner/.cargo/bin
+          curl -sSL https://github.com/wasm-bindgen/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /tmp
+          mv /tmp/wasm-pack-v0.15.0-x86_64-unknown-linux-musl/wasm-pack /home/runner/.cargo/bin/wasm-pack
+          chmod +x /home/runner/.cargo/bin/wasm-pack
+          rm -rf /tmp/wasm-pack-v0.15.0-x86_64-unknown-linux-musl
 
       - name: Verify wasm-pack version
         run: |
