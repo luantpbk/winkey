@@ -9,11 +9,13 @@ export interface HealthCheckDependencies {
   db?: Kysely<Database>;
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
+  natsConfigured?: boolean;
+  getNatsStatus?: () => 'ok' | 'disconnected' | 'skipped';
 }
 
 export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
   fastify,
-  { db, redis, natsConnection },
+  { db, redis, natsConnection, natsConfigured, getNatsStatus },
 ) => {
   fastify.get('/healthz', async (_request, reply) => {
     return reply.status(200).send({ status: 'ok' });
@@ -55,20 +57,29 @@ export const healthRoute: FastifyPluginAsync<HealthCheckDependencies> = async (
     }
 
     // Check NATS
-    if (natsConnection) {
+    let natsCheck: string;
+    if (getNatsStatus) {
+      natsCheck = getNatsStatus();
+    } else if (natsConnection) {
       try {
         if (!natsConnection.isClosed()) {
-          checks.nats = 'ok';
+          natsCheck = 'ok';
         } else {
-          checks.nats = 'closed';
-          isHealthy = false;
+          natsCheck = 'disconnected';
         }
       } catch {
-        checks.nats = 'error';
-        isHealthy = false;
+        natsCheck = 'error';
       }
+    } else if (natsConfigured) {
+      natsCheck = 'disconnected';
     } else {
       checks.nats = 'skipped';
+      natsCheck = 'skipped';
+    }
+
+    checks.nats = natsCheck;
+    if (natsCheck !== 'ok' && natsCheck !== 'skipped') {
+      isHealthy = false;
     }
 
     const statusCode = isHealthy ? 200 : 503;

@@ -23,6 +23,9 @@ export interface BuildAppOptions {
   rateLimiter?: RateLimiter;
   redis?: Redis | null;
   natsConnection?: NatsConnection | null;
+  natsConfigured?: boolean;
+  getNatsStatus?: () => 'ok' | 'disconnected' | 'skipped';
+  getNatsConnection?: () => NatsConnection | null;
   metricsRegistry?: Registry;
   loggerInstance?: FastifyServerOptions['loggerInstance'];
 }
@@ -32,7 +35,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const db = options.db || getDb(env.DATABASE_URL).db;
   const rateLimiter =
     options.rateLimiter || new ValkeyRateLimiter(env.VALKEY_URL, options.redis ?? undefined);
-  const hints = new RealtimeHintDispatcher(options.natsConnection ?? null);
+  const natsSource =
+    options.getNatsConnection ?? (options.natsConnection ? () => options.natsConnection! : null);
+  const hints = new RealtimeHintDispatcher(natsSource ?? options.natsConnection ?? null);
 
   const trustProxyConfig = env.TRUST_PROXY_CIDRS
     ? env.TRUST_PROXY_CIDRS.split(',')
@@ -95,10 +100,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   // Register routes
+  const natsConfigured =
+    options.natsConfigured !== undefined ? options.natsConfigured : Boolean(env.NATS_URL);
+
   await app.register(healthRoute, {
     db,
     redis: options.redis,
     natsConnection: options.natsConnection,
+    natsConfigured,
+    getNatsStatus: options.getNatsStatus,
   });
   await app.register(devicesRoute, { db, hints });
   await app.register(toDeviceRoute, { db, hints, rateLimiter });
