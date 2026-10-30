@@ -22,6 +22,7 @@ import {
   Sparkles,
   Trophy,
   Clapperboard,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 import { computePermissions } from '../../lib/auth';
@@ -59,7 +60,10 @@ export function Sidebar({
     ...(can.moderate ? [{ href: '/admin', label: 'Admin', icon: Shield }] : []),
     ...(can.upload ? [{ href: '/upload', label: t('upload'), icon: UploadCloud }] : []),
     ...(showMemberLinks
-      ? [{ href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv }]
+      ? [
+          { href: '/tin-nhan', label: 'Tin nhắn', icon: MessageSquare },
+          { href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv },
+        ]
       : []),
   ];
 

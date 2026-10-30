@@ -83,10 +83,24 @@ describe('CSP Policy Builder (buildCsp / CSP1)', () => {
 
     expect(scriptSrc).toContain("'self'");
     expect(scriptSrc).toContain("'strict-dynamic'");
+    expect(scriptSrc).toContain("'wasm-unsafe-eval'");
     expect(scriptSrc).toContain(`'nonce-${nonce}'`);
     expect(scriptSrc).toContain('https://challenges.cloudflare.com');
     expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(scriptSrc).not.toContain("'unsafe-eval'");
+  });
+
+  it('includes wasm-unsafe-eval in script-src for WebAssembly (SOC-3a E2EE)', () => {
+    const nonce = 'dGVzdG5vbmNlMTIzNDU2Nw==';
+    const prodPolicy = buildCsp({ nonce, isDev: false });
+    const devPolicy = buildCsp({ nonce, isDev: true });
+
+    expect(prodPolicy).toContain(
+      "script-src 'self' 'nonce-dGVzdG5vbmNlMTIzNDU2Nw==' 'strict-dynamic' 'wasm-unsafe-eval'",
+    );
+    expect(prodPolicy).not.toContain("'unsafe-eval'");
+    expect(devPolicy).toContain("'wasm-unsafe-eval'");
+    expect(devPolicy).toContain("'unsafe-eval'");
   });
 
   it('development: adds unsafe-eval to script-src for HMR', () => {

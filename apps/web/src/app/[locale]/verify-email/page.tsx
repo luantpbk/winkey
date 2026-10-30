@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
@@ -186,9 +186,5 @@ function VerifyEmailContent() {
 }
 
 export default function VerifyEmailPage() {
-  return (
-    <Suspense fallback={null}>
-      <VerifyEmailContent />
-    </Suspense>
-  );
+  return <VerifyEmailContent />;
 }

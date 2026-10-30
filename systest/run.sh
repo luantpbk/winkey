@@ -84,6 +84,26 @@ echo "[systest] Ensuring infrastructure and S3 keys are ready..."
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit db-grants
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap db-grants >/dev/null 2>&1 || true
 
+# SOC-3a: Ensure chat_svc role and permissions exist in PostgreSQL
+docker exec -i winkey-postgres psql -U postgres -d "${POSTGRES_DB:-winkey}" -c "
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'chat_svc') THEN
+    CREATE ROLE chat_svc WITH LOGIN PASSWORD 'chat_svc';
+  END IF;
+END
+\$\$;
+GRANT USAGE ON SCHEMA chat TO chat_svc;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA chat TO chat_svc;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA chat TO chat_svc;
+ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA chat GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO chat_svc;
+ALTER DEFAULT PRIVILEGES FOR ROLE winkey_migrator IN SCHEMA chat GRANT USAGE, SELECT ON SEQUENCES TO chat_svc;
+GRANT USAGE ON SCHEMA auth TO chat_svc;
+GRANT SELECT ON auth.public_profiles TO chat_svc;
+GRANT USAGE ON SCHEMA social TO chat_svc;
+GRANT SELECT ON social.blocks, social.subscriptions TO chat_svc;
+" >/dev/null 2>&1 || true
+
 GEN_ENV="${REPO_ROOT}/deploy/compose/.generated.env"
 for _ in $(seq 1 30); do
   if [ -f "${GEN_ENV}" ]; then

@@ -1,0 +1,13 @@
+ mean_ms | total_ms | calls | pct_time |                                                                                                                         normalized_query                                                                                                                          
+---------+----------+-------+----------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    0.96 |   556.79 |   580 |     43.1 | select * from "chat"."conversations" where "id" = $1 for update
+    0.33 |   188.77 |   580 |     14.6 | insert into "chat"."messages" ("conversation_id", "seq", "id", "kind", "sender_id", "sender_device_id", "client_msg_id", "megolm_session_id", "ciphertext", "system_body", "created_at") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *
+    0.32 |    89.97 |   284 |      7.0 | SELECT conversation_id, seq, id, kind, sender_id, sender_device_id, megolm_session_id, ciphertext, system_body, deleted_at, created_at FROM chat.messages WHERE conversation_id = $1::uuid AND seq >= $2::bigint AND seq <= $3::bigint ORDER BY seq DESC LIMIT $4
+    0.21 |   120.66 |   580 |      9.3 | update "chat"."conversations" set "last_seq" = $1, "last_message_at" = $2 where "id" = $3
+    0.16 |    91.47 |   580 |      7.1 | select * from "chat"."members" where "conversation_id" = $1
+    0.12 |    70.63 |   580 |      5.5 | select "id" from "chat"."devices" where "id" = $1 and "user_id" = $2 and "deleted_at" is null
+    0.10 |    57.77 |   580 |      4.5 | update "chat"."members" set "last_read_seq" = $1, "updated_at" = $2 where "conversation_id" = $3 and "user_id" = $4
+    0.09 |    50.12 |   580 |      3.9 | select * from "chat"."messages" where "sender_id" = $1 and "client_msg_id" = $2
+    0.08 |     0.08 |     1 |      0.0 | SELECT id, video_id FROM media.transcode_jobs WHERE status = $3 AND coalesce(heartbeat_at, started_at) < now() - make_interval(secs => $1) ORDER BY coalesce(heartbeat_at, started_at) LIMIT $2
+    0.07 |    20.22 |   284 |      1.6 | select * from "chat"."members" where "conversation_id" = $1 and "user_id" = $2
+(10 rows)

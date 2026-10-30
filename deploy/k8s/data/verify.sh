@@ -130,6 +130,43 @@ if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d win
     exit 1
 fi
 echo "  PASS: media_svc SELECT on social.posts was denied (Permission Denied)."
+
+echo "Test 3.16: chat_svc can read chat.conversations (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM chat.conversations;" >/dev/null
+echo "  PASS: chat_svc queried chat.conversations."
+
+echo "Test 3.17: chat_svc can read auth.public_profiles (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM auth.public_profiles;" >/dev/null
+echo "  PASS: chat_svc queried auth.public_profiles."
+
+echo "Test 3.18: chat_svc can read social.blocks (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM social.blocks;" >/dev/null
+echo "  PASS: chat_svc queried social.blocks."
+
+echo "Test 3.19: chat_svc can read social.subscriptions (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM social.subscriptions;" >/dev/null
+echo "  PASS: chat_svc queried social.subscriptions."
+
+echo "Test 3.20: chat_svc CANNOT read auth.users (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM auth.users;" >/dev/null 2>&1; then
+    echo "ERROR: chat_svc was able to SELECT from auth.users!" >&2
+    exit 1
+fi
+echo "  PASS: chat_svc SELECT on auth.users was denied (Permission Denied)."
+
+echo "Test 3.21: chat_svc CANNOT read social.posts (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE chat_svc; SELECT count(*) FROM social.posts;" >/dev/null 2>&1; then
+    echo "ERROR: chat_svc was able to SELECT from social.posts!" >&2
+    exit 1
+fi
+echo "  PASS: chat_svc SELECT on social.posts was denied (Permission Denied)."
+
+echo "Test 3.22: social_svc CANNOT read chat.messages (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" "$PG_POD" -c postgres -- psql -U postgres -d winkey -c "SET ROLE social_svc; SELECT count(*) FROM chat.messages;" >/dev/null 2>&1; then
+    echo "ERROR: social_svc was able to SELECT from chat.messages!" >&2
+    exit 1
+fi
+echo "  PASS: social_svc SELECT on chat.messages was denied (Permission Denied)."
 echo "SUCCESS: Database RBAC and isolation rules verified."
 
 
@@ -196,6 +233,11 @@ spec:
         secretKeyRef:
           name: nats-auth
           key: analytics_password
+    - name: CHAT_PWD
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth
+          key: chat_password
 EOF
 
 kubectl wait --for=condition=Ready pod/nats-verifier -n "$NAMESPACE" --timeout=60s
@@ -379,6 +421,42 @@ if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "social.post.vi
     exit 1
 fi
 echo "  PASS: video user blocked from social.post.video_attached (Permissions Violation)."
+
+echo "Test 5.27: chat user publishes to rt.chat.user.test (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "rt.chat.user.test" "test-chat-hint" --server="nats://chat:${CHAT_PWD}@nats:4222"' >/dev/null
+echo "  PASS: chat user published to rt.chat.user.test."
+
+echo "Test 5.28: realtime user subscribes to rt.chat.user.test (SOC-3a)..."
+kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c '
+  nats sub --count=1 "rt.chat.user.test" --server="nats://realtime:${REALTIME_PWD}@nats:4222" > /tmp/sub_chat.log 2>&1 &
+  SUB_PID=$!
+  sleep 1
+  nats pub "rt.chat.user.test" "test-chat-sub" --server="nats://chat:${CHAT_PWD}@nats:4222" >/dev/null
+  wait $SUB_PID
+  grep -q "test-chat-sub" /tmp/sub_chat.log
+'
+echo "  PASS: realtime user subscribed and received message from rt.chat.user.test."
+
+echo "Test 5.29: chat user CANNOT publish to video.ready (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "video.ready" "test-exploit" --server="nats://chat:${CHAT_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: chat user was able to publish to video.ready!" >&2
+    exit 1
+fi
+echo "  PASS: chat user blocked from video.ready (Permissions Violation)."
+
+echo "Test 5.30: chat user CANNOT publish to social.comment.created (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "social.comment.created" "test-exploit" --server="nats://chat:${CHAT_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: chat user was able to publish to social.comment.created!" >&2
+    exit 1
+fi
+echo "  PASS: chat user blocked from social.comment.created (Permissions Violation)."
+
+echo "Test 5.31: video user CANNOT publish to rt.chat.user.test (Must Fail)..."
+if kubectl exec -n "$NAMESPACE" nats-verifier -- sh -c 'nats pub "rt.chat.user.test" "test-exploit" --server="nats://video:${VIDEO_PWD}@nats:4222"' >/dev/null 2>&1; then
+    echo "ERROR: video user was able to publish to rt.chat.user.test!" >&2
+    exit 1
+fi
+echo "  PASS: video user blocked from rt.chat.user.test (Permissions Violation)."
 echo "SUCCESS: NATS publish and subscribe authorization matrix strictly enforced."
 
 kubectl delete pod nats-verifier -n "$NAMESPACE" --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true

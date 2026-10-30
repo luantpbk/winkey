@@ -221,8 +221,11 @@ describe('OpenAPI Contract Verification against chat.v1.yaml and common.yaml', (
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.users).toBeDefined();
-    expect(Array.isArray(body.users[userAlice])).toBe(true);
-    for (const d of body.users[userAlice]) {
+    expect(Array.isArray(body.users)).toBe(true);
+    const aliceEntry = body.users.find((u: any) => u.user_id === userAlice);
+    expect(aliceEntry).toBeDefined();
+    expect(Array.isArray(aliceEntry.devices)).toBe(true);
+    for (const d of aliceEntry.devices) {
       expect(validatePublicDevice(d)).toBe(true);
     }
   });

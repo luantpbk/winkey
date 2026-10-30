@@ -21,7 +21,7 @@ describe('Content-Security-Policy headers in next.config.ts & middleware (CSP1 P
   }
 
   describe('Legacy headers in next.config.ts (kept unchanged in Phase 1)', () => {
-    it('excludes unsafe-eval from script-src in production', async () => {
+    it('excludes unsafe-eval from script-src in production while including wasm-unsafe-eval', async () => {
       (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
       const headers = await resolveConfigHeaders();
 
@@ -31,12 +31,13 @@ describe('Content-Security-Policy headers in next.config.ts & middleware (CSP1 P
       const csp = mainRouteConfig?.headers.find((entry) => entry.key === 'Content-Security-Policy');
       expect(csp).toBeDefined();
       expect(csp?.value).not.toContain("'unsafe-eval'");
+      expect(csp?.value).toContain("'wasm-unsafe-eval'");
       expect(csp?.value).toContain("'self'");
       expect(csp?.value).toContain("'unsafe-inline'");
       expect(csp?.value).toContain('https://challenges.cloudflare.com');
     });
 
-    it('includes unsafe-eval in script-src when running in development for dev tooling', async () => {
+    it('includes unsafe-eval and wasm-unsafe-eval in script-src when running in development for dev tooling', async () => {
       (process.env as Record<string, string | undefined>).NODE_ENV = 'development';
       const headers = await resolveConfigHeaders();
 
@@ -46,7 +47,23 @@ describe('Content-Security-Policy headers in next.config.ts & middleware (CSP1 P
       const csp = mainRouteConfig?.headers.find((entry) => entry.key === 'Content-Security-Policy');
       expect(csp).toBeDefined();
       expect(csp?.value).toContain("'unsafe-eval'");
+      expect(csp?.value).toContain("'wasm-unsafe-eval'");
       expect(csp?.value).toContain('https://challenges.cloudflare.com');
+    });
+
+    it('includes wasm-unsafe-eval across both production and development for WebAssembly E2EE', async () => {
+      for (const env of ['production', 'development']) {
+        (process.env as Record<string, string | undefined>).NODE_ENV = env;
+        const headers = await resolveConfigHeaders();
+        const csp = headers
+          .find((h) => h.source === '/((?!embed).*)')
+          ?.headers.find((entry) => entry.key === 'Content-Security-Policy');
+
+        expect(csp?.value).toContain("'wasm-unsafe-eval'");
+        if (env === 'production') {
+          expect(csp?.value).not.toContain("'unsafe-eval'");
+        }
+      }
     });
 
     it('preserves embed route frame-ancestors * header', async () => {

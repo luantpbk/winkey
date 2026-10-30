@@ -75,6 +75,7 @@ export class RealtimeEventConsumer {
   private isVideoConsumerReady = false;
   private isSocialConsumerReady = false;
   private coreSub: Subscription | null = null;
+  private chatSub: Subscription | null = null;
   private videoConsumerIter: { stop(): void } | null = null;
   private socialConsumerIter: { stop(): void } | null = null;
 
@@ -123,8 +124,28 @@ export class RealtimeEventConsumer {
         }
       })();
       this.logger?.info({}, 'Subscribed to core NATS rt.video.*.progress');
+
+      // SOC-3a: Subscribe to core NATS rt.chat.user.* and forward chat.hint to user:{user_id}
+      this.chatSub = this.nats.subscribe('rt.chat.user.*');
+      (async () => {
+        if (!this.chatSub) return;
+        for await (const msg of this.chatSub) {
+          if (!this.isRunning) break;
+          try {
+            const parts = msg.subject.split('.');
+            const userId = parts[3];
+            if (!userId) continue;
+            const raw = new TextDecoder().decode(msg.data);
+            const data = JSON.parse(raw);
+            this.connectionManager.broadcastEvent(`user:${userId}`, 'chat.hint', data);
+          } catch (err) {
+            this.logger?.warn({ err }, 'Error handling core NATS chat hint');
+          }
+        }
+      })();
+      this.logger?.info({}, 'Subscribed to core NATS rt.chat.user.*');
     } catch (err) {
-      this.logger?.error({ err }, 'Failed to subscribe to core NATS progress');
+      this.logger?.error({ err }, 'Failed to subscribe to core NATS progress/chat');
     }
   }
 
@@ -397,6 +418,10 @@ export class RealtimeEventConsumer {
     if (this.coreSub) {
       this.coreSub.unsubscribe();
       this.coreSub = null;
+    }
+    if (this.chatSub) {
+      this.chatSub.unsubscribe();
+      this.chatSub = null;
     }
     if (this.videoConsumerIter) {
       this.videoConsumerIter.stop();
