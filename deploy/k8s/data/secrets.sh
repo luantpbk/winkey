@@ -35,6 +35,7 @@ ensure_pg_secret "winkey-pg-auth-svc" "auth_svc"
 ensure_pg_secret "winkey-pg-media-svc" "media_svc"
 ensure_pg_secret "winkey-pg-social-svc" "social_svc"
 ensure_pg_secret "winkey-pg-analytics-svc" "analytics_svc"
+ensure_pg_secret "winkey-pg-chat-svc" "chat_svc"
 
 
 echo "==> [2/3] Ensuring NATS authorization secret exists..."
@@ -47,6 +48,7 @@ if ! kubectl get secret "nats-auth" -n "$NAMESPACE" >/dev/null 2>&1; then
     SOCIAL_PWD=$(gen_pwd)
     REALTIME_PWD=$(gen_pwd)
     ANALYTICS_PWD=$(gen_pwd)
+    CHAT_PWD=$(gen_pwd)
 
     AUTH_CONF=$(cat <<EOF
 authorization: {
@@ -104,7 +106,15 @@ authorization: {
       password: "${REALTIME_PWD}"
       permissions: {
         publish: ["_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.ready", "video.failed", "social.comment.created", "social.video.like_changed", "rt.video.*.progress", "_INBOX.>"]
+        subscribe: ["video.ready", "video.failed", "social.comment.created", "social.video.like_changed", "rt.video.*.progress", "rt.chat.user.*", "_INBOX.>"]
+      }
+    },
+    {
+      user: "chat"
+      password: "${CHAT_PWD}"
+      permissions: {
+        publish: ["rt.chat.user.*", "_INBOX.>"]
+        subscribe: ["_INBOX.>"]
       }
     },
     {
@@ -140,7 +150,8 @@ EOF
       --from-literal=video_password="$VIDEO_PWD" \
       --from-literal=social_password="$SOCIAL_PWD" \
       --from-literal=realtime_password="$REALTIME_PWD" \
-      --from-literal=analytics_password="$ANALYTICS_PWD"
+      --from-literal=analytics_password="$ANALYTICS_PWD" \
+      --from-literal=chat_password="$CHAT_PWD"
 
     kubectl create secret generic nats-admin-creds -n "$NAMESPACE" \
       --from-literal=username="admin" \
@@ -158,6 +169,10 @@ else
     ANALYTICS_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.analytics_password}' 2>/dev/null | base64 -d || true)
     if [ -z "$ANALYTICS_PWD" ]; then
         ANALYTICS_PWD=$(gen_pwd)
+    fi
+    CHAT_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.chat_password}' 2>/dev/null | base64 -d || true)
+    if [ -z "$CHAT_PWD" ]; then
+        CHAT_PWD=$(gen_pwd)
     fi
 
     AUTH_CONF=$(cat <<EOF
@@ -216,7 +231,15 @@ authorization: {
       password: "${REALTIME_PWD}"
       permissions: {
         publish: ["_INBOX.>", "\$JS.API.>"]
-        subscribe: ["video.ready", "video.failed", "social.comment.created", "social.video.like_changed", "rt.video.*.progress", "_INBOX.>"]
+        subscribe: ["video.ready", "video.failed", "social.comment.created", "social.video.like_changed", "rt.video.*.progress", "rt.chat.user.*", "_INBOX.>"]
+      }
+    },
+    {
+      user: "chat"
+      password: "${CHAT_PWD}"
+      permissions: {
+        publish: ["rt.chat.user.*", "_INBOX.>"]
+        subscribe: ["_INBOX.>"]
       }
     },
     {
@@ -253,6 +276,7 @@ EOF
       --from-literal=social_password="$SOCIAL_PWD" \
       --from-literal=realtime_password="$REALTIME_PWD" \
       --from-literal=analytics_password="$ANALYTICS_PWD" \
+      --from-literal=chat_password="$CHAT_PWD" \
       --dry-run=client -o yaml | kubectl apply -f -
     echo "  Updated secret nats-auth permissions." >&2
 fi
@@ -272,6 +296,7 @@ PG_AUTH_PWD=$(kubectl get secret winkey-pg-auth-svc -n "$NAMESPACE" -o jsonpath=
 PG_MEDIA_PWD=$(kubectl get secret winkey-pg-media-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_SOCIAL_PWD=$(kubectl get secret winkey-pg-social-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_ANALYTICS_PWD=$(kubectl get secret winkey-pg-analytics-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
+PG_CHAT_PWD=$(kubectl get secret winkey-pg-chat-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
 
 NATS_AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
 NATS_UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
@@ -280,6 +305,7 @@ NATS_VIDEO_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.dat
 NATS_SOCIAL_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.social_password}' | base64 -d)
 NATS_REALTIME_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.realtime_password}' | base64 -d)
 NATS_ANALYTICS_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.analytics_password}' 2>/dev/null | base64 -d || echo "")
+NATS_CHAT_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.chat_password}' 2>/dev/null | base64 -d || echo "")
 
 VALKEY_PWD=$(kubectl get secret valkey-auth -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 
@@ -306,6 +332,11 @@ echo "NATS_URL=nats://social:${NATS_SOCIAL_PWD}@nats.default.svc:4222"
 echo ""
 echo "# realtime-svc:"
 echo "NATS_URL=nats://realtime:${NATS_REALTIME_PWD}@nats.default.svc:4222"
+echo "VALKEY_URL=valkey://:${VALKEY_PWD}@valkey.default.svc:6379"
+echo ""
+echo "# chat-svc:"
+echo "DATABASE_URL=postgres://chat_svc:${PG_CHAT_PWD}@winkey-pg-rw.default.svc:5432/winkey?sslmode=require"
+echo "NATS_URL=nats://chat:${NATS_CHAT_PWD}@nats.default.svc:4222"
 echo "VALKEY_URL=valkey://:${VALKEY_PWD}@valkey.default.svc:6379"
 echo ""
 echo "=========================================================================="

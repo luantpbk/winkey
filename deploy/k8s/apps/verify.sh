@@ -12,11 +12,11 @@ NAMESPACE="${1:-default}"
 echo "=========================================================================="
 echo " 1. Checking Deployments and Pod Readiness"
 echo "=========================================================================="
-for svc in auth-svc upload-svc video-svc social-svc realtime-svc web-svc; do
+for svc in auth-svc upload-svc video-svc social-svc realtime-svc chat-svc web-svc; do
     echo "Checking rollout of deployment $svc..."
     kubectl rollout status deployment/"$svc" -n "$NAMESPACE" --timeout=120s
 done
-echo "SUCCESS: All 6 application deployments rolled out successfully."
+echo "SUCCESS: All 7 application deployments rolled out successfully."
 
 echo ""
 echo "=========================================================================="
@@ -24,7 +24,7 @@ echo " 2. Pod Health & Readiness Probes Check"
 echo "=========================================================================="
 kubectl get pods -n "$NAMESPACE" -l 'app.kubernetes.io/part-of=winkey' -o wide
 
-for svc in auth upload video social realtime web; do
+for svc in auth upload video social realtime chat web; do
     pod=$(kubectl get pod -n "$NAMESPACE" -l "app.kubernetes.io/name=${svc}-svc" -o jsonpath='{.items[0].metadata.name}')
     echo -n "Checking pod $pod (${svc}): "
     ready=$(kubectl get pod "$pod" -n "$NAMESPACE" -o jsonpath='{.status.containerStatuses[0].ready}')
