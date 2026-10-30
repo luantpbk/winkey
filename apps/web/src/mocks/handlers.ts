@@ -212,8 +212,7 @@ const initialMockCreatorRequests: AdminCreatorRequest[] = [
       email_verified: true,
       handle: 'viet_coder',
       display_name: 'Việt Coder Channel',
-      avatar_url:
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
+      avatar_url: '/placeholder-avatar.svg',
       roles: ['viewer', 'creator'],
       status: 'ACTIVE',
       created_at: '2026-01-15T00:00:00Z',
@@ -224,8 +223,7 @@ const initialMockCreatorRequests: AdminCreatorRequest[] = [
       id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
       handle: 'admin_winkey',
       display_name: 'Winkey Administrator',
-      avatar_url:
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      avatar_url: '/placeholder-avatar.svg',
     },
   },
 ];
@@ -351,9 +349,7 @@ const defaultWatchHistory: HistoryItem[] = [
       duration_ms: mockVideos[0].duration_ms ?? 0,
       view_count: mockVideos[0].view_count,
       published_at: mockVideos[0].published_at || mockVideos[0].created_at,
-      thumbnail_url:
-        mockVideos[0].playback?.thumbnail_url ||
-        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: mockVideos[0].playback?.thumbnail_url || '/placeholder-thumbnail.svg',
     },
     watched_at: '2026-10-20T10:00:00Z',
     watched_ms: 600000,
@@ -366,9 +362,7 @@ const defaultWatchHistory: HistoryItem[] = [
       duration_ms: mockVideos[1].duration_ms ?? 0,
       view_count: mockVideos[1].view_count,
       published_at: mockVideos[1].published_at || mockVideos[1].created_at,
-      thumbnail_url:
-        mockVideos[1].playback?.thumbnail_url ||
-        'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: mockVideos[1].playback?.thumbnail_url || '/placeholder-thumbnail.svg',
     },
     watched_at: '2026-10-19T14:30:00Z',
     watched_ms: 120000,
@@ -381,9 +375,7 @@ const defaultWatchHistory: HistoryItem[] = [
       duration_ms: mockVideos[2].duration_ms ?? 0,
       view_count: mockVideos[2].view_count,
       published_at: mockVideos[2].published_at || mockVideos[2].created_at,
-      thumbnail_url:
-        mockVideos[2].playback?.thumbnail_url ||
-        'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: mockVideos[2].playback?.thumbnail_url || '/placeholder-thumbnail.svg',
     },
     watched_at: '2026-10-18T09:15:00Z',
     watched_ms: mockVideos[2].duration_ms ?? 0,
@@ -685,14 +677,12 @@ export const mockRelatedVideosFixture: VideoSummary[] = Array.from({ length: 16 
     id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 3) + 1}`,
     display_name: `Kênh Kỹ Thuật ${(i % 3) + 1}`,
     handle: `kenhkythuat${(i % 3) + 1}`,
-    avatar_url:
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    avatar_url: '/placeholder-avatar.svg',
   },
   duration_ms: (i + 1) * 125000,
   view_count: (i + 1) * 12000,
   published_at: new Date(Date.now() - (i + 1) * 3600000 * 24).toISOString(),
-  thumbnail_url:
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+  thumbnail_url: '/placeholder-thumbnail.svg',
 }));
 
 let mockRecommendedMode: 'default' | 'empty' | '400' | '500' = 'default';
@@ -717,14 +707,12 @@ export const mockPersonalRecommendedVideosFixture: VideoSummary[] = Array.from(
       id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 5) + 1}`,
       display_name: `Kênh Đề Xuất ${(i % 5) + 1}`,
       handle: `kenhdexuat${(i % 5) + 1}`,
-      avatar_url:
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      avatar_url: '/placeholder-avatar.svg',
     },
     duration_ms: (i + 1) * 60000,
     view_count: (i + 1) * 150,
     published_at: new Date(Date.now() - (i + 1) * 3600000).toISOString(),
-    thumbnail_url:
-      'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+    thumbnail_url: '/placeholder-thumbnail.svg',
   }),
 );
 
@@ -737,14 +725,12 @@ export const mockAnonymousRecommendedVideosFixture: VideoSummary[] = Array.from(
       id: `0192f5e4-7c1a-7b3e-9d2a-c0000000000${(i % 3) + 1}`,
       display_name: `Kênh Công Nghệ ${(i % 3) + 1}`,
       handle: `kenhcongnghe${(i % 3) + 1}`,
-      avatar_url:
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      avatar_url: '/placeholder-avatar.svg',
     },
     duration_ms: (i + 1) * 45000,
     view_count: (i + 1) * 300,
     published_at: new Date(Date.now() - (i + 1) * 7200000).toISOString(),
-    thumbnail_url:
-      'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+    thumbnail_url: '/placeholder-thumbnail.svg',
   }),
 );
 
@@ -1148,8 +1134,7 @@ export const handlers = [
       email_verified: false,
       handle: body.handle,
       display_name: body.display_name,
-      avatar_url:
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      avatar_url: '/placeholder-avatar.svg',
       roles: ['viewer'],
       created_at: new Date().toISOString(),
     };
@@ -2431,9 +2416,7 @@ export const handlers = [
           duration_ms: v.duration_ms || 0,
           view_count: v.view_count,
           published_at: v.published_at || v.created_at,
-          thumbnail_url:
-            v.playback?.thumbnail_url ||
-            'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+          thumbnail_url: v.playback?.thumbnail_url || '/placeholder-thumbnail.svg',
         }));
 
       const nextIndex = startIndex + limit;
@@ -2473,9 +2456,7 @@ export const handlers = [
       duration_ms: v.duration_ms || 0,
       view_count: v.view_count,
       published_at: v.published_at || v.created_at,
-      thumbnail_url:
-        v.playback?.thumbnail_url ||
-        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: v.playback?.thumbnail_url || '/placeholder-thumbnail.svg',
     }));
 
     const nextIndex = startIndex + limit;
@@ -2706,9 +2687,7 @@ export const handlers = [
       duration_ms: v.duration_ms || 0,
       view_count: v.view_count,
       published_at: v.published_at || v.created_at,
-      thumbnail_url:
-        v.playback?.thumbnail_url ||
-        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+      thumbnail_url: v.playback?.thumbnail_url || '/placeholder-thumbnail.svg',
     }));
 
     const nextIndex = startIndex + limit;
@@ -2763,9 +2742,7 @@ export const handlers = [
         title: v.title,
         owner: v.owner,
         duration_ms: v.duration_ms ?? 0,
-        thumbnail_url:
-          v.playback?.thumbnail_url ||
-          'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=80',
+        thumbnail_url: v.playback?.thumbnail_url || '/placeholder-thumbnail.svg',
         view_count: v.view_count,
         published_at: v.published_at ?? v.created_at ?? new Date().toISOString(),
         purpose: v.purpose || 'FILM',
@@ -3710,8 +3687,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
         error: null,
         duration_ms: 180000,
         created_at: new Date().toISOString(),
-        thumbnail_url:
-          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+        thumbnail_url: '/placeholder-thumbnail.svg',
       };
       const currentStudio = [newStudioVideo, ...getDynamicStudioVideos()];
       setDynamicStudioVideos(currentStudio);
@@ -3741,8 +3717,7 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
       created_at: new Date().toISOString(),
       playback: {
         hls_url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
-        thumbnail_url:
-          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
+        thumbnail_url: '/placeholder-thumbnail.svg',
         renditions: [
           {
             name: isSocial ? '720p' : '1080p',

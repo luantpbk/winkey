@@ -152,7 +152,7 @@ const mockVideo1: VideoSummary = {
   duration_ms: 600000,
   view_count: 12000,
   published_at: '2026-10-10T12:00:00Z',
-  thumbnail_url: 'https://images.unsplash.com/photo-1518770660439?w=800',
+  thumbnail_url: '/placeholder-thumbnail.svg',
   owner: {
     id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c00',
     handle: 'filmmaker_vn',
@@ -167,7 +167,7 @@ const mockVideo2: VideoSummary = {
   duration_ms: 720000,
   view_count: 34000,
   published_at: '2026-10-09T10:00:00Z',
-  thumbnail_url: 'https://images.unsplash.com/photo-1534528741775?w=800',
+  thumbnail_url: '/placeholder-thumbnail.svg',
   owner: {
     id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c00',
     handle: 'filmmaker_vn',
@@ -199,7 +199,7 @@ const mockFullVideo: Video = {
   },
   playback: {
     hls_url: 'https://media.winkey.vn/hls/master.m3u8',
-    thumbnail_url: 'https://images.unsplash.com/photo-1518770660439?w=800',
+    thumbnail_url: '/placeholder-thumbnail.svg',
     renditions: [],
   },
 };

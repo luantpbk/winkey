@@ -131,8 +131,9 @@ describe('UX1 Issue #428: WCAG 2.1 AA Contrast and 404 Localized Documents', () 
     expect(homeLink.className).toContain('bg-[#D9002B]');
   });
 
-  it('RootNotFound renders root 404 document with lang="vi" and accessible home link', () => {
-    const htmlString = renderToStaticMarkup(<RootNotFound />);
+  it('RootNotFound renders root 404 document with lang="vi" and accessible home link', async () => {
+    const jsx = await RootNotFound();
+    const htmlString = renderToStaticMarkup(jsx);
     expect(htmlString).toContain('<html lang="vi"');
     expect(htmlString).toContain('class="dark"');
     expect(htmlString).toContain('Lỗi 404');

@@ -1,4 +1,10 @@
-export default function EmbedNotFound() {
+import { connection } from 'next/server';
+import { headers } from 'next/headers';
+
+export default async function EmbedNotFound() {
+  await connection();
+  await headers();
+
   return (
     <html lang="vi" className="dark">
       <body className="bg-black m-0 p-0 overflow-hidden w-screen h-screen">

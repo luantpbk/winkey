@@ -48,11 +48,11 @@ const mockPublicVideo: Video = {
     id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
     handle: 'winkey_creator',
     display_name: 'Winkey Official Creator',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+    avatar_url: '/placeholder-avatar.svg',
   },
   playback: {
     hls_url: 'https://media.winkey.vn/hls/test/master.m3u8',
-    thumbnail_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800',
+    thumbnail_url: '/placeholder-thumbnail.svg',
     renditions: [
       { name: '1080p', width: 1920, height: 1080, bitrate_kbps: 5000 },
       { name: '720p', width: 1280, height: 720, bitrate_kbps: 2800 },
@@ -77,7 +77,7 @@ const mockProfile: PublicProfile = {
   id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01',
   handle: 'winkey_creator',
   display_name: 'Winkey Official Creator',
-  avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+  avatar_url: '/placeholder-avatar.svg',
 };
 
 const mockPublicVideoSummary: VideoSummary = {
@@ -303,7 +303,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
           display_name: `Creator ${i}`,
           avatar_url: null,
         },
-        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        thumbnail_url: '/placeholder-thumbnail.svg',
       }));
 
       const page2Videos = Array.from({ length: 50 }, (_, i) => ({
@@ -319,7 +319,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
           display_name: `Creator P2 ${i}`,
           avatar_url: null,
         },
-        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        thumbnail_url: '/placeholder-thumbnail.svg',
       }));
 
       let fetchCallCount = 0;
@@ -356,7 +356,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
           display_name: `User ${i % 100}`,
           avatar_url: null,
         },
-        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        thumbnail_url: '/placeholder-thumbnail.svg',
       }));
 
       const xml = generateSitemapXml(dummyVideos, {
@@ -436,7 +436,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         view_count: 10,
         published_at: '2026-09-01T00:00:00Z',
         owner: mockPublicVideo.owner,
-        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        thumbnail_url: '/placeholder-thumbnail.svg',
         description: 'Mô tả chi tiết của video từ API',
       } as unknown as VideoSummary;
 
@@ -447,7 +447,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
         view_count: 10,
         published_at: '2026-09-01T00:00:00Z',
         owner: mockPublicVideo.owner,
-        thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+        thumbnail_url: '/placeholder-thumbnail.svg',
       };
 
       const xml = generateSitemapXml([videoWithDesc, videoWithoutDesc]);
@@ -491,7 +491,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
           view_count: 10,
           published_at: '2026-09-01T00:00:00Z',
           owner: mockPublicVideo.owner,
-          thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+          thumbnail_url: '/placeholder-thumbnail.svg',
         },
       ];
       const page2Videos = [
@@ -503,7 +503,7 @@ describe('SEO1-web: Search Engine Optimization & Google Discoverability', () => 
           view_count: 20,
           published_at: '2026-09-02T00:00:00Z',
           owner: mockPublicVideo.owner,
-          thumbnail_url: 'https://images.unsplash.com/thumb.jpg',
+          thumbnail_url: '/placeholder-thumbnail.svg',
         },
       ];
 
