@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link, useRouter } from '../../../../i18n/routing';
 import { useAuth } from '../../../../lib/auth/auth-context';
@@ -287,15 +287,7 @@ export default function TwoFactorLoginPage() {
         <span className="text-2xl font-bold tracking-tight text-white">Winkey</span>
       </div>
 
-      <Suspense
-        fallback={
-          <div className="w-full max-w-md p-8 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin" />
-          </div>
-        }
-      >
-        <MfaForm />
-      </Suspense>
+      <MfaForm />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
@@ -10,35 +10,6 @@ import type { RegisterRequest } from '@winkey/api-client';
 import { PlaySquare, AlertCircle } from 'lucide-react';
 import { A11Y_COLORS } from '../../../lib/a11y-tokens';
 import { TurnstileWidget } from '../../../components/auth/turnstile-widget';
-
-function RegisterFormSkeleton() {
-  return (
-    <div
-      aria-hidden="true"
-      className="w-full max-w-md rounded-2xl border border-[#272727] dark:border-[#272727] border-gray-200 bg-[#141414] dark:bg-[#141414] bg-white p-8 shadow-2xl"
-    >
-      <div className="flex flex-col items-center gap-2 text-center mb-6">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-600/20 text-red-500 shadow-lg animate-pulse">
-          <PlaySquare className="h-7 w-7 fill-current" />
-        </div>
-        <div className="h-7 w-48 bg-zinc-800 rounded animate-pulse mt-2" />
-        <div className="h-4 w-64 bg-zinc-800/70 rounded animate-pulse" />
-      </div>
-
-      <div className="flex flex-col gap-3.5">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i}>
-            <div className="h-4 w-24 bg-zinc-800 rounded mb-1 animate-pulse" />
-            <div className="w-full h-10 rounded-xl bg-zinc-800/60 border border-[#383838] animate-pulse" />
-            <div className="min-h-[18px] mt-1" />
-          </div>
-        ))}
-        <div className="h-5 w-3/4 bg-zinc-800/60 rounded animate-pulse pt-1" />
-        <div className="mt-2 h-11 w-full rounded-xl bg-red-600/40 animate-pulse" />
-      </div>
-    </div>
-  );
-}
 
 function RegisterForm() {
   const t = useTranslations('auth');
@@ -415,9 +386,7 @@ function RegisterForm() {
 export default function RegisterPage() {
   return (
     <div className="flex min-h-[calc(100vh-140px)] items-center justify-center p-4">
-      <Suspense fallback={<RegisterFormSkeleton />}>
-        <RegisterForm />
-      </Suspense>
+      <RegisterForm />
     </div>
   );
 }

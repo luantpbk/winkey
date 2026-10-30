@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../i18n/routing';
 import { api } from '../../../lib/api-client';
@@ -261,9 +261,5 @@ function ResetPasswordForm() {
 }
 
 export default function ResetPasswordPage() {
-  return (
-    <Suspense fallback={null}>
-      <ResetPasswordForm />
-    </Suspense>
-  );
+  return <ResetPasswordForm />;
 }

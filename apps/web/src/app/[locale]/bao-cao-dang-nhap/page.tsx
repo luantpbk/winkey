@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link } from '../../../i18n/routing';
 import { api } from '../../../lib/api-client';
@@ -175,15 +175,7 @@ function ReportSessionContent() {
 export default function ReportSessionPage() {
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-12">
-      <Suspense
-        fallback={
-          <div className="w-full max-w-lg p-8 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin" />
-          </div>
-        }
-      >
-        <ReportSessionContent />
-      </Suspense>
+      <ReportSessionContent />
     </div>
   );
 }
