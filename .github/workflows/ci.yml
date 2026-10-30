@@ -343,10 +343,10 @@ jobs:
             exit 1
           fi
 
-      - name: Set up Rust toolchain (pinned 1.84.0)
+      - name: Set up Rust toolchain (pinned 1.99.1)
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.84.0'
+          toolchain: '1.99.1'
           targets: wasm32-unknown-unknown
 
       - name: Cache wasm-pack
