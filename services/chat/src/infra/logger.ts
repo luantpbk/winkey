@@ -23,6 +23,9 @@ export const REDACT_PATHS = [
   'messages[*].ciphertext',
   'keys[*].public_key',
   'keys[*].signature',
+  // SOC-4a: TURN credentials
+  'credential',
+  '*.credential',
 ];
 
 export function sanitizeEndpointUrl(rawUrl: string | undefined | null): string {

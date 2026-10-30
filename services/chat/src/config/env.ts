@@ -11,6 +11,10 @@ const envSchema = z.object({
   MEDIA_BASE_URL: z.string().default('https://media.winkey.vn'),
   TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
   TO_DEVICE_PURGE_INTERVAL: z.string().default('1h'),
+  // SOC-4a TURN (coturn use-auth-secret). Without both, getTurnCredentials answers 503.
+  TURN_SECRET: z.string().optional(),
+  TURN_URLS: z.string().optional(),
+  TURN_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(600),
 });
 
 export type Env = z.infer<typeof envSchema>;
