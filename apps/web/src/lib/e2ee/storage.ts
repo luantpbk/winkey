@@ -38,6 +38,7 @@ export interface E2eeOutboundGroupSessionRecord {
   message_index: number;
   created_at: number;
   pickle: string;
+  device_ids?: string[];
 }
 
 export interface E2eeInboundGroupSessionRecord {

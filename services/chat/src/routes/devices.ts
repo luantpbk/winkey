@@ -592,7 +592,12 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
       }
     }
 
-    return reply.status(200).send({ users: resultUsers });
+    const userList = uniqueUids.map((uid) => ({
+      user_id: uid,
+      devices: resultUsers[uid] || [],
+    }));
+
+    return reply.status(200).send({ users: userList });
   });
 
   // 6. POST /v1/chat/keys/claim - Atomic claim one OTK per target device
