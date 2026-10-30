@@ -11,6 +11,19 @@ const envSchema = z.object({
   MEDIA_BASE_URL: z.string().default('https://media.winkey.vn'),
   TRUST_PROXY_CIDRS: z.string().default('10.42.0.0/16,127.0.0.1'),
   TO_DEVICE_PURGE_INTERVAL: z.string().default('1h'),
+  // SOC-3b attachments (bucket `winkey-chat`). Without the endpoint, bucket and keys the service still starts and the
+  // attachment endpoints answer 503. CHAT_S3_PUBLIC_ENDPOINT is the origin browsers use; URLs are presigned with it.
+  CHAT_S3_ENDPOINT: z.string().optional(),
+  CHAT_S3_PUBLIC_ENDPOINT: z.string().optional(),
+  CHAT_S3_REGION: z.string().default('auto'),
+  CHAT_S3_BUCKET: z.string().default('winkey-chat'),
+  CHAT_S3_ACCESS_KEY_ID: z.string().optional(),
+  CHAT_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  CHAT_ATTACHMENT_TTL: z
+    .string()
+    .regex(/^\d+(ms|s|m|h|d)$/, 'a duration such as 30d')
+    .default('30d'),
+  ATTACHMENT_JANITOR_INTERVAL: z.string().default('1h'),
 });
 
 export type Env = z.infer<typeof envSchema>;
