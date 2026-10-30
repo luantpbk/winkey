@@ -1821,3 +1821,30 @@ Contract `chat.v1.yaml`, migration `000033_chat_e2ee`, realtime `chat.hint`.
 - **CSP:** URL ký của `winkey-chat` dùng path-style trên cùng endpoint R2 như upload, nên `connect-src` đã có sẵn. Thêm env `CSP_CHAT_ORIGIN` (tuỳ chọn) cho môi trường dùng endpoint khác (Garage ở local và systest). Ảnh và video giải mã hiển thị qua `blob:` (đã có trong `img-src` và `media-src`).
 - **Phân việc:** kiến trúc sư (contract, migration); Antigravity 3 (chat-svc: S3 client, janitor); Antigravity 1 (web: nén, mã hoá, tải lên/tải về, giao diện sao lưu và khôi phục, `CSP_CHAT_ORIGIN`); Antigravity 2 (bucket, lifecycle, CORS, secret, env); Antigravity 4 (system test, persona, tải).
 - **Ngoài phạm vi:** ghi âm giọng nói, xem trước link, chuyển tiếp tệp sang hội thoại khác mà không tải lên lại, cross-signing, báo cáo tin nhắn có kiểm chứng.
+
+*Bổ sung 2026-10-31 (SOC-4a, gọi thoại và video 1-1, kiến trúc sư).* Contract `chat.v1.yaml` 1.2.0 (tag `calls`, `getTurnCredentials`). Không có migration, không có sự kiện mới. Mục 6 của ADR này chia hai đợt: **SOC-4a** gọi 1-1 (P2P) và **SOC-4b** gọi nhóm (LiveKit, làm sau).
+
+*Quyết định cho SOC-4a.*
+- **Signaling đi qua kênh E2EE của SOC-3**, không qua realtime-svc như mục 6 dự kiến ban đầu:
+  - lời mời gọi (kèm SDP offer), trả lời (kèm SDP answer), từ chối và kết thúc là **tin Megolm** trong hội thoại `DIRECT`. Nhờ vậy mọi thiết bị của người nhận cùng đổ chuông, thiết bị khác của người gọi biết cuộc gọi đã được nhận, và lịch sử chat ghi "Cuộc gọi thoại · 3 phút" hoặc "Cuộc gọi nhỡ";
+  - ICE candidate đến sau là **tin to-device** (Olm) gửi tới đúng thiết bị đang gọi, nên không làm đầy lịch sử;
+  - chat-svc chỉ thấy ciphertext. Vân tay DTLS trong SDP nằm trong tin E2EE từ thiết bị đã được tin cậy, nên server signaling không thể đứng giữa để tráo vân tay. Đây chính là yêu cầu chống MITM của mục 6.
+  - Độ trễ thêm (POST tin + `chat.hint` + tải về) khoảng 300 ms, vẫn trong mục tiêu thiết lập dưới 3 giây.
+- **Sự kiện trong plaintext Megolm** (do client định nghĩa, có `v: 1`):
+  - `m.call.invite {call_id, media: audio|video, sdp, lifetime_ms: 45000}`;
+  - `m.call.answer {call_id, sdp, answerer_device_id}`; `m.call.reject {call_id}`; `m.call.hangup {call_id, reason, duration_ms}`;
+  - to-device `m.call.candidates {call_id, candidates[]}` và `m.call.select_answer {call_id, device_id}` (báo các thiết bị khác của người nhận ngừng chuông).
+  - Hết 45 giây không ai nhận thì cuộc gọi thành "nhỡ". Đang trong một cuộc gọi khác thì tự động trả `m.call.reject` lý do `busy`.
+- **Chỉ trong hội thoại `DIRECT` có hai thành viên `ACTIVE`**, không có quan hệ chặn (chat-svc đã chặn gửi tin trong trường hợp này). Lời mời nhắn tin `REQUESTED` thì chưa gọi được.
+- **TURN:** `coturn` trên edge, `use-auth-secret`, thông tin đăng nhập tạm 10 phút (`getTurnCredentials`, chat-svc ký HMAC bằng `TURN_SECRET`).
+  - Chỉ relay, `no-multicast-peers`, chặn relay tới mọi dải IP nội bộ, loopback và metadata (`denied-peer-ip`); TLS (`turns:` cổng 443/5349) cho mạng chặn UDP.
+  - Giới hạn băng thông mỗi phiên và tổng (cấu hình được), có metric.
+  - STUN dùng chính coturn; không dùng STUN công cộng của bên thứ ba.
+- **Trình duyệt:**
+  - xin quyền micro/camera **chỉ khi** người dùng bấm gọi hoặc nhận. Thêm header `Permissions-Policy: camera=(self), microphone=(self), display-capture=()`;
+  - CSP không đổi (WebRTC không thuộc `connect-src`; tín hiệu đi qua REST cùng origin);
+  - chỉ đổ chuông khi tab đang mở (chưa có web push); có âm báo và thông báo trong trang;
+  - tiếp tục cuộc gọi khi ICE restart (đổi mạng); tắt/mở micro, camera; đổi loa/micro; chuyển giữa thoại và video.
+- **Không ghi âm, ghi hình** phía server (như mục 6).
+- **Ngoài phạm vi SOC-4a:** gọi nhóm và LiveKit (SOC-4b), chia sẻ màn hình, web push đổ chuông khi đóng tab, ứng dụng di động.
+- **Phân việc:** kiến trúc sư (thiết kế, contract); Opus B (chat-svc `getTurnCredentials`, toàn bộ web); Antigravity 2 (coturn, secret, header, cổng); Antigravity 4 (persona hai trình duyệt có media giả).

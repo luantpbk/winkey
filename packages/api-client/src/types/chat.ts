@@ -94,6 +94,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/calls/turn-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Short-lived TURN credentials for a WebRTC call.
+         * @description Time-limited credentials in the coturn REST API scheme (`use-auth-secret`): `username` is
+         *     `<expiry unix seconds>:<caller user id>` and `credential` is base64(HMAC-SHA1(TURN_SECRET, username)).
+         *     Valid for `ttl_seconds` (600). The server never returns `TURN_SECRET`. Not configured → `503`.
+         *     Rate limit 30/hour per user (`429`).
+         */
+        post: operations["getTurnCredentials"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat/keys/claim": {
         parameters: {
             query?: never;
@@ -745,6 +768,16 @@ export interface components {
             /** @default false */
             replace: boolean;
         };
+        TurnCredentials: {
+            /** @description `turn:` / `turns:` URLs (and optionally `stun:`), passed to `RTCPeerConnection` `iceServers`. */
+            urls: string[];
+            username: string;
+            /** @description Never log it. */
+            credential: string;
+            ttl_seconds: number;
+            /** Format: date-time */
+            expires_at: string;
+        };
         BackedUpSession: {
             conversation_id: components["schemas"]["Uuid"];
             session_id: string;
@@ -1027,6 +1060,37 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getTurnCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnCredentials"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description TURN is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     claimKeys: {
