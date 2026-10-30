@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '../../../i18n/routing';
@@ -322,9 +322,5 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={null}>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
 }

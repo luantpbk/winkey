@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { Link } from '../../../i18n/routing';
 import { api } from '../../../lib/api-client';
@@ -157,9 +157,5 @@ function ForgotPasswordForm() {
 }
 
 export default function ForgotPasswordPage() {
-  return (
-    <Suspense fallback={null}>
-      <ForgotPasswordForm />
-    </Suspense>
-  );
+  return <ForgotPasswordForm />;
 }
