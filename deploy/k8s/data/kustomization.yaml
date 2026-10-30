@@ -82,6 +82,8 @@ configMapGenerator:
       - migrations/000032_social_video.down.sql
       - migrations/000033_chat_e2ee.up.sql
       - migrations/000033_chat_e2ee.down.sql
+      - migrations/000034_chat_attachments_backup.up.sql
+      - migrations/000034_chat_attachments_backup.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql

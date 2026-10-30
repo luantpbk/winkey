@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: Winkey chat-svc API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    End-to-end encrypted messaging (task SOC-3a, ADR-049 section 5 and the SOC-3 addendum 2026-10-30). Owner:
+    End-to-end encrypted messaging (tasks SOC-3a and SOC-3b, ADR-049 section 5 and the SOC-3 addenda 2026-10-30 and
+    2026-10-31). Owner:
     Antigravity 3 (`services/chat`, Node). Gateway: `PathPrefix(/v1/chat)` goes to chat-svc.
 
     - Identity comes only from `X-User-Id` / `X-User-Roles` (ADR-009). Every endpoint requires authentication.
@@ -36,6 +37,14 @@ info:
       (`ACTIVE` + `REQUESTED`), ciphertext ≤ 64 KiB per message and ≤ 16 KiB per to-device message. Rate limits
       per user: 60 messages/min, 2 000 to-device messages/min, 20 conversations created/hour, 20 new message
       requests/day (`429` with `Retry-After`).
+    - **Attachments (SOC-3b):** the client compresses the file, encrypts it with a fresh AES-256-GCM key, and uploads
+      the ciphertext to the private `winkey-chat` bucket with a presigned PUT. The file key, IV, ciphertext SHA-256,
+      MIME type, name and dimensions travel only inside the Megolm message; chat-svc sees the ciphertext size. Up to
+      25 MiB per attachment, 10 per message, 1 GiB of live attachments per user, 100 new attachments/hour.
+      Attachments expire 30 days after creation (the bucket lifecycle rule also deletes objects at 30 days).
+    - **Key backup (SOC-3b):** optional, one per user. The client derives a key from a recovery passphrase with
+      Argon2id, wraps a random backup key with it (`auth_data`), and uploads Megolm inbound session keys encrypted
+      with the backup key. chat-svc stores opaque blobs only and cannot recover a forgotten passphrase.
     - Ids: devices are identified by a UUID the client generates (it is part of the signed device keys);
       everything else is UUIDv7 from chat-svc. Message order is the per-conversation `seq` (1, 2, 3…).
   license:
@@ -56,6 +65,10 @@ tags:
     description: Direct and group conversations, members and message requests.
   - name: messages
     description: Megolm-encrypted messages of a conversation.
+  - name: attachments
+    description: Encrypted files attached to messages (SOC-3b).
+  - name: key-backup
+    description: The caller's optional passphrase-protected backup of Megolm session keys (SOC-3b).
 
 paths:
   /v1/chat/devices:
@@ -840,6 +853,285 @@ paths:
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
 
+  /v1/chat/conversations/{conversation_id}/attachments:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [attachments]
+      operationId: createAttachment
+      summary: Reserve an attachment and get a presigned PUT URL for its ciphertext.
+      description: |
+        - The caller must be `ACTIVE` in the conversation (`REQUESTED` → `403 REQUEST_PENDING`, `LEFT` → `404`), and
+          `sender_device_id` one of their active devices (`403 DEVICE_NOT_YOURS`).
+        - Over 1 GiB of the caller's live attachments (`PENDING` + `UPLOADED`, not expired) → `409 ATTACHMENT_QUOTA`.
+        - The URL accepts exactly one `PUT` of exactly `size_bytes` bytes with the returned `upload_headers`, for
+          15 minutes. The object key is chosen by chat-svc and never reveals the file name.
+        - An attachment not referenced by a message within 24 hours is deleted with its object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAttachmentRequest'
+      responses:
+        '201':
+          description: Reserved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUpload'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/conversations/{conversation_id}/attachments/{attachment_id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AttachmentId'
+    post:
+      tags: [attachments]
+      operationId: completeAttachment
+      summary: Confirm the upload. Idempotent.
+      description: |
+        Only the uploader. chat-svc checks the object exists with exactly `size_bytes` bytes (HEAD) and sets
+        `UPLOADED`. Missing or wrong size → `409 UPLOAD_INCOMPLETE` (a wrong-size object is deleted; reserve again).
+      responses:
+        '200':
+          description: Uploaded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+
+  /v1/chat/conversations/{conversation_id}/attachments/{attachment_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AttachmentId'
+    post:
+      tags: [attachments]
+      operationId: downloadAttachment
+      summary: Get a short-lived presigned GET URL for the ciphertext.
+      description: |
+        - The uploader may download their own attachment at any time before it expires.
+        - Anyone else must be a member whose readable range (`joined_seq` through `last_seq`, or `left_seq`)
+          includes the message that references it; otherwise `404`. Deleted message → `404`.
+        - Expired → `410` code `ATTACHMENT_EXPIRED`. The URL is valid for 5 minutes.
+        - `POST` so that the URL never lands in caches or browser history.
+      responses:
+        '200':
+          description: Download URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentDownload'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '410':
+          description: The attachment expired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Problem'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/chat/key-backup:
+    get:
+      tags: [key-backup]
+      operationId: getKeyBackup
+      summary: The caller's key backup parameters.
+      description: No backup → `404`. Rate limit 30/hour per user.
+      responses:
+        '200':
+          description: The backup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyBackup'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    put:
+      tags: [key-backup]
+      operationId: putKeyBackup
+      summary: Create the key backup, or replace it (new passphrase, or reset after a forgotten one).
+      description: |
+        - No backup yet → creates version 1, `201`.
+        - A backup exists → only with `replace: true` (else `409 BACKUP_EXISTS`): bumps `version`, replaces
+          `auth_data` and **deletes every stored session** (the old backup key can no longer be unwrapped), `200`.
+          Clients re-upload the sessions they hold.
+        - Rate limit 10/day per user. A stolen session could replace or delete the backup but never read it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutKeyBackupRequest'
+      responses:
+        '200':
+          description: Replaced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyBackup'
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyBackup'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    delete:
+      tags: [key-backup]
+      operationId: deleteKeyBackup
+      summary: Delete the backup and all its sessions. Idempotent.
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/chat/key-backup/sessions:
+    get:
+      tags: [key-backup]
+      operationId: listKeyBackupSessions
+      summary: Page through the backed-up session keys.
+      parameters:
+        - name: version
+          in: query
+          required: true
+          description: Must equal the current backup version, else `409 BACKUP_VERSION_MISMATCH`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: conversation_id
+          in: query
+          required: false
+          schema:
+            $ref: './common.yaml#/components/schemas/Uuid'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        '200':
+          description: One page, ordered by `(conversation_id, session_id)`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BackedUpSession'
+                  next_cursor:
+                    type: [string, 'null']
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+    put:
+      tags: [key-backup]
+      operationId: putKeyBackupSessions
+      summary: Upload or update up to 100 encrypted session keys.
+      description: |
+        - `version` must equal the current backup version (`409 BACKUP_VERSION_MISMATCH`); no backup → `404`.
+        - Per `(conversation_id, session_id)`, the stored row is replaced only when the new
+          `first_message_index` is lower or equal (a key that decrypts more history wins; equal → newer wins).
+        - At most 50 000 sessions per backup (`409 BACKUP_FULL`). Rate limit 600 sessions/min per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, sessions]
+              additionalProperties: false
+              properties:
+                version:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                sessions:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/BackedUpSession'
+      responses:
+        '200':
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stored, kept]
+                properties:
+                  stored:
+                    type: integer
+                    description: Sessions inserted or replaced.
+                  kept:
+                    type: integer
+                    description: Sessions skipped because the stored key was better.
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -853,6 +1145,12 @@ components:
         $ref: './common.yaml#/components/schemas/Uuid'
     ConversationId:
       name: conversation_id
+      in: path
+      required: true
+      schema:
+        $ref: './common.yaml#/components/schemas/Uuid'
+    AttachmentId:
+      name: attachment_id
       in: path
       required: true
       schema:
@@ -1110,6 +1408,16 @@ components:
           minLength: 1
           maxLength: 87384
           description: Megolm message, base64, ≤ 64 KiB decoded. Its plaintext is a JSON event chosen by the client.
+        attachment_ids:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          description: |
+            Attachments this message carries (their keys are inside `ciphertext`). Each must be `UPLOADED`, in this
+            conversation, uploaded by the caller, not expired and not yet referenced by another message; otherwise
+            `409 ATTACHMENT_UNAVAILABLE`. A retry with the same `client_msg_id` ignores this field.
+          items:
+            $ref: './common.yaml#/components/schemas/Uuid'
 
     SystemBody:
       type: object
@@ -1183,6 +1491,147 @@ components:
             - type: 'null'
         deleted:
           type: boolean
+        attachments:
+          type: array
+          description: |
+            Attachments referenced by this message; empty for `SYSTEM` and deleted messages. chat-svc sends it on
+            every message from SOC-3b on; clients treat a missing field as empty.
+          items:
+            $ref: '#/components/schemas/Attachment'
         created_at:
           type: string
           format: date-time
+
+    CreateAttachmentRequest:
+      type: object
+      required: [sender_device_id, size_bytes]
+      additionalProperties: false
+      properties:
+        sender_device_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 26214400
+          description: Exact ciphertext size in bytes (≤ 25 MiB).
+
+    Attachment:
+      type: object
+      required: [id, conversation_id, size_bytes, state, expires_at, created_at]
+      properties:
+        id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        conversation_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        size_bytes:
+          type: integer
+          format: int64
+        state:
+          type: string
+          enum: [PENDING, UPLOADED]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    AttachmentUpload:
+      type: object
+      required: [attachment, upload_url, upload_headers, upload_expires_at]
+      properties:
+        attachment:
+          $ref: '#/components/schemas/Attachment'
+        upload_url:
+          type: string
+          format: uri
+          description: Presigned `PUT` URL. Never log it.
+        upload_headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: 'Headers the PUT must send exactly: Content-Type application/octet-stream and Content-Length.'
+        upload_expires_at:
+          type: string
+          format: date-time
+
+    AttachmentDownload:
+      type: object
+      required: [url, expires_at, size_bytes]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Presigned `GET` URL, valid 5 minutes. Never log it.
+        expires_at:
+          type: string
+          format: date-time
+        size_bytes:
+          type: integer
+          format: int64
+
+    KeyBackupAuthData:
+      type: object
+      description: |
+        Opaque to chat-svc, ≤ 4 KiB serialized. The web client writes (all binary values unpadded base64):
+        `{"kdf":"argon2id","salt":S,"m_kib":65536,"t":3,"p":1,"wrapped_key":W,"iv":IV,"key_check":C}`, where
+        `wrapped_key` is the 32-byte backup key encrypted with AES-256-GCM under the Argon2id output and `key_check`
+        lets the client tell a wrong passphrase from corrupt data. chat-svc only checks it is an object within size.
+      additionalProperties: true
+
+    KeyBackup:
+      type: object
+      required: [version, algorithm, auth_data, session_count, created_at, updated_at]
+      properties:
+        version:
+          type: integer
+          format: int64
+        algorithm:
+          type: string
+          enum: [winkey.backup.v1]
+        auth_data:
+          $ref: '#/components/schemas/KeyBackupAuthData'
+        session_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PutKeyBackupRequest:
+      type: object
+      required: [algorithm, auth_data]
+      additionalProperties: false
+      properties:
+        algorithm:
+          type: string
+          enum: [winkey.backup.v1]
+        auth_data:
+          $ref: '#/components/schemas/KeyBackupAuthData'
+        replace:
+          type: boolean
+          default: false
+
+    BackedUpSession:
+      type: object
+      required: [conversation_id, session_id, first_message_index, ciphertext]
+      additionalProperties: false
+      properties:
+        conversation_id:
+          $ref: './common.yaml#/components/schemas/Uuid'
+        session_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        first_message_index:
+          type: integer
+          minimum: 0
+          description: The first Megolm message index this exported key can decrypt.
+        ciphertext:
+          type: string
+          minLength: 1
+          maxLength: 10924
+          description: The exported inbound session key, AES-256-GCM under the backup key, base64, ≤ 8 KiB decoded.
