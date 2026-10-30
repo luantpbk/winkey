@@ -13,6 +13,7 @@ import { TotpSection } from '../../../../components/settings/security/totp-secti
 import { PasskeysSection } from '../../../../components/settings/security/passkeys-section';
 import { RecoveryCodesSection } from '../../../../components/settings/security/recovery-codes-section';
 import { SessionsSection } from '../../../../components/settings/security/sessions-section';
+import { ChatDevicesSection } from '../../../../components/settings/security/chat-devices-section';
 import { SecurityLogSection } from '../../../../components/settings/security/security-log-section';
 import { StepUpDialog } from '../../../../components/auth/step-up-dialog';
 
@@ -128,6 +129,9 @@ export default function SecuritySettingsPage() {
 
           {/* Sessions */}
           <SessionsSection onRequireStepUp={handleRequireStepUp} />
+
+          {/* E2EE Chat Devices */}
+          <ChatDevicesSection />
 
           {/* Security Event Log */}
           <SecurityLogSection />
