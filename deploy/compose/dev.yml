@@ -372,6 +372,20 @@ services:
   #     valkey:
   #       condition: service_started
 
+  # chat-svc:
+  #   image: ghcr.io/luantpbk/winkey-chat:latest
+  #   profiles: ["chat", "all"]
+  #   environment:
+  #     DATABASE_URL: postgres://chat_svc:chat_svc@postgres:5432/winkey?sslmode=disable
+  #     NATS_URL: nats://nats:4222
+  #     VALKEY_URL: redis://valkey:6379
+  #     HTTP_PORT: 3006
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     migrate:
+  #       condition: service_completed_successfully
+
 volumes:
   postgres_data:
   valkey_data:

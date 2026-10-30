@@ -14,20 +14,22 @@ gen_secret() {
     openssl rand -hex "$1"
 }
 
-echo "==> [1/6] Fetching base infrastructure passwords from DATA & STORAGE secrets..."
+echo "==> [1/7] Fetching base infrastructure passwords from DATA & STORAGE secrets..."
 PG_AUTH_PWD=$(kubectl get secret winkey-pg-auth-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_MEDIA_PWD=$(kubectl get secret winkey-pg-media-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 PG_SOCIAL_PWD=$(kubectl get secret winkey-pg-social-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
+PG_CHAT_PWD=$(kubectl get secret winkey-pg-chat-svc -n "$NAMESPACE" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true)
 
 NATS_AUTH_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.auth_password}' | base64 -d)
 NATS_UPLOAD_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.upload_password}' | base64 -d)
 NATS_VIDEO_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.video_password}' | base64 -d)
 NATS_SOCIAL_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.social_password}' | base64 -d)
 NATS_REALTIME_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.realtime_password}' | base64 -d)
+NATS_CHAT_PWD=$(kubectl get secret nats-auth -n "$NAMESPACE" -o jsonpath='{.data.chat_password}' 2>/dev/null | base64 -d || true)
 
 VALKEY_PWD=$(kubectl get secret valkey-auth -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 
-echo "==> [2/6] Ensuring auth-secrets exists..."
+echo "==> [2/7] Ensuring auth-secrets exists..."
 if ! kubectl get secret auth-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     RSA_KEY=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048)
     COOKIE_SECRET=$(gen_secret 32)
@@ -154,7 +156,7 @@ else
     fi
 fi
 
-echo "==> [3/6] Ensuring upload-secrets exists..."
+echo "==> [3/7] Ensuring upload-secrets exists..."
 if ! kubectl get secret upload-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
     NATS_URL="nats://upload:${NATS_UPLOAD_PWD}@nats.default.svc:4222"
@@ -167,7 +169,7 @@ else
     echo "  Secret upload-secrets already exists." >&2
 fi
 
-echo "==> [4/6] Ensuring video-secrets exists..."
+echo "==> [4/7] Ensuring video-secrets exists..."
 if ! kubectl get secret video-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://media_svc:${PG_MEDIA_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
     NATS_URL="nats://video:${NATS_VIDEO_PWD}@nats.default.svc:4222"
@@ -207,7 +209,7 @@ if [ -d /var/lib/rancher/k3s ]; then
     echo "  Exported MEDIA_LINK_SECRET to /var/lib/rancher/k3s/media-link-secret (0600)." >&2
 fi
 
-echo "==> [5/6] Ensuring social-secrets exists..."
+echo "==> [5/7] Ensuring social-secrets exists..."
 if ! kubectl get secret social-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://social_svc:${PG_SOCIAL_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
     NATS_URL="nats://social:${NATS_SOCIAL_PWD}@nats.default.svc:4222"
@@ -222,7 +224,7 @@ else
     echo "  Secret social-secrets already exists." >&2
 fi
 
-echo "==> [6/6] Ensuring realtime-secrets exists..."
+echo "==> [6/7] Ensuring realtime-secrets exists..."
 if ! kubectl get secret realtime-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     NATS_URL="nats://realtime:${NATS_REALTIME_PWD}@nats.default.svc:4222"
     VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
@@ -233,6 +235,21 @@ if ! kubectl get secret realtime-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     echo "  Created secret realtime-secrets." >&2
 else
     echo "  Secret realtime-secrets already exists." >&2
+fi
+
+echo "==> [7/7] Ensuring chat-secrets exists..."
+if ! kubectl get secret chat-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
+    DATABASE_URL="postgres://chat_svc:${PG_CHAT_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
+    NATS_URL="nats://chat:${NATS_CHAT_PWD}@nats.default.svc:4222"
+    VALKEY_URL="redis://:${VALKEY_PWD}@valkey:6379"
+
+    kubectl create secret generic chat-secrets -n "$NAMESPACE" \
+      --from-literal=DATABASE_URL="$DATABASE_URL" \
+      --from-literal=NATS_URL="$NATS_URL" \
+      --from-literal=VALKEY_URL="$VALKEY_URL"
+    echo "  Created secret chat-secrets." >&2
+else
+    echo "  Secret chat-secrets already exists." >&2
 fi
 
 echo "All Application Plane secrets successfully verified."

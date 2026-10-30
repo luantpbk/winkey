@@ -9,6 +9,8 @@ MEDIA_SVC_USER="${MEDIA_SVC_USER:-media_svc}"
 MEDIA_SVC_PASSWORD="${MEDIA_SVC_PASSWORD:-media_svc}"
 SOCIAL_SVC_USER="${SOCIAL_SVC_USER:-social_svc}"
 SOCIAL_SVC_PASSWORD="${SOCIAL_SVC_PASSWORD:-social_svc}"
+CHAT_SVC_USER="${CHAT_SVC_USER:-chat_svc}"
+CHAT_SVC_PASSWORD="${CHAT_SVC_PASSWORD:-chat_svc}"
 
 echo "Initializing Winkey PostgreSQL roles..."
 
@@ -26,6 +28,9 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
         END IF;
         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${SOCIAL_SVC_USER}') THEN
             CREATE ROLE ${SOCIAL_SVC_USER} WITH LOGIN PASSWORD '${SOCIAL_SVC_PASSWORD}';
+        END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${CHAT_SVC_USER}') THEN
+            CREATE ROLE ${CHAT_SVC_USER} WITH LOGIN PASSWORD '${CHAT_SVC_PASSWORD}';
         END IF;
     END
     \$\$;

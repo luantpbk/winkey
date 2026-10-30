@@ -50,7 +50,24 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
-    # 7. Smoke test route for header stripping verification
+    # 7. Chat service routes (SOC-3a, ADR-049)
+    # 7a. To-device messages (1 MiB body limit)
+    chat-to-device:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/chat/to-device`)'
+      service: 'chat-svc'
+      middlewares: ['strip-user-headers', 'auth-verify', 'chat-body-limit-to-device']
+      priority: 85
+
+    # 7b. Chat general routes (128 KiB body limit)
+    chat:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/chat`)'
+      service: 'chat-svc'
+      middlewares: ['strip-user-headers', 'auth-verify', 'chat-body-limit-default']
+      priority: 80
+
+    # 8. Smoke test route for header stripping verification
     smoke-test:
       entryPoints: ['web']
       rule: 'PathPrefix(`/smoke/whoami`)'
@@ -58,7 +75,7 @@ http:
       middlewares: ['strip-user-headers']
       priority: 80
 
-    # 8. Web Next.js fallback
+    # 9. Web Next.js fallback
     web:
       entryPoints: ['web']
       rule: 'PathPrefix(`/`) && !PathPrefix(`/v1`) && !PathPrefix(`/smoke`)'
@@ -81,6 +98,15 @@ http:
           - 'X-User-Id'
           - 'X-User-Roles'
 
+    # SOC-3a body limit middlewares
+    chat-body-limit-to-device:
+      buffering:
+        maxRequestBodyBytes: 1048576 # 1 MiB
+
+    chat-body-limit-default:
+      buffering:
+        maxRequestBodyBytes: 131072 # 128 KiB
+
   services:
     auth-svc:
       loadBalancer:
@@ -102,6 +128,10 @@ http:
       loadBalancer:
         servers:
           - url: 'http://realtime-svc:8003'
+    chat-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://chat-svc:3006'
     whoami-svc:
       loadBalancer:
         servers:

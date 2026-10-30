@@ -15,10 +15,11 @@ All workloads are configured with strict resource boundaries (`requests` and `li
 | **video-svc** | Go 1.26 (Distroless) | 3003 | `nonroot` (65532) | 150m / 256Mi | 500m / 512Mi | `sha256:d72e894bfd64...` |
 | **social-svc** | Node 22 (Fastify) | 3004 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:5eb09e998516...` |
 | **realtime-svc** | Node 22 (Fastify/WS) | 3005 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:9349a2f36fdd...` |
+| **chat-svc** | Node 22 (Fastify) | 3006 | `node` (1000) | 30m / 192Mi | 300m / 512Mi | `ghcr.io/luantpbk/winkey-chat:latest` |
 | **web-svc** | Next.js 15 (Node 22) | 3000 | `nextjs` (1001) | 150m / 384Mi | 500m / 768Mi | `sha256:d5ebcf1bca2a...` |
-| **Total Apps** | | | | **700m / 1.5 GB** | **2.2 vCPU / 3.0 GB** | |
+| **Total Apps** | | | | **730m / 1.7 GB** | **2.5 vCPU / 3.5 GB** | |
 
-*Apps plane total requests (~700m CPU / 1.5 GB RAM) + Data plane (~450m CPU / 1.1 GB RAM) comfortably fit within the host 4-core / 16 GB budget with ample headroom for Garage storage.*
+*Apps plane total requests (~730m CPU / 1.7 GB RAM) + Data plane (~450m CPU / 1.1 GB RAM) comfortably fit within the host 4-core / 16 GB budget with ample headroom for Garage storage.*
 
 ---
 
@@ -26,7 +27,7 @@ All workloads are configured with strict resource boundaries (`requests` and `li
 
 ```text
 deploy/k8s/apps/
-├── kustomization.yaml             # Aggregates all 6 applications
+├── kustomization.yaml             # Aggregates all 7 applications
 ├── secrets.sh                     # Idempotent secret generator
 ├── verify.sh                      # In-cluster probe and rollout verification
 ├── README.md                      # Deployment & operational runbook
@@ -49,6 +50,10 @@ deploy/k8s/apps/
 ├── realtime/
 │   ├── deployment.yaml            # realtime-svc Deployment (HTTP_PORT=3005, port named http)
 │   ├── service.yaml               # ClusterIP: 3005
+│   └── kustomization.yaml         # Pinned image digest
+├── chat/
+│   ├── deployment.yaml            # chat-svc Deployment (HTTP_PORT=3006, port named http)
+│   ├── service.yaml               # ClusterIP: 3006
 │   └── kustomization.yaml         # Pinned image digest
 └── web/
     ├── deployment.yaml            # web-svc Next.js standalone Deployment

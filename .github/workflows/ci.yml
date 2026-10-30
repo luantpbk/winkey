@@ -24,12 +24,17 @@ jobs:
       deploy_lt2: ${{ steps.filter.outputs.deploy_lt2 }}
       loadtest: ${{ steps.filter.outputs.loadtest }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      wasm_e2ee: ${{ steps.filter.outputs.wasm_e2ee }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
+            wasm_e2ee:
+              - 'apps/web/e2ee-wasm/**'
+              - 'apps/web/public/wasm/**'
+              - '.github/workflows/ci.yml'
             deploy_lt2:
               - 'deploy/lt2/**'
               - '.github/workflows/ci.yml'
@@ -269,7 +274,7 @@ jobs:
           kustomize build deploy/k8s/apps | kubeconform -strict -summary -schema-location default
       - name: 'Verify apps deployment specifications (part-of: winkey, probes, resources)'
         run: |
-          for app in auth upload video social realtime web; do
+          for app in auth upload video social realtime chat web; do
             manifest="deploy/k8s/apps/$app"
             output=$(kustomize build "$manifest")
             echo "Checking $app deployment..."
@@ -321,3 +326,57 @@ jobs:
           else
             echo "skip: no e2e regressions present on this branch yet."
           fi
+
+  verify-wasm:
+    name: verify vodozemac wasm build
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.wasm_e2ee == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check if e2ee-wasm crate exists
+        id: check
+        run: |
+          if [ -f "apps/web/e2ee-wasm/Cargo.toml" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip: apps/web/e2ee-wasm/Cargo.toml not present yet"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Rust toolchain
+        if: steps.check.outputs.exists == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache wasm-pack
+        if: steps.check.outputs.exists == 'true'
+        id: cache-wasm-pack
+        uses: actions/cache@v6
+        with:
+          path: /home/runner/.cargo/bin/wasm-pack
+          key: wasm-pack-0.13.1
+
+      - name: Install wasm-pack (pinned 0.13.1)
+        if: steps.check.outputs.exists == 'true' && steps.cache-wasm-pack.outputs.cache-hit != 'true'
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- --version v0.13.1
+
+      - name: Build wasm-pack release
+        if: steps.check.outputs.exists == 'true'
+        working-directory: apps/web/e2ee-wasm
+        run: |
+          wasm-pack build --target web --release
+
+      - name: Verify build artifacts match committed files
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          cmp apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm apps/web/public/wasm/vodozemac_winkey_bg.wasm || {
+            echo "ERROR: apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm does not match apps/web/public/wasm/vodozemac_winkey_bg.wasm"
+            exit 1
+          }
+          git status --porcelain apps/web/e2ee-wasm/pkg apps/web/public/wasm
+          git diff --exit-code apps/web/e2ee-wasm/pkg apps/web/public/wasm
