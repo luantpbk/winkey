@@ -695,9 +695,7 @@ export const devicesRoute: FastifyPluginAsync<DevicesRouteDependencies> = async 
         chat.one_time_keys.signature
     `.execute(db);
 
-    const otkByDevice = new Map<string, DeletedOtkRow>(
-      otkResult.rows.map((r) => [r.device_id, r]),
-    );
+    const otkByDevice = new Map<string, DeletedOtkRow>(otkResult.rows.map((r) => [r.device_id, r]));
 
     const eligibleMap = new Map(eligibleDevicesRes.rows.map((d) => [d.id, d]));
     const claimedKeys: Array<{

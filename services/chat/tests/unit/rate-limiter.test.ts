@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ValkeyRateLimiter, buildClaimKeysRateLimitKey } from '../../src/rate-limit/valkey-limiter.js';
+import {
+  ValkeyRateLimiter,
+  buildClaimKeysRateLimitKey,
+} from '../../src/rate-limit/valkey-limiter.js';
 import { ProblemError } from '../../src/errors/problem.js';
 
 describe('ValkeyRateLimiter (In-Memory Fallback & Cost-Based Weighting)', () => {
