@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Winkey social-svc API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Comments (two levels), video likes and channel subscriptions. Owner: Antigravity 3 (task C1).
 
@@ -78,6 +78,11 @@ tags:
       Limits: 1000 blocks and 1000 mutes per user (`409` code `LIMIT_REACHED`). Rate limit: 60 block / mute
       changes per hour (`429`). Other services that must honour blocks (SOC-3 chat, realtime) read
       `social.blocks` through a grant; it is not an event.
+  - name: people
+    description: |
+      Finding people (task SOC-6a, ADR-049). Gateway: `/v1/people` goes to social-svc (`PathPrefix`). The path is not
+      `/v1/users/search` because `/v1/users/*` belongs to auth-svc and `/v1/users/{handle}` would shadow a user whose
+      handle is `search`.
   - name: moderation
     description: |
       User reports and the moderation queue (task A2). Reading and resolving reports needs `moderator` or
@@ -765,6 +770,62 @@ paths:
           description: Not muted.
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/people/search:
+    get:
+      tags: [people]
+      operationId: searchPeople
+      summary: Find people by handle or display name (task SOC-6a). Optional auth.
+      description: |
+        Searches active profiles (`auth.public_profiles`). `q` is trimmed and a leading `@` is removed; what is left
+        must be 1–64 characters (`400` code `INVALID_QUERY` otherwise). Matching folds case and Vietnamese diacritics
+        (`đ` → `d`), so `tuan` finds "Tuấn":
+        - the handle starts with `q`, or
+        - the folded display name starts with `q`, or (when `q` has at least 3 characters) contains it.
+        `%`, `_` and `\` in `q` are literal characters.
+
+        **Excluded:** the caller, and users in a block relation with the caller (either direction). Private accounts
+        are found (their profile header is public, as in `getUserByHandle`).
+
+        **Order:**
+        1. signed in only: mutual follows first, then users the caller follows, then everyone else;
+        2. exact handle match, then handle prefix, then display-name prefix, then display-name substring;
+        3. handle, ascending.
+
+        Results stop after 100 matches: search is for picking a person, not for browsing. `next_cursor` is `null` on
+        the last page. Rate limit: 60 requests per minute per user, or per IP when anonymous (`429`).
+      security:
+        - {}
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 65
+          description: Handle or display name; a leading `@` is ignored.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+        - $ref: './common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: One page of people.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeoplePage'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
         '429':
           $ref: './common.yaml#/components/responses/TooManyRequests'
 
@@ -2731,6 +2792,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RelationItem'
+        next_cursor:
+          type: [string, 'null']
+
+    PeoplePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: './common.yaml#/components/schemas/PublicProfile'
         next_cursor:
           type: [string, 'null']
 

@@ -360,6 +360,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/people/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find people by handle or display name (task SOC-6a). Optional auth.
+         * @description Searches active profiles (`auth.public_profiles`). `q` is trimmed and a leading `@` is removed; what is left
+         *     must be 1–64 characters (`400` code `INVALID_QUERY` otherwise). Matching folds case and Vietnamese diacritics
+         *     (`đ` → `d`), so `tuan` finds "Tuấn":
+         *     - the handle starts with `q`, or
+         *     - the folded display name starts with `q`, or (when `q` has at least 3 characters) contains it.
+         *     `%`, `_` and `\` in `q` are literal characters.
+         *
+         *     **Excluded:** the caller, and users in a block relation with the caller (either direction). Private accounts
+         *     are found (their profile header is public, as in `getUserByHandle`).
+         *
+         *     **Order:**
+         *     1. signed in only: mutual follows first, then users the caller follows, then everyone else;
+         *     2. exact handle match, then handle prefix, then display-name prefix, then display-name substring;
+         *     3. handle, ascending.
+         *
+         *     Results stop after 100 matches: search is for picking a person, not for browsing. `next_cursor` is `null` on
+         *     the last page. Rate limit: 60 requests per minute per user, or per IP when anonymous (`429`).
+         */
+        get: operations["searchPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/notifications": {
         parameters: {
             query?: never;
@@ -1436,6 +1472,10 @@ export interface components {
             items: components["schemas"]["RelationItem"][];
             next_cursor: string | null;
         };
+        PeoplePage: {
+            items: components["schemas"]["PublicProfile"][];
+            next_cursor: string | null;
+        };
         /**
          * @description A private account's posts are followers-only whatever this value says.
          * @enum {string}
@@ -2364,6 +2404,34 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    searchPeople: {
+        parameters: {
+            query: {
+                /** @description Handle or display name; a leading `@` is ignored. */
+                q: string;
+                limit?: number;
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of people. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeoplePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             429: components["responses"]["TooManyRequests"];
         };
     };
