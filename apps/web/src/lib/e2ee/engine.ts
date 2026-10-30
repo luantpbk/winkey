@@ -27,6 +27,16 @@ import {
   type E2eeDeviceTrustRecord,
 } from './storage';
 import { shouldRotateMegolmSession } from './rotation';
+import {
+  BackupError,
+  createAuthData,
+  openSession,
+  sealSession,
+  unlockAuthData,
+  type Argon2id,
+  type BackupAuthData,
+  libsodiumArgon2id,
+} from './key-backup';
 import type {
   MemberDeviceRef,
   ClaimedOtkRef,
@@ -36,7 +46,17 @@ import type {
   WorkerDecryptToDeviceResult,
   DecryptGroupMessageResult,
   TrustRecordStatus,
+  BackupSessionItem,
+  BackupStatus,
+  BackupImportResult,
 } from './protocol';
+
+/**
+ * Backed-up sessions are vodozemac pickles under this fixed key, then sealed with AES-256-GCM under the backup key
+ * (key-backup.ts). The pickle keeps the session's first known index, so it decrypts the same history as an
+ * exported session key; using it avoids a WASM rebuild (the wrapper has no export/import yet).
+ */
+const EXPORT_PICKLE_KEY = new Uint8Array(32);
 
 function toBase64(str: string): string {
   if (typeof btoa !== 'undefined') {
@@ -60,9 +80,13 @@ export class E2eeWorkerEngine {
   private deviceId: string | null = null;
   private userId: string | null = null;
   private wasmInitialized = false;
+  private backupKey: Uint8Array | null = null;
+  private backupVersion: number | null = null;
+  private readonly argon2id: Argon2id;
 
-  constructor(storage = new E2eeStorage()) {
+  constructor(storage = new E2eeStorage(), argon2id: Argon2id = libsodiumArgon2id) {
     this.storage = storage;
+    this.argon2id = argon2id;
   }
 
   async ensureWasm(wasmInput?: any): Promise<void> {
@@ -620,7 +644,159 @@ export class E2eeWorkerEngine {
     return { status: 'TRUSTED', record: existing };
   }
 
+  // --------------------------------------------------------------------------------------------------------------
+  // SOC-3b key backup. The backup key lives only here, and at rest in IndexedDB wrapped by the non-extractable
+  // storage key (the same protection as the vodozemac pickle key).
+
+  private async storeBackupKey(key: Uint8Array, version: number | null): Promise<void> {
+    if (!this.masterKey) throw new Error('E2EE engine not initialized');
+    this.backupKey = key;
+    this.backupVersion = version;
+    await this.storage.put('meta', {
+      key: 'backup_key',
+      value: { wrapped: await wrapPickleKey(this.masterKey, key), version },
+    });
+  }
+
+  private async loadBackupKey(): Promise<void> {
+    if (this.backupKey || !this.masterKey) return;
+    const rec = await this.storage.get<{
+      key: string;
+      value: { wrapped: WrappedPickleKey; version: number | null };
+    }>('meta', 'backup_key');
+    if (!rec) return;
+    this.backupKey = await unwrapPickleKey(this.masterKey, rec.value.wrapped);
+    this.backupVersion = rec.value.version;
+  }
+
+  /** A new backup key wrapped under the passphrase; the caller uploads `authData`, then calls backupActivate. */
+  async backupCreate(passphrase: string): Promise<{ authData: BackupAuthData }> {
+    const { authData, backupKey } = await createAuthData(passphrase, this.argon2id);
+    await this.storeBackupKey(backupKey, null);
+    return { authData };
+  }
+
+  /** Checks the passphrase against `auth_data` (key_check) and keeps the unwrapped key. */
+  async backupUnlock(authData: unknown, passphrase: string): Promise<void> {
+    const key = await unlockAuthData(authData, passphrase, this.argon2id);
+    await this.storeBackupKey(key, null);
+  }
+
+  /** The server version this key belongs to. A new version means every session must be uploaded again. */
+  async backupActivate(version: number): Promise<void> {
+    await this.loadBackupKey();
+    if (!this.backupKey) throw new BackupError('Chưa mở khoá bản sao lưu.', 'LOCKED');
+    await this.storeBackupKey(this.backupKey, version);
+  }
+
+  async backupStatus(): Promise<BackupStatus> {
+    await this.loadBackupKey();
+    const sessions =
+      await this.storage.getAll<E2eeInboundGroupSessionRecord>('inbound_group_sessions');
+    return {
+      unlocked: this.backupKey !== null,
+      version: this.backupVersion,
+      sessionCount: sessions.length,
+      backedUpCount:
+        this.backupVersion === null
+          ? 0
+          : sessions.filter((s) => s.backed_up_version === this.backupVersion).length,
+    };
+  }
+
+  async backupForget(): Promise<void> {
+    this.backupKey = null;
+    this.backupVersion = null;
+    await this.storage.delete('meta', 'backup_key');
+  }
+
+  /** Up to `limit` inbound sessions not yet in the current backup version, sealed for upload. */
+  async backupExportPending(limit: number): Promise<Array<BackupSessionItem & { key: string }>> {
+    if (!this.pickleKey) throw new Error('E2EE engine not initialized');
+    await this.loadBackupKey();
+    if (!this.backupKey || this.backupVersion === null) {
+      throw new BackupError('Chưa mở khoá bản sao lưu.', 'LOCKED');
+    }
+    const sessions =
+      await this.storage.getAll<E2eeInboundGroupSessionRecord>('inbound_group_sessions');
+    const pending = sessions
+      .filter((s) => s.backed_up_version !== this.backupVersion)
+      .slice(0, limit);
+    const out: Array<BackupSessionItem & { key: string }> = [];
+    for (const rec of pending) {
+      const inbound = InboundGroupSession.fromPickle(rec.pickle, this.pickleKey);
+      out.push({
+        key: rec.key,
+        conversation_id: rec.conversation_id,
+        session_id: rec.session_id,
+        first_message_index: inbound.firstKnownIndex(),
+        ciphertext: await sealSession(this.backupKey, {
+          v: 1,
+          pickle: inbound.pickle(EXPORT_PICKLE_KEY),
+          sender_key: rec.sender_key,
+        }),
+      });
+    }
+    return out;
+  }
+
+  async backupMarkUploaded(keys: string[], version: number): Promise<void> {
+    for (const key of keys) {
+      const rec = await this.storage.get<E2eeInboundGroupSessionRecord>(
+        'inbound_group_sessions',
+        key,
+      );
+      if (rec)
+        await this.storage.put('inbound_group_sessions', { ...rec, backed_up_version: version });
+    }
+  }
+
+  /**
+   * Imports backed-up sessions. A local session that already decrypts from an earlier (or the same) message index
+   * is kept; otherwise the backed-up one replaces it. Imported sessions count as backed up in the current version.
+   */
+  async backupImport(items: BackupSessionItem[]): Promise<BackupImportResult> {
+    if (!this.pickleKey) throw new Error('E2EE engine not initialized');
+    await this.loadBackupKey();
+    if (!this.backupKey) throw new BackupError('Chưa mở khoá bản sao lưu.', 'LOCKED');
+    const result: BackupImportResult = { imported: 0, kept: 0, failed: 0 };
+    for (const item of items) {
+      try {
+        const payload = await openSession(this.backupKey, item.ciphertext);
+        const inbound = InboundGroupSession.fromPickle(payload.pickle, EXPORT_PICKLE_KEY);
+        if (inbound.sessionId() !== item.session_id) throw new Error('session id mismatch');
+        const key = `${item.conversation_id}:${item.session_id}`;
+        const existing = await this.storage.get<E2eeInboundGroupSessionRecord>(
+          'inbound_group_sessions',
+          key,
+        );
+        if (existing) {
+          const local = InboundGroupSession.fromPickle(existing.pickle, this.pickleKey);
+          if (local.firstKnownIndex() <= inbound.firstKnownIndex()) {
+            result.kept++;
+            continue;
+          }
+        }
+        await this.storage.put('inbound_group_sessions', {
+          key,
+          conversation_id: item.conversation_id,
+          session_id: item.session_id,
+          sender_key: payload.sender_key,
+          pickle: inbound.pickle(this.pickleKey),
+          created_at: existing?.created_at ?? Date.now(),
+          ...(this.backupVersion !== null ? { backed_up_version: this.backupVersion } : {}),
+        } satisfies E2eeInboundGroupSessionRecord);
+        result.imported++;
+      } catch {
+        result.failed++;
+      }
+    }
+    return result;
+  }
+
   async wipeDatabase(): Promise<void> {
+    this.backupKey = null;
+    this.backupVersion = null;
     this.storage.close();
     await E2eeStorage.wipeDatabase();
     this.account = null;

@@ -9,7 +9,9 @@ import { ConversationView } from '../../../components/chat/conversation-view';
 import { NewChatDialog } from '../../../components/chat/new-chat-dialog';
 import { useRealtimeRoom } from '../../../lib/realtime/realtime-context';
 import type { Conversation } from '@winkey/api-client';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, History } from 'lucide-react';
+import { getKeyBackupService } from '../../../lib/e2ee/key-backup-service';
+import { BackupRestoreDialog } from '../../../components/chat/key-backup-dialogs';
 
 export default function ChatPage() {
   const router = useRouter();
@@ -23,6 +25,9 @@ export default function ChatPage() {
   const [isInitializingDevice, setIsInitializingDevice] = useState(false);
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [realtimeVersion, setRealtimeVersion] = useState(0);
+  // SOC-3b: a backup exists but this device has not unlocked it → offer "Khôi phục lịch sử".
+  const [restoreOffered, setRestoreOffered] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
 
   const chatService = getChatService();
 
@@ -44,6 +49,7 @@ export default function ChatPage() {
         })
         .then(() => {
           setRealtimeVersion((v) => v + 1);
+          return checkBackupRestore();
         })
         .catch((err) => {
           console.warn('[ChatPage] Device initialization warning:', err);
@@ -53,6 +59,18 @@ export default function ChatPage() {
         });
     }
   }, [isAuthenticated, user?.id, chatService]);
+
+  async function checkBackupRestore() {
+    try {
+      if (sessionStorage.getItem('wk_restore_dismissed') === '1') return;
+    } catch {
+      // storage unavailable: still offer
+    }
+    const service = getKeyBackupService();
+    const [server, local] = await Promise.all([service.getServerBackup(), service.status()]);
+    if (server && !(local.unlocked && local.version === server.version)) setRestoreOffered(true);
+    else if (server) void service.uploadPending().catch(() => {});
+  }
 
   const fetchConversationsList = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -127,6 +145,52 @@ export default function ChatPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] max-w-7xl mx-auto flex overflow-hidden border-x border-zinc-200 dark:border-[#222222] bg-white dark:bg-[#121212]">
+      {restoreOffered && (
+        <div
+          role="region"
+          aria-label="Khôi phục lịch sử tin nhắn"
+          className="fixed bottom-4 left-1/2 z-40 flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-3 text-xs shadow-xl dark:border-zinc-700 dark:bg-[#1c1c1c]"
+        >
+          <History className="h-5 w-5 shrink-0 text-red-500" aria-hidden="true" />
+          <span className="flex-1 text-zinc-800 dark:text-zinc-200">
+            Bạn có bản sao lưu tin nhắn. Khôi phục để đọc tin nhắn cũ trên thiết bị này.
+          </span>
+          <button
+            type="button"
+            onClick={() => setRestoreOpen(true)}
+            className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 font-semibold text-white hover:bg-red-500"
+          >
+            Khôi phục lịch sử
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRestoreOffered(false);
+              try {
+                sessionStorage.setItem('wk_restore_dismissed', '1');
+              } catch {
+                // ignore
+              }
+            }}
+            className="shrink-0 rounded-lg px-2 py-1.5 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            Để sau
+          </button>
+        </div>
+      )}
+      {restoreOpen && (
+        <BackupRestoreDialog
+          onClose={() => setRestoreOpen(false)}
+          onRestored={() => {
+            setRestoreOpen(false);
+            setRestoreOffered(false);
+            // Messages that waited for keys decrypt on the next load.
+            fetchConversationsList();
+            setRealtimeVersion((v) => v + 1);
+          }}
+        />
+      )}
+
       {/* Sidebar: Conversation List */}
       <div
         className={`w-full md:w-80 lg:w-96 shrink-0 h-full ${

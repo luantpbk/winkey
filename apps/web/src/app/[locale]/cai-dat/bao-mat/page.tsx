@@ -14,6 +14,7 @@ import { PasskeysSection } from '../../../../components/settings/security/passke
 import { RecoveryCodesSection } from '../../../../components/settings/security/recovery-codes-section';
 import { SessionsSection } from '../../../../components/settings/security/sessions-section';
 import { ChatDevicesSection } from '../../../../components/settings/security/chat-devices-section';
+import { ChatBackupSection } from '../../../../components/settings/security/chat-backup-section';
 import { SecurityLogSection } from '../../../../components/settings/security/security-log-section';
 import { StepUpDialog } from '../../../../components/auth/step-up-dialog';
 
@@ -132,6 +133,9 @@ export default function SecuritySettingsPage() {
 
           {/* E2EE Chat Devices */}
           <ChatDevicesSection />
+
+          {/* SOC-3b: passphrase key backup */}
+          <ChatBackupSection />
 
           {/* Security Event Log */}
           <SecurityLogSection />

@@ -161,7 +161,124 @@ function getAuthenticatedUserId(request: Request): string {
   return DEFAULT_VIEWER.id;
 }
 
+// SOC-3b key backup (one per mock user): opaque auth_data and sealed sessions, like chat-svc.
+let mockKeyBackup: {
+  version: number;
+  algorithm: 'winkey.backup.v1';
+  auth_data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+} | null = null;
+const mockBackupSessions = new Map<
+  string,
+  Record<string, unknown> & { first_message_index: number }
+>();
+
 export const chatHandlers = [
+  http.get('*/v1/chat/key-backup', () =>
+    mockKeyBackup
+      ? HttpResponse.json({ ...mockKeyBackup, session_count: mockBackupSessions.size })
+      : HttpResponse.json(
+          { type: '/problems/not-found', title: 'Not Found', status: 404 },
+          { status: 404 },
+        ),
+  ),
+
+  http.put('*/v1/chat/key-backup', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      auth_data?: Record<string, unknown>;
+      replace?: boolean;
+    };
+    const now = new Date().toISOString();
+    if (mockKeyBackup && !body.replace) {
+      return HttpResponse.json(
+        { type: '/problems/conflict', title: 'Conflict', status: 409, code: 'BACKUP_EXISTS' },
+        { status: 409 },
+      );
+    }
+    const created = !mockKeyBackup;
+    mockBackupSessions.clear();
+    mockKeyBackup = {
+      version: (mockKeyBackup?.version ?? 0) + 1,
+      algorithm: 'winkey.backup.v1',
+      auth_data: body.auth_data ?? {},
+      created_at: mockKeyBackup?.created_at ?? now,
+      updated_at: now,
+    };
+    return HttpResponse.json(
+      { ...mockKeyBackup, session_count: 0 },
+      { status: created ? 201 : 200 },
+    );
+  }),
+
+  http.delete('*/v1/chat/key-backup', () => {
+    mockKeyBackup = null;
+    mockBackupSessions.clear();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('*/v1/chat/key-backup/sessions', async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      version?: number;
+      sessions?: Array<
+        Record<string, unknown> & {
+          conversation_id: string;
+          session_id: string;
+          first_message_index: number;
+        }
+      >;
+    };
+    if (!mockKeyBackup) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Not Found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (body.version !== mockKeyBackup.version) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'BACKUP_VERSION_MISMATCH',
+        },
+        { status: 409 },
+      );
+    }
+    let stored = 0;
+    for (const s of body.sessions ?? []) {
+      const key = `${s.conversation_id}/${s.session_id}`;
+      const old = mockBackupSessions.get(key);
+      if (!old || s.first_message_index <= old.first_message_index) {
+        mockBackupSessions.set(key, s);
+        stored++;
+      }
+    }
+    return HttpResponse.json({ stored, kept: (body.sessions?.length ?? 0) - stored });
+  }),
+
+  http.get('*/v1/chat/key-backup/sessions', ({ request }) => {
+    const url = new URL(request.url);
+    if (!mockKeyBackup) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Not Found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (Number(url.searchParams.get('version')) !== mockKeyBackup.version) {
+      return HttpResponse.json(
+        {
+          type: '/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          code: 'BACKUP_VERSION_MISMATCH',
+        },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({ items: [...mockBackupSessions.values()], next_cursor: null });
+  }),
+
   // 1. Devices
   http.get('*/v1/chat/devices', ({ request }) => {
     const userId = getAuthenticatedUserId(request);

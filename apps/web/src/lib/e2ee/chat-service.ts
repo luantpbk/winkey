@@ -13,6 +13,7 @@ import { getDeviceManager } from './device-manager';
 import { getE2eeClient } from './client';
 import type { Conversation, ConversationPage, Message, ToDeviceMessage } from '@winkey/api-client';
 import type { MemberDeviceRef, ClaimedOtkRef } from './protocol';
+import { getKeyBackupService } from './key-backup-service';
 
 export interface DecryptedMessageItem {
   message: Message;
@@ -167,6 +168,9 @@ export class ChatService {
     } finally {
       this.processingToDevice = false;
     }
+
+    // SOC-3b: new inbound sessions go to the key backup (a no-op while the backup is off or locked).
+    if (newSessionIds.length > 0) getKeyBackupService().scheduleUpload();
 
     return newSessionIds;
   }
@@ -329,6 +333,8 @@ export class ChatService {
 
     // 4. Send to-device messages if a new session was created or rotated
     if (prepResult.toDeviceMessages.length > 0) {
+      // Our own copy of the new session is an inbound session too: back it up (SOC-3b).
+      getKeyBackupService().scheduleUpload();
       // Batch up to 200 per call as per contract
       const batchSize = 200;
       for (let i = 0; i < prepResult.toDeviceMessages.length; i += batchSize) {
