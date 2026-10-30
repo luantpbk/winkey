@@ -390,6 +390,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/conversations/{conversation_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reserve an attachment and get a presigned PUT URL for its ciphertext.
+         * @description - The caller must be `ACTIVE` in the conversation (`REQUESTED` → `403 REQUEST_PENDING`, `LEFT` → `404`), and
+         *       `sender_device_id` one of their active devices (`403 DEVICE_NOT_YOURS`).
+         *     - Over 1 GiB of the caller's live attachments (`PENDING` + `UPLOADED`, not expired) → `409 ATTACHMENT_QUOTA`.
+         *     - The URL accepts exactly one `PUT` of exactly `size_bytes` bytes with the returned `upload_headers`, for
+         *       15 minutes. The object key is chosen by chat-svc and never reveals the file name.
+         *     - An attachment not referenced by a message within 24 hours is deleted with its object.
+         */
+        post: operations["createAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/conversations/{conversation_id}/attachments/{attachment_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+                attachment_id: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the upload. Idempotent.
+         * @description Only the uploader. chat-svc checks the object exists with exactly `size_bytes` bytes (HEAD) and sets
+         *     `UPLOADED`. Missing or wrong size → `409 UPLOAD_INCOMPLETE` (a wrong-size object is deleted; reserve again).
+         */
+        post: operations["completeAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/conversations/{conversation_id}/attachments/{attachment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+                attachment_id: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a short-lived presigned GET URL for the ciphertext.
+         * @description - The uploader may download their own attachment at any time before it expires.
+         *     - Anyone else must be a member whose readable range (`joined_seq` through `last_seq`, or `left_seq`)
+         *       includes the message that references it; otherwise `404`. Deleted message → `404`.
+         *     - Expired → `410` code `ATTACHMENT_EXPIRED`. The URL is valid for 5 minutes.
+         *     - `POST` so that the URL never lands in caches or browser history.
+         */
+        post: operations["downloadAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/key-backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's key backup parameters.
+         * @description No backup → `404`. Rate limit 30/hour per user.
+         */
+        get: operations["getKeyBackup"];
+        /**
+         * Create the key backup, or replace it (new passphrase, or reset after a forgotten one).
+         * @description - No backup yet → creates version 1, `201`.
+         *     - A backup exists → only with `replace: true` (else `409 BACKUP_EXISTS`): bumps `version`, replaces
+         *       `auth_data` and **deletes every stored session** (the old backup key can no longer be unwrapped), `200`.
+         *       Clients re-upload the sessions they hold.
+         *     - Rate limit 10/day per user. A stolen session could replace or delete the backup but never read it.
+         */
+        put: operations["putKeyBackup"];
+        post?: never;
+        /** Delete the backup and all its sessions. Idempotent. */
+        delete: operations["deleteKeyBackup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/key-backup/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page through the backed-up session keys. */
+        get: operations["listKeyBackupSessions"];
+        /**
+         * Upload or update up to 100 encrypted session keys.
+         * @description - `version` must equal the current backup version (`409 BACKUP_VERSION_MISMATCH`); no backup → `404`.
+         *     - Per `(conversation_id, session_id)`, the stored row is replaced only when the new
+         *       `first_message_index` is lower or equal (a key that decrypts more history wins; equal → newer wins).
+         *     - At most 50 000 sessions per backup (`409 BACKUP_FULL`). Rate limit 600 sessions/min per user.
+         */
+        put: operations["putKeyBackupSessions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -502,6 +633,12 @@ export interface components {
             megolm_session_id: string;
             /** @description Megolm message, base64, ≤ 64 KiB decoded. Its plaintext is a JSON event chosen by the client. */
             ciphertext: string;
+            /**
+             * @description Attachments this message carries (their keys are inside `ciphertext`). Each must be `UPLOADED`, in this
+             *     conversation, uploaded by the caller, not expired and not yet referenced by another message; otherwise
+             *     `409 ATTACHMENT_UNAVAILABLE`. A retry with the same `client_msg_id` ignores this field.
+             */
+            attachment_ids?: components["schemas"]["Uuid"][];
         };
         /** @description Written by chat-svc; plaintext. */
         SystemBody: {
@@ -527,8 +664,94 @@ export interface components {
             ciphertext: string | null;
             system: components["schemas"]["SystemBody"] | null;
             deleted: boolean;
+            /**
+             * @description Attachments referenced by this message; empty for `SYSTEM` and deleted messages. chat-svc sends it on
+             *     every message from SOC-3b on; clients treat a missing field as empty.
+             */
+            attachments?: components["schemas"]["Attachment"][];
             /** Format: date-time */
             created_at: string;
+        };
+        CreateAttachmentRequest: {
+            sender_device_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int64
+             * @description Exact ciphertext size in bytes (≤ 25 MiB).
+             */
+            size_bytes: number;
+        };
+        Attachment: {
+            id: components["schemas"]["Uuid"];
+            conversation_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            size_bytes: number;
+            /** @enum {string} */
+            state: "PENDING" | "UPLOADED";
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AttachmentUpload: {
+            attachment: components["schemas"]["Attachment"];
+            /**
+             * Format: uri
+             * @description Presigned `PUT` URL. Never log it.
+             */
+            upload_url: string;
+            /** @description Headers the PUT must send exactly: Content-Type application/octet-stream and Content-Length. */
+            upload_headers: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            upload_expires_at: string;
+        };
+        AttachmentDownload: {
+            /**
+             * Format: uri
+             * @description Presigned `GET` URL, valid 5 minutes. Never log it.
+             */
+            url: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        /**
+         * @description Opaque to chat-svc, ≤ 4 KiB serialized. The web client writes (all binary values unpadded base64):
+         *     `{"kdf":"argon2id","salt":S,"m_kib":65536,"t":3,"p":1,"wrapped_key":W,"iv":IV,"key_check":C}`, where
+         *     `wrapped_key` is the 32-byte backup key encrypted with AES-256-GCM under the Argon2id output and `key_check`
+         *     lets the client tell a wrong passphrase from corrupt data. chat-svc only checks it is an object within size.
+         */
+        KeyBackupAuthData: {
+            [key: string]: unknown;
+        };
+        KeyBackup: {
+            /** Format: int64 */
+            version: number;
+            /** @enum {string} */
+            algorithm: "winkey.backup.v1";
+            auth_data: components["schemas"]["KeyBackupAuthData"];
+            session_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PutKeyBackupRequest: {
+            /** @enum {string} */
+            algorithm: "winkey.backup.v1";
+            auth_data: components["schemas"]["KeyBackupAuthData"];
+            /** @default false */
+            replace: boolean;
+        };
+        BackedUpSession: {
+            conversation_id: components["schemas"]["Uuid"];
+            session_id: string;
+            /** @description The first Megolm message index this exported key can decrypt. */
+            first_message_index: number;
+            /** @description The exported inbound session key, AES-256-GCM under the backup key, base64, ≤ 8 KiB decoded. */
+            ciphertext: string;
         };
         /**
          * Format: uuid
@@ -623,6 +846,7 @@ export interface components {
     parameters: {
         DeviceId: components["schemas"]["Uuid"];
         ConversationId: components["schemas"]["Uuid"];
+        AttachmentId: components["schemas"]["Uuid"];
         /** @description Opaque cursor copied from `next_cursor` of the previous page. */
         Cursor: string;
         Limit: number;
@@ -1302,6 +1526,251 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    createAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAttachmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Reserved. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentUpload"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    completeAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+                attachment_id: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uploaded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    downloadAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: components["parameters"]["ConversationId"];
+                attachment_id: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Download URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentDownload"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The attachment expired. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getKeyBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backup. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyBackup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    putKeyBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutKeyBackupRequest"];
+            };
+        };
+        responses: {
+            /** @description Replaced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyBackup"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyBackup"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteKeyBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listKeyBackupSessions: {
+        parameters: {
+            query: {
+                /** @description Must equal the current backup version, else `409 BACKUP_VERSION_MISMATCH`. */
+                version: number;
+                conversation_id?: components["schemas"]["Uuid"];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page, ordered by `(conversation_id, session_id)`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BackedUpSession"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    putKeyBackupSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    version: number;
+                    sessions: components["schemas"]["BackedUpSession"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Sessions inserted or replaced. */
+                        stored: number;
+                        /** @description Sessions skipped because the stored key was better. */
+                        kept: number;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
 }

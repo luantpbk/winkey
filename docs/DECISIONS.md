@@ -1798,3 +1798,26 @@ Contract `chat.v1.yaml`, migration `000033_chat_e2ee`, realtime `chat.hint`.
   - xoá tài khoản (mục `LEGAL`);
   - cross-signing.
 - **Pháp lý:** như mục 7 của ADR này. Chỉ bật trên beta kín cho tới khi task `LEGAL` xong.
+
+*Bổ sung 2026-10-31 (SOC-3b, tệp đính kèm mã hoá và sao lưu khoá, kiến trúc sư).* Contract `chat.v1.yaml` 1.1.0 (tag `attachments`, `key-backup`; `SendMessageRequest.attachment_ids`, `Message.attachments`), migration `000034_chat_attachments_backup`. Không có sự kiện hay gợi ý realtime mới: tin có tệp vẫn là `chat.hint` `MESSAGE`.
+
+*Quyết định.*
+- **Tệp đính kèm:**
+  - trình duyệt nén trước (ảnh WebP cạnh dài tối đa 1600 px; video và tệp khác giữ nguyên, giới hạn kích thước), rồi mã hoá **AES-256-GCM** bằng khoá ngẫu nhiên riêng cho mỗi tệp (WebCrypto);
+  - khoá, IV, SHA-256 của ciphertext, MIME, tên tệp, kích thước ảnh và ảnh thu nhỏ (nếu có, tối đa 8 KiB) chỉ nằm **trong tin Megolm**. chat-svc chỉ biết kích thước ciphertext;
+  - ciphertext nằm ở bucket riêng tư **`winkey-chat`**, key `c/{conversation_id}/{attachment_id}`, không chứa tên tệp. Bucket có lifecycle rule xoá object sau 30 ngày;
+  - luồng: `createAttachment` (chat-svc cấp URL ký `PUT`, 15 phút, đúng `Content-Length`) → trình duyệt `PUT` ciphertext → `completeAttachment` (chat-svc `HEAD` kiểm đúng kích thước) → `sendMessage` với `attachment_ids`;
+  - tải về: `downloadAttachment` cấp URL ký `GET` 5 phút. Chỉ người tải lên, hoặc thành viên đọc được tin chứa tệp (`joined_seq`…`left_seq`). Trình duyệt tải, kiểm SHA-256, giải mã, hiển thị qua `blob:`;
+  - giới hạn: 25 MiB/tệp, 10 tệp/tin, 1 GiB tệp còn sống/người, 100 tệp mới/giờ;
+  - vòng đời: hết hạn sau **30 ngày** (`410 ATTACHMENT_EXPIRED`); xoá tin → chat-svc xoá tệp ngay; tệp không gắn vào tin nào sau 24 giờ thì bị xoá. Janitor của chat-svc xoá object và dòng DB.
+  - Không dùng pipeline media của upload-svc (server không được xem nội dung, nên không transcode, không ảnh bìa).
+- **Sao lưu khoá:**
+  - tuỳ chọn, mỗi người một bản. Trình duyệt sinh **khoá sao lưu** ngẫu nhiên 32 byte, bọc bằng khoá dẫn xuất từ cụm mật khẩu khôi phục qua **Argon2id** (m = 64 MiB, t = 3, p = 1, salt 16 byte), AES-256-GCM. Kết quả và tham số nằm trong `auth_data` (chat-svc không hiểu, chỉ kiểm là object ≤ 4 KiB);
+  - mỗi khoá phiên Megolm inbound được export rồi mã hoá bằng khoá sao lưu, tải lên `key_backup_sessions`. Server giữ bản có `first_message_index` nhỏ nhất (giải được nhiều lịch sử hơn);
+  - thiết bị mới: người dùng nhập cụm mật khẩu → mở khoá sao lưu → tải và import các phiên → đọc được lịch sử trong phạm vi `joined_seq`. Quên cụm mật khẩu thì mất lịch sử (đúng như mục 5);
+  - cụm mật khẩu: tối thiểu 12 ký tự và zxcvbn ≥ 3, hoặc 5 từ ngẫu nhiên do trình duyệt sinh (khuyến nghị). Server chỉ giữ blob, nên kẻ chiếm server vẫn phải dò cụm mật khẩu offline qua Argon2id;
+  - đổi hoặc đặt lại cụm mật khẩu = thay bản sao lưu (`replace: true`): tăng `version`, xoá mọi phiên cũ, client tải lại các phiên đang có. Đặt lại sau khi quên thì lịch sử chỉ còn trên các thiết bị đang giữ khoá.
+  - Không cần step-up: gateway không có tín hiệu step-up, và nội dung bản sao lưu đã mã hoá. Phiên bị đánh cắp chỉ xoá hoặc thay được bản sao lưu, không đọc được. Có rate limit (`PUT` 10/ngày, `GET` 30/giờ).
+- **CSP:** URL ký của `winkey-chat` dùng path-style trên cùng endpoint R2 như upload, nên `connect-src` đã có sẵn. Thêm env `CSP_CHAT_ORIGIN` (tuỳ chọn) cho môi trường dùng endpoint khác (Garage ở local và systest). Ảnh và video giải mã hiển thị qua `blob:` (đã có trong `img-src` và `media-src`).
+- **Phân việc:** kiến trúc sư (contract, migration); Antigravity 3 (chat-svc: S3 client, janitor); Antigravity 1 (web: nén, mã hoá, tải lên/tải về, giao diện sao lưu và khôi phục, `CSP_CHAT_ORIGIN`); Antigravity 2 (bucket, lifecycle, CORS, secret, env); Antigravity 4 (system test, persona, tải).
+- **Ngoài phạm vi:** ghi âm giọng nói, xem trước link, chuyển tiếp tệp sang hội thoại khác mà không tải lên lại, cross-signing, báo cáo tin nhắn có kiểm chứng.
