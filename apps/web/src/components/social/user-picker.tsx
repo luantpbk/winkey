@@ -202,6 +202,7 @@ export function UserPicker({
                 aria-autocomplete="list"
                 aria-activedescendant={activeOption ? `${listId}-${activeOption.id}` : undefined}
                 aria-describedby={hintId}
+                data-embedded-field=""
                 autoComplete="off"
                 spellCheck={false}
                 maxLength={65}

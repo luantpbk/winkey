@@ -251,7 +251,7 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
                   ? `/tin-nhan?to=${profile.id}`
                   : `/login?return_to=${encodeURIComponent(`/tin-nhan?to=${profile.id}`)}`
               }
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-4 py-2.5 rounded-full text-sm font-semibold bg-zinc-100 text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
             >
               <MessageCircle className="w-4 h-4" aria-hidden="true" />
               <span>Nhắn tin</span>
