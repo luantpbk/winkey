@@ -77,4 +77,47 @@ END
 $$;
 REVOKE ALL PRIVILEGES ON social.posts FROM media_svc;
 
+-- 8. chat_svc: USAGE on chat, CRUD on all chat.* tables & sequences (SOC-3a, ADR-049)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'chat') THEN
+        EXECUTE 'GRANT USAGE ON SCHEMA chat TO chat_svc';
+        EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA chat TO chat_svc';
+        EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA chat TO chat_svc';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA chat GRANT ALL PRIVILEGES ON TABLES TO chat_svc';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA chat GRANT ALL PRIVILEGES ON SEQUENCES TO chat_svc';
+    END IF;
+END
+$$;
+
+-- chat_svc read grants across domains:
+-- USAGE on auth + SELECT strictly on auth.public_profiles (never auth.users)
+GRANT USAGE ON SCHEMA auth TO chat_svc;
+GRANT SELECT ON auth.public_profiles TO chat_svc;
+REVOKE ALL PRIVILEGES ON auth.users FROM chat_svc;
+
+-- USAGE on social + SELECT strictly on social.blocks and social.subscriptions (never social.posts)
+GRANT USAGE ON SCHEMA social TO chat_svc;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'social' AND tablename = 'blocks') THEN
+        EXECUTE 'GRANT SELECT ON social.blocks TO chat_svc';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'social' AND tablename = 'subscriptions') THEN
+        EXECUTE 'GRANT SELECT ON social.subscriptions TO chat_svc';
+    END IF;
+END
+$$;
+REVOKE ALL PRIVILEGES ON social.posts FROM chat_svc;
+
+-- Negative isolation: social_svc cannot read chat.messages
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'chat' AND tablename = 'messages') THEN
+        EXECUTE 'REVOKE ALL PRIVILEGES ON chat.messages FROM social_svc';
+    END IF;
+END
+$$;
+
+
 

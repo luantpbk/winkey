@@ -50,6 +50,11 @@ spec:
         login: true
         passwordSecret:
           name: winkey-pg-analytics-svc
+      - name: chat_svc
+        ensure: present
+        login: true
+        passwordSecret:
+          name: winkey-pg-chat-svc
 
   backup:
     barmanObjectStore:

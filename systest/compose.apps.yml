@@ -157,42 +157,6 @@ services:
       nats-bootstrap:
         condition: service_completed_successfully
 
-  chat-svc:
-    build:
-      context: ../..
-      dockerfile: services/chat/Dockerfile
-    container_name: chat-svc
-    ports:
-      - '127.0.0.1:3005:8003'
-    environment:
-      NODE_ENV: production
-      HTTP_PORT: '8003'
-      DATABASE_URL: postgres://chat_svc:chat_svc@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
-      NATS_URL: nats://nats:4222
-      VALKEY_URL: redis://valkey:6379
-      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,172.16.0.0/12
-      TO_DEVICE_PURGE_INTERVAL: 1h
-    healthcheck:
-      test:
-        [
-          'CMD',
-          'node',
-          '-e',
-          "fetch('http://127.0.0.1:8003/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      valkey:
-        condition: service_healthy
-      nats-bootstrap:
-        condition: service_completed_successfully
-
   realtime-svc:
     build:
       context: ../..
@@ -226,6 +190,42 @@ services:
         condition: service_completed_successfully
       video-svc:
         condition: service_started
+
+  chat-svc:
+    build:
+      context: ../..
+      dockerfile: services/chat/Dockerfile
+    container_name: chat-svc
+    ports:
+      - '127.0.0.1:3006:3006'
+    environment:
+      NODE_ENV: production
+      HTTP_PORT: '3006'
+      DATABASE_URL: postgres://chat_svc:chat_svc@postgres:5432/${POSTGRES_DB:-winkey}?sslmode=disable
+      NATS_URL: nats://nats:4222
+      VALKEY_URL: redis://valkey:6379
+      MEDIA_BASE_URL: http://127.0.0.1:8081
+      TRUST_PROXY_CIDRS: 10.42.0.0/16,127.0.0.1,172.16.0.0/12
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3006/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      nats-bootstrap:
+        condition: service_completed_successfully
 
   transcoder:
     build:

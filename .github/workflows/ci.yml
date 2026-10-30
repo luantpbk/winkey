@@ -24,12 +24,17 @@ jobs:
       deploy_lt2: ${{ steps.filter.outputs.deploy_lt2 }}
       loadtest: ${{ steps.filter.outputs.loadtest }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      wasm_e2ee: ${{ steps.filter.outputs.wasm_e2ee }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
+            wasm_e2ee:
+              - 'apps/web/e2ee-wasm/**'
+              - 'apps/web/public/wasm/**'
+              - '.github/workflows/ci.yml'
             deploy_lt2:
               - 'deploy/lt2/**'
               - '.github/workflows/ci.yml'
@@ -269,7 +274,7 @@ jobs:
           kustomize build deploy/k8s/apps | kubeconform -strict -summary -schema-location default
       - name: 'Verify apps deployment specifications (part-of: winkey, probes, resources)'
         run: |
-          for app in auth upload video social realtime web; do
+          for app in auth upload video social realtime chat web; do
             manifest="deploy/k8s/apps/$app"
             output=$(kustomize build "$manifest")
             echo "Checking $app deployment..."
@@ -321,3 +326,74 @@ jobs:
           else
             echo "skip: no e2e regressions present on this branch yet."
           fi
+
+  verify-wasm:
+    name: verify vodozemac wasm build
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.wasm_e2ee == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assert e2ee-wasm crate exists
+        run: |
+          if [ ! -f "apps/web/e2ee-wasm/Cargo.toml" ]; then
+            echo "ERROR: apps/web/e2ee-wasm/Cargo.toml missing!" >&2
+            exit 1
+          fi
+
+      - name: Set up Rust toolchain (pinned 1.99.1)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.99.1'
+          targets: wasm32-unknown-unknown
+
+      - name: Cache wasm-pack
+        id: cache-wasm-pack
+        uses: actions/cache@v6
+        with:
+          path: /home/runner/.cargo/bin/wasm-pack
+          key: wasm-pack-0.15.0-v2
+
+      - name: Install wasm-pack (pinned 0.15.0)
+        if: steps.cache-wasm-pack.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /home/runner/.cargo/bin
+          curl -sSL https://github.com/wasm-bindgen/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /tmp
+          mv /tmp/wasm-pack-v0.15.0-x86_64-unknown-linux-musl/wasm-pack /home/runner/.cargo/bin/wasm-pack
+          chmod +x /home/runner/.cargo/bin/wasm-pack
+          rm -rf /tmp/wasm-pack-v0.15.0-x86_64-unknown-linux-musl
+
+      - name: Verify wasm-pack version
+        run: |
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          /home/runner/.cargo/bin/wasm-pack --version
+          WASM_PACK_VERSION="$(/home/runner/.cargo/bin/wasm-pack --version)"
+          echo "Active wasm-pack: $WASM_PACK_VERSION"
+          if [[ "$WASM_PACK_VERSION" != *"0.15.0"* ]]; then
+            echo "ERROR: expected wasm-pack 0.15.0, got: $WASM_PACK_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build wasm-pack release
+        working-directory: apps/web/e2ee-wasm
+        run: |
+          /home/runner/.cargo/bin/wasm-pack build --target web --release
+
+      - name: Upload built pkg artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vodozemac-wasm-pkg
+          path: apps/web/e2ee-wasm/pkg/
+          if-no-files-found: warn
+
+      - name: Verify build artifacts match committed files
+        run: |
+          cmp apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm apps/web/public/wasm/vodozemac_winkey_bg.wasm || {
+            echo "ERROR: apps/web/e2ee-wasm/pkg/vodozemac_winkey_bg.wasm does not match apps/web/public/wasm/vodozemac_winkey_bg.wasm"
+            exit 1
+          }
+          git status --porcelain apps/web/e2ee-wasm/pkg apps/web/public/wasm
+          git diff --exit-code apps/web/e2ee-wasm/pkg apps/web/public/wasm
