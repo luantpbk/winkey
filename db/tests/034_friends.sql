@@ -72,7 +72,8 @@ BEGIN
     END IF;
 
     -- EXPLAIN on realistic sizes: 6000 more follows (others follow each other, 300 follow me, I follow 200 of them),
-    -- fresh statistics, sequential scans penalised. Both lists must reach social.subscriptions through an index.
+    -- fresh statistics, sequential scans penalised. Both lists must reach social.subscriptions through indexes (plain or
+    -- bitmap index scans), never a sequential scan.
     INSERT INTO social.subscriptions (subscriber_id, channel_id)
     SELECT gen_random_uuid(), gen_random_uuid() FROM generate_series(1, 5500);
     CREATE TEMP TABLE soc6b_fans ON COMMIT DROP AS SELECT gen_random_uuid() AS id FROM generate_series(1, 300);
@@ -93,7 +94,8 @@ BEGIN
     $q$, me) LOOP
         plan := plan || line || E'\n';
     END LOOP;
-    IF plan ~ 'Seq Scan on subscriptions' OR plan !~ 'Index (Only )?Scan using subscriptions_' THEN
+    IF plan ~ 'Seq Scan on subscriptions'
+       OR plan !~ '(Index (Only )?Scan using|Bitmap Index Scan on) subscriptions_(subscriber|pkey)' THEN
         RAISE EXCEPTION 'TEST FAILED: the friends list does not use subscriptions indexes:%', E'\n' || plan;
     END IF;
 
@@ -112,7 +114,7 @@ BEGIN
         plan := plan || line || E'\n';
     END LOOP;
     IF plan ~ 'Seq Scan on (subscriptions|friend_request_dismissals)'
-       OR plan !~ 'Index (Only )?Scan using subscriptions_channel' THEN
+       OR plan !~ '(Index (Only )?Scan using|Bitmap Index Scan on) subscriptions_channel' THEN
         RAISE EXCEPTION 'TEST FAILED: the friend-requests list does not use subscriptions indexes:%', E'\n' || plan;
     END IF;
 END $$;
