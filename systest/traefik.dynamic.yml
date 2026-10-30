@@ -50,6 +50,14 @@ http:
       middlewares: ['strip-user-headers', 'auth-verify']
       priority: 80
 
+    # 6b. Chat service routes (SOC-3a E2EE chat)
+    chat:
+      entryPoints: ['web']
+      rule: 'PathPrefix(`/v1/chat`)'
+      service: 'chat-svc'
+      middlewares: ['strip-user-headers', 'auth-verify']
+      priority: 85
+
     # 7. Smoke test route for header stripping verification
     smoke-test:
       entryPoints: ['web']
@@ -102,6 +110,10 @@ http:
       loadBalancer:
         servers:
           - url: 'http://realtime-svc:8003'
+    chat-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://chat-svc:8003'
     whoami-svc:
       loadBalancer:
         servers:

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
+import { runChatScenario } from './chat.mjs';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 const REALTIME_URL = process.env.REALTIME_URL || 'http://127.0.0.1:8003';
@@ -3384,6 +3385,14 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
       Date.now() - startTime,
       `Measured output size: ${realMbPerMin.toFixed(2)} MB/min across renditions (720p bitrate: ${(bitrate720pBps / 1000000).toFixed(2)} Mbps <= 1.38 Mbps ceiling)`,
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // S13-chat: E2EE Chat API Matrix (SOC-3a, ADR-049)
+  // ---------------------------------------------------------------------------
+  it('S13-chat: E2EE chat API matrix (SOC-3a, ADR-049)', async () => {
+    const res = await runChatScenario();
+    recordResult('S13-chat', 'E2EE chat API matrix (SOC-3a, ADR-049)', 'PASSED', res.durationMs);
   });
 
   // ---------------------------------------------------------------------------
