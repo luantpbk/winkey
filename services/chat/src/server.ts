@@ -100,7 +100,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     redis: options.redis,
     natsConnection: options.natsConnection,
   });
-  await app.register(devicesRoute, { db, hints });
+  await app.register(devicesRoute, { db, hints, rateLimiter });
   await app.register(toDeviceRoute, { db, hints, rateLimiter });
   await app.register(conversationsRoute, { db, hints, rateLimiter });
   await app.register(messagesRoute, { db, hints, rateLimiter });
