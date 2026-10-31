@@ -14,7 +14,13 @@ import {
   User,
   Paperclip,
   X,
+  Phone,
+  Video,
+  PhoneCall,
 } from 'lucide-react';
+import { useCalls } from '../calls/call-provider';
+import { CallManager } from '../../lib/calls/call-manager';
+import { describeCallEvent, type CallMedia } from '../../lib/calls/events';
 import { getChatService, type DecryptedMessageItem } from '../../lib/e2ee/chat-service';
 import { SafetyNumberDialog } from './safety-number-dialog';
 import { GroupSettingsDialog } from './group-settings-dialog';
@@ -74,6 +80,8 @@ export function ConversationView({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { manager: callManager } = useCalls();
+  const canCall = CallManager.canCall(conversation, currentUserId);
   const chatService = getChatService();
 
   const scrollToBottom = () => {
@@ -327,6 +335,38 @@ export function ConversationView({
 
         {/* Header Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {conversation.kind === 'DIRECT' && callManager && (
+            <>
+              <button
+                type="button"
+                onClick={() => void callManager.startCall(conversation, 'audio')}
+                disabled={!canCall}
+                aria-label="Gọi thoại"
+                title={
+                  canCall
+                    ? 'Gọi thoại (mã hoá đầu cuối)'
+                    : 'Chỉ gọi được khi cả hai đã chấp nhận trò chuyện'
+                }
+                className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40"
+              >
+                <Phone className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void callManager.startCall(conversation, 'video')}
+                disabled={!canCall}
+                aria-label="Gọi video"
+                title={
+                  canCall
+                    ? 'Gọi video (mã hoá đầu cuối)'
+                    : 'Chỉ gọi được khi cả hai đã chấp nhận trò chuyện'
+                }
+                className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40"
+              >
+                <Video className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </>
+          )}
           {conversation.kind === 'DIRECT' && peerEdKey && myEdKey && (
             <button
               type="button"
@@ -409,6 +449,29 @@ export function ConversationView({
               hour: '2-digit',
               minute: '2-digit',
             });
+
+            // SOC-4a call events: one line per finished call, from the decrypted events (never on the server)
+            if (item.status === 'CALL' && item.callEvent) {
+              const ev = item.callEvent;
+              const invite = messages.find(
+                (m) => m.callEvent?.type === 'm.call.invite' && m.callEvent.call_id === ev.call_id,
+              );
+              const media: CallMedia | null =
+                invite?.callEvent?.type === 'm.call.invite' ? invite.callEvent.media : null;
+              const text = describeCallEvent(ev, media, isOwn);
+              if (!text) return null;
+              return (
+                <div key={item.message.id} className="flex justify-center my-2">
+                  <span
+                    data-testid="call-history-line"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-200/60 dark:bg-zinc-800/60 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium"
+                  >
+                    <PhoneCall className="h-3 w-3" aria-hidden="true" />
+                    {text} · {timeStr}
+                  </span>
+                </div>
+              );
+            }
 
             // SYSTEM message
             if (item.status === 'SYSTEM') {

@@ -7,6 +7,7 @@ import { MswProvider } from '../mocks/msw-provider';
 import { ThemeProvider } from './theme-provider';
 import { ToastProvider } from './ui/toast';
 import { RealtimeProvider } from '../lib/realtime/realtime-context';
+import { CallProvider } from './calls/call-provider';
 
 const NonceContext = createContext<string | undefined>(undefined);
 
@@ -35,7 +36,9 @@ export function Providers({ children, nonce }: { children: ReactNode; nonce?: st
           <ThemeProvider>
             <AuthProvider>
               <ToastProvider>
-                <RealtimeProvider>{children}</RealtimeProvider>
+                <RealtimeProvider>
+                  <CallProvider>{children}</CallProvider>
+                </RealtimeProvider>
               </ToastProvider>
             </AuthProvider>
           </ThemeProvider>

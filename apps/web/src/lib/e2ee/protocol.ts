@@ -49,6 +49,14 @@ export interface WorkerEncryptMessageResult {
 export interface WorkerDecryptToDeviceResult {
   processedIds: string[];
   newMegolmSessionIds: string[];
+  /** SOC-4a: decrypted to-device events that are not Megolm key shares (call signaling); validated by the caller. */
+  events?: Array<{ senderId: string; senderDeviceId: string; event: unknown }>;
+}
+
+export interface WorkerEncryptToDeviceResult {
+  messages: Array<{ deviceId: string; ciphertext: string }>;
+  /** Devices without an Olm session and without a claimed key: claim one, then call again for them. */
+  needKeys: string[];
 }
 
 export type DecryptGroupMessageResult =
@@ -104,7 +112,16 @@ export type WorkerRpcRequest =
         ed25519: string;
       };
     }
-  | { id: string; type: 'WIPE_DATABASE'; payload: Record<string, never> };
+  | { id: string; type: 'WIPE_DATABASE'; payload: Record<string, never> }
+  | {
+      id: string;
+      type: 'ENCRYPT_TO_DEVICE';
+      payload: {
+        targets: MemberDeviceRef[];
+        claimedKeys: Record<string, ClaimedOtkRef>;
+        event: unknown;
+      };
+    };
 
 export interface WorkerRpcResponse {
   id: string;
