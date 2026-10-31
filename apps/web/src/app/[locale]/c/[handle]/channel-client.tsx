@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { PublicProfile } from '@winkey/api-client';
 import { formatViews } from '../../../../lib/format';
-import { SubscribeButton } from '../../../../components/social/subscribe-button';
+import { FriendButton } from '../../../../components/social/friend-button';
 import { RelationsModal } from '../../../../components/social/relations-modal';
 import { BlockConfirmDialog } from '../../../../components/social/block-confirm-dialog';
 import { ReportDialog } from '../../../../components/moderation/report-dialog';
@@ -46,6 +46,7 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
   const [relationship, setRelationship] = useState<{
     following: boolean;
     follow_requested: boolean;
+    followed_by: boolean;
     blocking: boolean;
     muting: boolean;
   } | null>(null);
@@ -85,6 +86,7 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
           setRelationship({
             following: res.data.following,
             follow_requested: res.data.follow_requested,
+            followed_by: res.data.followed_by,
             blocking: res.data.blocking,
             muting: res.data.muting,
           });
@@ -98,6 +100,22 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
       isMounted = false;
     };
   }, [isAuthenticated, isOwnChannel, profile.id]);
+
+  // Follower count (also for signed-out viewers and the owner).
+  useEffect(() => {
+    let isMounted = true;
+    void api.social
+      .GET('/v1/channels/{channel_id}/subscription', {
+        params: { path: { channel_id: profile.id } },
+      })
+      .then(({ data }) => {
+        if (data && isMounted) setSubscriberCount(data.subscriber_count);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [profile.id]);
 
   const handleToggleMute = async () => {
     setShowMenu(false);
@@ -233,14 +251,20 @@ export function ChannelClientHeader({ profile, videoCount }: ChannelClientHeader
 
         {/* Actions */}
         <div className="flex items-center gap-3 self-start sm:self-center">
-          {!isBlocked && (
-            <SubscribeButton
-              channelId={profile.id}
-              initialRequested={relationship?.follow_requested}
-              isBlocked={isBlocked}
-              mode="follow"
+          {!isBlocked && !isOwnChannel && (
+            <FriendButton
+              userId={profile.id}
+              displayName={profile.display_name}
+              relation={relationship}
+              onRelationChange={(r) =>
+                setRelationship((prev) => ({
+                  blocking: false,
+                  muting: false,
+                  ...prev,
+                  ...r,
+                }))
+              }
               onSubscriberCountChange={setSubscriberCount}
-              className="px-6 py-2.5 !text-sm"
             />
           )}
 

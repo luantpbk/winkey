@@ -23,6 +23,7 @@ import {
   Trophy,
   Clapperboard,
   MessageSquare,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 import { computePermissions } from '../../lib/auth';
@@ -62,6 +63,7 @@ export function Sidebar({
     ...(showMemberLinks
       ? [
           { href: '/tin-nhan', label: 'Tin nhắn', icon: MessageSquare },
+          { href: '/ban-be', label: 'Bạn bè', icon: Users },
           { href: '/feed/subscriptions', label: t('subscriptions'), icon: Tv },
         ]
       : []),

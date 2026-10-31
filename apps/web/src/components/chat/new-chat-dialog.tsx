@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, UserPlus, Users, MessageSquarePlus } from 'lucide-react';
 import { getChatService } from '../../lib/e2ee/chat-service';
 import type { Conversation } from '@winkey/api-client';
 import { UserPicker, type PickedUser } from '../social/user-picker';
+import { loadFriendSuggestions } from '../../lib/social/friends';
 
 interface NewChatDialogProps {
   isOpen: boolean;
@@ -19,6 +20,19 @@ export function NewChatDialog({ isOpen, onClose, onCreated }: NewChatDialogProps
   const [groupUsers, setGroupUsers] = useState<PickedUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // SOC-6b: friends first, before the user types.
+  const [friends, setFriends] = useState<PickedUser[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let live = true;
+    void loadFriendSuggestions().then((list) => {
+      if (live) setFriends(list);
+    });
+    return () => {
+      live = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -168,6 +182,7 @@ export function NewChatDialog({ isOpen, onClose, onCreated }: NewChatDialogProps
                 max={1}
                 value={directUser}
                 onChange={setDirectUser}
+                suggestions={friends}
                 disabled={isLoading}
               />
               <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
@@ -199,6 +214,7 @@ export function NewChatDialog({ isOpen, onClose, onCreated }: NewChatDialogProps
                 max={49}
                 value={groupUsers}
                 onChange={setGroupUsers}
+                suggestions={friends}
                 disabled={isLoading}
               />
             </div>
