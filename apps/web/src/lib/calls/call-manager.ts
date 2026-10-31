@@ -433,8 +433,13 @@ export class CallManager {
     const mine = this.ownDeviceId();
     const call = this.call;
 
+    // Identities come from the authenticated sender metadata of the decrypted event, never from the payload.
     if (event.type === 'm.call.invite') {
       if (fromMe || !signal.fresh) return;
+      // Only a 1-1 conversation that allows calls, and only from its other member (never a group, SOC-4a).
+      if (!CallManager.canCall(conversation, this.userId)) return;
+      const other = conversation.members.find((m) => m.user_id !== this.userId);
+      if (!other || other.user_id !== senderId || !senderDeviceId) return;
       if (isBusy(this.snapshot.state)) {
         if (call?.callId !== event.call_id) {
           await this.chat
@@ -499,11 +504,16 @@ export class CallManager {
     }
 
     if (!call || call.callId !== event.call_id) return;
+    // Only this call's conversation, from the peer or from one of my own devices.
+    if (conversation.id !== call.conversation.id) return;
+    if (!fromMe && senderId !== call.peerUserId) return;
 
     if (event.type === 'm.call.answer') {
+      // The answering device is the one that sent the event: a payload naming another device is ignored.
+      if (!senderDeviceId || event.answerer_device_id !== senderDeviceId) return;
       if (fromMe) {
         // Another of my devices answered: stop ringing here.
-        if (event.answerer_device_id !== mine) {
+        if (senderDeviceId !== mine) {
           this.dispatch({ type: 'ANSWERED_ELSEWHERE', callId: call.callId, now: this.now() });
           this.cleanup();
         }
@@ -511,11 +521,11 @@ export class CallManager {
       }
       if (this.snapshot.state.status !== 'calling' || !call.pc) return;
       if (call.ringTimer) clearTimeout(call.ringTimer);
-      call.peerDeviceId = event.answerer_device_id;
+      call.peerDeviceId = senderDeviceId;
       this.dispatch({
         type: 'ANSWER_RECEIVED',
         callId: call.callId,
-        answererDeviceId: event.answerer_device_id,
+        answererDeviceId: senderDeviceId,
         now: this.now(),
       });
       await call.pc.setRemoteDescription({ type: 'answer', sdp: event.sdp });
@@ -529,7 +539,7 @@ export class CallManager {
           type: 'm.call.select_answer',
           v: 1,
           call_id: call.callId,
-          device_id: event.answerer_device_id,
+          device_id: senderDeviceId,
         },
         true,
       );
@@ -571,6 +581,8 @@ export class CallManager {
     const event = signal.event;
     if (!call || event.call_id !== call.callId) return;
     if (event.type === 'm.call.select_answer') {
+      // Only the caller, or one of my own devices, may stop the ringing here.
+      if (signal.senderId !== call.peerUserId && signal.senderId !== this.userId) return;
       if (this.snapshot.state.status === 'ringing' && event.device_id !== this.ownDeviceId()) {
         this.dispatch({ type: 'ANSWERED_ELSEWHERE', callId: call.callId, now: this.now() });
         this.cleanup();

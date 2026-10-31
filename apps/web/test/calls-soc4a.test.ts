@@ -465,4 +465,183 @@ describe('SOC-4a CallManager signaling (fake WebRTC)', () => {
       ),
     ).toBe(false);
   });
+
+  // --- architect review of #555: identities come from the sender metadata, never from the payload ---------------
+
+  const inviteEvent = (callId = CALL) => ({
+    type: 'm.call.invite' as const,
+    v: 1 as const,
+    call_id: callId,
+    media: 'audio' as const,
+    sdp: 'v=0 offer',
+    lifetime_ms: 45000,
+  });
+  const STRANGER = '0192f5e4-7c1a-7b3e-9d2a-0000000000ff';
+
+  it('ignores an invite from a group, from a non-member of the 1-1, or before both accepted — no ring, no busy reply', async () => {
+    const m = makeManager();
+    const group = {
+      ...conversation,
+      id: 'conv-group',
+      kind: 'GROUP',
+      members: [
+        ...conversation.members,
+        { ...conversation.members[1]!, user_id: STRANGER, user: { id: STRANGER } },
+      ],
+    } as unknown as Conversation;
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation: group,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('idle');
+
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: STRANGER,
+      senderDeviceId: 'sd',
+      conversation,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('idle');
+
+    const requested = {
+      ...conversation,
+      members: [conversation.members[0]!, { ...conversation.members[1]!, state: 'REQUESTED' }],
+    } as Conversation;
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation: requested,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('idle');
+    expect(chat.sendMessage).not.toHaveBeenCalled();
+
+    // The same invite in the real 1-1 rings.
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('ringing');
+  });
+
+  it('ignores an answer whose answerer_device_id is not the sending device', async () => {
+    const caller = makeManager();
+    await caller.startCall(conversation, 'audio');
+    const callId = (
+      chat.sendMessage.mock.calls.at(-1) as unknown as [{ callEvent: { call_id: string } }]
+    )[0].callEvent.call_id;
+    const answer = (answerer: string) => ({
+      type: 'm.call.answer' as const,
+      v: 1 as const,
+      call_id: callId,
+      sdp: 'v=0 answer',
+      answerer_device_id: answerer,
+    });
+
+    await caller.handleRoomEvent({
+      event: answer('pd-victim'),
+      senderId: PEER,
+      senderDeviceId: 'pd-2',
+      conversation,
+      fresh: true,
+    });
+    expect(caller.getSnapshot().state.status).toBe('calling');
+    expect(chat.sendToDevice).not.toHaveBeenCalled();
+
+    // On my own devices too: a forged "answered elsewhere" does not stop the call.
+    await caller.handleRoomEvent({
+      event: answer('device-other'),
+      senderId: ME,
+      senderDeviceId: 'device-me-0001',
+      conversation,
+      fresh: true,
+    });
+    expect(caller.getSnapshot().state.status).toBe('calling');
+
+    await caller.handleRoomEvent({
+      event: answer('pd-2'),
+      senderId: PEER,
+      senderDeviceId: 'pd-2',
+      conversation,
+      fresh: true,
+    });
+    expect(caller.getSnapshot().state).toMatchObject({
+      status: 'connecting',
+      peerDeviceId: 'pd-2',
+    });
+  });
+
+  it('ignores select_answer from a third user; the caller or my own device may stop the ringing', async () => {
+    const m = makeManager();
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('ringing');
+    const select = {
+      type: 'm.call.select_answer' as const,
+      v: 1 as const,
+      call_id: CALL,
+      device_id: 'elsewhere',
+    };
+
+    await m.handleDeviceEvent({ event: select, senderId: STRANGER, senderDeviceId: 'sd' });
+    expect(m.getSnapshot().state.status).toBe('ringing');
+
+    await m.handleDeviceEvent({ event: select, senderId: PEER, senderDeviceId: 'pd' });
+    expect(m.getSnapshot().state).toMatchObject({ status: 'ended', outcome: 'answered_elsewhere' });
+  });
+
+  it('ignores a hangup for this call_id sent from another conversation or by a third user', async () => {
+    const m = makeManager();
+    await m.handleRoomEvent({
+      event: inviteEvent(),
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation,
+      fresh: true,
+    });
+    const hangup = {
+      type: 'm.call.hangup' as const,
+      v: 1 as const,
+      call_id: CALL,
+      reason: 'user_hangup' as const,
+      duration_ms: 0,
+    };
+    const other = { ...conversation, id: 'conv-other' } as Conversation;
+    await m.handleRoomEvent({
+      event: hangup,
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation: other,
+      fresh: true,
+    });
+    await m.handleRoomEvent({
+      event: hangup,
+      senderId: STRANGER,
+      senderDeviceId: 'sd',
+      conversation,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('ringing');
+    await m.handleRoomEvent({
+      event: hangup,
+      senderId: PEER,
+      senderDeviceId: 'pd',
+      conversation,
+      fresh: true,
+    });
+    expect(m.getSnapshot().state.status).toBe('ended');
+  });
 });
