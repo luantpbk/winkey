@@ -46,7 +46,9 @@ const chat = {
   ensureReady: vi.fn(async () => {}),
   processToDeviceMessages: vi.fn(async () => []),
   getConversation: vi.fn(async () => conversation),
-  fetchMessages: vi.fn(async () => ({ items: [answer] })),
+  fetchMessages: vi.fn(async (..._args: unknown[]): Promise<{ items: unknown[] }> => ({
+    items: [answer],
+  })),
 };
 vi.mock('../src/lib/e2ee/chat-service', () => ({ getChatService: () => chat }));
 
@@ -90,6 +92,53 @@ describe('SOC-4a CallProvider', () => {
     expect(chat.processToDeviceMessages).toHaveBeenCalled();
     expect(handleRoomEvent).toHaveBeenCalledWith(
       expect.objectContaining({ event: answer.callEvent, senderDeviceId: 'dev-binh', fresh: true }),
+    );
+  });
+
+  it('reads past old history this device has no key for, but waits on a recent message until its key arrives', async () => {
+    const old = {
+      status: 'WAITING_FOR_KEY',
+      message: {
+        seq: 1,
+        sender_id: 'user-binh',
+        created_at: new Date(Date.now() - 3_600_000).toISOString(),
+      },
+    };
+    const recent = {
+      ...old,
+      message: { ...old.message, seq: 3, created_at: new Date().toISOString() },
+    };
+    const invite = {
+      ...answer,
+      callEvent: { type: 'm.call.invite', v: 1, call_id: 'call-2', sdp: 'v=0', kind: 'audio' },
+      message: { ...answer.message, seq: 4 },
+    };
+    databases = [{ name: (await import('../src/lib/e2ee/storage')).DB_NAME }];
+    chat.fetchMessages
+      .mockResolvedValueOnce({ items: [old, answer, recent, invite] })
+      .mockResolvedValueOnce({ items: [{ ...recent, status: 'DECRYPTED' }, invite] });
+    render(
+      <CallProvider>
+        <p>trang</p>
+      </CallProvider>,
+    );
+    await waitFor(() => expect(onEvent).not.toBeNull());
+
+    await act(async () => {
+      onEvent!({ event: 'chat.hint', data: { kind: 'MESSAGE', conversation_id: 'conv-1' } });
+    });
+    // The hour-old message is skipped, the answer is read, the scan stops at the recent unreadable one.
+    await waitFor(() => expect(handleRoomEvent).toHaveBeenCalledTimes(1));
+    expect(handleRoomEvent).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 2 }));
+
+    // Its key arrives: the conversation is scanned again from after the answer and the invite is read.
+    await act(async () => {
+      onEvent!({ event: 'chat.hint', data: { kind: 'TO_DEVICE' } });
+    });
+    await waitFor(() => expect(handleRoomEvent).toHaveBeenCalledTimes(2));
+    expect(chat.fetchMessages).toHaveBeenLastCalledWith('conv-1', { after_seq: 2, limit: 50 });
+    expect(handleRoomEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ event: invite.callEvent, seq: 4 }),
     );
   });
 });

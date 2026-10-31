@@ -111,8 +111,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       );
       waiting.current.delete(conversationId);
       for (const item of page.items) {
-        if (item.status === 'WAITING_FOR_KEY') {
-          // Do not move past a message we cannot read yet: its key arrives as a to-device message.
+        const age = Date.now() - new Date(item.message.created_at).getTime();
+        if (item.status === 'WAITING_FOR_KEY' && age < CALL_LIFETIME_MS) {
+          // Do not move past a recent message we cannot read yet: its key arrives as a to-device message. Older ones
+          // (history from before this device existed) may never be readable and cannot be a live call any more.
           waiting.current.add(conversationId);
           break;
         }
@@ -121,7 +123,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           Math.max(lastSeq.current.get(conversationId) ?? 0, item.message.seq),
         );
         if (item.status !== 'CALL' || !item.callEvent || !item.message.sender_id) continue;
-        const age = Date.now() - new Date(item.message.created_at).getTime();
         await manager.handleRoomEvent({
           event: item.callEvent,
           senderId: item.message.sender_id,
