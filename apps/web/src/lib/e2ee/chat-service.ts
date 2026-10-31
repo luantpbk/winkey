@@ -13,18 +13,58 @@ import { getDeviceManager } from './device-manager';
 import { getE2eeClient } from './client';
 import type { Conversation, ConversationPage, Message, ToDeviceMessage } from '@winkey/api-client';
 import type { MemberDeviceRef, ClaimedOtkRef } from './protocol';
+import { parseChatEvent, serializeTextEvent, type AttachmentRef } from './events';
+import {
+  isRoomEvent,
+  parseCallEvent,
+  type CallDeviceEvent,
+  type CallRoomEvent,
+} from '../calls/events';
+
+/** A call event that reached this device, already validated (SOC-4a). */
+export interface IncomingCallSignal {
+  event: CallRoomEvent | CallDeviceEvent;
+  senderId: string;
+  senderDeviceId: string;
+  conversationId?: string;
+  /** Megolm events: when chat-svc stored them (rings only for fresh invites). */
+  sentAt?: string;
+  seq?: number;
+}
 
 export interface DecryptedMessageItem {
   message: Message;
   plaintext: string | null;
-  status: 'DECRYPTED' | 'WAITING_FOR_KEY' | 'SYSTEM' | 'DELETED' | 'UNSUPPORTED' | 'ERROR';
+  status: 'DECRYPTED' | 'WAITING_FOR_KEY' | 'SYSTEM' | 'DELETED' | 'UNSUPPORTED' | 'ERROR' | 'CALL';
+  /** SOC-4a: a call event in the history (invite, answer, reject, hangup), rendered as a call line. */
+  callEvent?: CallRoomEvent;
   error?: string;
+  /** SOC-3b: files carried by the encrypted event, validated (events.ts). Lives only on this device. */
+  attachments?: AttachmentRef[];
 }
 
 export class ChatService {
   private deviceManager = getDeviceManager();
   private e2eeClient = getE2eeClient();
   private processingToDevice = false;
+  private toDeviceRun: Promise<string[]> | null = null;
+  private callListeners = new Set<(signal: IncomingCallSignal) => void>();
+
+  /** SOC-4a: to-device call events are delivered here (validated), whoever triggered the fetch. */
+  onCallSignal(listener: (signal: IncomingCallSignal) => void): () => void {
+    this.callListeners.add(listener);
+    return () => this.callListeners.delete(listener);
+  }
+
+  private emitCallSignal(signal: IncomingCallSignal): void {
+    for (const listener of this.callListeners) {
+      try {
+        listener(signal);
+      } catch (err) {
+        console.warn('[ChatService] call listener failed', err);
+      }
+    }
+  }
 
   async ensureReady(userId: string): Promise<string> {
     return this.deviceManager.ensureDeviceRegistered(userId);
@@ -93,7 +133,19 @@ export class ChatService {
   /**
    * Process pending to-device messages: fetches, decrypts in worker, imports Megolm keys, and ACKs.
    */
+  /**
+   * Concurrent callers (chat page, CallProvider) share the run in flight, so whoever waits for it knows the new
+   * Megolm keys are imported when it resolves (SOC-4a: an answer must not be read before its key arrived).
+   */
   async processToDeviceMessages(): Promise<string[]> {
+    if (this.toDeviceRun) return this.toDeviceRun;
+    this.toDeviceRun = this.runToDevice().finally(() => {
+      this.toDeviceRun = null;
+    });
+    return this.toDeviceRun;
+  }
+
+  private async runToDevice(): Promise<string[]> {
     const deviceId = this.deviceManager.getDeviceId();
     if (!deviceId || this.processingToDevice) {
       return [];
@@ -152,6 +204,12 @@ export class ChatService {
 
         const decryptResult = await this.e2eeClient.decryptToDeviceBatch(workerPayload);
         newSessionIds.push(...decryptResult.newMegolmSessionIds);
+        for (const e of decryptResult.events ?? []) {
+          const event = parseCallEvent(e.event);
+          if (event && !isRoomEvent(event)) {
+            this.emitCallSignal({ event, senderId: e.senderId, senderDeviceId: e.senderDeviceId });
+          }
+        }
 
         // ACK processed to-device messages
         if (decryptResult.processedIds.length > 0) {
@@ -226,27 +284,28 @@ export class ChatService {
       return { message: msg, plaintext: null, status: 'ERROR', error: result.error };
     }
 
-    try {
-      const parsed = JSON.parse(result.plaintext);
-      if (parsed?.type === 'text' && typeof parsed.body === 'string') {
-        return {
-          message: msg,
-          plaintext: parsed.body,
-          status: 'DECRYPTED',
-        };
+    const event = parseChatEvent(result.plaintext);
+    if (!event) {
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(result.plaintext);
+      } catch {
+        // not JSON: unsupported below
       }
-      return {
-        message: msg,
-        plaintext: null,
-        status: 'UNSUPPORTED',
-      };
-    } catch {
-      return {
-        message: msg,
-        plaintext: result.plaintext,
-        status: 'DECRYPTED',
-      };
+      const callEvent = parseCallEvent(parsed);
+      if (callEvent && isRoomEvent(callEvent)) {
+        return { message: msg, plaintext: null, status: 'CALL', callEvent };
+      }
+      return { message: msg, plaintext: null, status: 'UNSUPPORTED' };
     }
+    // An attachment the server no longer lists (deleted, expired by the janitor) is still shown from the event,
+    // and its download answers 404 / 410.
+    return {
+      message: msg,
+      plaintext: event.body,
+      status: 'DECRYPTED',
+      ...(event.attachments ? { attachments: event.attachments } : {}),
+    };
   }
 
   /**
@@ -257,8 +316,11 @@ export class ChatService {
     conversation: Conversation;
     text: string;
     clientMsgId?: string;
+    attachments?: AttachmentRef[];
+    /** SOC-4a: send a call event (invite, answer, reject, hangup) instead of a text event. */
+    callEvent?: CallRoomEvent;
   }): Promise<DecryptedMessageItem> {
-    const { conversation, text } = params;
+    const { conversation, text, attachments = [], callEvent } = params;
     const clientMsgId = params.clientMsgId || crypto.randomUUID();
 
     const senderDeviceId = this.deviceManager.getDeviceId();
@@ -350,10 +412,9 @@ export class ChatService {
     }
 
     // 5. Encrypt message plaintext: JSON {"type":"text","body":"..."}
-    const plaintextPayload = JSON.stringify({
-      type: 'text',
-      body: text.slice(0, 4000),
-    });
+    const plaintextPayload = callEvent
+      ? JSON.stringify(callEvent)
+      : serializeTextEvent(text, attachments);
 
     const encResult = await this.e2eeClient.encryptMessage(conversation.id, plaintextPayload);
 
@@ -369,12 +430,16 @@ export class ChatService {
         sender_device_id: senderDeviceId,
         megolm_session_id: encResult.megolmSessionId,
         ciphertext: encResult.ciphertext,
+        ...(attachments.length > 0 ? { attachment_ids: attachments.map((a) => a.id) } : {}),
       },
     });
 
     if (sendErr || !msgData) {
       if (response.status === 403) {
         throw new Error('Không thể gửi tin nhắn do quan hệ chặn hoặc chưa được chấp nhận.');
+      }
+      if (response.status === 409 && sendErr?.code === 'ATTACHMENT_UNAVAILABLE') {
+        throw new Error('Một tệp đính kèm đã hết hạn hoặc không còn, hãy đính kèm lại.');
       }
       if (response.status === 409) {
         throw new Error('Cuộc trò chuyện này đã kết thúc do đối phương đã rời đi.');
@@ -385,11 +450,75 @@ export class ChatService {
       throw new Error(sendErr?.detail || 'Không thể gửi tin nhắn.');
     }
 
+    if (callEvent) {
+      return { message: msgData, plaintext: null, status: 'CALL', callEvent };
+    }
+
     return {
       message: msgData,
       plaintext: text,
       status: 'DECRYPTED',
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
+  }
+
+  /**
+   * SOC-4a: Olm-encrypted to-device event to some devices of `userIds` (all of them when `deviceIds` is omitted),
+   * claiming one-time keys only for devices this device has no Olm session with yet.
+   */
+  async sendToDevice(params: {
+    userIds: string[];
+    deviceIds?: string[];
+    event: CallDeviceEvent;
+  }): Promise<void> {
+    const senderDeviceId = this.deviceManager.getDeviceId();
+    if (!senderDeviceId) throw new Error('Chưa thiết lập thiết bị nhắn tin bảo mật.');
+    const { data } = await api.chat.POST('/v1/chat/devices/query', {
+      body: { user_ids: params.userIds },
+    });
+    const targets: MemberDeviceRef[] = [];
+    for (const u of data?.users ?? []) {
+      for (const d of u.devices ?? []) {
+        if (d.id === senderDeviceId) continue;
+        if (params.deviceIds && !params.deviceIds.includes(d.id)) continue;
+        targets.push({
+          userId: u.user_id,
+          deviceId: d.id,
+          curve25519: d.curve25519_key,
+          ed25519: d.ed25519_key,
+        });
+      }
+    }
+    if (targets.length === 0) return;
+
+    const first = await this.e2eeClient.encryptToDevice({
+      targets,
+      claimedKeys: {},
+      event: params.event,
+    });
+    const { needKeys } = first;
+    let messages = first.messages;
+    if (needKeys.length > 0) {
+      const { data: claim } = await api.chat.POST('/v1/chat/keys/claim', {
+        body: { device_ids: needKeys },
+      });
+      const claimedKeys: Record<string, ClaimedOtkRef> = {};
+      for (const k of claim?.keys ?? [])
+        claimedKeys[k.device_id] = { keyId: k.key_id, publicKey: k.public_key };
+      const second = await this.e2eeClient.encryptToDevice({
+        targets: targets.filter((t) => needKeys.includes(t.deviceId)),
+        claimedKeys,
+        event: params.event,
+      });
+      messages = [...messages, ...second.messages];
+    }
+    if (messages.length === 0) return;
+    await api.chat.POST('/v1/chat/to-device', {
+      body: {
+        sender_device_id: senderDeviceId,
+        messages: messages.map((m) => ({ device_id: m.deviceId, ciphertext: m.ciphertext })),
+      },
+    });
   }
 
   async deleteMessage(conversationId: string, seq: number): Promise<void> {

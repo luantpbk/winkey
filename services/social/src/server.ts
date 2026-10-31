@@ -13,6 +13,7 @@ import { postsRoute } from './routes/posts.js';
 import { reactionsRoute } from './routes/reactions.js';
 import { postCommentsRoute } from './routes/post-comments.js';
 import { feedsRoute } from './routes/feeds.js';
+import { peopleRoute } from './routes/people.js';
 import { startScoringJob } from './jobs/scoring-job.js';
 import { getEnv, type Env } from './config/env.js';
 import { getDb } from './db/client.js';
@@ -122,6 +123,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(reactionsRoute, { db, env, rateLimiter });
   await app.register(postCommentsRoute, { db, env, rateLimiter });
   await app.register(feedsRoute, { db, env, redis: options.redis });
+  await app.register(peopleRoute, { db, env, rateLimiter });
   await app.register(healthRoute, {
     db,
     redis: options.redis,

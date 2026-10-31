@@ -349,7 +349,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Move the caller's read marker forward (never backwards). Idempotent. */
+        /**
+         * Move the caller's read marker forward (never backwards). Idempotent.
+         * @description When the marker of an `ACTIVE` member moves forward, chat-svc sends `chat.hint` `READ` (conversation, reader,
+         *     new marker) to the other `ACTIVE` members, so their "đã xem" updates live. A `REQUESTED` member's marker is
+         *     saved but never announced, and not returned in `Member.last_read_seq`, until they accept.
+         */
         post: operations["markRead"];
         delete?: never;
         options?: never;
@@ -617,6 +622,13 @@ export interface components {
             user: components["schemas"]["PublicProfile"] | null;
             role: components["schemas"]["MemberRole"];
             state: components["schemas"]["MemberState"];
+            /**
+             * Format: int64
+             * @description The member's read marker (`markRead`), for "đã xem" (task B3). `null` for a `REQUESTED` member: a message
+             *     request promises that the sender does not learn it was read until it is accepted. Sent by every 1.3.0
+             *     server; a missing value means `null`.
+             */
+            last_read_seq?: number | null;
         };
         Conversation: {
             id: components["schemas"]["Uuid"];

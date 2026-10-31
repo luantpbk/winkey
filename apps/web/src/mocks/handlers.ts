@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import { chatHandlers } from './handlers-chat';
 import type {
+  PublicProfile,
   User,
   VideoSummary,
   Video,
@@ -1874,6 +1875,59 @@ export const handlers = [
     }
 
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // SOC-6a searchPeople (social-svc). Folding mirrors public.winkey_fold: lower case, no diacritics, đ → d.
+  http.get('*/v1/people/search', ({ request }) => {
+    const url = new URL(request.url);
+    const fold = (v: string) =>
+      v.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase();
+    const q = (url.searchParams.get('q') ?? '').trim().replace(/^@/, '').trim();
+    if (q.length < 1 || q.length > 64) {
+      return HttpResponse.json(
+        { type: '/problems/bad-request', title: 'Bad request', status: 400, code: 'INVALID_QUERY' },
+        { status: 400 },
+      );
+    }
+    const limit = Math.min(20, Number(url.searchParams.get('limit') ?? 10) || 10);
+    const people: PublicProfile[] = [
+      ...Object.values(mockPublicProfiles),
+      {
+        id: '0192f5e4-0000-7000-8000-00000000a001',
+        handle: 'tuan_anh',
+        display_name: 'Tuấn Anh',
+        avatar_url: null,
+      },
+      {
+        id: '0192f5e4-0000-7000-8000-00000000a002',
+        handle: 'mai.tuyet',
+        display_name: 'Mai Tuyết',
+        avatar_url: null,
+      },
+      {
+        id: '0192f5e4-0000-7000-8000-00000000a003',
+        handle: 'ducnv',
+        display_name: 'Nguyễn Văn Đức',
+        avatar_url: null,
+      },
+      {
+        id: '0192f5e4-0000-7000-8000-00000000a004',
+        handle: 'thu_ha',
+        display_name: 'Thu Hà',
+        avatar_url: null,
+      },
+    ];
+    const fq = fold(q);
+    const items = people
+      .filter(
+        (p) =>
+          p.handle.toLowerCase().startsWith(q.toLowerCase()) ||
+          (fq.length >= 3
+            ? fold(p.display_name).includes(fq)
+            : fold(p.display_name).startsWith(fq)),
+      )
+      .slice(0, limit);
+    return HttpResponse.json({ items, next_cursor: null });
   }),
 
   http.get('*/v1/users/:handle', async ({ params }) => {

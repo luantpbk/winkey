@@ -12,11 +12,39 @@ import {
   Lock,
   Users,
   User,
+  Paperclip,
+  X,
+  Phone,
+  Video,
+  PhoneCall,
 } from 'lucide-react';
+import { useCalls } from '../calls/call-provider';
+import { CallManager } from '../../lib/calls/call-manager';
+import { describeCallEvent, type CallMedia } from '../../lib/calls/events';
 import { getChatService, type DecryptedMessageItem } from '../../lib/e2ee/chat-service';
 import { SafetyNumberDialog } from './safety-number-dialog';
 import { GroupSettingsDialog } from './group-settings-dialog';
 import type { Conversation } from '@winkey/api-client';
+import { AttachmentList } from './attachment-view';
+import type { AttachmentRef } from '../../lib/e2ee/events';
+import { MAX_ATTACHMENTS_PER_MESSAGE } from '../../lib/e2ee/events';
+import {
+  AttachmentError,
+  formatBytes,
+  prepareFile,
+  uploadAttachment,
+} from '../../lib/e2ee/attachments';
+
+interface PendingAttachment {
+  localId: string;
+  name: string;
+  size: number;
+  status: 'preparing' | 'uploading' | 'ready' | 'error';
+  progress: number;
+  ref?: AttachmentRef;
+  error?: string;
+  controller: AbortController;
+}
 
 interface ConversationViewProps {
   conversation: Conversation;
@@ -48,7 +76,12 @@ export function ConversationView({
   const [peerEdKey, setPeerEdKey] = useState<string>('');
   const [myEdKey, setMyEdKey] = useState<string>('');
 
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { manager: callManager } = useCalls();
+  const canCall = CallManager.canCall(conversation, currentUserId);
   const chatService = getChatService();
 
   const scrollToBottom = () => {
@@ -111,10 +144,72 @@ export function ConversationView({
     })();
   }, [conversation, currentUserId]);
 
+  const updatePending = (localId: string, patch: Partial<PendingAttachment>) =>
+    setPending((prev) => prev.map((p) => (p.localId === localId ? { ...p, ...patch } : p)));
+
+  // SOC-3b: each picked file is prepared (images: WebP, at most 1600 px), encrypted and uploaded right away; the
+  // message is sent once every file is ready.
+  const handleFilesPicked = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const deviceId = chatService.getDeviceId();
+    if (!deviceId) {
+      setErrorMessage('Chưa thiết lập thiết bị nhắn tin bảo mật.');
+      return;
+    }
+    const room = MAX_ATTACHMENTS_PER_MESSAGE - pending.length;
+    const picked = Array.from(files).slice(0, Math.max(0, room));
+    if (files.length > picked.length) {
+      setErrorMessage(`Mỗi tin nhắn có tối đa ${MAX_ATTACHMENTS_PER_MESSAGE} tệp.`);
+    }
+    for (const file of picked) {
+      const item: PendingAttachment = {
+        localId: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        status: 'preparing',
+        progress: 0,
+        controller: new AbortController(),
+      };
+      setPending((prev) => [...prev, item]);
+      void (async () => {
+        try {
+          const prepared = await prepareFile(file);
+          updatePending(item.localId, { status: 'uploading', size: prepared.bytes.length });
+          const ref = await uploadAttachment({
+            conversationId: conversation.id,
+            deviceId,
+            prepared,
+            signal: item.controller.signal,
+            onProgress: (progress) => updatePending(item.localId, { progress }),
+          });
+          updatePending(item.localId, { status: 'ready', progress: 1, ref });
+        } catch (err) {
+          if (err instanceof AttachmentError && err.code === 'CANCELLED') return;
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          updatePending(item.localId, {
+            status: 'error',
+            error: err instanceof Error ? err.message : 'Không gửi được tệp.',
+          });
+        }
+      })();
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePending = (localId: string) => {
+    setPending((prev) => {
+      prev.find((p) => p.localId === localId)?.controller.abort();
+      return prev.filter((p) => p.localId !== localId);
+    });
+  };
+
+  const attachmentsBusy = pending.some((p) => p.status === 'preparing' || p.status === 'uploading');
+  const readyAttachments = pending.filter((p) => p.status === 'ready' && p.ref).map((p) => p.ref!);
+
   const handleSendMessage = async (e?: React.FormEvent, retryClientMsgId?: string) => {
     if (e) e.preventDefault();
     const textToSend = inputText.trim();
-    if (!textToSend || isSending) return;
+    if ((!textToSend && readyAttachments.length === 0) || isSending || attachmentsBusy) return;
 
     setIsSending(true);
     setErrorMessage(null);
@@ -124,10 +219,12 @@ export function ConversationView({
         conversation,
         text: textToSend,
         clientMsgId: retryClientMsgId,
+        attachments: readyAttachments,
       });
 
       setMessages((prev) => [...prev, sentItem]);
       setInputText('');
+      setPending((prev) => prev.filter((p) => p.status === 'error'));
 
       // Update conversation last_seq in parent
       onConversationUpdated({
@@ -238,6 +335,38 @@ export function ConversationView({
 
         {/* Header Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {conversation.kind === 'DIRECT' && callManager && (
+            <>
+              <button
+                type="button"
+                onClick={() => void callManager.startCall(conversation, 'audio')}
+                disabled={!canCall}
+                aria-label="Gọi thoại"
+                title={
+                  canCall
+                    ? 'Gọi thoại (mã hoá đầu cuối)'
+                    : 'Chỉ gọi được khi cả hai đã chấp nhận trò chuyện'
+                }
+                className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40"
+              >
+                <Phone className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void callManager.startCall(conversation, 'video')}
+                disabled={!canCall}
+                aria-label="Gọi video"
+                title={
+                  canCall
+                    ? 'Gọi video (mã hoá đầu cuối)'
+                    : 'Chỉ gọi được khi cả hai đã chấp nhận trò chuyện'
+                }
+                className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40"
+              >
+                <Video className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </>
+          )}
           {conversation.kind === 'DIRECT' && peerEdKey && myEdKey && (
             <button
               type="button"
@@ -321,6 +450,29 @@ export function ConversationView({
               minute: '2-digit',
             });
 
+            // SOC-4a call events: one line per finished call, from the decrypted events (never on the server)
+            if (item.status === 'CALL' && item.callEvent) {
+              const ev = item.callEvent;
+              const invite = messages.find(
+                (m) => m.callEvent?.type === 'm.call.invite' && m.callEvent.call_id === ev.call_id,
+              );
+              const media: CallMedia | null =
+                invite?.callEvent?.type === 'm.call.invite' ? invite.callEvent.media : null;
+              const text = describeCallEvent(ev, media, isOwn);
+              if (!text) return null;
+              return (
+                <div key={item.message.id} className="flex justify-center my-2">
+                  <span
+                    data-testid="call-history-line"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-200/60 dark:bg-zinc-800/60 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium"
+                  >
+                    <PhoneCall className="h-3 w-3" aria-hidden="true" />
+                    {text} · {timeStr}
+                  </span>
+                </div>
+              );
+            }
+
             // SYSTEM message
             if (item.status === 'SYSTEM') {
               let systemText = 'Thông báo hệ thống';
@@ -389,9 +541,17 @@ export function ConversationView({
                   }`}
                 >
                   {/* Text rendered strictly as text to prevent XSS */}
-                  <div className="whitespace-pre-wrap select-text">
-                    {item.status === 'UNSUPPORTED' ? 'Tin nhắn không hỗ trợ' : item.plaintext}
-                  </div>
+                  {(item.status === 'UNSUPPORTED' || item.plaintext) && (
+                    <div className="whitespace-pre-wrap select-text">
+                      {item.status === 'UNSUPPORTED' ? 'Tin nhắn không hỗ trợ' : item.plaintext}
+                    </div>
+                  )}
+                  {item.attachments && item.attachments.length > 0 && (
+                    <AttachmentList
+                      conversationId={conversation.id}
+                      attachments={item.attachments}
+                    />
+                  )}
 
                   <div
                     className={`flex items-center justify-end gap-1.5 mt-1 text-[10px] ${
@@ -434,7 +594,69 @@ export function ConversationView({
 
       {/* Composer */}
       <div className="p-3 bg-white dark:bg-[#141414] border-t border-zinc-200 dark:border-[#222222] shrink-0">
+        {pending.length > 0 && (
+          <ul className="mb-2 flex flex-wrap gap-1.5" aria-label="Tệp đính kèm">
+            {pending.map((p) => (
+              <li
+                key={p.localId}
+                className={`flex max-w-[14rem] items-center gap-2 rounded-lg border px-2 py-1 text-[11px] ${
+                  p.status === 'error'
+                    ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400'
+                    : 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300'
+                }`}
+              >
+                <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{p.name}</span>
+                  <span className="block">
+                    {p.status === 'preparing'
+                      ? 'Đang nén và mã hoá…'
+                      : p.status === 'uploading'
+                        ? `Đang tải lên ${Math.round(p.progress * 100)}%`
+                        : p.status === 'ready'
+                          ? `Sẵn sàng · ${formatBytes(p.size)}`
+                          : p.error}
+                  </span>
+                  {p.status === 'uploading' && (
+                    <progress
+                      className="mt-0.5 block h-1 w-full accent-red-600"
+                      max={1}
+                      value={p.progress}
+                      aria-label={`Tiến độ tải lên ${p.name}`}
+                    />
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePending(p.localId)}
+                  aria-label={p.status === 'uploading' ? `Huỷ tải lên ${p.name}` : `Bỏ ${p.name}`}
+                  className="shrink-0 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            data-testid="chat-file-input"
+            onChange={(e) => handleFilesPicked(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isRequested || isSending || pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+            aria-label="Đính kèm tệp"
+            title="Đính kèm ảnh, video hoặc tệp (mã hoá đầu cuối)"
+            className="flex shrink-0 items-center justify-center rounded-xl p-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-white"
+          >
+            <Paperclip className="h-4 w-4" aria-hidden="true" />
+          </button>
           <div className="flex-1 relative">
             <textarea
               rows={1}
@@ -459,7 +681,13 @@ export function ConversationView({
 
           <button
             type="submit"
-            disabled={!inputText.trim() || isRequested || isSending}
+            disabled={
+              (!inputText.trim() && readyAttachments.length === 0) ||
+              isRequested ||
+              isSending ||
+              attachmentsBusy
+            }
+            aria-label="Gửi"
             className="flex items-center justify-center p-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-40 shrink-0"
           >
             {isSending ? (

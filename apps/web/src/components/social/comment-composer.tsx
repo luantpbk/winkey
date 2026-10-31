@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useRouter, usePathname } from '../../i18n/routing';
 import { useSafeTimeout } from '../../lib/hooks/use-safe-timeout';
+import { MentionTextarea } from './mention-textarea';
 
 export interface CommentComposerProps {
   placeholder?: string;
@@ -100,11 +101,11 @@ export function CommentComposer({
       )}
 
       <div className="flex flex-col flex-1 min-w-0">
-        <textarea
+        <MentionTextarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
+          onValueChange={(next) => {
+            setText(next);
             if (errorMessage) setErrorMessage(null);
           }}
           onKeyDown={handleKeyDown}
