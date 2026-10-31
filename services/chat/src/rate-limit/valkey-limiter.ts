@@ -131,3 +131,23 @@ export function buildTurnCredentialsRateLimitKey(userId: string): string {
 export function buildMessageRequestRateLimitKey(userId: string): string {
   return `rl:chat:req:${userId}`;
 }
+
+export function buildCreateAttachmentRateLimitKey(userId: string): string {
+  return `rl:chat:attachment_create:${userId}`;
+}
+
+export function buildDownloadAttachmentRateLimitKey(userId: string): string {
+  return `rl:chat:attachment_download:${userId}`;
+}
+
+export function buildPutKeyBackupRateLimitKey(userId: string): string {
+  return `rl:chat:key_backup_put:${userId}`;
+}
+
+export function buildGetKeyBackupRateLimitKey(userId: string): string {
+  return `rl:chat:key_backup_get:${userId}`;
+}
+
+export function buildKeyBackupSessionsRateLimitKey(userId: string): string {
+  return `rl:chat:key_backup_sessions:${userId}`;
+}

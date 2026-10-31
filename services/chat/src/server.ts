@@ -9,6 +9,10 @@ import { devicesRoute } from './routes/devices.js';
 import { toDeviceRoute } from './routes/to-device.js';
 import { conversationsRoute } from './routes/conversations.js';
 import { messagesRoute } from './routes/messages.js';
+import { attachmentsRoute } from './routes/attachments.js';
+import { keyBackupRoute } from './routes/key-backup.js';
+import { createAttachmentStorage, type AttachmentStorage } from './storage/attachment-storage.js';
+import { parseDurationMs } from './utils/duration.js';
 import { callsRoute, parseTurnConfig, type TurnConfig } from './routes/calls.js';
 import { REDACT_PATHS } from './infra/logger.js';
 import type { Database } from './db/types.js';
@@ -29,6 +33,8 @@ export interface BuildAppOptions {
   getNatsConnection?: () => NatsConnection | null;
   metricsRegistry?: Registry;
   loggerInstance?: FastifyServerOptions['loggerInstance'];
+  /** SOC-3b ciphertext store; defaults to the CHAT_S3_* env (null when unset: attachment endpoints answer 503). */
+  storage?: AttachmentStorage | null;
   /** SOC-4a TURN config; defaults to TURN_SECRET / TURN_URLS / TURN_TTL_SECONDS (null → 503). */
   turn?: TurnConfig | null;
 }
@@ -41,6 +47,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const natsSource =
     options.getNatsConnection ?? (options.natsConnection ? () => options.natsConnection! : null);
   const hints = new RealtimeHintDispatcher(natsSource ?? options.natsConnection ?? null);
+  const storage = options.storage !== undefined ? options.storage : createAttachmentStorage(env);
 
   const trustProxyConfig = env.TRUST_PROXY_CIDRS
     ? env.TRUST_PROXY_CIDRS.split(',')
@@ -116,7 +123,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(devicesRoute, { db, hints, rateLimiter });
   await app.register(toDeviceRoute, { db, hints, rateLimiter });
   await app.register(conversationsRoute, { db, hints, rateLimiter });
-  await app.register(messagesRoute, { db, hints, rateLimiter });
+  await app.register(messagesRoute, { db, hints, rateLimiter, storage });
+  await app.register(attachmentsRoute, {
+    db,
+    storage,
+    rateLimiter,
+    attachmentTtlMs: parseDurationMs(env.CHAT_ATTACHMENT_TTL, 30 * 24 * 60 * 60 * 1000),
+  });
+  await app.register(keyBackupRoute, { db, rateLimiter });
   await app.register(callsRoute, {
     turn: options.turn !== undefined ? options.turn : parseTurnConfig(env),
     rateLimiter,

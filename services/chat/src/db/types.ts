@@ -102,6 +102,39 @@ export interface SubscriptionsTable {
   channel_id: string;
 }
 
+export type AttachmentState = 'PENDING' | 'UPLOADED';
+
+export interface AttachmentsTable {
+  id: string;
+  conversation_id: string;
+  uploader_id: string;
+  uploader_device_id: string;
+  size_bytes: string;
+  state: Generated<AttachmentState>;
+  message_seq: string | null;
+  created_at: Generated<Date>;
+  uploaded_at: Date | null;
+  expires_at: Date;
+}
+
+export interface KeyBackupsTable {
+  user_id: string;
+  version: string;
+  algorithm: string;
+  auth_data: ColumnType<Record<string, unknown>, string, string>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface KeyBackupSessionsTable {
+  user_id: string;
+  conversation_id: string;
+  session_id: string;
+  first_message_index: number;
+  ciphertext: string;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   'chat.devices': DevicesTable;
   'chat.one_time_keys': OneTimeKeysTable;
@@ -109,6 +142,9 @@ export interface Database {
   'chat.members': MembersTable;
   'chat.messages': MessagesTable;
   'chat.to_device': ToDeviceTable;
+  'chat.attachments': AttachmentsTable;
+  'chat.key_backups': KeyBackupsTable;
+  'chat.key_backup_sessions': KeyBackupSessionsTable;
   'auth.public_profiles': PublicProfilesTable;
   'social.blocks': BlocksTable;
   'social.subscriptions': SubscriptionsTable;

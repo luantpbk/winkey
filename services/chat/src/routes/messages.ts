@@ -8,16 +8,23 @@ import { requireAuth, isValidUuid } from '../utils/auth.js';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import { buildMessageRateLimitKey } from '../rate-limit/valkey-limiter.js';
 import type { RealtimeHintDispatcher } from '../realtime/hints.js';
+import { attachmentObjectKey, type AttachmentStorage } from '../storage/attachment-storage.js';
+import {
+  ATTACHMENTS_PER_MESSAGE,
+  loadAttachmentsBySeq,
+  type AttachmentDto,
+} from '../utils/attachments.js';
 
 export interface MessagesRouteDependencies {
   db: Kysely<Database>;
   hints: RealtimeHintDispatcher;
   rateLimiter?: RateLimiter;
+  storage?: AttachmentStorage | null;
 }
 
 export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = async (
   fastify,
-  { db, hints, rateLimiter },
+  { db, hints, rateLimiter, storage = null },
 ) => {
   // 1. POST /v1/chat/conversations/:conversation_id/messages - Send Megolm message
   fastify.post<{
@@ -27,6 +34,7 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
       sender_device_id: string;
       megolm_session_id: string;
       ciphertext: string;
+      attachment_ids?: unknown;
     };
   }>('/v1/chat/conversations/:conversation_id/messages', async (request, reply) => {
     const caller = requireAuth(request);
@@ -36,7 +44,8 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
       throw ProblemError.badRequest('Invalid conversation ID', 'INVALID_CONVERSATION_ID');
     }
 
-    const { client_msg_id, sender_device_id, megolm_session_id, ciphertext } = request.body || {};
+    const { client_msg_id, sender_device_id, megolm_session_id, ciphertext, attachment_ids } =
+      request.body || {};
 
     if (!isValidUuid(client_msg_id)) {
       throw ProblemError.badRequest('Invalid client_msg_id', 'INVALID_CLIENT_MSG_ID');
@@ -64,6 +73,22 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
         'ciphertext must be between 1 and 87384 characters',
         'INVALID_CIPHERTEXT',
       );
+    }
+
+    let attachmentIds: string[] = [];
+    if (attachment_ids !== undefined) {
+      if (
+        !Array.isArray(attachment_ids) ||
+        attachment_ids.length > ATTACHMENTS_PER_MESSAGE ||
+        !attachment_ids.every((id) => isValidUuid(id)) ||
+        new Set(attachment_ids).size !== attachment_ids.length
+      ) {
+        throw ProblemError.badRequest(
+          'attachment_ids must hold at most 10 distinct attachment ids',
+          'INVALID_ATTACHMENT_IDS',
+        );
+      }
+      attachmentIds = attachment_ids as string[];
     }
 
     // Rate limit: 60 messages / min per user
@@ -261,6 +286,27 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
         throw err;
       }
 
+      // SOC-3b: link the attachments in the transaction that assigns seq. Any id that is not the caller's own,
+      // UPLOADED, unexpired and unlinked attachment in this conversation rolls the whole send back.
+      if (attachmentIds.length > 0) {
+        const linked = await sql<{ id: string }>`
+          UPDATE chat.attachments SET message_seq = ${nextSeq}::bigint
+          WHERE id = ANY(${attachmentIds}::uuid[])
+            AND conversation_id = ${conversation_id}::uuid
+            AND uploader_id = ${caller.userId}::uuid
+            AND state = 'UPLOADED'
+            AND message_seq IS NULL
+            AND expires_at > now()
+          RETURNING id
+        `.execute(trx);
+        if (linked.rows.length !== attachmentIds.length) {
+          throw ProblemError.conflict(
+            'An attachment is missing, expired, not yours or already sent',
+            'ATTACHMENT_UNAVAILABLE',
+          );
+        }
+      }
+
       memberIdsToNotify = members
         .filter((m) => m.state === 'ACTIVE' || m.state === 'REQUESTED')
         .map((m) => m.user_id);
@@ -276,6 +322,12 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
       }
     }
 
+    const attachments = messageResult!.deleted_at
+      ? []
+      : ((await loadAttachmentsBySeq(db, conversation_id, [messageResult!.seq])).get(
+          String(messageResult!.seq),
+        ) ?? []);
+
     const statusCode = isDuplicate ? 200 : 201;
     return reply.status(statusCode).send({
       conversation_id: messageResult!.conversation_id,
@@ -288,6 +340,7 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
       ciphertext: messageResult!.ciphertext,
       system: null,
       deleted: messageResult!.deleted_at !== null,
+      attachments,
       created_at: messageResult!.created_at.toISOString(),
     });
   });
@@ -451,6 +504,13 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
       rows = sliced.reverse();
     }
 
+    const attachmentsBySeq = await loadAttachmentsBySeq(
+      db,
+      conversation_id,
+      rows.filter((r) => r.kind === 'ENCRYPTED' && r.deleted_at === null).map((r) => r.seq),
+    );
+    const noAttachments: AttachmentDto[] = [];
+
     const items = rows.map((r) => {
       let system: unknown = null;
       if (r.kind === 'SYSTEM' && r.system_body) {
@@ -469,6 +529,9 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
         ciphertext: isDeleted ? null : r.ciphertext,
         system,
         deleted: isDeleted,
+        attachments: isDeleted
+          ? noAttachments
+          : (attachmentsBySeq.get(String(r.seq)) ?? noAttachments),
         created_at: new Date(r.created_at).toISOString(),
       };
     });
@@ -492,6 +555,7 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
 
     const seqBigInt = BigInt(seq);
     let memberIdsToNotify: string[] = [];
+    let deletedAttachmentIds: string[] = [];
 
     await db.transaction().execute(async (trx) => {
       const msg = await trx
@@ -524,6 +588,16 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
         .where('seq', '=', seqBigInt.toString())
         .execute();
 
+      // SOC-3b: a deleted message takes its attachments with it. They expire now (download → 404 already, since
+      // the message is deleted); objects and rows go after the commit, and whatever fails stays expired for the
+      // janitor.
+      const expired = await sql<{ id: string }>`
+        UPDATE chat.attachments SET expires_at = greatest(now(), created_at + interval '1 millisecond')
+        WHERE conversation_id = ${conversation_id}::uuid AND message_seq = ${seqBigInt.toString()}::bigint
+        RETURNING id
+      `.execute(trx);
+      deletedAttachmentIds = expired.rows.map((r) => r.id);
+
       const members = await trx
         .selectFrom('chat.members')
         .select('user_id')
@@ -533,6 +607,23 @@ export const messagesRoute: FastifyPluginAsync<MessagesRouteDependencies> = asyn
 
       memberIdsToNotify = members.map((m) => m.user_id);
     });
+
+    if (deletedAttachmentIds.length > 0 && storage) {
+      const keyToId = new Map(
+        deletedAttachmentIds.map((id) => [attachmentObjectKey(conversation_id, id), id] as const),
+      );
+      const failedKeys = new Set(await storage.deleteObjects([...keyToId.keys()]));
+      const deletedIds = [...keyToId].filter(([key]) => !failedKeys.has(key)).map(([, id]) => id);
+      if (deletedIds.length > 0) {
+        await db.deleteFrom('chat.attachments').where('id', 'in', deletedIds).execute();
+      }
+      if (failedKeys.size > 0) {
+        request.log.warn(
+          { count: failedKeys.size },
+          'Could not delete attachment objects of a deleted message; the janitor retries',
+        );
+      }
+    }
 
     const conv = await db
       .selectFrom('chat.conversations')

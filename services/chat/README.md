@@ -65,8 +65,30 @@ Part of **Task SOC-3a**, owned by **Antigravity 3**.
 - `GET /v1/chat/conversations/:conversation_id/messages`: Messages in `seq` order within caller's readable range `[joined_seq, left_seq ?? last_seq]`. Supports `after_seq`, `before_seq`, or newest mode.
 - `DELETE /v1/chat/conversations/:conversation_id/messages/:seq`: Tombstone caller's own message (`ciphertext = NULL`, `deleted_at = now()`).
 
-### 5. Realtime & Janitor
+### 5. Attachments (`/v1/chat/conversations/:conversation_id/attachments`, SOC-3b)
+- `POST …/attachments` reserves a `PENDING` attachment (caller `ACTIVE`, own device, 1 GiB live quota under a per-user
+  advisory lock, 100/h) and returns a presigned `PUT` (15 min) signed for the exact `Content-Length` and
+  `Content-Type: application/octet-stream`. Object key `c/{conversation_id}/{attachment_id}` in `winkey-chat`.
+- `POST …/attachments/:id/complete` (uploader only) checks the object with `HEAD`: missing → `409 UPLOAD_INCOMPLETE`;
+  wrong size → the object is deleted, then `409`. Idempotent.
+- `sendMessage` with `attachment_ids` links them in the same transaction that assigns `seq`; any unavailable id
+  rolls the send back (`409 ATTACHMENT_UNAVAILABLE`). Every message response carries `attachments` (one query per page).
+- `POST …/attachments/:id/download` (uploader, or a member whose readable range includes the message; 600/min)
+  returns a presigned `GET` (5 min); expired → `410 ATTACHMENT_EXPIRED`.
+- Deleting a message expires its attachments, then deletes objects and rows after the commit; failures stay for the
+  janitor, which also deletes expired attachments and attachments not sent within 24 h (hourly, Valkey lock,
+  `DeleteObjects` ≤ 1 000 keys per call). The bucket lifecycle rule (30 days) is the backstop.
 
+### 6. Key backup (`/v1/chat/key-backup`, SOC-3b)
+- `PUT` creates version 1 (`201`); with `replace: true` bumps `version`, replaces `auth_data` and deletes every session
+  (`200`); otherwise `409 BACKUP_EXISTS`. `auth_data` is opaque (an object ≤ 4 KiB). 10/day.
+- `GET` returns the backup and `session_count` (30/h); `DELETE` removes it (sessions cascade).
+- `PUT /sessions` (≤ 100 per call, 600 sessions/min, 50 000 max → `409 BACKUP_FULL`) keeps per session the key with the
+  lowest `first_message_index` (a tie replaces); `GET /sessions` pages by `(conversation_id, session_id)`. Both need
+  the current `version` (`409 BACKUP_VERSION_MISMATCH`).
+- Never logged: presigned URLs, `auth_data`, session ciphertext (see `REDACT_PATHS`).
+
+### 7. Realtime & Janitor
 - **Realtime Hints:** Published on core NATS `rt.chat.user.<user_id>` with payload matching `chatHint` schema (`MESSAGE`, `TO_DEVICE`, `CONVERSATION`, `DEVICES`).
 - **Purge Janitor:** Hourly background worker with distributed Valkey lock (`lock:chat:purge_to_device`) purging to-device rows older than 30 days in batches of 5,000.
 - **Rate Limiting:** Valkey-backed sliding/fixed window rate limiters (60 msg/min, 2,000 to-device/min, 20 conv/hr, 20 req/day).
@@ -75,16 +97,23 @@ Part of **Task SOC-3a**, owned by **Antigravity 3**.
 
 ## Configuration
 
-| Variable                   | Description                                                                                           | Default                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `NODE_ENV`                 | Environment (`development`, `production`, `test`)                                                     | `development`                                                        |
-| `HTTP_PORT`                | HTTP server port                                                                                      | `8003`                                                               |
-| `DATABASE_URL`             | PostgreSQL connection string                                                                          | `postgres://chat_svc:chat_svc@localhost:5432/winkey?sslmode=disable` |
-| `NATS_URL`                 | NATS server URL                                                                                       | `nats://localhost:4222`                                              |
-| `VALKEY_URL`               | Valkey / Redis URL                                                                                    | `redis://localhost:6379`                                             |
-| `MEDIA_BASE_URL`           | Media CDN base URL                                                                                    | `https://media.winkey.vn`                                            |
-| `TRUST_PROXY_CIDRS`        | Trusted CIDR ranges for proxy headers                                                                 | `10.42.0.0/16,127.0.0.1`                                             |
-| `TO_DEVICE_PURGE_INTERVAL` | To-device purge job interval                                                                          | `1h`                                                                 |
+| Variable | Description | Default |
+|---|---|---|
+| `NODE_ENV` | Environment (`development`, `production`, `test`) | `development` |
+| `HTTP_PORT` | HTTP server port | `8003` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgres://chat_svc:chat_svc@localhost:5432/winkey?sslmode=disable` |
+| `NATS_URL` | NATS server URL | `nats://localhost:4222` |
+| `VALKEY_URL` | Valkey / Redis URL | `redis://localhost:6379` |
+| `MEDIA_BASE_URL` | Media CDN base URL | `https://media.winkey.vn` |
+| `TRUST_PROXY_CIDRS` | Trusted CIDR ranges for proxy headers | `10.42.0.0/16,127.0.0.1` |
+| `TO_DEVICE_PURGE_INTERVAL` | To-device purge job interval | `1h` |
+| `CHAT_S3_ENDPOINT` | S3 endpoint chat-svc calls (HEAD, DELETE) for the attachment bucket. Unset → attachment endpoints answer `503` | — |
+| `CHAT_S3_PUBLIC_ENDPOINT` | Origin browsers use; presigned PUT/GET URLs are signed for it | `CHAT_S3_ENDPOINT` |
+| `CHAT_S3_REGION` | S3 region | `auto` |
+| `CHAT_S3_BUCKET` | Private bucket for attachment ciphertext | `winkey-chat` |
+| `CHAT_S3_ACCESS_KEY_ID` / `CHAT_S3_SECRET_ACCESS_KEY` | Bucket credentials (secret, never logged) | — |
+| `CHAT_ATTACHMENT_TTL` | Attachment lifetime (`30d`, `12h`, …) | `30d` |
+| `ATTACHMENT_JANITOR_INTERVAL` | How often expired and never-sent attachments are deleted | `1h` |
 | `TURN_SECRET`              | coturn `static-auth-secret` (`use-auth-secret`) for `getTurnCredentials`; never logged. Unset → `503` | —                                                                    |
 | `TURN_URLS`                | Comma-separated `turn:` / `turns:` / `stun:` URLs returned to clients                                 | —                                                                    |
 | `TURN_TTL_SECONDS`         | Lifetime of TURN credentials (60–86400)                                                               | `600`                                                                |

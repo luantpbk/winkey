@@ -114,6 +114,15 @@ export class ProblemError extends Error {
     });
   }
 
+  static gone(detail: string, code?: string): ProblemError {
+    return new ProblemError({
+      status: 410,
+      title: 'Gone',
+      detail,
+      code,
+    });
+  }
+
   static serviceUnavailable(detail: string, code?: string): ProblemError {
     return new ProblemError({
       status: 503,
