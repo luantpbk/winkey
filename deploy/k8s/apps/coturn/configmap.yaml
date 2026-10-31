@@ -25,17 +25,17 @@ data:
     no-cli
     no-tcp-relay
     min-port=49160
-    max-port=49200
+    max-port=49999
 
-    # TLS certificates (reusing winkey.vn host letsencrypt certs)
-    cert=/etc/letsencrypt/live/winkey.vn/fullchain.pem
-    pkey=/etc/letsencrypt/live/winkey.vn/privkey.pem
+    # TLS certificates (copied into /etc/coturn/certs by initContainer)
+    cert=/etc/coturn/certs/fullchain.pem
+    pkey=/etc/coturn/certs/privkey.pem
     no-tlsv1
     no-tlsv1_1
 
     # Resource quotas and bandwidth shaping (SOC-4a)
-    user-quota=12
-    total-quota=200
+    user-quota=10
+    total-quota=500
     max-bps=3000000
 
     # Observability & Metrics

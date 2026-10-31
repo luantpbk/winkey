@@ -279,6 +279,17 @@ printf '{"stringData":{"TURN_SECRET":"%s"}}' "$TURN_SECRET" | \
   kubectl patch secret chat-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
 echo "  Synced TURN_SECRET into chat-secrets." >&2
 
+# Auto-detect or set public IP for coturn denied-peer-ip blacklist (SOC-4a)
+EXISTING_PUBLIC_IP=$(kubectl get secret coturn-secrets -n "$NAMESPACE" -o jsonpath='{.data.EDGE_PUBLIC_IP}' 2>/dev/null | base64 -d || true)
+if [ -z "$EXISTING_PUBLIC_IP" ]; then
+    DETECTED_PUBLIC_IP=$(curl -sS https://api.ipify.org 2>/dev/null || curl -sS https://ifconfig.me 2>/dev/null || true)
+    if [ -n "$DETECTED_PUBLIC_IP" ]; then
+        printf '{"stringData":{"EDGE_PUBLIC_IP":"%s"}}' "$DETECTED_PUBLIC_IP" | \
+          kubectl patch secret coturn-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+        echo "  Configured EDGE_PUBLIC_IP in coturn-secrets." >&2
+    fi
+fi
+
 # SOC-3b (ADR-049 addendum): Scoped R2 token for bucket `winkey-chat`
 EXISTING_CHAT_S3_KEY=$(kubectl get secret chat-secrets -n "$NAMESPACE" -o jsonpath='{.data.CHAT_S3_ACCESS_KEY_ID}' 2>/dev/null || true)
 if [ -z "$EXISTING_CHAT_S3_KEY" ]; then

@@ -34,7 +34,7 @@
     - 3478/tcp
     - 5349/udp
     - 5349/tcp
-    - 49160-49200/udp
+    - 49160-49999/udp
 
 - name: Remove cockpit service from public zone
   ansible.posix.firewalld:

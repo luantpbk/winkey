@@ -28,24 +28,83 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: edge-1
       terminationGracePeriodSeconds: 30
-      containers:
-        - name: coturn
+      initContainers:
+        - name: init-coturn
           image: docker.io/coturn/coturn@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
-          imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
-            - turnserver
-          args:
+            - sh
             - -c
-            - /etc/coturn/turnserver.conf
-            - --static-auth-secret=$(TURN_SECRET)
+            - |
+              set -euo pipefail
+              mkdir -p /dest/certs
+              cp -L /etc/letsencrypt/live/winkey.vn/fullchain.pem /dest/certs/fullchain.pem
+              cp -L /etc/letsencrypt/live/winkey.vn/privkey.pem /dest/certs/privkey.pem
+              cp /config-src/turnserver.conf /dest/turnserver.conf
+
+              printf "\n# Dynamic bindings & secrets\n" >> /dest/turnserver.conf
+              if [ -n "${TURN_SECRET:-}" ]; then
+                printf "static-auth-secret=%s\n" "$TURN_SECRET" >> /dest/turnserver.conf
+              fi
+              if [ -n "${NODE_INTERNAL_IP:-}" ]; then
+                printf "prometheus-address=%s\n" "$NODE_INTERNAL_IP" >> /dest/turnserver.conf
+                printf "denied-peer-ip=%s\n" "$NODE_INTERNAL_IP" >> /dest/turnserver.conf
+              fi
+              if [ -n "${EDGE_PUBLIC_IP:-}" ]; then
+                printf "denied-peer-ip=%s\n" "$EDGE_PUBLIC_IP" >> /dest/turnserver.conf
+              fi
+
+              chown -R 65534:65534 /dest
+              chmod 0700 /dest /dest/certs
+              chmod 0600 /dest/certs/* /dest/turnserver.conf
           env:
             - name: TURN_SECRET
               valueFrom:
                 secretKeyRef:
                   name: coturn-secrets
                   key: TURN_SECRET
+            - name: EDGE_PUBLIC_IP
+              valueFrom:
+                secretKeyRef:
+                  name: coturn-secrets
+                  key: EDGE_PUBLIC_IP
+                  optional: true
+            - name: NODE_INTERNAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          volumeMounts:
+            - name: config-source
+              mountPath: /config-src
+              readOnly: true
+            - name: letsencrypt
+              mountPath: /etc/letsencrypt
+              readOnly: true
+            - name: coturn-run
+              mountPath: /dest
+      containers:
+        - name: coturn
+          image: docker.io/coturn/coturn@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - turnserver
+          args:
+            - -c
+            - /etc/coturn/turnserver.conf
           ports:
             - name: stun-turn-udp
               containerPort: 3478
@@ -70,17 +129,19 @@ spec:
               cpu: 500m
               memory: 256Mi
           volumeMounts:
-            - name: config
-              mountPath: /etc/coturn/turnserver.conf
-              subPath: turnserver.conf
+            - name: coturn-run
+              mountPath: /etc/coturn
               readOnly: true
-            - name: letsencrypt
-              mountPath: /etc/letsencrypt
-              readOnly: true
+            - name: tmp
+              mountPath: /var/tmp
       volumes:
-        - name: config
+        - name: config-source
           configMap:
             name: coturn-config
+        - name: coturn-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
         - name: letsencrypt
           hostPath:
             path: /etc/letsencrypt

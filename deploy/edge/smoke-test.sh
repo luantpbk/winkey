@@ -589,7 +589,21 @@ if [ "$PEOPLE_STATUS" = "404" ]; then
     exit 1
 fi
 echo "  /v1/people/search routed to social-svc (HTTP $PEOPLE_STATUS, not 404)."
-echo "SUCCESS: Ingress Permissions-Policy and /v1/people gateway routing verified."
+
+FRIENDS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/me/friends")
+if [ "$FRIENDS_STATUS" = "404" ]; then
+    echo "FAILED: ${BASE_URL}/v1/me/friends returned 404 (route not registered in gateway)!" >&2
+    exit 1
+fi
+echo "  /v1/me/friends routed to social-svc (HTTP $FRIENDS_STATUS, not 404)."
+
+FRIEND_REQ_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/v1/me/friend-requests")
+if [ "$FRIEND_REQ_STATUS" = "404" ]; then
+    echo "FAILED: ${BASE_URL}/v1/me/friend-requests returned 404 (route not registered in gateway)!" >&2
+    exit 1
+fi
+echo "  /v1/me/friend-requests routed to social-svc (HTTP $FRIEND_REQ_STATUS, not 404)."
+echo "SUCCESS: Ingress Permissions-Policy, /v1/people, and /v1/me/friends routes verified."
 
 # Clean up throwaway smoke user before reporting final status
 cleanup_smoke_user || true
