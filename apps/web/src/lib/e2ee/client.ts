@@ -11,6 +11,7 @@ import type {
   WorkerPrepareMegolmResult,
   WorkerEncryptMessageResult,
   WorkerDecryptToDeviceResult,
+  WorkerEncryptToDeviceResult,
   DecryptGroupMessageResult,
   MemberDeviceRef,
   ClaimedOtkRef,
@@ -118,6 +119,8 @@ export class E2eeClient {
         return this.engineFallback.checkOrRecordDeviceTrust(payload);
       case 'WIPE_DATABASE':
         return this.engineFallback.wipeDatabase();
+      case 'ENCRYPT_TO_DEVICE':
+        return this.engineFallback.encryptToDevice(payload);
       case 'BACKUP_CREATE':
         return this.engineFallback.backupCreate(payload.passphrase);
       case 'BACKUP_UNLOCK':
@@ -235,6 +238,14 @@ export class E2eeClient {
 
   async backupImport(sessions: BackupSessionItem[]): Promise<BackupImportResult> {
     return this.callRpc('BACKUP_IMPORT', { sessions }, 60_000);
+  }
+
+  async encryptToDevice(params: {
+    targets: MemberDeviceRef[];
+    claimedKeys: Record<string, ClaimedOtkRef>;
+    event: unknown;
+  }): Promise<WorkerEncryptToDeviceResult> {
+    return this.callRpc('ENCRYPT_TO_DEVICE', params);
   }
 
   async wipeDatabase(): Promise<void> {

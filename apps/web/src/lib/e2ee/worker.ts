@@ -57,6 +57,9 @@ self.onmessage = async (event: MessageEvent<WorkerRpcRequest>) => {
         result = await engine.checkOrRecordDeviceTrust(req.payload);
         break;
 
+      case 'ENCRYPT_TO_DEVICE':
+        result = await engine.encryptToDevice(req.payload);
+        break;
       case 'BACKUP_CREATE':
         result = await engine.backupCreate(req.payload.passphrase);
         break;

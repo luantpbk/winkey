@@ -44,6 +44,7 @@ import type {
   WorkerPrepareMegolmResult,
   WorkerEncryptMessageResult,
   WorkerDecryptToDeviceResult,
+  WorkerEncryptToDeviceResult,
   DecryptGroupMessageResult,
   TrustRecordStatus,
   BackupSessionItem,
@@ -436,6 +437,53 @@ export class E2eeWorkerEngine {
     };
   }
 
+  /**
+   * SOC-4a: Olm-encrypts an arbitrary event (call candidates, select_answer, negotiate) for each target device,
+   * reusing the Olm session with that device or starting one from a claimed key. The plaintext is
+   * `{"type":"winkey.event","event":…}` so the receiver never mistakes it for a Megolm key share.
+   */
+  async encryptToDevice(params: {
+    targets: MemberDeviceRef[];
+    claimedKeys: Record<string, ClaimedOtkRef>;
+    event: unknown;
+  }): Promise<WorkerEncryptToDeviceResult> {
+    if (!this.account || !this.pickleKey) {
+      throw new Error('E2EE engine not initialized');
+    }
+    const plaintext = JSON.stringify({ type: 'winkey.event', event: params.event });
+    const messages: WorkerEncryptToDeviceResult['messages'] = [];
+    const needKeys: string[] = [];
+    for (const target of params.targets) {
+      if (target.deviceId === this.deviceId) continue;
+      const olmRec = await this.storage.get<E2eeOlmSessionRecord>(
+        'olm_sessions',
+        target.curve25519,
+      );
+      let session: Session;
+      if (olmRec) {
+        session = Session.fromPickle(olmRec.pickle, this.pickleKey);
+      } else {
+        const claimed = params.claimedKeys[target.deviceId];
+        if (!claimed) {
+          needKeys.push(target.deviceId);
+          continue;
+        }
+        session = this.account.createOutboundSession(target.curve25519, claimed.publicKey);
+      }
+      messages.push({
+        deviceId: target.deviceId,
+        ciphertext: toBase64(session.encrypt(plaintext)),
+      });
+      await this.storage.put('olm_sessions', {
+        peer_curve25519: target.curve25519,
+        peer_device_id: target.deviceId,
+        pickle: session.pickle(this.pickleKey),
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return { messages, needKeys };
+  }
+
   async encryptMessage(
     conversationId: string,
     plaintext: string,
@@ -489,6 +537,7 @@ export class E2eeWorkerEngine {
 
     const processedIds: string[] = [];
     const newMegolmSessionIds: string[] = [];
+    const events: NonNullable<WorkerDecryptToDeviceResult['events']> = [];
 
     for (const msg of messages) {
       try {
@@ -517,7 +566,31 @@ export class E2eeWorkerEngine {
 
         const decryptedBytes = session.decrypt(olmMsg.type, olmMsg.body);
         const payloadText = new TextDecoder().decode(decryptedBytes);
-        const keyData = JSON.parse(payloadText) as {
+        const payload = JSON.parse(payloadText) as Record<string, unknown>;
+
+        if (payload.type === 'winkey.event') {
+          // SOC-4a: not a key share. Hand the event to the main thread (it validates it), keep the Olm state.
+          events.push({
+            senderId: msg.senderId,
+            senderDeviceId: msg.senderDeviceId,
+            event: payload.event,
+          });
+          await this.storage.put('olm_sessions', {
+            peer_curve25519: senderCurve,
+            peer_device_id: msg.senderDeviceId,
+            pickle: session.pickle(this.pickleKey),
+            updated_at: new Date().toISOString(),
+          });
+          await this.storage.put('account', {
+            id: 'current',
+            pickle: this.account.pickle(this.pickleKey),
+            updated_at: new Date().toISOString(),
+          });
+          processedIds.push(msg.id);
+          continue;
+        }
+
+        const keyData = payload as unknown as {
           conversation_id: string;
           session_id: string;
           session_key: string;
@@ -564,6 +637,7 @@ export class E2eeWorkerEngine {
     return {
       processedIds,
       newMegolmSessionIds,
+      events,
     };
   }
 
