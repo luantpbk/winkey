@@ -57,6 +57,10 @@ self.onmessage = async (event: MessageEvent<WorkerRpcRequest>) => {
         result = await engine.checkOrRecordDeviceTrust(req.payload);
         break;
 
+      case 'ENCRYPT_TO_DEVICE':
+        result = await engine.encryptToDevice(req.payload);
+        break;
+
       case 'WIPE_DATABASE':
         await engine.wipeDatabase();
         result = { success: true };
