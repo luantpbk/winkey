@@ -1068,6 +1068,35 @@ interface ActiveUpload {
 
 const activeUploads = new Map<string, ActiveUpload>();
 
+const mockFriends: PublicProfile[] = [
+  {
+    id: '0192f5e4-0000-7000-8000-00000000f001',
+    handle: 'lan_anh',
+    display_name: 'Lan Anh',
+    avatar_url: null,
+  },
+  {
+    id: '0192f5e4-0000-7000-8000-00000000f002',
+    handle: 'minh_quan',
+    display_name: 'Minh Quân',
+    avatar_url: null,
+  },
+];
+const mockFriendRequests: PublicProfile[] = [
+  {
+    id: '0192f5e4-0000-7000-8000-00000000f101',
+    handle: 'thu_ha',
+    display_name: 'Thu Hà',
+    avatar_url: null,
+  },
+  {
+    id: '0192f5e4-0000-7000-8000-00000000f102',
+    handle: 'duc_huy',
+    display_name: 'Đức Huy',
+    avatar_url: null,
+  },
+];
+
 export const handlers = [
   // --- AUTH ENDPOINTS ---
   http.post('*/v1/auth/register', async ({ request }) => {
@@ -6580,6 +6609,45 @@ Hôm nay chúng ta sẽ tìm hiểu kiến trúc phân tán.
   }),
 
   http.post('*/v1/me/follow-requests/:requester_id/decision', async () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // SOC-6b friends (mutual follows): a small in-memory list so accept / dismiss / unfriend behave in mock mode.
+  http.get('*/v1/me/friends', () =>
+    HttpResponse.json({
+      items: mockFriends.map((user, i) => ({
+        user,
+        friends_since: new Date(Date.UTC(2026, 9, 30 - i, 8)).toISOString(),
+      })),
+      next_cursor: null,
+    }),
+  ),
+
+  http.get('*/v1/me/friend-requests', () =>
+    HttpResponse.json({
+      items: mockFriendRequests.map((user, i) => ({
+        user,
+        followed_at: new Date(Date.UTC(2026, 9, 31, 9 - i)).toISOString(),
+      })),
+      next_cursor: null,
+      pending_count: mockFriendRequests.length,
+    }),
+  ),
+
+  http.post('*/v1/me/friend-requests/:user_id/dismiss', ({ params }) => {
+    const i = mockFriendRequests.findIndex((u) => u.id === params.user_id);
+    if (i < 0) {
+      return HttpResponse.json(
+        {
+          type: '/problems/not-found',
+          title: 'Not found',
+          status: 404,
+          code: 'FRIEND_REQUEST_NOT_FOUND',
+        },
+        { status: 404 },
+      );
+    }
+    mockFriendRequests.splice(i, 1);
     return new HttpResponse(null, { status: 204 });
   }),
 

@@ -20,6 +20,7 @@ export const KNOWN_NOTIFICATION_KINDS = new Set([
   'NEW_SUBSCRIBER',
   'FOLLOW_REQUEST',
   'FOLLOW_REQUEST_APPROVED',
+  'FRIEND_ACCEPTED',
   'VIDEO_COMMENT',
   'COMMENT_REPLY',
   'VIDEO_PUBLISHED',
@@ -37,6 +38,7 @@ export function getNotificationUrl(notification: Notification): string {
     case 'FOLLOW_REQUEST':
       return '/settings/account';
     case 'FOLLOW_REQUEST_APPROVED':
+    case 'FRIEND_ACCEPTED':
       return `/c/${notification.actor.handle}`;
     case 'VIDEO_COMMENT':
     case 'COMMENT_REPLY':
@@ -126,6 +128,9 @@ export function NotificationItem({
       break;
     case 'FOLLOW_REQUEST_APPROVED':
       notificationText = t('kinds.FOLLOW_REQUEST_APPROVED', { actor: actorName });
+      break;
+    case 'FRIEND_ACCEPTED':
+      notificationText = t('kinds.FRIEND_ACCEPTED', { actor: actorName });
       break;
     case 'POST_COMMENT':
       notificationText = t('kinds.POST_COMMENT', { actor: actorName });
