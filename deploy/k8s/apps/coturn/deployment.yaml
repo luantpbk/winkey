@@ -45,7 +45,7 @@ spec:
             - sh
             - -c
             - |
-              set -euo pipefail
+              set -eu
               mkdir -p /dest/certs
               cp -L /etc/letsencrypt/live/winkey.vn/fullchain.pem /dest/certs/fullchain.pem
               cp -L /etc/letsencrypt/live/winkey.vn/privkey.pem /dest/certs/privkey.pem
@@ -86,8 +86,11 @@ spec:
             - name: config-source
               mountPath: /config-src
               readOnly: true
-            - name: letsencrypt
-              mountPath: /etc/letsencrypt
+            - name: letsencrypt-live
+              mountPath: /etc/letsencrypt/live/winkey.vn
+              readOnly: true
+            - name: letsencrypt-archive
+              mountPath: /etc/letsencrypt/archive/winkey.vn
               readOnly: true
             - name: coturn-run
               mountPath: /dest
@@ -105,6 +108,9 @@ spec:
               drop:
                 - ALL
               add:
+                # Required: Alpine coturn binary has cap_net_bind_service=+ep file capability.
+                # Under allowPrivilegeEscalation: false (no_new_privs), Linux kernel denies execve
+                # with EPERM (operation not permitted) unless NET_BIND_SERVICE is retained in bounding set.
                 - NET_BIND_SERVICE
           command:
             - turnserver
@@ -148,7 +154,11 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        - name: letsencrypt
+        - name: letsencrypt-live
           hostPath:
-            path: /etc/letsencrypt
+            path: /etc/letsencrypt/live/winkey.vn
+            type: Directory
+        - name: letsencrypt-archive
+          hostPath:
+            path: /etc/letsencrypt/archive/winkey.vn
             type: Directory

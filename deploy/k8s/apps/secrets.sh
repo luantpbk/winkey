@@ -287,6 +287,8 @@ if [ -z "$EXISTING_PUBLIC_IP" ]; then
         printf '{"stringData":{"EDGE_PUBLIC_IP":"%s"}}' "$DETECTED_PUBLIC_IP" | \
           kubectl patch secret coturn-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
         echo "  Configured EDGE_PUBLIC_IP in coturn-secrets." >&2
+    else
+        echo "WARNING: Could not auto-detect EDGE_PUBLIC_IP. Coturn will NOT blacklist the host public IP until EDGE_PUBLIC_IP is set in coturn-secrets." >&2
     fi
 fi
 

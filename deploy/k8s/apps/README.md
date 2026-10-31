@@ -16,8 +16,9 @@ All workloads are configured with strict resource boundaries (`requests` and `li
 | **social-svc** | Node 22 (Fastify) | 3004 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:5eb09e998516...` |
 | **realtime-svc** | Node 22 (Fastify/WS) | 3005 | `node` (1000) | 100m / 256Mi | 300m / 512Mi | `sha256:9349a2f36fdd...` |
 | **chat-svc** | Node 22 (Fastify) | 3006 | `node` (1000) | 30m / 192Mi | 300m / 512Mi | `ghcr.io/luantpbk/winkey-chat:latest` |
+| **coturn** | Coturn 4.6.3 (Alpine) | 3478, 5349, 9641, 49160-49999 | `nobody` (65534) | 50m / 64Mi | 500m / 256Mi | `sha256:e2bca2f79a42...` |
 | **web-svc** | Next.js 15 (Node 22) | 3000 | `nextjs` (1001) | 150m / 384Mi | 500m / 768Mi | `sha256:d5ebcf1bca2a...` |
-| **Total Apps** | | | | **730m / 1.7 GB** | **2.5 vCPU / 3.5 GB** | |
+| **Total Apps** | | | | **780m / 1.8 GB** | **3.0 vCPU / 3.8 GB** | |
 
 *Apps plane total requests (~730m CPU / 1.7 GB RAM) + Data plane (~450m CPU / 1.1 GB RAM) comfortably fit within the host 4-core / 16 GB budget with ample headroom for Garage storage.*
 
@@ -54,6 +55,10 @@ deploy/k8s/apps/
 ├── chat/
 │   ├── deployment.yaml            # chat-svc Deployment (HTTP_PORT=3006, port named http)
 │   ├── service.yaml               # ClusterIP: 3006
+│   └── kustomization.yaml         # Pinned image digest
+├── coturn/
+│   ├── deployment.yaml            # Coturn TURN/STUN Deployment (hostNetwork: true)
+│   ├── configmap.yaml             # Canonical turnserver.conf
 │   └── kustomization.yaml         # Pinned image digest
 └── web/
     ├── deployment.yaml            # web-svc Next.js standalone Deployment
@@ -159,4 +164,34 @@ Static K3s auto-deploy manifests (`winkey-*.yaml` placed inside `/var/lib/ranche
   ./deploy/edge/manifest-drift.sh --remote edge-1 --check
   ```
   *(Note: `--check` will exit with a non-zero status code `1` if any legacy `winkey-*.yaml` file is detected in the manifests directory).*
+
+---
+
+## 7. Coturn TURN/STUN Server & Certificate Renewal (SOC-4a)
+
+Coturn provides WebRTC TURN/STUN relay services for Winkey calls and media bridging:
+- **Networking & Ports**: Operates with `hostNetwork: true` on the edge node.
+  - Port `3478/udp` and `3478/tcp`: Standard STUN and TURN.
+  - Port `5349/udp` and `5349/tcp`: TURNS (TURN over TLS).
+  - Port `9641/tcp`: Prometheus metrics (`prometheus-address` bound strictly to `status.hostIP`).
+  - Ports `49160-49999/udp`: Dynamic UDP relay allocation range (840 ports, matched with `total-quota=500` and `user-quota=10`).
+- **Hardened Security Context**:
+  - `runAsNonRoot: true`, `runAsUser: 65534`, `runAsGroup: 65534` (`nobody:nobody`).
+  - `readOnlyRootFilesystem: true` with `emptyDir` mounts for `/etc/coturn` and `/var/tmp`.
+  - `allowPrivilegeEscalation: false` and `capabilities: { drop: [ALL] }` (no `NET_BIND_SERVICE` required as all ports > 1024).
+- **Process Secret & IP Sanitization**:
+  - The `init-coturn` initContainer generates `/etc/coturn/turnserver.conf` from ConfigMap `coturn-config` and appends `static-auth-secret` from `coturn-secrets` with mode `0600` owned by `65534:65534`. Coturn executes strictly as `turnserver -c /etc/coturn/turnserver.conf`, preventing secrets from appearing in `/proc/<pid>/cmdline`.
+  - Appends `denied-peer-ip` rules for internal host IP (`status.hostIP`), RFC 1918, CGNAT, link-local, and the edge host's own public IP (`EDGE_PUBLIC_IP`).
+- **Narrow Certificate Host Mounts**:
+  - `init-coturn` mounts only `/etc/letsencrypt/live/winkey.vn` and `/etc/letsencrypt/archive/winkey.vn` (`hostPath` at identical target paths to resolve symlinks), copying `fullchain.pem` and `privkey.pem` into an in-pod `emptyDir`.
+- **Certificate Renewal Strategy**:
+  - The host renews certificates automatically via `certbot-renew.timer`.
+  - To guarantee coturn immediately loads renewed certificates without waiting for manual intervention, an Ansible task (`deploy/ansible/roles/nginx_front/tasks/main.yml`) installs a deploy renewal hook at `/etc/letsencrypt/renewal-hooks/deploy/coturn-reload.sh`.
+  - When Certbot successfully renews the `winkey.vn` certificate, it automatically runs:
+    ```bash
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    kubectl -n default rollout restart deploy/coturn
+    ```
+    This triggers a rollout restart where the `init-coturn` container fetches the fresh certificates and coturn resumes serving TLS traffic seamlessly.
+
 
