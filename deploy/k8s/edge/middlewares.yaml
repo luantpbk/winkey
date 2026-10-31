@@ -100,4 +100,3 @@ spec:
   headers:
     customResponseHeaders:
       Permissions-Policy: 'camera=(self), microphone=(self), display-capture=()'
-

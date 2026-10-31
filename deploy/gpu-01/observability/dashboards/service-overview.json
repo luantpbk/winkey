@@ -185,7 +185,11 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
       "id": 5,
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "lastNotNull"]
+        }
       },
       "targets": [
         {
@@ -233,7 +237,11 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
       "id": 6,
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "lastNotNull"]
+        }
       },
       "targets": [
         {
