@@ -67,10 +67,13 @@ export function useConversationPreviews(
   conversations: Conversation[],
   userId: string,
   version: number,
+  /** False until this browser's E2EE device is ready: decrypting earlier would race its set-up. */
+  enabled = true,
 ): Map<string, ConversationPreview> {
   const [previews, setPreviews] = useState<Map<string, ConversationPreview>>(() => new Map());
 
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     const ready = new Map<string, ConversationPreview>();
     const todo: Conversation[] = [];
@@ -94,7 +97,7 @@ export function useConversationPreviews(
     return () => {
       live = false;
     };
-  }, [conversations, userId, version]);
+  }, [conversations, userId, version, enabled]);
 
   return previews;
 }

@@ -18,6 +18,8 @@ interface ConversationListProps {
   isLoading?: boolean;
   /** Bumped by the page on chat hints: previews that waited for a key are tried again. */
   version?: number;
+  /** The page sets this once the E2EE device is ready; previews are decrypted only after that. */
+  previewsEnabled?: boolean;
 }
 
 function conversationTitle(c: Conversation, me: string): string {
@@ -48,9 +50,10 @@ export function ConversationList({
   requestsCount = 0,
   isLoading = false,
   version = 0,
+  previewsEnabled = true,
 }: ConversationListProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const previews = useConversationPreviews(conversations, currentUserId, version);
+  const previews = useConversationPreviews(conversations, currentUserId, version, previewsEnabled);
 
   const filtered = useMemo(
     () => conversations.filter((c) => matches(c, currentUserId, searchQuery)),

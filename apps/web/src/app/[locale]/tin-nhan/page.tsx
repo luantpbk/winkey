@@ -29,6 +29,8 @@ export default function ChatPage() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializingDevice, setIsInitializingDevice] = useState(false);
+  // Set once ensureReady resolved: list previews decrypt only after the device is registered.
+  const [deviceReady, setDeviceReady] = useState(false);
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [realtimeVersion, setRealtimeVersion] = useState(0);
   // SOC-3b: a backup exists but this device has not unlocked it → offer "Khôi phục lịch sử".
@@ -54,6 +56,7 @@ export default function ChatPage() {
       chatService
         .ensureReady(user.id)
         .then(() => {
+          setDeviceReady(true);
           return chatService.processToDeviceMessages();
         })
         .then(() => {
@@ -243,6 +246,7 @@ export default function ChatPage() {
           requestsCount={requestsCount}
           isLoading={isLoading || isInitializingDevice}
           version={realtimeVersion}
+          previewsEnabled={deviceReady}
         />
       </div>
 

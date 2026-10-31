@@ -285,3 +285,33 @@ describe('B3 previews are per user (architect review of #563)', () => {
     expect(fetchMessages).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('B3 previews wait for the E2EE device (#563 sim runs)', () => {
+  beforeEach(() => {
+    clearConversationPreviews();
+    fetchMessages.mockReset();
+  });
+
+  it('does not decrypt anything until the page says the device is ready', async () => {
+    fetchMessages.mockResolvedValue({
+      items: [item(3, LAN, 'DECRYPTED', 'Sau khi sẵn sàng')],
+      has_more: false,
+    });
+    const c = conv('c-ready', { members: [member(ME, 'Tôi', 'me'), member(LAN, 'Lan', 'lan')] });
+    const props = {
+      conversations: [c],
+      activeConversationId: null,
+      activeTab: 'ACTIVE' as const,
+      onTabChange: () => {},
+      onSelectConversation: () => {},
+      onOpenNewChat: () => {},
+      currentUserId: ME,
+    };
+    const { rerender } = render(<ConversationList {...props} previewsEnabled={false} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchMessages).not.toHaveBeenCalled();
+    rerender(<ConversationList {...props} previewsEnabled />);
+    expect(await screen.findByText('Sau khi sẵn sàng')).toBeTruthy();
+    expect(fetchMessages).toHaveBeenCalledTimes(1);
+  });
+});

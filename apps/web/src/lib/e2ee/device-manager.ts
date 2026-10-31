@@ -67,62 +67,81 @@ export class DeviceManager {
       this.currentDeviceId = initResult.deviceId;
 
       if (initResult.isNewDevice) {
-        // Register device on chat-svc
-        const displayName = getDeviceDisplayName();
-
-        const { error: regError } = await api.chat.PUT('/v1/chat/devices/{device_id}', {
-          params: { path: { device_id: initResult.deviceId } },
-          body: {
-            display_name: displayName,
-            curve25519_key: initResult.curve25519Key,
-            ed25519_key: initResult.ed25519Key,
-            signature: initResult.signature,
-            fallback_key: initResult.fallbackKey || undefined,
-          },
-        });
-
-        if (regError) {
-          console.error('[DeviceManager] Failed to register device with chat-svc:', regError);
-          throw new Error('Không thể đăng ký thiết bị nhắn tin bảo mật.');
-        }
-
-        // Upload initial 50 one-time keys
-        if (initResult.oneTimeKeys.length > 0) {
-          const { error: otkError } = await api.chat.POST(
-            '/v1/chat/devices/{device_id}/one-time-keys',
-            {
-              params: { path: { device_id: initResult.deviceId } },
-              body: {
-                keys: initResult.oneTimeKeys,
-              },
-            },
-          );
-
-          if (otkError) {
-            console.warn('[DeviceManager] Failed to upload initial one-time keys:', otkError);
-          } else {
-            await this.client.markKeysPublished();
-          }
-        }
+        await this.register(initResult, initResult.oneTimeKeys);
       } else {
-        // Existing device: check if OTK top-up is needed
-        await this.checkAndTopUpKeys(initResult.deviceId);
+        // Existing device: check if OTK top-up is needed. A device that chat-svc does not know (404) was created
+        // here but never registered, e.g. the page navigated away between saving the account and the PUT: register
+        // it now with its own keys, or every send from it fails with 403 for the life of this browser profile.
+        const known = await this.checkAndTopUpKeys(initResult.deviceId);
+        if (known === false) {
+          console.warn(
+            '[DeviceManager] Local chat device is unknown to chat-svc; registering it again',
+          );
+          await this.register(initResult, await this.client.generateOneTimeKeys(50));
+        }
       }
 
       return initResult.deviceId;
     })();
 
+    // A failed attempt must not stick: the next call tries again.
+    this.initializedPromise.catch(() => {
+      this.initializedPromise = null;
+      this.currentDeviceId = null;
+    });
+
     return this.initializedPromise;
+  }
+
+  /** PUT the device (idempotent on chat-svc) and upload its one-time keys. */
+  private async register(
+    initResult: Awaited<ReturnType<E2eeClient['initSession']>>,
+    oneTimeKeys: Awaited<ReturnType<E2eeClient['initSession']>>['oneTimeKeys'],
+  ): Promise<void> {
+    const { error: regError } = await api.chat.PUT('/v1/chat/devices/{device_id}', {
+      params: { path: { device_id: initResult.deviceId } },
+      body: {
+        display_name: getDeviceDisplayName(),
+        curve25519_key: initResult.curve25519Key,
+        ed25519_key: initResult.ed25519Key,
+        signature: initResult.signature,
+        fallback_key: initResult.fallbackKey || undefined,
+      },
+    });
+
+    if (regError) {
+      console.error('[DeviceManager] Failed to register device with chat-svc:', regError);
+      throw new Error('Không thể đăng ký thiết bị nhắn tin bảo mật.');
+    }
+
+    if (oneTimeKeys.length > 0) {
+      const { error: otkError } = await api.chat.POST(
+        '/v1/chat/devices/{device_id}/one-time-keys',
+        {
+          params: { path: { device_id: initResult.deviceId } },
+          body: { keys: oneTimeKeys },
+        },
+      );
+
+      if (otkError) {
+        console.warn('[DeviceManager] Failed to upload initial one-time keys:', otkError);
+      } else {
+        await this.client.markKeysPublished();
+      }
+    }
   }
 
   /**
    * Tops up one-time keys when count on server falls below 20.
    */
-  async checkAndTopUpKeys(deviceId: string): Promise<void> {
+  /** Returns false when chat-svc does not know this device (404), true or null (could not tell) otherwise. */
+  async checkAndTopUpKeys(deviceId: string): Promise<boolean | null> {
     try {
-      const { data, error } = await api.chat.GET('/v1/chat/devices/{device_id}/one-time-keys', {
-        params: { path: { device_id: deviceId } },
-      });
+      const { data, error, response } = await api.chat.GET(
+        '/v1/chat/devices/{device_id}/one-time-keys',
+        { params: { path: { device_id: deviceId } } },
+      );
+      if (response?.status === 404) return false;
 
       if (!error && data && data.count < 20) {
         const needed = 50 - data.count;
@@ -141,8 +160,10 @@ export class DeviceManager {
           }
         }
       }
+      return error ? null : true;
     } catch (err) {
       console.warn('[DeviceManager] Error checking or topping up OTKs:', err);
+      return null;
     }
   }
 
