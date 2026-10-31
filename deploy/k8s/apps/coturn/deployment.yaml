@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  namespace: default
+  labels:
+    app.kubernetes.io/name: coturn
+    app.kubernetes.io/part-of: winkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coturn
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: coturn
+        app.kubernetes.io/part-of: winkey
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9641'
+        prometheus.io/path: '/metrics'
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        kubernetes.io/hostname: edge-1
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: coturn
+          image: docker.io/coturn/coturn@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
+          imagePullPolicy: IfNotPresent
+          command:
+            - turnserver
+          args:
+            - -c
+            - /etc/coturn/turnserver.conf
+            - --static-auth-secret=$(TURN_SECRET)
+          env:
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coturn-secrets
+                  key: TURN_SECRET
+          ports:
+            - name: stun-turn-udp
+              containerPort: 3478
+              protocol: UDP
+            - name: stun-turn-tcp
+              containerPort: 3478
+              protocol: TCP
+            - name: turns-tls-tcp
+              containerPort: 5349
+              protocol: TCP
+            - name: turns-tls-udp
+              containerPort: 5349
+              protocol: UDP
+            - name: metrics
+              containerPort: 9641
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coturn/turnserver.conf
+              subPath: turnserver.conf
+              readOnly: true
+            - name: letsencrypt
+              mountPath: /etc/letsencrypt
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: coturn-config
+        - name: letsencrypt
+          hostPath:
+            path: /etc/letsencrypt
+            type: Directory

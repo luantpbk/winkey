@@ -93,8 +93,8 @@ S3_ENDPOINT=http://${GARAGE_HOST}:3900
 S3_PUBLIC_ENDPOINT=http://localhost:3900
 EOF
 
-# 3. Create buckets: winkey-raw, winkey-media, winkey-backups
-for BUCKET in winkey-raw winkey-media winkey-backups; do
+# 3. Create buckets: winkey-raw, winkey-media, winkey-backups, winkey-chat (SOC-3b)
+for BUCKET in winkey-raw winkey-media winkey-backups winkey-chat; do
     echo "Ensuring bucket: $BUCKET..."
     for i in $(seq 1 30); do
         if /usr/local/bin/garage -c "$GARAGE_CONFIG" bucket info "$BUCKET" >/dev/null 2>&1; then
@@ -163,5 +163,41 @@ fi
 
 echo "Bucket CORS configuration for winkey-raw:"
 aws --endpoint-url="http://${GARAGE_HOST}:3900" --region garage s3api get-bucket-cors --bucket winkey-raw
+
+# 6. Put CORS on winkey-chat (SOC-3b): AllowedOrigins https://winkey.vn, http://localhost:3000, http://127.0.0.1:8080, AllowedMethods PUT/GET, AllowedHeaders Content-Type, Content-Length, ExposeHeaders ETag
+echo "Configuring CORS on winkey-chat..."
+cat <<EOF > /tmp/cors-chat.json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://winkey.vn", "http://localhost:3000", "http://127.0.0.1:8080", "http://127.0.0.1:3000"],
+      "AllowedMethods": ["PUT", "GET"],
+      "AllowedHeaders": ["Content-Type", "Content-Length"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
+EOF
+
+CORS_CHAT_APPLIED=0
+for i in $(seq 1 30); do
+    if CORS_OUT=$(aws --endpoint-url="http://${GARAGE_HOST}:3900" --region garage s3api put-bucket-cors --bucket winkey-chat --cors-configuration file:///tmp/cors-chat.json 2>&1); then
+        echo "CORS applied to winkey-chat successfully."
+        CORS_CHAT_APPLIED=1
+        break
+    else
+        echo "Attempt $i applying CORS to winkey-chat: $CORS_OUT"
+    fi
+    sleep 1
+done
+
+if [ "$CORS_CHAT_APPLIED" -ne 1 ]; then
+    echo "ERROR: Failed to apply CORS to winkey-chat after 30 attempts" >&2
+    exit 1
+fi
+
+echo "Bucket CORS configuration for winkey-chat:"
+aws --endpoint-url="http://${GARAGE_HOST}:3900" --region garage s3api get-bucket-cors --bucket winkey-chat
 
 echo "Garage bootstrap completed successfully."

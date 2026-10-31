@@ -237,7 +237,7 @@ else
     echo "  Secret realtime-secrets already exists." >&2
 fi
 
-echo "==> [7/7] Ensuring chat-secrets exists..."
+echo "==> [7/8] Ensuring chat-secrets exists..."
 if ! kubectl get secret chat-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     DATABASE_URL="postgres://chat_svc:${PG_CHAT_PWD}@winkey-pg-rw:5432/winkey?sslmode=disable"
     NATS_URL="nats://chat:${NATS_CHAT_PWD}@nats.default.svc:4222"
@@ -250,6 +250,53 @@ if ! kubectl get secret chat-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
     echo "  Created secret chat-secrets." >&2
 else
     echo "  Secret chat-secrets already exists." >&2
+fi
+
+# SOC-4a (ADR-049 addendum): Ensure TURN_SECRET and coturn-secrets exist
+echo "==> [8/8] Ensuring coturn-secrets and TURN_SECRET exist..."
+EXISTING_TURN_SEC=$(kubectl get secret coturn-secrets -n "$NAMESPACE" -o jsonpath='{.data.TURN_SECRET}' 2>/dev/null | base64 -d || true)
+if [ -z "$EXISTING_TURN_SEC" ]; then
+    EXISTING_TURN_SEC=$(kubectl get secret chat-secrets -n "$NAMESPACE" -o jsonpath='{.data.TURN_SECRET}' 2>/dev/null | base64 -d || true)
+fi
+
+if [ -z "$EXISTING_TURN_SEC" ]; then
+    TURN_SECRET=$(openssl rand -base64 48)
+else
+    TURN_SECRET="$EXISTING_TURN_SEC"
+fi
+
+if ! kubectl get secret coturn-secrets -n "$NAMESPACE" >/dev/null 2>&1; then
+    kubectl create secret generic coturn-secrets -n "$NAMESPACE" \
+      --from-literal=TURN_SECRET="$TURN_SECRET"
+    echo "  Created secret coturn-secrets." >&2
+else
+    printf '{"stringData":{"TURN_SECRET":"%s"}}' "$TURN_SECRET" | \
+      kubectl patch secret coturn-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+    echo "  Updated secret coturn-secrets." >&2
+fi
+
+printf '{"stringData":{"TURN_SECRET":"%s"}}' "$TURN_SECRET" | \
+  kubectl patch secret chat-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+echo "  Synced TURN_SECRET into chat-secrets." >&2
+
+# SOC-3b (ADR-049 addendum): Scoped R2 token for bucket `winkey-chat`
+EXISTING_CHAT_S3_KEY=$(kubectl get secret chat-secrets -n "$NAMESPACE" -o jsonpath='{.data.CHAT_S3_ACCESS_KEY_ID}' 2>/dev/null || true)
+if [ -z "$EXISTING_CHAT_S3_KEY" ]; then
+    echo -n "Enter CHAT_S3_ACCESS_KEY_ID (scoped R2 token for winkey-chat, leave blank to skip): " >&2
+    CHAT_S3_KEY=""
+    read -r -s CHAT_S3_KEY || true
+    echo >&2
+    if [ -n "${CHAT_S3_KEY:-}" ]; then
+        echo -n "Enter CHAT_S3_SECRET_ACCESS_KEY: " >&2
+        CHAT_S3_SEC=""
+        read -r -s CHAT_S3_SEC || true
+        echo >&2
+        if [ -n "${CHAT_S3_SEC:-}" ]; then
+            printf '{"stringData":{"CHAT_S3_ACCESS_KEY_ID":"%s","CHAT_S3_SECRET_ACCESS_KEY":"%s"}}' "$CHAT_S3_KEY" "$CHAT_S3_SEC" | \
+              kubectl patch secret chat-secrets -n "$NAMESPACE" --type merge --patch-file /dev/stdin
+            echo "  Configured CHAT_S3 credentials in chat-secrets." >&2
+        fi
+    fi
 fi
 
 echo "All Application Plane secrets successfully verified."
