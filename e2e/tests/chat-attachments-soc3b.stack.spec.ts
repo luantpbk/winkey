@@ -97,6 +97,16 @@ test.describe('SOC-3b: encrypted attachments', () => {
     await img.evaluate((el) => el.scrollIntoView({ block: 'end' }));
     await b.screenshot({ path: 'test-results/attach-3-image.png' });
 
+    // Full size opens in an in-page lightbox, never a blob: URL in a new tab.
+    const pagesBefore = b.context().pages().length;
+    await b.getByRole('button', { name: 'Phóng to ảnh ho-guom.webp' }).click();
+    const lightbox = b.getByRole('dialog', { name: 'ho-guom.webp' });
+    await expect(lightbox).toBeVisible();
+    expect(b.context().pages()).toHaveLength(pagesBefore);
+    await b.screenshot({ path: 'test-results/attach-4-lightbox.png' });
+    await b.keyboard.press('Escape');
+    await expect(lightbox).toBeHidden();
+
     const downloadPromise = b.waitForEvent('download');
     await b.getByRole('button', { name: 'Tải về hop-dong.pdf' }).click();
     const download = await downloadPromise;

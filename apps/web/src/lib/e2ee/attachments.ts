@@ -314,11 +314,113 @@ export async function uploadAttachment(params: {
   };
 }
 
-/** downloadAttachment → fetch → SHA-256 check → decrypt. The caller wraps the bytes in a blob: URL and revokes it. */
+// --- what may be rendered inline -----------------------------------------------------------------------------------
+// `ref.mime` and `ref.name` come from the other user. Only these raster images and videos are rendered, and only when
+// the decrypted bytes really are that format; everything else (SVG and HTML included) is a download of opaque bytes.
+
+export type InlineImageType =
+  'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'image/avif';
+export type InlineVideoType = 'video/mp4' | 'video/webm';
+export type InlineType = InlineImageType | InlineVideoType;
+
+const INLINE_IMAGE_TYPES: readonly string[] = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+];
+const INLINE_VIDEO_TYPES: readonly string[] = ['video/mp4', 'video/webm'];
+
+/** How a ref is shown before it is downloaded, from the claimed type only (the bytes are checked after decryption). */
+export function attachmentKind(mime: string): 'image' | 'video' | 'file' {
+  const base = mime.split(';')[0]!.trim().toLowerCase();
+  if (INLINE_IMAGE_TYPES.includes(base)) return 'image';
+  if (INLINE_VIDEO_TYPES.includes(base)) return 'video';
+  return 'file';
+}
+
+function ascii(bytes: Uint8Array, start: number, end: number): string {
+  return String.fromCharCode(...bytes.subarray(start, end));
+}
+
+/** The real format of decrypted bytes, by magic bytes, if it is one we render inline. */
+export function sniffInlineType(bytes: Uint8Array): InlineType | null {
+  const b = bytes;
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (
+    b.length >= 8 &&
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => b[i] === v)
+  ) {
+    return 'image/png';
+  }
+  if (b.length >= 6 && (ascii(b, 0, 6) === 'GIF87a' || ascii(b, 0, 6) === 'GIF89a'))
+    return 'image/gif';
+  if (b.length >= 12 && ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WEBP')
+    return 'image/webp';
+  if (b.length >= 12 && ascii(b, 4, 8) === 'ftyp') {
+    // ISO BMFF: the major brand, then compatible brands, up to the end of the ftyp box.
+    const boxSize = Math.min(
+      ((b[0]! << 24) | (b[1]! << 16) | (b[2]! << 8) | b[3]!) >>> 0,
+      b.length,
+      256,
+    );
+    const brands: string[] = [ascii(b, 8, 12)];
+    for (let i = 16; i + 4 <= boxSize; i += 4) brands.push(ascii(b, i, i + 4));
+    if (brands.some((x) => x === 'avif' || x === 'avis')) return 'image/avif';
+    const mp4 = [
+      'isom',
+      'iso2',
+      'iso4',
+      'iso5',
+      'iso6',
+      'mp41',
+      'mp42',
+      'avc1',
+      'dash',
+      'M4V ',
+      'MSNV',
+    ];
+    if (brands.some((x) => mp4.includes(x))) return 'video/mp4';
+    return null;
+  }
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) {
+    // EBML: WebM says so in its DocType near the start (Matroska files say "matroska" and are not rendered).
+    return ascii(b, 0, Math.min(b.length, 64)).includes('webm') ? 'video/webm' : null;
+  }
+  return null;
+}
+
+/** A file name safe for `a.download`: no path, no control or bidi characters, at most 120 characters. */
+export function safeFileName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/]/g, '_')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, '')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .trim();
+  if (!cleaned) return 'tep-dinh-kem';
+  if (cleaned.length <= 120) return cleaned;
+  const dot = cleaned.lastIndexOf('.');
+  const ext = dot > 0 && cleaned.length - dot <= 10 ? cleaned.slice(dot) : '';
+  return cleaned.slice(0, 120 - ext.length) + ext;
+}
+
+export interface DecryptedAttachment {
+  blob: Blob;
+  /** The type the bytes really are, when it is allowed inline for this ref; otherwise null and `blob` is opaque. */
+  inlineType: InlineType | null;
+}
+
+/**
+ * downloadAttachment → fetch → SHA-256 check → decrypt. The Blob is typed from the decrypted bytes, never from the
+ * sender's claimed type: an allowlisted image or video of the claimed kind, else `application/octet-stream`. The caller
+ * wraps it in a blob: URL and revokes it.
+ */
 export async function downloadAttachment(
   conversationId: string,
   ref: AttachmentRef,
-): Promise<Blob> {
+): Promise<DecryptedAttachment> {
   const res = await api.chat.POST(
     '/v1/chat/conversations/{conversation_id}/attachments/{attachment_id}/download',
     { params: { path: { conversation_id: conversationId, attachment_id: ref.id } } },
@@ -332,7 +434,16 @@ export async function downloadAttachment(
     throw new AttachmentError('Không tải được tệp.', file?.status === 404 ? 'NOT_FOUND' : 'FAILED');
   }
   const plaintext = await decryptFile(new Uint8Array(await file.arrayBuffer()), ref);
-  return new Blob([plaintext], { type: ref.mime });
+  const kind = attachmentKind(ref.mime);
+  const sniffed = kind === 'file' ? null : sniffInlineType(plaintext);
+  const inlineType =
+    sniffed && (kind === 'image' ? INLINE_IMAGE_TYPES : INLINE_VIDEO_TYPES).includes(sniffed)
+      ? sniffed
+      : null;
+  return {
+    blob: new Blob([plaintext], { type: inlineType ?? 'application/octet-stream' }),
+    inlineType,
+  };
 }
 
 export function formatBytes(bytes: number): string {

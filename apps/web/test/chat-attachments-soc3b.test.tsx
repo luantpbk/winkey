@@ -17,6 +17,9 @@ import {
   uploadAttachment,
   IMAGE_MAX_EDGE,
   AttachmentError,
+  attachmentKind,
+  safeFileName,
+  sniffInlineType,
 } from '../src/lib/e2ee/attachments';
 import {
   parseChatEvent,
@@ -274,5 +277,166 @@ describe('SOC-3b: showing attachments', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Xem ảnh anh.webp' }));
     expect(await screen.findByText('Tệp không hợp lệ, không thể hiển thị')).toBeTruthy();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
+
+// --- untrusted mime and name (architect review of #537) ----------------------------------------------------------
+
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+const SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.domain)</script></svg>',
+);
+const HTML = new TextEncoder().encode('<!doctype html><script>alert(document.cookie)</script>');
+
+function ftyp(major: string, ...compatible: string[]) {
+  const brands = [major, '\0\0\0\0', ...compatible].join('');
+  const box = new Uint8Array(8 + brands.length);
+  new DataView(box.buffer).setUint32(0, box.length);
+  box.set(new TextEncoder().encode('ftyp'), 4);
+  box.set(new TextEncoder().encode(brands), 8);
+  return box;
+}
+
+describe('SOC-3b: what may render inline', () => {
+  it('sniffs the allowlisted formats by magic bytes and nothing else', () => {
+    expect(sniffInlineType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg');
+    expect(sniffInlineType(PNG)).toBe('image/png');
+    expect(sniffInlineType(new TextEncoder().encode('GIF89a....'))).toBe('image/gif');
+    expect(sniffInlineType(new TextEncoder().encode('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp');
+    expect(sniffInlineType(ftyp('avif', 'mif1'))).toBe('image/avif');
+    expect(sniffInlineType(ftyp('isom', 'iso2', 'avc1'))).toBe('video/mp4');
+    expect(
+      sniffInlineType(
+        new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, ...new TextEncoder().encode('..webm')]),
+      ),
+    ).toBe('video/webm');
+    expect(sniffInlineType(SVG)).toBeNull();
+    expect(sniffInlineType(HTML)).toBeNull();
+    expect(sniffInlineType(new TextEncoder().encode('%PDF-1.7'))).toBeNull();
+    expect(sniffInlineType(ftyp('qt  '))).toBeNull();
+    expect(sniffInlineType(new Uint8Array([]))).toBeNull();
+  });
+
+  it('only allowlisted claimed types get an inline renderer; SVG and HTML are files', () => {
+    expect(attachmentKind('image/png')).toBe('image');
+    expect(attachmentKind('IMAGE/WEBP; charset=x')).toBe('image');
+    expect(attachmentKind('video/webm')).toBe('video');
+    for (const mime of [
+      'image/svg+xml',
+      'text/html',
+      'image/x-icon',
+      'video/quicktime',
+      'application/pdf',
+    ]) {
+      expect(attachmentKind(mime)).toBe('file');
+    }
+  });
+
+  it('sanitises the download name: no path, no control or bidi characters, capped length', () => {
+    expect(safeFileName('../../etc/passwd')).toBe('_.._etc_passwd');
+    expect(safeFileName('hoa\u0000don‮gnp.exe')).toBe('hoadongnp.exe');
+    expect(safeFileName('  ...  ')).toBe('tep-dinh-kem');
+    const long = safeFileName(`${'a'.repeat(300)}.pdf`);
+    expect(long).toHaveLength(120);
+    expect(long.endsWith('.pdf')).toBe(true);
+    expect(safeFileName('Hợp đồng thuê nhà.pdf')).toBe('Hợp đồng thuê nhà.pdf');
+  });
+});
+
+describe('SOC-3b: untrusted attachments never render as a page', () => {
+  const blobs: Blob[] = [];
+  const downloads: string[] = [];
+  beforeEach(() => {
+    chatPost.mockReset();
+    blobs.length = 0;
+    downloads.length = 0;
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, {
+        createObjectURL: vi.fn((b: Blob) => {
+          blobs.push(b);
+          return `blob:winkey/${blobs.length}`;
+        }),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      expect(this.target).toBe('');
+      downloads.push(this.download);
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function serve(plain: Uint8Array<ArrayBuffer>, extra: Partial<AttachmentRef>) {
+    const { enc, ref } = await makeRef(plain, extra);
+    chatPost.mockResolvedValue({
+      data: { url: 'https://s3.test/get?sig', expires_at: '', size_bytes: enc.ciphertext.length },
+      response: new Response(null, { status: 200 }),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(enc.ciphertext)),
+    );
+    return ref;
+  }
+
+  function expectNoNewTabOrBlobPage(container: HTMLElement) {
+    expect(container.querySelector('[target="_blank"]')).toBeNull();
+    expect(container.querySelector('a[href^="blob:"]')).toBeNull();
+    expect(container.querySelector('img[src^="blob:"]')).toBeNull();
+  }
+
+  it('an SVG with a <script> is a download chip of application/octet-stream bytes', async () => {
+    const ref = await serve(SVG as Uint8Array<ArrayBuffer>, {
+      mime: 'image/svg+xml',
+      name: 'meo.svg',
+    });
+    const { container } = render(<AttachmentList conversationId={CONV} attachments={[ref]} />);
+    expect(screen.queryByRole('button', { name: /Xem ảnh/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tải về meo.svg' }));
+    await waitFor(() => expect(downloads).toEqual(['meo.svg']));
+    expect(blobs).toHaveLength(1);
+    expect(blobs[0]!.type).toBe('application/octet-stream');
+    expectNoNewTabOrBlobPage(container);
+  });
+
+  it('an HTML file claimed as image/png becomes a download chip after decryption, never an image or a tab', async () => {
+    const ref = await serve(HTML as Uint8Array<ArrayBuffer>, {
+      mime: 'image/png',
+      name: '../anh.png',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<AttachmentList conversationId={CONV} attachments={[ref]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Xem ảnh ../anh.png' }));
+    const chip = await screen.findByRole('button', { name: 'Tải về ../anh.png' });
+    expect(blobs[0]!.type).toBe('application/octet-stream');
+    expectNoNewTabOrBlobPage(container);
+    fireEvent.click(chip);
+    expect(downloads).toEqual(['_anh.png']);
+  });
+
+  it('a real PNG renders inline, typed from its bytes, and opens in an in-page lightbox', async () => {
+    const ref = await serve(PNG as Uint8Array<ArrayBuffer>, {
+      mime: 'image/png',
+      name: 'ho-guom.png',
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<AttachmentList conversationId={CONV} attachments={[ref]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Xem ảnh ho-guom.png' }));
+    const open = await screen.findByRole('button', { name: 'Phóng to ảnh ho-guom.png' });
+    expect(blobs[0]!.type).toBe('image/png');
+    expect(container.querySelector('[target="_blank"]')).toBeNull();
+    fireEvent.click(open);
+    const dialog = screen.getByRole('dialog', { name: 'ho-guom.png' });
+    expect(dialog.querySelector('img')!.getAttribute('src')).toBe('blob:winkey/1');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
