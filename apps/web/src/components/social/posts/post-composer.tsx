@@ -20,6 +20,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuth } from '../../../lib/auth/auth-context';
+import { Thumbnail } from '../../media/thumbnail';
 
 export interface PostComposerProps {
   onPostCreated?: (post: Post) => void;
@@ -627,7 +628,7 @@ export function PostComposer({
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-16 h-10 rounded-lg overflow-hidden bg-zinc-900 shrink-0">
                 {attachedVideo.thumbnail_url ? (
-                  <img
+                  <Thumbnail
                     src={attachedVideo.thumbnail_url}
                     alt={attachedVideo.title}
                     className="w-full h-full object-cover"

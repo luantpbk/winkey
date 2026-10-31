@@ -12,6 +12,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface CinemaSeriesDialogProps {
   playlistId: string | null;
@@ -278,7 +279,7 @@ export function CinemaSeriesDialog({ playlistId, onClose }: CinemaSeriesDialogPr
           <>
             {/* Header Backdrop Banner: 16:9 */}
             <div className="relative aspect-video max-h-[460px] w-full overflow-hidden bg-black">
-              <img
+              <Thumbnail
                 src={coverThumbnailUrl}
                 alt={series.title}
                 loading="eager"
@@ -402,7 +403,7 @@ export function CinemaSeriesDialog({ playlistId, onClose }: CinemaSeriesDialogPr
 
                       {/* Thumbnail */}
                       <div className="relative aspect-video w-32 sm:w-40 shrink-0 rounded-lg overflow-hidden bg-black/40">
-                        <img
+                        <Thumbnail
                           src={epThumb}
                           alt={video?.title || t('episode', { number: episode.episode_number })}
                           loading="lazy"
