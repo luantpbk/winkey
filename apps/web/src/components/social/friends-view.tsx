@@ -171,10 +171,10 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
 
   const done = (user: PickedUser, message: string) => {
     setItems((prev) => prev.filter((r) => r.user.id !== user.id));
-    setCount((c) => {
-      onCount(Math.max(0, c - 1));
-      return Math.max(0, c - 1);
-    });
+    // Never update the parent from inside a state updater (React warns: update while rendering).
+    const next = Math.max(0, count - 1);
+    setCount(next);
+    onCount(next);
     setNotice(message);
   };
 
