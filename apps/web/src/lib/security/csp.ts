@@ -14,6 +14,8 @@ export interface BuildCspOptions {
   embed?: boolean;
   mediaOrigin?: string;
   uploadOrigin?: string;
+  /** SOC-3b: origin of the presigned winkey-chat URLs when it differs from the upload origin (Garage locally). */
+  chatOrigin?: string;
   upgradeInsecureRequests?: boolean;
 }
 
@@ -56,11 +58,13 @@ export function buildCsp(options: BuildCspOptions): string {
     embed = false,
     mediaOrigin = process.env.CSP_MEDIA_ORIGIN,
     uploadOrigin = process.env.CSP_UPLOAD_ORIGIN,
+    chatOrigin = process.env.CSP_CHAT_ORIGIN,
     upgradeInsecureRequests = false,
   } = options;
 
   const validMedia = validateOrigin(mediaOrigin, 'CSP_MEDIA_ORIGIN');
   const validUpload = validateOrigin(uploadOrigin, 'CSP_UPLOAD_ORIGIN');
+  const validChat = validateOrigin(chatOrigin, 'CSP_CHAT_ORIGIN');
 
   const scriptSrc = ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", "'wasm-unsafe-eval'"];
   if (isDev) {
@@ -84,6 +88,9 @@ export function buildCsp(options: BuildCspOptions): string {
   }
   if (validUpload && validUpload !== validMedia) {
     connectSrc.push(validUpload);
+  }
+  if (validChat && !connectSrc.includes(validChat)) {
+    connectSrc.push(validChat);
   }
   connectSrc.push('https://challenges.cloudflare.com');
 
