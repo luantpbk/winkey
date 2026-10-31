@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { v7 as uuidv7 } from 'uuid';
 import type { Database } from '../db/types.js';
 import type { Env } from '../config/env.js';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { RateLimiter } from '../rate-limit/valkey-limiter.js';
 import type { RevocationService } from '../revocation/revocation.js';
 import type { Redis } from 'ioredis';
@@ -28,6 +28,7 @@ import {
   revokeOtherSessions,
 } from '../security/sessions.js';
 import { recordSecurityEvent } from '../security/events.js';
+import { encodeCursor, decodeCursor } from '../utils/pagination.js';
 import { checkUserMfaEnabled, computeEffectiveRoles } from '../security/staff-rules.js';
 import {
   assertStepUp,
@@ -88,6 +89,13 @@ async function extractBearerClaims(request: FastifyRequest, env: Env): Promise<A
     throw ProblemError.unauthorized('Invalid or expired token');
   }
 }
+
+interface SecurityEventCursor {
+  created_at: string;
+  id: string;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const securityRoute: FastifyPluginAsync<{
   db: Kysely<Database>;
@@ -833,6 +841,81 @@ export const securityRoute: FastifyPluginAsync<{
       items,
     });
   });
+
+  // 9b. GET /v1/auth/me/security-events (listMySecurityEvents), newest first, keyset on (created_at, id)
+  fastify.get<{ Querystring: { cursor?: string; limit?: string } }>(
+    '/v1/auth/me/security-events',
+    async (request, reply) => {
+      const claims = await extractBearerClaims(request, env);
+      const userId = claims.sub;
+      const { cursor, limit } = request.query;
+
+      const limitNum = limit === undefined ? 24 : Number(limit);
+      if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
+        throw ProblemError.badRequest('limit must be an integer from 1 to 100');
+      }
+
+      let after: SecurityEventCursor | null = null;
+      if (cursor !== undefined) {
+        after = cursor.length <= 512 ? decodeCursor<SecurityEventCursor>(cursor) : null;
+        if (
+          !after ||
+          typeof after.created_at !== 'string' ||
+          Number.isNaN(Date.parse(after.created_at)) ||
+          typeof after.id !== 'string' ||
+          !UUID_RE.test(after.id)
+        ) {
+          throw ProblemError.badRequest('Invalid cursor');
+        }
+      }
+
+      let query = db
+        .selectFrom('auth.security_events')
+        .select([
+          'id',
+          'kind',
+          'session_id',
+          'device_label',
+          'country',
+          'details',
+          // Microseconds, so the cursor sorts exactly like the column.
+          sql<string>`to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+            'created_at_iso',
+          ),
+        ])
+        .where('user_id', '=', userId);
+      if (after) {
+        query = query.where(
+          sql<boolean>`(created_at, id) < (${after.created_at}::timestamptz, ${after.id}::uuid)`,
+        );
+      }
+      const rows = await query
+        .orderBy('created_at', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limitNum + 1)
+        .execute();
+
+      const page = rows.slice(0, limitNum);
+      const last = page[page.length - 1];
+      const nextCursor =
+        rows.length > limitNum && last
+          ? encodeCursor<SecurityEventCursor>({ created_at: last.created_at_iso, id: last.id })
+          : null;
+
+      return reply.status(200).send({
+        items: page.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          session_id: r.session_id,
+          device_label: r.device_label,
+          country: r.country,
+          details: r.details && typeof r.details === 'object' ? r.details : {},
+          created_at: new Date(r.created_at_iso).toISOString(),
+        })),
+        next_cursor: nextCursor,
+      });
+    },
+  );
 
   // 10. DELETE /v1/auth/me/sessions/:id (revokeMySession)
   fastify.delete('/v1/auth/me/sessions/:id', async (request, reply) => {

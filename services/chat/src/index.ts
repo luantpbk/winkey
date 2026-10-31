@@ -6,27 +6,9 @@ import { ToDevicePurgeJob } from './janitor/to-device-purge-job.js';
 import { buildApp } from './server.js';
 import { createLogger, sanitizeEndpointUrl } from './infra/logger.js';
 import { ManagedNatsConnection } from './realtime/nats-manager.js';
-
-function parseDurationMs(duration: string): number {
-  const match = duration.match(/^(\d+)(ms|s|m|h|d)?$/);
-  if (!match) return 3600_000;
-  const val = parseInt(match[1], 10);
-  const unit = match[2] || 'ms';
-  switch (unit) {
-    case 'ms':
-      return val;
-    case 's':
-      return val * 1000;
-    case 'm':
-      return val * 60 * 1000;
-    case 'h':
-      return val * 60 * 60 * 1000;
-    case 'd':
-      return val * 24 * 60 * 60 * 1000;
-    default:
-      return val;
-  }
-}
+import { AttachmentsJanitor } from './janitor/attachments-janitor.js';
+import { createAttachmentStorage } from './storage/attachment-storage.js';
+import { parseDurationMs } from './utils/duration.js';
 
 async function main() {
   const env = loadEnv();
@@ -39,6 +21,7 @@ async function main() {
       database: sanitizeEndpointUrl(env.DATABASE_URL),
       valkey: sanitizeEndpointUrl(env.VALKEY_URL),
       nats: sanitizeEndpointUrl(env.NATS_URL),
+      chat_s3: sanitizeEndpointUrl(env.CHAT_S3_ENDPOINT),
     },
     'Starting chat-svc...',
   );
@@ -71,7 +54,12 @@ async function main() {
   await Promise.race([natsInitialConnect, new Promise((resolve) => setTimeout(resolve, 250))]);
 
   // 4. Build and listen HTTP app
+  const storage = createAttachmentStorage(env);
+  if (!storage) {
+    logger.warn({}, 'CHAT_S3_* not set: attachment endpoints answer 503');
+  }
   const app = await buildApp({
+    storage,
     env,
     db,
     rateLimiter,
@@ -95,11 +83,24 @@ async function main() {
   });
   purgeJob.start();
 
+  // 5b. SOC-3b attachments janitor (expired and never-sent attachments), only when the bucket is configured
+  const attachmentsJanitor = storage
+    ? new AttachmentsJanitor({
+        pool,
+        storage,
+        valkey: valkeyClient,
+        intervalMs: parseDurationMs(env.ATTACHMENT_JANITOR_INTERVAL),
+        logger,
+      })
+    : null;
+  attachmentsJanitor?.start();
+
   // 6. Graceful shutdown handler
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Graceful shutdown initiated');
 
     purgeJob.stop();
+    attachmentsJanitor?.stop();
     await app.close();
     await natsManager.close();
     await rateLimiter.close();

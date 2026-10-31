@@ -33,6 +33,12 @@
     border-color: #d9002b !important;
     box-shadow: 0 0 0 1px #d9002b !important;
   }
+
+  /* An input embedded in a wrapper that draws the focus ring itself (e.g. <UserPicker> with its chips). */
+  input[data-embedded-field]:not([type='checkbox']):not([type='radio']):not([type='range']):focus {
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
 }
 
 :root {

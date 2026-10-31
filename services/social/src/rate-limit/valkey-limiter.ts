@@ -123,3 +123,7 @@ export function buildAddPlaylistItemRateLimitKey(userId: string): string {
 export function buildRelationshipChangeRateLimitKey(userId: string): string {
   return `rl:social:rel_change:${userId}`;
 }
+
+export function buildPeopleSearchRateLimitKey(subject: string): string {
+  return `rl:social:people_search:${subject}`;
+}

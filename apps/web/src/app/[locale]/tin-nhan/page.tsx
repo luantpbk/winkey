@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useRouter } from '../../../i18n/routing';
 import { useAuth } from '../../../lib/auth/auth-context';
 import { getChatService } from '../../../lib/e2ee/chat-service';
@@ -15,7 +16,12 @@ import { BackupRestoreDialog } from '../../../components/chat/key-backup-dialogs
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  // "Nhắn tin" on a profile links here with ?to=<user_id> (SOC-6a): open or create that DIRECT conversation.
+  const directTarget = searchParams?.get('to') ?? null;
+  const handledTarget = useRef<string | null>(null);
+  const [directError, setDirectError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'REQUESTED'>('ACTIVE');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -34,9 +40,12 @@ export default function ChatPage() {
   // Redirect if unauthenticated
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      router.push('/login?return_to=/tin-nhan');
+      const returnTo = directTarget
+        ? `/tin-nhan?to=${encodeURIComponent(directTarget)}`
+        : '/tin-nhan';
+      router.push(`/login?return_to=${encodeURIComponent(returnTo)}`);
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, router, directTarget]);
 
   // Ensure E2EE device registration
   useEffect(() => {
@@ -71,6 +80,29 @@ export default function ChatPage() {
     if (server && !(local.unlocked && local.version === server.version)) setRestoreOffered(true);
     else if (server) void service.uploadPending().catch(() => {});
   }
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id || isInitializingDevice) return;
+    if (!directTarget || handledTarget.current === directTarget) return;
+    handledTarget.current = directTarget;
+    if (
+      directTarget === user.id ||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(directTarget)
+    ) {
+      return;
+    }
+    chatService
+      .createConversation({ kind: 'DIRECT', userIds: [directTarget] })
+      .then((conv) => {
+        setActiveTab(conv.my_state === 'REQUESTED' ? 'REQUESTED' : 'ACTIVE');
+        setActiveConversation(conv);
+        setDirectError(null);
+        router.replace('/tin-nhan');
+      })
+      .catch((err: unknown) => {
+        setDirectError(err instanceof Error ? err.message : 'Không thể mở cuộc trò chuyện.');
+      });
+  }, [isAuthenticated, user?.id, isInitializingDevice, directTarget, chatService, router]);
 
   const fetchConversationsList = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -219,6 +251,14 @@ export default function ChatPage() {
           activeConversation ? 'flex' : 'hidden md:flex'
         }`}
       >
+        {directError && !activeConversation && (
+          <div
+            role="alert"
+            className="m-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-600 dark:text-red-400"
+          >
+            {directError}
+          </div>
+        )}
         {activeConversation ? (
           <ConversationView
             conversation={activeConversation}

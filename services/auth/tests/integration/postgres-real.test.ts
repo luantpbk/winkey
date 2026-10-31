@@ -75,6 +75,7 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
   let validateProblem: ValidateFunction;
   let validateTokenResponse: ValidateFunction;
   let validateUser: ValidateFunction;
+  let validateSecurityEventPage: ValidateFunction;
 
   beforeEach((ctx) => {
     if (!isReady) {
@@ -215,6 +216,9 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
       )!;
       validateUser = ajv.getSchema(
         'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/User',
+      )!;
+      validateSecurityEventPage = ajv.getSchema(
+        'https://winkey.vn/contracts/openapi/auth.v1.yaml#/components/schemas/SecurityEventPage',
       )!;
     } catch (ajvErr) {
       console.warn('[postgres-real.test.ts] Ajv setup error:', ajvErr);
@@ -3120,6 +3124,180 @@ describe('Real PostgreSQL 17 Integration Tests', () => {
 
       expect(resRevoked.statusCode).toBe(401);
       expect(resRevoked.json().code).toBe('SESSION_NOT_FOUND');
+    });
+  });
+
+  describe('SOC-1a listMySecurityEvents (GET /v1/auth/me/security-events)', () => {
+    async function userWithToken(label: string) {
+      const userId = uuidv7();
+      const sessionId = uuidv7();
+      await pool!.query(
+        `INSERT INTO auth.users (id, email, password_hash, handle, display_name, roles, status)
+         VALUES ($1, $2, $3, $4, $5, '{viewer}', 'ACTIVE')`,
+        [
+          userId,
+          `${label}_${Date.now()}@winkey.vn`,
+          null,
+          `${label}_${Date.now().toString(36)}`,
+          label,
+        ],
+      );
+      await pool!.query(
+        `INSERT INTO auth.sessions (id, user_id, device_label, country, ip_hash, amr, created_at, last_used_at)
+         VALUES ($1, $2, 'Chrome trên Windows', 'VN', $3, '{pwd}', now(), now())`,
+        [sessionId, userId, Buffer.alloc(32, 2)],
+      );
+      const { token } = await issueAccessToken(
+        { id: userId, roles: ['viewer'] },
+        sessionId,
+        testEnv!,
+      );
+      return { userId, sessionId, headers: { authorization: `Bearer ${token}` } };
+    }
+
+    async function insertEvent(
+      userId: string,
+      kind: string,
+      createdAt: string,
+      extra: { sessionId?: string | null; details?: object; id?: string } = {},
+    ) {
+      const id = extra.id ?? uuidv7();
+      await pool!.query(
+        `INSERT INTO auth.security_events (id, user_id, kind, session_id, device_label, country, details, created_at)
+         VALUES ($1, $2, $3, $4, 'Safari trên iPhone', 'VN', $5, $6)`,
+        [id, userId, kind, extra.sessionId ?? null, JSON.stringify(extra.details ?? {}), createdAt],
+      );
+      return id;
+    }
+
+    it("pages the caller's own events newest first with an opaque cursor; matches the contract", async () => {
+      if (!app || !pool) return;
+      const a = await userWithToken('secev_a');
+      const b = await userWithToken('secev_b');
+      const kinds = [
+        'SIGN_IN',
+        'TOTP_ENABLED',
+        'PASSKEY_ADDED',
+        'SESSION_REVOKED',
+        'PASSWORD_CHANGED',
+      ];
+      const ids: string[] = [];
+      for (const [i, kind] of kinds.entries()) {
+        ids.push(
+          await insertEvent(a.userId, kind, `2026-10-0${i + 1}T08:00:00.123456Z`, {
+            sessionId: a.sessionId,
+            details: kind === 'PASSKEY_ADDED' ? { passkey_name: 'iPhone' } : {},
+          }),
+        );
+      }
+      await insertEvent(b.userId, 'SIGN_IN', '2026-10-09T08:00:00Z');
+
+      const seen: Array<Record<string, unknown>> = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/v1/auth/me/security-events?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+          headers: a.headers,
+        });
+        expect(res.statusCode).toBe(200);
+        const body: { items: Array<Record<string, unknown>>; next_cursor: string | null } =
+          res.json();
+        expect(
+          validateSecurityEventPage(body),
+          JSON.stringify(validateSecurityEventPage.errors),
+        ).toBe(true);
+        expect(body.items.length).toBeLessThanOrEqual(2);
+        seen.push(...body.items);
+        cursor = body.next_cursor;
+        pages += 1;
+      } while (cursor && pages < 10);
+
+      expect(pages).toBe(3);
+      // Newest first, only A's events, every one exactly once.
+      expect(seen.map((e) => e.id)).toEqual([...ids].reverse());
+      expect(seen.map((e) => e.kind)).toEqual([...kinds].reverse());
+      expect(seen.find((e) => e.kind === 'PASSKEY_ADDED')).toMatchObject({
+        session_id: a.sessionId,
+        device_label: 'Safari trên iPhone',
+        country: 'VN',
+        details: { passkey_name: 'iPhone' },
+        created_at: '2026-10-03T08:00:00.123Z',
+      });
+      // Never an IP or anything else outside the contract.
+      for (const e of seen) {
+        expect(Object.keys(e).sort()).toEqual([
+          'country',
+          'created_at',
+          'details',
+          'device_label',
+          'id',
+          'kind',
+          'session_id',
+        ]);
+      }
+    });
+
+    it('breaks created_at ties by id, so a page boundary inside a tie loses and repeats nothing', async () => {
+      if (!app || !pool) return;
+      const a = await userWithToken('secev_tie');
+      const same = '2026-10-10T10:00:00.000001Z';
+      const ids = [uuidv7(), uuidv7(), uuidv7()];
+      for (const id of ids) await insertEvent(a.userId, 'STEP_UP', same, { id });
+
+      const got: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 5; i++) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/v1/auth/me/security-events?limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+          headers: a.headers,
+        });
+        expect(res.statusCode).toBe(200);
+        const body: { items: Array<{ id: string }>; next_cursor: string | null } = res.json();
+        got.push(...body.items.map((e) => e.id));
+        cursor = body.next_cursor;
+        if (!cursor) break;
+      }
+      expect(got).toEqual([...ids].sort().reverse());
+    });
+
+    it('defaults to 24 per page, answers 400 for a bad limit or cursor and 401 without a token', async () => {
+      if (!app || !pool) return;
+      const a = await userWithToken('secev_err');
+      for (let i = 0; i < 25; i++) {
+        await insertEvent(a.userId, 'SIGN_IN', new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString());
+      }
+      const first = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me/security-events',
+        headers: a.headers,
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.json().items).toHaveLength(24);
+      expect(first.json().next_cursor).toEqual(expect.any(String));
+
+      for (const query of [
+        'limit=0',
+        'limit=101',
+        'limit=abc',
+        'limit=2.5',
+        'cursor=not-a-cursor',
+        `cursor=${'a'.repeat(513)}`,
+      ]) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/v1/auth/me/security-events?${query}`,
+          headers: a.headers,
+        });
+        expect(res.statusCode, query).toBe(400);
+        expect(validateProblem(res.json())).toBe(true);
+      }
+
+      const anon = await app.inject({ method: 'GET', url: '/v1/auth/me/security-events' });
+      expect(anon.statusCode).toBe(401);
+      expect(validateProblem(anon.json())).toBe(true);
     });
   });
 });
