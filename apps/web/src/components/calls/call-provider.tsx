@@ -59,28 +59,44 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const conversations = useRef(new Map<string, Conversation>());
   /** Conversations whose newest messages still wait for their Megolm key: scanned again after to-device runs. */
   const waiting = useRef(new Set<string>());
+  const readyRun = useRef<Promise<boolean> | null>(null);
+  const userId = isAuthenticated ? user?.id : undefined;
 
-  useEffect(() => {
-    if (!manager || !isAuthenticated || !user?.id) return;
-    let live = true;
-    const chat = getChatService();
-    const unsubscribe = chat.onCallSignal((signal) => void manager.handleDeviceEvent(signal));
-    void (async () => {
-      if (!(await hasLocalChatDevice())) return;
-      await chat.ensureReady(user.id);
-      if (!live) return;
+  /**
+   * The E2EE device is often created after this provider mounts (first visit to /tin-nhan after login), so a missing
+   * device is not remembered: every hint checks again until the device exists.
+   */
+  const ensureReady = useCallback(async (): Promise<boolean> => {
+    if (ready.current) return true;
+    if (!userId) return false;
+    readyRun.current ??= (async () => {
+      if (!(await hasLocalChatDevice())) return false;
+      const chat = getChatService();
+      await chat.ensureReady(userId);
       ready.current = true;
       await chat.processToDeviceMessages();
-    })().catch(() => {});
+      return true;
+    })().finally(() => {
+      readyRun.current = null;
+    });
+    return readyRun.current;
+  }, [userId]);
+
+  useEffect(() => {
+    if (!manager || !userId) return;
+    const unsubscribe = getChatService().onCallSignal(
+      (signal) => void manager.handleDeviceEvent(signal),
+    );
+    void ensureReady().catch(() => {});
     return () => {
-      live = false;
+      ready.current = false;
       unsubscribe();
     };
-  }, [manager, isAuthenticated, user?.id]);
+  }, [manager, userId, ensureReady]);
 
   const scanConversation = useCallback(
     async (conversationId: string) => {
-      if (!manager || !ready.current) return;
+      if (!manager || !(await ensureReady())) return;
       const chat = getChatService();
       let conversation = conversations.current.get(conversationId);
       if (!conversation) {
@@ -118,7 +134,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         });
       }
     },
-    [manager],
+    [manager, ensureReady],
   );
 
   useRealtimeRoom(
@@ -129,20 +145,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const hint = evt.data as { kind?: string; conversation_id?: string };
         if (hint.kind === 'MESSAGE' && hint.conversation_id) {
           void scanConversation(hint.conversation_id).catch(() => {});
-        } else if (hint.kind === 'TO_DEVICE' && ready.current) {
-          void getChatService()
-            .processToDeviceMessages()
-            .then(() => Promise.all([...waiting.current].map((id) => scanConversation(id))))
+        } else if (hint.kind === 'TO_DEVICE') {
+          void ensureReady()
+            .then(async (isReady) => {
+              if (!isReady) return;
+              await getChatService().processToDeviceMessages();
+              await Promise.all([...waiting.current].map((id) => scanConversation(id)));
+            })
             .catch(() => {});
         } else if (hint.kind === 'CONVERSATION' && hint.conversation_id) {
           conversations.current.delete(hint.conversation_id);
         }
       },
-      [scanConversation],
+      [scanConversation, ensureReady],
     ),
     useCallback(() => {
-      if (ready.current) void getChatService().processToDeviceMessages();
-    }, []),
+      void ensureReady()
+        .then((isReady) => (isReady ? getChatService().processToDeviceMessages() : undefined))
+        .catch(() => {});
+    }, [ensureReady]),
   );
 
   const value = useMemo(() => ({ manager, snapshot }), [manager, snapshot]);
