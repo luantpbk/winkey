@@ -57,6 +57,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const ready = useRef(false);
   const lastSeq = useRef(new Map<string, number>());
   const conversations = useRef(new Map<string, Conversation>());
+  /** Conversations whose newest messages still wait for their Megolm key: scanned again after to-device runs. */
+  const waiting = useRef(new Set<string>());
 
   useEffect(() => {
     if (!manager || !isAuthenticated || !user?.id) return;
@@ -91,7 +93,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         conversationId,
         after !== undefined ? { after_seq: after, limit: 50 } : { limit: 10 },
       );
+      waiting.current.delete(conversationId);
       for (const item of page.items) {
+        if (item.status === 'WAITING_FOR_KEY') {
+          // Do not move past a message we cannot read yet: its key arrives as a to-device message.
+          waiting.current.add(conversationId);
+          break;
+        }
         lastSeq.current.set(
           conversationId,
           Math.max(lastSeq.current.get(conversationId) ?? 0, item.message.seq),
@@ -122,7 +130,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (hint.kind === 'MESSAGE' && hint.conversation_id) {
           void scanConversation(hint.conversation_id).catch(() => {});
         } else if (hint.kind === 'TO_DEVICE' && ready.current) {
-          void getChatService().processToDeviceMessages();
+          void getChatService()
+            .processToDeviceMessages()
+            .then(() => Promise.all([...waiting.current].map((id) => scanConversation(id))))
+            .catch(() => {});
         } else if (hint.kind === 'CONVERSATION' && hint.conversation_id) {
           conversations.current.delete(hint.conversation_id);
         }

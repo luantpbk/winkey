@@ -47,6 +47,7 @@ export class ChatService {
   private deviceManager = getDeviceManager();
   private e2eeClient = getE2eeClient();
   private processingToDevice = false;
+  private toDeviceRun: Promise<string[]> | null = null;
   private callListeners = new Set<(signal: IncomingCallSignal) => void>();
 
   /** SOC-4a: to-device call events are delivered here (validated), whoever triggered the fetch. */
@@ -132,7 +133,19 @@ export class ChatService {
   /**
    * Process pending to-device messages: fetches, decrypts in worker, imports Megolm keys, and ACKs.
    */
+  /**
+   * Concurrent callers (chat page, CallProvider) share the run in flight, so whoever waits for it knows the new
+   * Megolm keys are imported when it resolves (SOC-4a: an answer must not be read before its key arrived).
+   */
   async processToDeviceMessages(): Promise<string[]> {
+    if (this.toDeviceRun) return this.toDeviceRun;
+    this.toDeviceRun = this.runToDevice().finally(() => {
+      this.toDeviceRun = null;
+    });
+    return this.toDeviceRun;
+  }
+
+  private async runToDevice(): Promise<string[]> {
     const deviceId = this.deviceManager.getDeviceId();
     if (!deviceId || this.processingToDevice) {
       return [];
