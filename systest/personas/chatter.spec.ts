@@ -176,17 +176,12 @@ test.describe
     const newChatBtn = alicePage.locator('button:has-text("Tin mới")').first();
     await expect(newChatBtn).toBeVisible({ timeout: 15000 });
 
-    // 2. Alice creates conversation with Bob using Bob user ID
-    await newChatBtn.click();
-    const directUserInput = alicePage.locator('input#direct-user-id');
-    await expect(directUserInput).toBeVisible({ timeout: 10000 });
-    await directUserInput.fill(bobId);
+    // 2. Alice opens a DIRECT conversation with Bob through the "Nhắn tin" deep link (SOC-6a removed the raw
+    //    user-id field; the people picker needs /v1/people routed in systest, which comes with the SOC-6a persona).
+    await alicePage.goto(`/tin-nhan?to=${bobId}`);
+    await alicePage.waitForLoadState('domcontentloaded');
 
-    const submitCreateBtn = alicePage.locator('button[type="submit"]:has-text("Tạo trò chuyện")');
-    await submitCreateBtn.click();
-
-    // Alice should see active conversation with Bob's name or placeholder
-    await expect(directUserInput).not.toBeVisible({ timeout: 10000 });
+    // Alice should see the conversation with Bob's name
     await expect(alicePage.locator(`text=${bobName}`).first()).toBeVisible({ timeout: 15000 });
 
     // 3. Bob opens /tin-nhan on Mobile

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { PostComment } from '@winkey/api-client';
 import { api } from '../../../lib/api-client';
 import { Link } from '../../../i18n/routing';
+import { MentionTextarea } from '../mention-textarea';
 import { formatRelativeTime } from '../../../lib/format';
 import {
   MessageSquare,
@@ -133,11 +134,12 @@ export function PostComments({ postId }: PostCommentsProps) {
             {user?.display_name?.charAt(0) || user?.handle?.charAt(0) || 'U'}
           </div>
           <div className="flex-1 space-y-2">
-            <textarea
+            <MentionTextarea
               rows={2}
               value={newCommentBody}
-              onChange={(e) => setNewCommentBody(e.target.value)}
+              onValueChange={setNewCommentBody}
               placeholder="Viết bình luận của bạn..."
+              aria-label="Viết bình luận"
               className="w-full p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-red-500 resize-none"
             />
             {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
