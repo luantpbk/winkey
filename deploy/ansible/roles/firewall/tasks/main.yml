@@ -22,6 +22,20 @@
     immediate: true
     state: enabled
 
+- name: Coturn WebRTC TURN & Relay ports (SOC-4a)
+  ansible.posix.firewalld:
+    zone: public
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - 3478/udp
+    - 3478/tcp
+    - 5349/udp
+    - 5349/tcp
+    - 49160-49999/udp
+
 - name: Remove cockpit service from public zone
   ansible.posix.firewalld:
     zone: public

@@ -111,8 +111,8 @@ for prefix in "/v1/search" "/v1/feed" "/v1/playback"; do
 done
 echo "SUCCESS: Router video@file rule contains /v1/search, /v1/feed, and /v1/playback."
 
-# 7. Check that router social@file rule matches /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, /v1/me/watch-later, /v1/me/blocks, /v1/me/mutes, /v1/me/follow-requests
-for prefix in "/v1/reports" "/v1/moderation" "/v1/notifications" "/v1/playlists" "/v1/cinema" "/v1/series" "/v1/me/blocks" "/v1/me/mutes" "/v1/me/follow-requests"; do
+# 7. Check that router social@file rule matches /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, /v1/me/watch-later, /v1/me/blocks, /v1/me/mutes, /v1/me/follow-requests, /v1/me/friends, /v1/me/friend-requests, /v1/people
+for prefix in "/v1/reports" "/v1/moderation" "/v1/notifications" "/v1/playlists" "/v1/cinema" "/v1/series" "/v1/me/blocks" "/v1/me/mutes" "/v1/me/follow-requests" "/v1/me/friends" "/v1/me/friend-requests" "/v1/people"; do
     if ! echo "$SOCIAL_RULE" | grep -q "PathPrefix(\`${prefix}\`)"; then
         echo "FAILED: Router social@file rule does not contain PathPrefix(\`${prefix}\`)!" >&2
         exit 1
@@ -124,7 +124,7 @@ for exact_path in "/v1/me/subscriptions" "/v1/me/watch-later"; do
         exit 1
     fi
 done
-echo "SUCCESS: Router social@file rule contains /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, /v1/me/watch-later, /v1/me/blocks, /v1/me/mutes, and /v1/me/follow-requests."
+echo "SUCCESS: Router social@file rule contains /v1/reports, /v1/moderation, /v1/notifications, /v1/playlists, /v1/cinema, /v1/series, /v1/me/subscriptions, /v1/me/watch-later, /v1/me/blocks, /v1/me/mutes, /v1/me/follow-requests, /v1/me/friends, /v1/me/friend-requests, and /v1/people."
 
 # 8. Check that router auth-protected@file rule matches /v1/admin
 AUTH_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/auth-protected@file" || true)
@@ -143,6 +143,17 @@ if ! curl -sS "${MAILPIT_API_URL}/api/v1/info" >/dev/null; then
     exit 1
 fi
 echo "SUCCESS: Mailpit API is responsive."
+
+# 10. Check Permissions-Policy response header on web router (SOC-4a, ADR-049 addendum)
+echo "Checking Permissions-Policy header on web router..."
+WEB_ROUTER=$(curl -sS "${TRAEFIK_API_URL}/api/http/routers/web@file" || true)
+if echo "$WEB_ROUTER" | grep -q 'permissions-policy'; then
+    echo "SUCCESS: Router web@file includes permissions-policy middleware."
+else
+    echo "FAILED: Router web@file does not include permissions-policy middleware!" >&2
+    exit 1
+fi
+
 
 
 

@@ -86,4 +86,17 @@ metadata:
 spec:
   buffering:
     maxRequestBodyBytes: 131072 # 128 KiB (SOC-3a, ADR-049)
-
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: permissions-policy
+  namespace: default
+  labels:
+    app.kubernetes.io/name: traefik-middleware
+    app.kubernetes.io/part-of: winkey
+spec:
+  # Allows camera/microphone on self origin for WebRTC calls (SOC-4a, ADR-049)
+  headers:
+    customResponseHeaders:
+      Permissions-Policy: 'camera=(self), microphone=(self), display-capture=()'
