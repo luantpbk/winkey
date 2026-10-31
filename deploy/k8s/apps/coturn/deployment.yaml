@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/part-of: winkey
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: coturn
@@ -30,6 +32,8 @@ spec:
         - name: coturn
           image: docker.io/coturn/coturn@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
           command:
             - turnserver
           args:
