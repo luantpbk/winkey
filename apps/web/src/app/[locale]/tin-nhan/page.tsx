@@ -242,6 +242,7 @@ export default function ChatPage() {
           currentUserId={user.id}
           requestsCount={requestsCount}
           isLoading={isLoading || isInitializingDevice}
+          version={realtimeVersion}
         />
       </div>
 

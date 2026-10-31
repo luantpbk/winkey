@@ -34,6 +34,7 @@ import {
   prepareFile,
   uploadAttachment,
 } from '../../lib/e2ee/attachments';
+import { systemMessageText } from '../../lib/chat/message-text';
 
 interface PendingAttachment {
   localId: string;
@@ -475,19 +476,7 @@ export function ConversationView({
 
             // SYSTEM message
             if (item.status === 'SYSTEM') {
-              let systemText = 'Thông báo hệ thống';
-              const sys = item.message.system;
-              if (sys?.type === 'conversation_created') systemText = 'Đoạn chat đã được tạo';
-              else if (sys?.type === 'member_added')
-                systemText = 'Thành viên mới đã được thêm vào nhóm';
-              else if (sys?.type === 'member_left') systemText = 'Một thành viên đã rời khỏi nhóm';
-              else if (sys?.type === 'member_removed')
-                systemText = 'Một thành viên đã bị xoá khỏi nhóm';
-              else if (sys?.type === 'request_accepted')
-                systemText = 'Lời mời nhắn tin đã được chấp nhận';
-              else if (sys?.type === 'title_changed')
-                systemText = `Tên nhóm đã đổi thành "${sys.title}"`;
-              else if (sys?.type === 'owner_changed') systemText = 'Chủ sở hữu nhóm đã thay đổi';
+              const systemText = systemMessageText(item.message.system);
 
               return (
                 <div key={item.message.id} className="flex justify-center my-2">
