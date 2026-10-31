@@ -97,6 +97,13 @@ export interface BlocksTable {
   created_at: Generated<Date>;
 }
 
+/** SOC-6b: user_id hid the friend request of follower_id, who keeps following (migration 000036). */
+export interface FriendRequestDismissalsTable {
+  user_id: string;
+  follower_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface MutesTable {
   muter_id: string;
   muted_id: string;
@@ -114,7 +121,8 @@ export type NotificationKind =
   | 'POST_COMMENT_REPLY'
   | 'POST_MENTION'
   | 'POST_RESHARE'
-  | 'POST_REACTION';
+  | 'POST_REACTION'
+  | 'FRIEND_ACCEPTED';
 
 export interface NotificationsTable {
   id: string;
@@ -241,6 +249,7 @@ export interface Database {
   'social.follow_requests': FollowRequestsTable;
   'social.blocks': BlocksTable;
   'social.mutes': MutesTable;
+  'social.friend_request_dismissals': FriendRequestDismissalsTable;
   'social.reports': ReportsTable;
   'social.notifications': NotificationsTable;
   'social.playlists': PlaylistsTable;
@@ -304,6 +313,28 @@ export interface FollowItemDto {
 export interface FollowPageDto {
   items: FollowItemDto[];
   next_cursor: string | null;
+}
+
+/** SOC-6b: social.v1 FriendItem / FriendPage / FriendRequest / FriendRequestPage. */
+export interface FriendItemDto {
+  user: PublicProfileDto;
+  friends_since: string;
+}
+
+export interface FriendPageDto {
+  items: FriendItemDto[];
+  next_cursor: string | null;
+}
+
+export interface FriendRequestItemDto {
+  user: PublicProfileDto;
+  followed_at: string;
+}
+
+export interface FriendRequestPageDto {
+  items: FriendRequestItemDto[];
+  next_cursor: string | null;
+  pending_count: number;
 }
 
 export interface FollowRequestDto {
