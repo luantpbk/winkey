@@ -22,12 +22,14 @@ export function ChatBackupSection() {
   const refresh = useCallback(async () => {
     try {
       const service = getKeyBackupService();
-      const [server, local] = await Promise.all([service.getServerBackup(), service.status()]);
-      setView(
-        server
-          ? { state: 'on', version: server.version, sessionCount: server.session_count, local }
-          : { state: 'off' },
-      );
+      // The E2EE engine is only woken up when there is a backup to describe.
+      const server = await service.getServerBackup();
+      if (!server) {
+        setView({ state: 'off' });
+        return;
+      }
+      const local = await service.status();
+      setView({ state: 'on', version: server.version, sessionCount: server.session_count, local });
     } catch {
       setView({ state: 'error', message: 'Không tải được trạng thái sao lưu.' });
     }
