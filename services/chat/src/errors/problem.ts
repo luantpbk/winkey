@@ -114,6 +114,15 @@ export class ProblemError extends Error {
     });
   }
 
+  static serviceUnavailable(detail: string, code?: string): ProblemError {
+    return new ProblemError({
+      status: 503,
+      title: 'Service Unavailable',
+      detail,
+      code,
+    });
+  }
+
   static internal(detail = 'An internal server error occurred'): ProblemError {
     return new ProblemError({
       status: 500,
