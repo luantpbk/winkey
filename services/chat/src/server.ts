@@ -13,6 +13,7 @@ import { attachmentsRoute } from './routes/attachments.js';
 import { keyBackupRoute } from './routes/key-backup.js';
 import { createAttachmentStorage, type AttachmentStorage } from './storage/attachment-storage.js';
 import { parseDurationMs } from './utils/duration.js';
+import { callsRoute, parseTurnConfig, type TurnConfig } from './routes/calls.js';
 import { REDACT_PATHS } from './infra/logger.js';
 import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
@@ -34,6 +35,8 @@ export interface BuildAppOptions {
   loggerInstance?: FastifyServerOptions['loggerInstance'];
   /** SOC-3b ciphertext store; defaults to the CHAT_S3_* env (null when unset: attachment endpoints answer 503). */
   storage?: AttachmentStorage | null;
+  /** SOC-4a TURN config; defaults to TURN_SECRET / TURN_URLS / TURN_TTL_SECONDS (null → 503). */
+  turn?: TurnConfig | null;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -128,6 +131,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     attachmentTtlMs: parseDurationMs(env.CHAT_ATTACHMENT_TTL, 30 * 24 * 60 * 60 * 1000),
   });
   await app.register(keyBackupRoute, { db, rateLimiter });
+  await app.register(callsRoute, {
+    turn: options.turn !== undefined ? options.turn : parseTurnConfig(env),
+    rateLimiter,
+  });
 
   return app;
 }

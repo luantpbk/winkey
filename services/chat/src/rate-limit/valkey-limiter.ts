@@ -124,6 +124,10 @@ export function buildCreateConversationRateLimitKey(userId: string): string {
   return `rl:chat:conv:${userId}`;
 }
 
+export function buildTurnCredentialsRateLimitKey(userId: string): string {
+  return `rl:chat:turn:${userId}`;
+}
+
 export function buildMessageRequestRateLimitKey(userId: string): string {
   return `rl:chat:req:${userId}`;
 }

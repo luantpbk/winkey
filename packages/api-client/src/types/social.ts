@@ -396,6 +396,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/friends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's friends (mutual follows), newest friendship first (task SOC-6b).
+         * @description `friends_since` is when the pair became mutual, i.e. the later of the two follows. Users without an active
+         *     profile and users in a block relation with the caller are left out (a block removes both follows anyway).
+         */
+        get: operations["listMyFriends"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/friend-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * People who follow the caller but whom the caller does not follow, newest follow first (task SOC-6b).
+         * @description Leaves out dismissed requests (`dismissFriendRequest`), users without an active profile and users in a block
+         *     relation with the caller. Accepting is `subscribe` to the requester, which also clears a dismissal. A private
+         *     account's pending follow requests are a different list (`listFollowRequests`): those users do not follow the
+         *     caller yet. `pending_count` counts the whole list, not the page.
+         */
+        get: operations["listFriendRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/friend-requests/{user_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hide a friend request without unfollowing or telling anyone (task SOC-6b). Idempotent.
+         * @description `user_id` must follow the caller and not be followed back by the caller, else `404`. The dismissal stays until
+         *     the caller follows them back (`subscribe` deletes it) or a block between the two deletes it. The other user is
+         *     not told and keeps following. Counts toward the 60 relationship changes per hour of blocks and mutes (`429`).
+         */
+        post: operations["dismissFriendRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/notifications": {
         parameters: {
             query?: never;
@@ -1202,12 +1271,16 @@ export interface components {
          *     `POST_MENTION` — someone mentioned you in a post (`post_id`; once per post).
          *     `POST_RESHARE` — someone reshared your post (`post_id` = the reshare).
          *     `POST_REACTION` — someone reacted to your post (`post_id`; once per reacting user and post).
+         *     `FRIEND_ACCEPTED` — someone you follow followed you back, so you are now friends (SOC-6b; actor = the new
+         *     friend; once per pair). Created in the same transaction as the `subscribe` that makes the pair mutual, for the
+         *     user who followed first. A follow-request approval that makes a pair mutual creates only
+         *     `FOLLOW_REQUEST_APPROVED`.
          *     No notification is created between users in a block relation, or for a muter from a muted actor. A post
          *     notification whose post or comment is gone, hidden or no longer visible to the recipient is not returned.
          *     Clients ignore kinds they do not know.
          * @enum {string}
          */
-        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER" | "FOLLOW_REQUEST" | "FOLLOW_REQUEST_APPROVED" | "POST_COMMENT" | "POST_COMMENT_REPLY" | "POST_MENTION" | "POST_RESHARE" | "POST_REACTION";
+        NotificationKind: "VIDEO_PUBLISHED" | "VIDEO_COMMENT" | "COMMENT_REPLY" | "NEW_SUBSCRIBER" | "FOLLOW_REQUEST" | "FOLLOW_REQUEST_APPROVED" | "POST_COMMENT" | "POST_COMMENT_REPLY" | "POST_MENTION" | "POST_RESHARE" | "POST_REACTION" | "FRIEND_ACCEPTED";
         Notification: {
             id: components["schemas"]["Uuid"];
             kind: components["schemas"]["NotificationKind"];
@@ -1475,6 +1548,31 @@ export interface components {
         PeoplePage: {
             items: components["schemas"]["PublicProfile"][];
             next_cursor: string | null;
+        };
+        FriendItem: {
+            user: components["schemas"]["PublicProfile"];
+            /**
+             * Format: date-time
+             * @description When the pair became mutual (the later of the two follows).
+             */
+            friends_since: string;
+        };
+        FriendPage: {
+            items: components["schemas"]["FriendItem"][];
+            next_cursor: string | null;
+        };
+        FriendRequest: {
+            user: components["schemas"]["PublicProfile"];
+            /**
+             * Format: date-time
+             * @description When they started following the caller.
+             */
+            followed_at: string;
+        };
+        FriendRequestPage: {
+            items: components["schemas"]["FriendRequest"][];
+            next_cursor: string | null;
+            pending_count: number;
         };
         /**
          * @description A private account's posts are followers-only whatever this value says.
@@ -2432,6 +2530,82 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listMyFriends: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of friends. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listFriendRequests: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor copied from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of friend requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FriendRequestPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    dismissFriendRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User id of the other user. */
+                user_id: components["parameters"]["RelationUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dismissed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };
