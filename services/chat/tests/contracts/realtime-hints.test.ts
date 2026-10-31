@@ -150,6 +150,28 @@ describe('Realtime Hints Contract Verification (contracts/realtime/server.schema
     expect(isValid).toBe(true);
   });
 
+  it('validates READ hint against $defs/chatHint (B3, chat.v1 1.3.0)', () => {
+    const { dispatcher, published } = setupDispatcher();
+    const targetUserId = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01';
+    const hint: ChatHint = {
+      kind: 'READ',
+      conversation_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c03',
+      user_id: '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c02',
+      seq: 42,
+    };
+
+    dispatcher.publishHint(targetUserId, hint);
+
+    expect(published[0].payload).toEqual(hint);
+    const isValid = validateChatHint(published[0].payload);
+    expect(validateChatHint.errors).toBeNull();
+    expect(isValid).toBe(true);
+    expect(validateChatHint({ ...hint, seq: -1 })).toBe(false);
+    expect(validateChatHint({ kind: 'READ', conversation_id: hint.conversation_id, seq: 1 })).toBe(
+      false,
+    );
+  });
+
   it('broadcasts hints to multiple recipients using publishHints', () => {
     const { dispatcher, published } = setupDispatcher();
     const user1 = '0192f5e4-7c1a-7b3e-9d2a-5f6e7a8b9c01';

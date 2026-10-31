@@ -31,6 +31,11 @@ interface PublicProfileDto {
   avatar_url: string | null;
 }
 
+/** `Member.last_read_seq` (chat.v1 1.3.0): the read marker of an ACTIVE member; null for REQUESTED and others. */
+function memberReadSeq(m: { state: string; last_read_seq: string }): number | null {
+  return m.state === 'ACTIVE' ? Number(m.last_read_seq) : null;
+}
+
 export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependencies> = async (
   fastify,
   { db, hints, rateLimiter },
@@ -120,6 +125,7 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
         user: profileMap.get(m.user_id) ?? null,
         role: m.role,
         state: m.state,
+        last_read_seq: memberReadSeq(m),
       })),
       my_role: callerMember.role,
       my_state: callerMember.state,
@@ -295,6 +301,7 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
           user: profileMap.get(m.user_id) ?? null,
           role: m.role,
           state: m.state,
+          last_read_seq: memberReadSeq(m),
         })),
         my_role: c.my_role,
         my_state: c.my_state,
@@ -1431,7 +1438,7 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
 
     const callerMem = await db
       .selectFrom('chat.members')
-      .select('last_read_seq')
+      .select(['last_read_seq', 'state'])
       .where('conversation_id', '=', conversation_id)
       .where('user_id', '=', caller.userId)
       .executeTakeFirst();
@@ -1452,6 +1459,22 @@ export const conversationsRoute: FastifyPluginAsync<ConversationsRouteDependenci
         .where('conversation_id', '=', conversation_id)
         .where('user_id', '=', caller.userId)
         .execute();
+
+      // "đã xem" for the other ACTIVE members. A REQUESTED member's marker is saved but never announced: a message
+      // request promises the sender does not learn it was read until it is accepted (chat.v1 1.3.0).
+      if (callerMem.state === 'ACTIVE') {
+        const others = await db
+          .selectFrom('chat.members')
+          .select('user_id')
+          .where('conversation_id', '=', conversation_id)
+          .where('state', '=', 'ACTIVE')
+          .where('user_id', '!=', caller.userId)
+          .execute();
+        hints.publishHints(
+          others.map((o) => o.user_id),
+          { kind: 'READ', conversation_id, user_id: caller.userId, seq: newReadSeq },
+        );
+      }
     }
 
     return reply.status(204).send();
