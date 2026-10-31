@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { mockUsers } from './fixtures';
+import { mockUsers, mockPublicProfiles } from './fixtures';
 import type {
   Conversation,
   ConversationPage,
@@ -374,12 +374,21 @@ export const chatHandlers = [
     const userId = getAuthenticatedUserId(request);
     const now = new Date().toISOString();
 
-    const members = (body.members || []).map((m: any) => ({
-      user_id: m.user_id,
-      role: m.role || 'MEMBER',
-      state: m.user_id === userId ? 'ACTIVE' : 'REQUESTED',
-      user: {
-        id: m.user_id,
+    // Contract: `user_ids` holds the other users. A DIRECT conversation that exists is returned with 200.
+    const otherIds: string[] = body.user_ids || [];
+    if (body.kind === 'DIRECT') {
+      const existing = mockConversations.find(
+        (c) => c.kind === 'DIRECT' && c.members.some((m) => m.user_id === otherIds[0]),
+      );
+      if (existing) return HttpResponse.json(existing, { status: 200 });
+    }
+    const profiles = Object.values(mockPublicProfiles);
+    const members: Conversation['members'] = otherIds.map((id) => ({
+      user_id: id,
+      role: 'MEMBER' as const,
+      state: 'REQUESTED' as const,
+      user: profiles.find((p) => p.id === id) ?? {
+        id,
         handle: 'mock_handle',
         display_name: 'Người dùng',
         avatar_url: null,

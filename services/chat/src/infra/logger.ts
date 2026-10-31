@@ -23,6 +23,17 @@ export const REDACT_PATHS = [
   'messages[*].ciphertext',
   'keys[*].public_key',
   'keys[*].signature',
+  // SOC-3b: presigned URLs, backup auth data and backed-up session keys never reach the logs.
+  'upload_url',
+  'url',
+  'auth_data',
+  '*.upload_url',
+  '*.auth_data',
+  'sessions[*].ciphertext',
+  '*.sessions[*].ciphertext',
+  // SOC-4a: TURN credentials
+  'credential',
+  '*.credential',
 ];
 
 export function sanitizeEndpointUrl(rawUrl: string | undefined | null): string {

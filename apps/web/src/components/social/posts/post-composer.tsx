@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { MentionTextarea } from '../mention-textarea';
 import type { Post, PostVisibility, PostImage, VideoSummary } from '@winkey/api-client';
 import { api } from '../../../lib/api-client';
 import { compressPostImageFile, uploadImage } from '../../../lib/media/upload-image';
@@ -473,12 +474,13 @@ export function PostComposer({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Text Area */}
         <div className="relative">
-          <textarea
+          <MentionTextarea
             ref={textareaRef}
             rows={3}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onValueChange={setBody}
             placeholder={placeholder}
+            aria-label="Nội dung bài viết"
             className="w-full bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none resize-none"
           />
           {/* Realtime character counter */}

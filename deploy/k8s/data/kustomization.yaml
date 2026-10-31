@@ -86,6 +86,8 @@ configMapGenerator:
       - migrations/000034_chat_attachments_backup.down.sql
       - migrations/000035_people_search.up.sql
       - migrations/000035_people_search.down.sql
+      - migrations/000036_friends.up.sql
+      - migrations/000036_friends.down.sql
   - name: winkey-pg-scripts
     files:
       - scripts/grants.sql
