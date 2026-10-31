@@ -60,7 +60,30 @@ self.onmessage = async (event: MessageEvent<WorkerRpcRequest>) => {
       case 'ENCRYPT_TO_DEVICE':
         result = await engine.encryptToDevice(req.payload);
         break;
-
+      case 'BACKUP_CREATE':
+        result = await engine.backupCreate(req.payload.passphrase);
+        break;
+      case 'BACKUP_UNLOCK':
+        result = await engine.backupUnlock(req.payload.authData, req.payload.passphrase);
+        break;
+      case 'BACKUP_ACTIVATE':
+        result = await engine.backupActivate(req.payload.version);
+        break;
+      case 'BACKUP_STATUS':
+        result = await engine.backupStatus();
+        break;
+      case 'BACKUP_FORGET':
+        result = await engine.backupForget();
+        break;
+      case 'BACKUP_EXPORT_PENDING':
+        result = await engine.backupExportPending(req.payload.limit);
+        break;
+      case 'BACKUP_MARK_UPLOADED':
+        result = await engine.backupMarkUploaded(req.payload.keys, req.payload.version);
+        break;
+      case 'BACKUP_IMPORT':
+        result = await engine.backupImport(req.payload.sessions);
+        break;
       case 'WIPE_DATABASE':
         await engine.wipeDatabase();
         result = { success: true };

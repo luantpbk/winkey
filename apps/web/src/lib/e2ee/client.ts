@@ -16,7 +16,11 @@ import type {
   MemberDeviceRef,
   ClaimedOtkRef,
   TrustRecordStatus,
+  BackupSessionItem,
+  BackupStatus,
+  BackupImportResult,
 } from './protocol';
+import type { BackupAuthData } from './key-backup';
 import type { E2eeDeviceTrustRecord } from './storage';
 
 export class E2eeClient {
@@ -117,6 +121,22 @@ export class E2eeClient {
         return this.engineFallback.wipeDatabase();
       case 'ENCRYPT_TO_DEVICE':
         return this.engineFallback.encryptToDevice(payload);
+      case 'BACKUP_CREATE':
+        return this.engineFallback.backupCreate(payload.passphrase);
+      case 'BACKUP_UNLOCK':
+        return this.engineFallback.backupUnlock(payload.authData, payload.passphrase);
+      case 'BACKUP_ACTIVATE':
+        return this.engineFallback.backupActivate(payload.version);
+      case 'BACKUP_STATUS':
+        return this.engineFallback.backupStatus();
+      case 'BACKUP_FORGET':
+        return this.engineFallback.backupForget();
+      case 'BACKUP_EXPORT_PENDING':
+        return this.engineFallback.backupExportPending(payload.limit);
+      case 'BACKUP_MARK_UPLOADED':
+        return this.engineFallback.backupMarkUploaded(payload.keys, payload.version);
+      case 'BACKUP_IMPORT':
+        return this.engineFallback.backupImport(payload.sessions);
       default:
         throw new Error(`Unsupported RPC call: ${type}`);
     }
@@ -185,6 +205,39 @@ export class E2eeClient {
     ed25519: string;
   }): Promise<{ status: TrustRecordStatus; record: E2eeDeviceTrustRecord }> {
     return this.callRpc('CHECK_OR_RECORD_DEVICE_TRUST', params);
+  }
+
+  // SOC-3b key backup. Argon2id (64 MiB) can take a few seconds on slow phones: generous timeouts.
+  async backupCreate(passphrase: string): Promise<{ authData: BackupAuthData }> {
+    return this.callRpc('BACKUP_CREATE', { passphrase }, 120_000);
+  }
+
+  async backupUnlock(authData: unknown, passphrase: string): Promise<void> {
+    return this.callRpc('BACKUP_UNLOCK', { authData, passphrase }, 120_000);
+  }
+
+  async backupActivate(version: number): Promise<void> {
+    return this.callRpc('BACKUP_ACTIVATE', { version });
+  }
+
+  async backupStatus(): Promise<BackupStatus> {
+    return this.callRpc('BACKUP_STATUS', {});
+  }
+
+  async backupForget(): Promise<void> {
+    return this.callRpc('BACKUP_FORGET', {});
+  }
+
+  async backupExportPending(limit: number): Promise<Array<BackupSessionItem & { key: string }>> {
+    return this.callRpc('BACKUP_EXPORT_PENDING', { limit }, 60_000);
+  }
+
+  async backupMarkUploaded(keys: string[], version: number): Promise<void> {
+    return this.callRpc('BACKUP_MARK_UPLOADED', { keys, version });
+  }
+
+  async backupImport(sessions: BackupSessionItem[]): Promise<BackupImportResult> {
+    return this.callRpc('BACKUP_IMPORT', { sessions }, 60_000);
   }
 
   async encryptToDevice(params: {
