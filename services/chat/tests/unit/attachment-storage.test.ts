@@ -37,6 +37,10 @@ describe('SOC-3b attachment storage (S3, presigned URLs)', () => {
     expect(u.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toEqual(
       expect.arrayContaining(['content-length', 'content-type', 'host']),
     );
+    // No SDK checksum of the presign-time (empty) body: the browser uploads the real bytes.
+    expect([...u.searchParams.keys()].filter((k) => k.toLowerCase().includes('checksum'))).toEqual(
+      [],
+    );
     expect(headers).toEqual({
       'Content-Type': 'application/octet-stream',
       'Content-Length': '1234',

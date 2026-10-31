@@ -115,6 +115,10 @@ export function createAttachmentStorage(env: Env): AttachmentStorage | null {
       endpoint,
       region: env.CHAT_S3_REGION,
       forcePathStyle: true,
+      // SDK >= 3.729 adds a CRC32 of the (empty) presign-time body to PUT URLs, so every browser upload of real
+      // bytes failed with "Invalid digest". Ciphertext integrity is the client's AES-GCM tag + SHA-256.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
       credentials: {
         accessKeyId: env.CHAT_S3_ACCESS_KEY_ID!,
         secretAccessKey: env.CHAT_S3_SECRET_ACCESS_KEY!,
