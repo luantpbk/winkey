@@ -9,6 +9,7 @@ import { devicesRoute } from './routes/devices.js';
 import { toDeviceRoute } from './routes/to-device.js';
 import { conversationsRoute } from './routes/conversations.js';
 import { messagesRoute } from './routes/messages.js';
+import { callsRoute, parseTurnConfig, type TurnConfig } from './routes/calls.js';
 import { REDACT_PATHS } from './infra/logger.js';
 import type { Database } from './db/types.js';
 import type { Kysely } from 'kysely';
@@ -28,6 +29,8 @@ export interface BuildAppOptions {
   getNatsConnection?: () => NatsConnection | null;
   metricsRegistry?: Registry;
   loggerInstance?: FastifyServerOptions['loggerInstance'];
+  /** SOC-4a TURN config; defaults to TURN_SECRET / TURN_URLS / TURN_TTL_SECONDS (null → 503). */
+  turn?: TurnConfig | null;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -114,6 +117,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(toDeviceRoute, { db, hints, rateLimiter });
   await app.register(conversationsRoute, { db, hints, rateLimiter });
   await app.register(messagesRoute, { db, hints, rateLimiter });
+  await app.register(callsRoute, {
+    turn: options.turn !== undefined ? options.turn : parseTurnConfig(env),
+    rateLimiter,
+  });
 
   return app;
 }
