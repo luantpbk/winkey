@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { VideoCard } from '../src/components/video/video-card';
 import {
@@ -342,5 +342,40 @@ describe('Issue #194: Local Thumbnail Placeholder fallback', () => {
         expect(src).not.toContain('unsplash.com');
       }
     });
+  });
+});
+
+describe('Broken thumbnails fall back to the placeholder (shared <Thumbnail>)', () => {
+  const video: VideoSummary = {
+    id: '0192f5e4-7c1a-7b3e-9d2a-333333333333',
+    title: 'Video có thumbnail hỏng',
+    owner: {
+      id: '0192f5e4-7c1a-7b3e-9d2a-c00000000003',
+      display_name: 'Kênh Ba',
+      handle: 'kenh3',
+      avatar_url: null,
+    },
+    duration_ms: 60000,
+    view_count: 1,
+    published_at: '2026-10-01T00:00:00Z',
+    thumbnail_url: 'https://cdn.winkey.vn/missing.jpg',
+  };
+
+  it('VideoCard: a thumbnail that fails to load becomes the placeholder once', () => {
+    renderWithClient(<VideoCard video={video} />);
+    const img = screen.getByRole('img', { name: video.title });
+    expect(img.getAttribute('src')).toBe('https://cdn.winkey.vn/missing.jpg');
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe(DEFAULT_THUMBNAIL_URL);
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe(DEFAULT_THUMBNAIL_URL);
+  });
+
+  it('RelatedVideoCard: same', () => {
+    const { container } = renderWithClient(<RelatedVideoCard video={video} locale="vi" />);
+    const img = container.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('https://cdn.winkey.vn/missing.jpg');
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe(DEFAULT_THUMBNAIL_URL);
   });
 });

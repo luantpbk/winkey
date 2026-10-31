@@ -9,6 +9,7 @@ import { useTranslations } from 'next-intl';
 import { formatDuration } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
 import { X, Search, Loader2, AlertCircle, ArrowUpDown } from 'lucide-react';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface AddMyVideosDialogProps {
   playlistId: string;
@@ -353,7 +354,7 @@ export function AddMyVideosDialog({
 
                   {/* Thumbnail */}
                   <div className="relative aspect-video w-24 shrink-0 rounded-lg overflow-hidden bg-zinc-800">
-                    <img
+                    <Thumbnail
                       src={thumbUrl}
                       alt={video.title}
                       loading="lazy"

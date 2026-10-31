@@ -9,6 +9,7 @@ import { Link } from '../../i18n/routing';
 import { formatDuration, formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
 import { buildWatchUrl } from '../../lib/video/watch-url';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface RelatedVideosColumnProps {
   videoId: string;
@@ -51,7 +52,7 @@ export function RelatedVideoCard({ video, locale }: { video: VideoSummary; local
         aria-hidden="true"
         className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-[#222222]"
       >
-        <img
+        <Thumbnail
           src={thumbnailUrl}
           alt={video.title}
           loading="lazy"

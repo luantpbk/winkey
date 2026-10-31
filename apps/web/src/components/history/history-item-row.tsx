@@ -8,6 +8,7 @@ import { Link } from '../../i18n/routing';
 import { formatDuration, formatViews, formatRelativeTime } from '../../lib/format';
 import { getThumbnailUrl } from '../../lib/constants';
 import { buildWatchUrl } from '../../lib/video/watch-url';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface HistoryItemRowProps {
   item: HistoryItem;
@@ -42,7 +43,7 @@ export function HistoryItemRow({ item, onRemove, isRemoving }: HistoryItemRowPro
           href={watchHref}
           className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-red-600 rounded-xl"
         >
-          <img
+          <Thumbnail
             src={thumbnailUrl}
             alt={video.title}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"

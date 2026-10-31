@@ -12,6 +12,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface CinemaDetailDialogProps {
   videoId: string | null;
@@ -275,7 +276,7 @@ export function CinemaDetailDialog({
           <>
             {/* Header Backdrop Banner: 16:9 */}
             <div className="relative aspect-video max-h-[460px] w-full overflow-hidden bg-black">
-              <img
+              <Thumbnail
                 src={thumbnailUrl}
                 alt={video.title}
                 loading="eager"
@@ -421,7 +422,7 @@ export function CinemaDetailDialog({
                         className="group cursor-pointer rounded-lg overflow-hidden bg-[#1D1D25] hover:bg-[#262630] transition-colors"
                       >
                         <div className="relative aspect-video w-full bg-black/40">
-                          <img
+                          <Thumbnail
                             src={itemThumb}
                             alt={item.title}
                             loading="lazy"

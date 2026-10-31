@@ -11,6 +11,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface CinemaCardProps {
   video: VideoSummary | Video;
@@ -145,7 +146,7 @@ export function CinemaCard({
           data-testid="cinema-card-link"
           className="block relative aspect-video w-full overflow-hidden rounded-[6px] bg-[#181822] focus:outline-none focus:ring-2 focus:ring-white"
         >
-          <img
+          <Thumbnail
             src={thumbnailUrl}
             alt={video.title}
             loading="lazy"
