@@ -219,3 +219,69 @@ describe('B3 conversation list', () => {
     expect(fetchMessages.mock.calls.slice(calls).map((c) => c[0])).toEqual(['c-wait']);
   });
 });
+
+describe('B3 previews are per user (architect review of #563)', () => {
+  const OTHER = 'user-other';
+  const shared = conv('c-shared', {
+    members: [
+      member(ME, 'Tôi', 'me'),
+      member(OTHER, 'Người khác', 'other'),
+      member(LAN, 'Lan', 'lan'),
+    ],
+    last_seq: 5,
+  });
+  const list = (userId: string) => (
+    <ConversationList
+      conversations={[shared]}
+      activeConversationId={null}
+      activeTab="ACTIVE"
+      onTabChange={() => {}}
+      onSelectConversation={() => {}}
+      onOpenNewChat={() => {}}
+      currentUserId={userId}
+    />
+  );
+
+  beforeEach(() => {
+    clearConversationPreviews();
+    fetchMessages.mockReset();
+  });
+
+  it("user B never sees user A's cached preview; B's own decryption fills it in", async () => {
+    fetchMessages.mockResolvedValueOnce({
+      items: [item(5, LAN, 'DECRYPTED', 'Bí mật của A')],
+      has_more: false,
+    });
+    const a = render(list(ME));
+    expect(await screen.findByText('Bí mật của A')).toBeTruthy();
+    a.unmount();
+
+    // B signs in later in the same tab, same conversation: B's decryption has not finished yet.
+    let finishB!: (v: unknown) => void;
+    fetchMessages.mockReturnValueOnce(new Promise((r) => (finishB = r)));
+    render(list(OTHER));
+    expect(screen.queryByText(/Bí mật của A/)).toBeNull();
+    expect(screen.getByTestId('conversation-preview').textContent).toBe('Tin nhắn mã hoá đầu cuối');
+    expect(fetchMessages).toHaveBeenCalledTimes(2);
+
+    // Only what B itself decrypts is shown (here: B has no key yet).
+    finishB({ items: [item(5, LAN, 'WAITING_FOR_KEY')], has_more: false });
+    expect(await screen.findByText('Tin nhắn mã hoá · đang chờ khoá')).toBeTruthy();
+    expect(screen.queryByText(/Bí mật của A/)).toBeNull();
+  });
+
+  it('clearConversationPreviews (logout, device removal) forgets every preview', async () => {
+    fetchMessages.mockResolvedValue({
+      items: [item(5, LAN, 'DECRYPTED', 'Xin chào')],
+      has_more: false,
+    });
+    const first = render(list(ME));
+    await screen.findByText('Xin chào');
+    first.unmount();
+    clearConversationPreviews();
+    render(list(ME));
+    expect(screen.queryByText('Xin chào')).toBeNull();
+    expect(await screen.findByText('Xin chào')).toBeTruthy();
+    expect(fetchMessages).toHaveBeenCalledTimes(2);
+  });
+});

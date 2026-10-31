@@ -10,6 +10,7 @@
 
 import { api } from '../api-client';
 import { getE2eeClient, type E2eeClient } from './client';
+import { clearConversationPreviews } from '../chat/preview-cache';
 
 export function getDeviceDisplayName(): string {
   if (typeof navigator === 'undefined') {
@@ -157,8 +158,9 @@ export class DeviceManager {
       console.warn('[DeviceManager] Failed to unregister device from server:', err);
     }
 
-    // Wipe local IndexedDB
+    // Wipe local IndexedDB, and the in-memory previews decrypted with this device's keys
     await this.client.wipeDatabase();
+    clearConversationPreviews();
     this.currentDeviceId = null;
     this.initializedPromise = null;
   }

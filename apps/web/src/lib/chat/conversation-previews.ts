@@ -4,26 +4,22 @@ import { useEffect, useState } from 'react';
 import type { Conversation } from '@winkey/api-client';
 import { getChatService } from '../e2ee/chat-service';
 import { previewOf } from './message-text';
+import {
+  previewCache,
+  previewInflight,
+  previewKey,
+  type ConversationPreview,
+} from './preview-cache';
 
-export interface ConversationPreview {
-  seq: number;
-  text: string;
-  /** Sent by the current user ("Bạn: …"). */
-  fromMe: boolean;
-  senderId: string | null;
-  /** The newest message still waits for its key; retried when keys arrive. */
-  waiting: boolean;
-  /** The `version` it was loaded at: a waiting preview is tried again only for a newer version. */
-  version: number;
-}
+export type { ConversationPreview } from './preview-cache';
+export { clearConversationPreviews } from './preview-cache';
 
 /**
  * Last-message previews for the conversation list (B3). Decrypted on this device and kept **in memory only** (never
- * written to storage, never sent to a server). A conversation is fetched again only when its `last_seq` changed, or
- * when its preview was waiting for a key and new keys may have arrived (`version` bumps on to-device hints).
+ * written to storage, never sent to a server), per signed-in user. A conversation is fetched again only when its
+ * `last_seq` changed, or when its preview was waiting for a key and new keys may have arrived (`version` bumps on
+ * to-device hints).
  */
-const cache = new Map<string, ConversationPreview>();
-const inflight = new Map<string, Promise<ConversationPreview | null>>();
 const CONCURRENCY = 3;
 
 async function load(
@@ -31,8 +27,9 @@ async function load(
   userId: string,
   version: number,
 ): Promise<ConversationPreview | null> {
-  const key = `${conversation.id}:${conversation.last_seq}`;
-  const running = inflight.get(key);
+  const key = previewKey(userId, conversation.id);
+  const flight = `${key}:${conversation.last_seq}`;
+  const running = previewInflight.get(flight);
   if (running) return running;
   const run = (async () => {
     try {
@@ -48,20 +45,20 @@ async function load(
         fromMe: item.message.sender_id === userId,
         version,
       };
-      cache.set(conversation.id, preview);
+      previewCache.set(key, preview);
       return preview;
     } catch {
       return null;
     } finally {
-      inflight.delete(key);
+      previewInflight.delete(flight);
     }
   })();
-  inflight.set(key, run);
+  previewInflight.set(flight, run);
   return run;
 }
 
-function fresh(conversation: Conversation): ConversationPreview | undefined {
-  const hit = cache.get(conversation.id);
+function fresh(conversation: Conversation, userId: string): ConversationPreview | undefined {
+  const hit = previewCache.get(previewKey(userId, conversation.id));
   return hit && hit.seq >= conversation.last_seq ? hit : undefined;
 }
 
@@ -79,7 +76,7 @@ export function useConversationPreviews(
     const todo: Conversation[] = [];
     for (const c of conversations) {
       if (c.last_seq <= 0) continue;
-      const hit = fresh(c);
+      const hit = fresh(c, userId);
       if (hit) ready.set(c.id, hit);
       if (!hit || (hit.waiting && hit.version < version)) todo.push(c);
     }
@@ -100,10 +97,4 @@ export function useConversationPreviews(
   }, [conversations, userId, version]);
 
   return previews;
-}
-
-/** For tests and sign-out: forget every decrypted preview. */
-export function clearConversationPreviews(): void {
-  cache.clear();
-  inflight.clear();
 }
