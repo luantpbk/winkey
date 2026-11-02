@@ -248,6 +248,15 @@ if [ "$REG_CODE" != "201" ]; then
     exit 1
 fi
 
+# Under ROLE1 (ADR-046), newly registered users default to [viewer].
+# If running on the cluster node where kubectl is available, promote the throwaway smoke user
+# to [viewer, creator] so step 10 (direct-to-storage multipart upload) can execute.
+if command -v kubectl >/dev/null 2>&1 && kubectl get pod winkey-pg-1 >/dev/null 2>&1; then
+    kubectl exec winkey-pg-1 -c postgres -- psql -U postgres -d winkey -c "UPDATE auth.users SET roles = ARRAY['viewer','creator']::auth.role[] WHERE email = '${TEST_EMAIL}';" >/dev/null 2>&1 || true
+elif command -v sudo >/dev/null 2>&1 && sudo kubectl get pod winkey-pg-1 >/dev/null 2>&1; then
+    sudo kubectl exec winkey-pg-1 -c postgres -- psql -U postgres -d winkey -c "UPDATE auth.users SET roles = ARRAY['viewer','creator']::auth.role[] WHERE email = '${TEST_EMAIL}';" >/dev/null 2>&1 || true
+fi
+
 echo "  Logging in as $TEST_EMAIL..."
 LOGIN_RESP=$(curl -sS -i -X POST "${BASE_URL}/v1/auth/login" \
   -H "Content-Type: application/json" \
