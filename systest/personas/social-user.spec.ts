@@ -257,6 +257,14 @@ test.describe.serial('Persona: social-user (SOC-2a Social Posts & Feeds)', () =>
     }
 
     const postCard = page.locator('[data-testid^="post-card-"]').first();
+    if (!(await postCard.isVisible({ timeout: 4000 }).catch(() => false))) {
+      const exploreTab = page
+        .locator('[data-testid="feed-tab-explore"], button:has-text("Khám phá")')
+        .first();
+      if (await exploreTab.isVisible().catch(() => false)) {
+        await exploreTab.click();
+      }
+    }
     await expect(postCard).toBeVisible({ timeout: 15000 });
 
     // 1. Reaction picker

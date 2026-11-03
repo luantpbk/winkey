@@ -39,10 +39,33 @@ test.describe
   let desktopContext: BrowserContext;
   let mobileContext: BrowserContext;
   let device2Context: BrowserContext | null = null;
+  let freshContext: BrowserContext | null = null;
 
   let alicePage: Page;
   let bobPage: Page;
   let aliceDev2Page: Page | null = null;
+  let freshPage: Page | null = null;
+  let backupPassphrase = '';
+
+  const fixturesDir = path.resolve(__dirname, '../.run/test-fixtures');
+  if (!fs.existsSync(fixturesDir)) {
+    fs.mkdirSync(fixturesDir, { recursive: true });
+  }
+  const testImagePath = path.join(fixturesDir, 'test-image.png');
+  const testDocPath = path.join(fixturesDir, 'test-doc.pdf');
+  if (!fs.existsSync(testImagePath)) {
+    const pngBuf = Buffer.from(
+      '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360606060000000050001a7df9d260000000049454e44ae426082',
+      'hex',
+    );
+    fs.writeFileSync(testImagePath, pngBuf);
+  }
+  if (!fs.existsSync(testDocPath)) {
+    const pdfBuf = Buffer.from(
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 300 144]>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\n0000000102 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n149\n%%EOF\n',
+    );
+    fs.writeFileSync(testDocPath, pdfBuf);
+  }
 
   const suffix = Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
   const aliceHandle = `chatter_a_${suffix}`;
@@ -109,10 +132,12 @@ test.describe
     if (alicePage) await reapCspViolations(alicePage, 'alice-desktop');
     if (bobPage) await reapCspViolations(bobPage, 'bob-mobile');
     if (aliceDev2Page) await reapCspViolations(aliceDev2Page, 'alice-dev2');
+    if (freshPage) await reapCspViolations(freshPage, 'alice-fresh');
 
     await desktopContext?.close();
     await mobileContext?.close();
     if (device2Context) await device2Context.close();
+    if (freshContext) await freshContext.close();
   });
 
   test('register Alice (desktop) and Bob (mobile), and verify login', async () => {
@@ -327,11 +352,19 @@ test.describe
     await aliceDev2Page.locator('main form button[type="submit"]').click();
     await aliceDev2Page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
 
-    // 3. Alice Device 2 goes to /tin-nhan
+    // 3. Alice Device 2 goes to /tin-nhan and waits for device keys registration
+    const otkPromise = aliceDev2Page.waitForResponse(
+      (res) =>
+        res.url().includes('/v1/chat/devices/') &&
+        res.url().includes('/one-time-keys') &&
+        res.status() < 400,
+      { timeout: 20000 },
+    );
     await aliceDev2Page.goto('/tin-nhan');
+    await otkPromise;
     await aliceDev2Page.waitForLoadState('domcontentloaded');
 
-    // Wait for device registration & conversation list to load
+    // Wait for conversation list to load and select Bob
     const convItem = aliceDev2Page.locator(`button:has-text("${bobName}")`).first();
     await expect(convItem).toBeVisible({ timeout: 20000 });
     await convItem.click();
@@ -424,12 +457,180 @@ test.describe
     }
   });
 
+  test('send an image and a file, view and download them on the other side', async () => {
+    // 1. Ensure Alice selects the active conversation with Bob on desktop
+    const convBobBtn = alicePage.locator(`button:has-text("${bobName}")`).first();
+    if (await convBobBtn.isVisible()) {
+      await convBobBtn.click();
+    }
+
+    // 2. Alice selects image and PDF files to attach
+    const fileInput = alicePage.locator('input[data-testid="chat-file-input"]');
+    await fileInput.setInputFiles([testImagePath, testDocPath]);
+
+    // 3. Wait for both attachment chips to show "Sẵn sàng"
+    const readyChips = alicePage.locator('li:has-text("Sẵn sàng")');
+    await expect(readyChips.first()).toBeVisible({ timeout: 25000 });
+    await expect(readyChips).toHaveCount(2, { timeout: 25000 });
+
+    // 4. Alice fills message text and sends
+    const attachMsgText = `Tin nhắn kèm ảnh và tệp đính kèm (${suffix})`;
+    const aliceComposer = alicePage.locator('textarea[placeholder*="Nhập tin nhắn"]');
+    await aliceComposer.fill(attachMsgText);
+    const sendBtn = alicePage.locator('button[aria-label="Gửi"]');
+    await expect(sendBtn).toBeEnabled({ timeout: 10000 });
+    await sendBtn.click();
+
+    // 5. Alice sees the sent bubble with attachments
+    await expect(alicePage.locator(`text=${attachMsgText}`).first()).toBeVisible({
+      timeout: 20000,
+    });
+
+    // 6. Bob sees the message on mobile
+    const bobMsgBubble = bobPage.locator(`text=${attachMsgText}`).first();
+    try {
+      await expect(bobMsgBubble).toBeVisible({ timeout: 5000 });
+    } catch {
+      const convButton = bobPage.locator(`button:has-text("${aliceName}")`).first();
+      if (await convButton.isVisible()) await convButton.click();
+      await expect(bobMsgBubble).toBeVisible({ timeout: 20000 });
+    }
+
+    // 7. Bob decrypts and views the image
+    const viewImgBtn = bobPage.locator('button[aria-label*="Xem ảnh"]').first();
+    await expect(viewImgBtn).toBeVisible({ timeout: 15000 });
+    await viewImgBtn.click();
+
+    // After decryption, button transitions to "Phóng to ảnh" with decrypted blob
+    const zoomImgBtn = bobPage.locator('button[aria-label*="Phóng to ảnh"]').first();
+    await expect(zoomImgBtn).toBeVisible({ timeout: 20000 });
+    await expect(zoomImgBtn.locator('img[src^="blob:"]')).toBeVisible({ timeout: 10000 });
+
+    // Bob clicks to open Lightbox
+    await zoomImgBtn.click();
+    const closeLightboxBtn = bobPage.locator('div[role="dialog"] button[aria-label="Đóng"]');
+    await expect(closeLightboxBtn).toBeVisible({ timeout: 10000 });
+    await closeLightboxBtn.click();
+    await expect(closeLightboxBtn).not.toBeVisible();
+
+    // 8. Bob downloads the decrypted file
+    const downloadFileBtn = bobPage.locator('button[aria-label*="Tải về"]').first();
+    await expect(downloadFileBtn).toBeVisible({ timeout: 15000 });
+    const [download] = await Promise.all([
+      bobPage.waitForEvent('download'),
+      downloadFileBtn.click(),
+    ]);
+    expect(download.suggestedFilename()).toContain('test-doc.pdf');
+  });
+
+  test('enable backup, restore on a fresh context, and read old messages', async ({ browser }) => {
+    // 1. Alice goes to /cai-dat/bao-mat to enable backup
+    await alicePage.goto('/cai-dat/bao-mat');
+    await alicePage.waitForLoadState('domcontentloaded');
+
+    // Click "Bật sao lưu" in settings
+    const enableBackupBtn = alicePage.locator('button:has-text("Bật sao lưu")').first();
+    await expect(enableBackupBtn).toBeVisible({ timeout: 15000 });
+    await enableBackupBtn.click();
+
+    // Modal opens: "Bật sao lưu tin nhắn"
+    const modalTitle = alicePage.locator('h3:has-text("Bật sao lưu tin nhắn")');
+    await expect(modalTitle).toBeVisible({ timeout: 10000 });
+
+    // Read generated 5-word passphrase
+    const passphraseElem = alicePage.locator('[data-testid="generated-passphrase"]');
+    await expect(passphraseElem).toBeVisible({ timeout: 10000 });
+    backupPassphrase = (await passphraseElem.textContent())?.trim() || '';
+    expect(backupPassphrase).toBeTruthy();
+    expect(backupPassphrase.split(' ').length).toBe(5);
+
+    // Enter confirmation passphrase
+    const confirmInput = alicePage.locator('input[type="password"]');
+    await confirmInput.fill(backupPassphrase);
+
+    // Check "Tôi đã lưu cụm mật khẩu ở nơi an toàn"
+    const savedCheckbox = alicePage.locator('input[type="checkbox"]');
+    await savedCheckbox.check();
+
+    // Submit enable backup
+    const submitEnableBtn = alicePage.locator('button:has-text("Bật sao lưu")').last();
+    await expect(submitEnableBtn).toBeEnabled({ timeout: 5000 });
+    await submitEnableBtn.click();
+
+    // Modal closes and backup status updates to "Đang bật"
+    await expect(modalTitle).not.toBeVisible({ timeout: 30000 });
+    const statusElem = alicePage.locator('[data-testid="backup-status"]');
+    await expect(statusElem).toBeVisible({ timeout: 20000 });
+    await expect(statusElem).toContainText('Đang bật');
+
+    // 2. Open a fresh 4th browser context for Alice (simulating a brand new device)
+    freshContext = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      locale: 'vi-VN',
+    });
+    freshPage = await freshContext.newPage();
+    await setupCspCollection(freshPage, 'alice-fresh');
+
+    // Alice logs into the same account on the fresh context
+    await freshPage.goto('/login');
+    await freshPage.locator('input[type="email"]').fill(aliceEmail);
+    await freshPage.locator('input[type="password"]').fill(PASSWORD);
+    await freshPage.locator('main form button[type="submit"]').click();
+    await freshPage.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 });
+
+    // Alice visits /tin-nhan
+    await freshPage.goto('/tin-nhan');
+    await freshPage.waitForLoadState('domcontentloaded');
+
+    // The restore banner appears: "Bạn có bản sao lưu tin nhắn. Khôi phục để đọc tin nhắn cũ trên thiết bị này."
+    const restoreBanner = freshPage.locator(
+      'div[role="region"][aria-label="Khôi phục lịch sử tin nhắn"]',
+    );
+    await expect(restoreBanner).toBeVisible({ timeout: 20000 });
+    await expect(restoreBanner).toContainText('Bạn có bản sao lưu tin nhắn');
+
+    // Click "Khôi phục lịch sử"
+    const restoreActionBtn = restoreBanner.locator('button:has-text("Khôi phục lịch sử")');
+    await restoreActionBtn.click();
+
+    // Restore dialog opens
+    const restoreDialogTitle = freshPage.locator('h3:has-text("Khôi phục lịch sử tin nhắn")');
+    await expect(restoreDialogTitle).toBeVisible({ timeout: 10000 });
+
+    // Enter passphrase
+    const passphraseInput = freshPage.locator('input[type="password"]');
+    await passphraseInput.fill(backupPassphrase);
+
+    // Submit restore
+    const doRestoreBtn = freshPage.locator('button[type="submit"]:has-text("Khôi phục")');
+    await expect(doRestoreBtn).toBeEnabled({ timeout: 5000 });
+    await doRestoreBtn.click();
+
+    // Restore dialog closes and banner disappears
+    await expect(restoreDialogTitle).not.toBeVisible({ timeout: 30000 });
+    await expect(restoreBanner).not.toBeVisible({ timeout: 15000 });
+
+    // 3. Open conversation with Bob and verify old messages are restored and decrypted!
+    const bobConvBtn = freshPage.locator(`button:has-text("${bobName}")`).first();
+    await expect(bobConvBtn).toBeVisible({ timeout: 15000 });
+    await bobConvBtn.click();
+
+    // The attachment message sent earlier is decrypted on the fresh device!
+    const restoredMsg = freshPage
+      .locator(`text=Tin nhắn kèm ảnh và tệp đính kèm (${suffix})`)
+      .first();
+    await expect(restoredMsg).toBeVisible({ timeout: 20000 });
+  });
+
   test('collect securitypolicyviolation events and assert ZERO violations', async () => {
     // Collect from all active pages
     await reapCspViolations(alicePage, 'alice-desktop');
     await reapCspViolations(bobPage, 'bob-mobile');
     if (aliceDev2Page) {
       await reapCspViolations(aliceDev2Page, 'alice-device2');
+    }
+    if (freshPage) {
+      await reapCspViolations(freshPage, 'alice-fresh');
     }
 
     console.log(
