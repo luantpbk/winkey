@@ -206,6 +206,56 @@ describe('Chat UI chat.hint realtime handlers (ADR-049 / SOC-3a)', () => {
     });
   });
 
+  it('handles chat.hint READ (B3): moves the reader marker on the open conversation without refetching', async () => {
+    render(<ChatPage />);
+    fireEvent.click(await screen.findByTestId('select-conv-hint-test-1'));
+    await waitFor(() => expect(lastConversationViewProps).not.toBeNull());
+
+    const listCalls = mockListConversations.mock.calls.length;
+    const version = lastConversationViewProps.realtimeVersion;
+    await act(async () => {
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: {
+          kind: 'READ',
+          conversation_id: 'conv-hint-test-1',
+          user_id: 'user-bob-002',
+          seq: 9,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const bob = lastConversationViewProps.conversation.members.find(
+        (m: any) => m.user_id === 'user-bob-002',
+      );
+      expect(bob.last_read_seq).toBe(9);
+    });
+    expect(mockListConversations.mock.calls.length).toBe(listCalls);
+    expect(lastConversationViewProps.realtimeVersion).toBe(version);
+
+    // A marker never moves back, and a hint for another conversation changes nothing.
+    await act(async () => {
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: {
+          kind: 'READ',
+          conversation_id: 'conv-hint-test-1',
+          user_id: 'user-bob-002',
+          seq: 4,
+        },
+      });
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: { kind: 'READ', conversation_id: 'other', user_id: 'user-bob-002', seq: 99 },
+      });
+    });
+    const bob = lastConversationViewProps.conversation.members.find(
+      (m: any) => m.user_id === 'user-bob-002',
+    );
+    expect(bob.last_read_seq).toBe(9);
+  });
+
   it('handles chat.hint CONVERSATION and DEVICES: refetches conversations and increments realtimeVersion', async () => {
     render(<ChatPage />);
 

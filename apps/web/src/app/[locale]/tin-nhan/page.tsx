@@ -13,6 +13,7 @@ import type { Conversation } from '@winkey/api-client';
 import { MessageSquare, History } from 'lucide-react';
 import { getKeyBackupService } from '../../../lib/e2ee/key-backup-service';
 import { BackupRestoreDialog } from '../../../components/chat/key-backup-dialogs';
+import { applyReadHint } from '../../../lib/chat/timeline';
 
 export default function ChatPage() {
   const router = useRouter();
@@ -156,6 +157,15 @@ export default function ChatPage() {
           } else if (hint.kind === 'CONVERSATION' || hint.kind === 'DEVICES') {
             fetchConversationsList();
             setRealtimeVersion((v) => v + 1);
+          } else if (
+            hint.kind === 'READ' &&
+            typeof hint.conversation_id === 'string' &&
+            typeof hint.user_id === 'string' &&
+            typeof hint.seq === 'number'
+          ) {
+            // B3: "đã xem" moves live from the hint; nothing to refetch.
+            setActiveConversation((c) => (c ? applyReadHint(c, hint) : c));
+            setConversations((list) => list.map((c) => applyReadHint(c, hint)));
           }
         }
       },
