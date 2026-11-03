@@ -8,6 +8,7 @@ resources:
   - social
   - realtime
   - chat
+  - coturn
   - web
   - media-origin
   - media-cache-warmer

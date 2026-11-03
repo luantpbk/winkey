@@ -59,6 +59,36 @@ spec:
                 secretKeyRef:
                   name: chat-secrets
                   key: VALKEY_URL
+            # SOC-3b attachments: Cloudflare R2 bucket winkey-chat
+            - name: CHAT_S3_ENDPOINT
+              value: 'https://2588dff2e56bf889918bc5c7af53ad86.r2.cloudflarestorage.com'
+            - name: CHAT_S3_PUBLIC_ENDPOINT
+              value: 'https://2588dff2e56bf889918bc5c7af53ad86.r2.cloudflarestorage.com'
+            - name: CHAT_S3_REGION
+              value: 'auto'
+            - name: CHAT_S3_BUCKET
+              value: 'winkey-chat'
+            - name: CHAT_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: CHAT_S3_ACCESS_KEY_ID
+                  optional: true
+            - name: CHAT_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: CHAT_S3_SECRET_ACCESS_KEY
+                  optional: true
+            # SOC-4a WebRTC TURN (coturn)
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chat-secrets
+                  key: TURN_SECRET
+                  optional: true
+            - name: TURN_URLS
+              value: 'turn:turn.winkey.vn:3478?transport=udp,turns:turn.winkey.vn:5349?transport=tcp'
           resources:
             requests:
               cpu: 30m

@@ -1,0 +1,58 @@
+# Coturn Configuration for Winkey WebRTC TURN/STUN (SOC-4a, ADR-049 addendum)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coturn-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: coturn
+    app.kubernetes.io/part-of: winkey
+data:
+  turnserver.conf: |
+    # Listener ports
+    listening-port=3478
+    tls-listening-port=5349
+    alt-listening-port=0
+    alt-tls-listening-port=0
+
+    # Domain & authentication
+    realm=winkey.vn
+    fingerprint
+    use-auth-secret
+
+    # Network & relay constraints
+    no-multicast-peers
+    no-cli
+    no-tcp-relay
+    min-port=49160
+    max-port=49999
+
+    # TLS certificates (copied into /etc/coturn/certs by initContainer)
+    cert=/etc/coturn/certs/fullchain.pem
+    pkey=/etc/coturn/certs/privkey.pem
+    no-tlsv1
+    no-tlsv1_1
+
+    # Resource quotas and bandwidth shaping (SOC-4a)
+    user-quota=10
+    total-quota=500
+    max-bps=3000000
+
+    # Observability & Metrics
+    prometheus
+    prometheus-port=9641
+    log-file=stdout
+    simple-log
+
+    # Blacklist internal, loopback, private, link-local, and cluster CIDRs (RFC 5766 / SOC-4a)
+    # Range notation (ip-ip) required by coturn parser
+    denied-peer-ip=0.0.0.0-0.255.255.255
+    denied-peer-ip=10.0.0.0-10.255.255.255
+    denied-peer-ip=100.64.0.0-100.127.255.255
+    denied-peer-ip=127.0.0.0-127.255.255.255
+    denied-peer-ip=169.254.0.0-169.254.255.255
+    denied-peer-ip=172.16.0.0-172.31.255.255
+    denied-peer-ip=192.168.0.0-192.168.255.255
+    denied-peer-ip=::1
+    denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+    denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff

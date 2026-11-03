@@ -148,3 +148,28 @@
     name: certbot-renew.timer
     enabled: true
     state: started
+
+- name: Ensure certbot deploy renewal hooks directory exists
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install coturn certificate reload deploy hook for certbot
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/coturn-reload.sh
+    content: |
+      #!/bin/sh
+      set -eu
+      # Restart coturn deployment when certificates are renewed so the init container copies the fresh certs
+      export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+      if [ -x /usr/local/bin/kubectl ]; then
+        /usr/local/bin/kubectl -n default rollout restart deploy/coturn
+      elif [ -x /usr/local/bin/k3s ]; then
+        /usr/local/bin/k3s kubectl -n default rollout restart deploy/coturn
+      fi
+    owner: root
+    group: root
+    mode: "0755"
