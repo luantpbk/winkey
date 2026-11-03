@@ -21,6 +21,7 @@ import {
 import type { AdminVideo, VideoStatus, Visibility } from '@winkey/api-client';
 import { HideVideoDialog } from './hide-video-dialog';
 import { DeleteVideoDialog } from './delete-video-dialog';
+import { Thumbnail } from '../media/thumbnail';
 
 type ModerationFilter = 'ALL' | 'VISIBLE' | 'HIDDEN';
 
@@ -443,7 +444,7 @@ export function AdminVideosViewer() {
                   {/* Thumbnail Container */}
                   <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-xl bg-zinc-900 border border-[#2c2c2c]">
                     {video.thumbnail_url ? (
-                      <img
+                      <Thumbnail
                         src={video.thumbnail_url}
                         alt={video.title}
                         className="h-full w-full object-cover"

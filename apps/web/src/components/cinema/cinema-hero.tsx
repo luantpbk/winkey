@@ -13,6 +13,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface CinemaHeroProps {
   onOpenDetail: (videoId: string) => void;
@@ -378,7 +379,7 @@ export function CinemaHero({
     >
       {/* Backdrop image */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <img
+        <Thumbnail
           src={backdropUrl}
           alt={activeVideo.title}
           loading="eager"

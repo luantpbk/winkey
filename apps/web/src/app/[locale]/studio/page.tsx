@@ -28,6 +28,7 @@ import { VideoSubtitlesDialog } from '../../../components/studio/video-subtitles
 import { SavePlaylistDialog } from '../../../components/playlist/save-playlist-dialog';
 import { StudioNav } from '../../../components/studio/studio-nav';
 import { A11Y_COLORS } from '../../../lib/a11y-tokens';
+import { Thumbnail } from '../../../components/media/thumbnail';
 
 export default function StudioPage() {
   const [selectedSubtitlesVideoId, setSelectedSubtitlesVideoId] = React.useState<string | null>(
@@ -362,7 +363,7 @@ export default function StudioPage() {
                     <div className="flex items-center gap-3">
                       <div className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-lg bg-gray-800">
                         {video.thumbnail_url ? (
-                          <img
+                          <Thumbnail
                             src={video.thumbnail_url}
                             alt={video.title}
                             className="h-full w-full object-cover"
