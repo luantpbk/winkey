@@ -482,7 +482,9 @@ test.describe
     await sendBtn.click();
 
     // 5. Alice sees the sent bubble with attachments
-    await expect(alicePage.locator(`text=${attachMsgText}`).first()).toBeVisible({ timeout: 20000 });
+    await expect(alicePage.locator(`text=${attachMsgText}`).first()).toBeVisible({
+      timeout: 20000,
+    });
 
     // 6. Bob sees the message on mobile
     const bobMsgBubble = bobPage.locator(`text=${attachMsgText}`).first();
@@ -614,9 +616,9 @@ test.describe
     await bobConvBtn.click();
 
     // The attachment message sent earlier is decrypted on the fresh device!
-    const restoredMsg = freshPage.locator(
-      `text=Tin nhắn kèm ảnh và tệp đính kèm (${suffix})`,
-    ).first();
+    const restoredMsg = freshPage
+      .locator(`text=Tin nhắn kèm ảnh và tệp đính kèm (${suffix})`)
+      .first();
     await expect(restoredMsg).toBeVisible({ timeout: 20000 });
   });
 

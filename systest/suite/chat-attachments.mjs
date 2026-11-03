@@ -1,13 +1,7 @@
 /* global fetch, console, Buffer */
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {
-  registerTestUser,
-  TestDevice,
-  checkRes,
-  ensureWasm,
-  resetRateLimits,
-} from './chat.mjs';
+import { registerTestUser, TestDevice, checkRes, ensureWasm, resetRateLimits } from './chat.mjs';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 
@@ -84,7 +78,9 @@ export async function runChatAttachmentsAndBackupScenario() {
   // ---------------------------------------------------------------------------
   // Step 2: Attachment Happy Path (create -> PUT -> complete -> send -> list -> download)
   // ---------------------------------------------------------------------------
-  console.log('[S14-chat] Testing Attachment Happy Path (create -> PUT -> complete -> send -> download)...');
+  console.log(
+    '[S14-chat] Testing Attachment Happy Path (create -> PUT -> complete -> send -> download)...',
+  );
   const payloadBytes = Buffer.from(
     'ENCRYPTED-FILE-CIPHERTEXT-Winkey-SOC3b-' + crypto.randomBytes(512).toString('hex'),
   );
@@ -142,7 +138,8 @@ export async function runChatAttachmentsAndBackupScenario() {
       headers: { Authorization: `Bearer ${alice.token}` },
     },
   );
-  const completeAgainData = (await checkRes(completeAgainRes, 200, 'Complete attachment again')).json;
+  const completeAgainData = (await checkRes(completeAgainRes, 200, 'Complete attachment again'))
+    .json;
   assert.equal(completeAgainData.state, 'UPLOADED');
 
   // 4. Send message referencing attachment_ids
@@ -194,7 +191,10 @@ export async function runChatAttachmentsAndBackupScenario() {
   const getPayloadRes = await fetch(downloadData.url);
   assert.equal(getPayloadRes.status, 200, 'GET download_url returns 200');
   const downloadedBuf = Buffer.from(await getPayloadRes.arrayBuffer());
-  assert.ok(downloadedBuf.equals(payloadBytes), 'Downloaded bytes must exactly match uploaded bytes');
+  assert.ok(
+    downloadedBuf.equals(payloadBytes),
+    'Downloaded bytes must exactly match uploaded bytes',
+  );
 
   // ---------------------------------------------------------------------------
   // Step 3: Edge Case - Size Mismatch -> 409 UPLOAD_INCOMPLETE

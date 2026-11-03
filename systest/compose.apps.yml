@@ -313,4 +313,3 @@ services:
         condition: service_healthy
       chat-svc:
         condition: service_healthy
-
