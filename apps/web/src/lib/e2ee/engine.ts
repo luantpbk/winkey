@@ -90,6 +90,27 @@ export class E2eeWorkerEngine {
     this.argon2id = argon2id;
   }
 
+  /**
+   * Read → change → write of one inbound Megolm session record is serialized per `${conversation}:${session}`:
+   * a decrypt that read the record must not write it back over a key import (or another decrypt, a backup mark)
+   * that finished in between (B3: list previews and the conversation view decrypt the same message at once).
+   */
+  private sessionLocks = new Map<string, Promise<unknown>>();
+
+  withSessionLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.sessionLocks.get(key) ?? Promise.resolve();
+    const run = previous.then(fn, fn);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.sessionLocks.set(key, tail);
+    void tail.then(() => {
+      if (this.sessionLocks.get(key) === tail) this.sessionLocks.delete(key);
+    });
+    return run;
+  }
+
   async ensureWasm(wasmInput?: any): Promise<void> {
     if (this.wasmInitialized) return;
 
@@ -601,14 +622,16 @@ export class E2eeWorkerEngine {
         const inboundPickle = inbound.pickle(this.pickleKey);
 
         const compositeKey = `${keyData.conversation_id}:${keyData.session_id}`;
-        await this.storage.put('inbound_group_sessions', {
-          key: compositeKey,
-          conversation_id: keyData.conversation_id,
-          session_id: keyData.session_id,
-          sender_key: senderCurve,
-          pickle: inboundPickle,
-          created_at: Date.now(),
-        });
+        await this.withSessionLock(compositeKey, () =>
+          this.storage.put('inbound_group_sessions', {
+            key: compositeKey,
+            conversation_id: keyData.conversation_id,
+            session_id: keyData.session_id,
+            sender_key: senderCurve,
+            pickle: inboundPickle,
+            created_at: Date.now(),
+          }),
+        );
 
         // Save updated Olm session
         const sessionPickle = session.pickle(this.pickleKey);
@@ -651,6 +674,16 @@ export class E2eeWorkerEngine {
     }
 
     const compositeKey = `${conversationId}:${megolmSessionId}`;
+    return this.withSessionLock(compositeKey, () =>
+      this.decryptGroupMessageLocked(compositeKey, ciphertext),
+    );
+  }
+
+  private async decryptGroupMessageLocked(
+    compositeKey: string,
+    ciphertext: string,
+  ): Promise<DecryptGroupMessageResult> {
+    const pickleKey = this.pickleKey!;
     const rec = await this.storage.get<E2eeInboundGroupSessionRecord>(
       'inbound_group_sessions',
       compositeKey,
@@ -662,13 +695,13 @@ export class E2eeWorkerEngine {
     }
 
     try {
-      const inbound = InboundGroupSession.fromPickle(rec.pickle, this.pickleKey);
+      const inbound = InboundGroupSession.fromPickle(rec.pickle, pickleKey);
       const decJson = inbound.decrypt(ciphertext);
       const decDto = JSON.parse(decJson) as { plaintext: number[]; message_index: number };
       const plaintext = new TextDecoder().decode(new Uint8Array(decDto.plaintext));
 
       // Save updated ratchet state
-      const updatedPickle = inbound.pickle(this.pickleKey);
+      const updatedPickle = inbound.pickle(pickleKey);
       await this.storage.put('inbound_group_sessions', {
         ...rec,
         pickle: updatedPickle,
@@ -816,12 +849,14 @@ export class E2eeWorkerEngine {
 
   async backupMarkUploaded(keys: string[], version: number): Promise<void> {
     for (const key of keys) {
-      const rec = await this.storage.get<E2eeInboundGroupSessionRecord>(
-        'inbound_group_sessions',
-        key,
-      );
-      if (rec)
-        await this.storage.put('inbound_group_sessions', { ...rec, backed_up_version: version });
+      await this.withSessionLock(key, async () => {
+        const rec = await this.storage.get<E2eeInboundGroupSessionRecord>(
+          'inbound_group_sessions',
+          key,
+        );
+        if (rec)
+          await this.storage.put('inbound_group_sessions', { ...rec, backed_up_version: version });
+      });
     }
   }
 
@@ -840,26 +875,33 @@ export class E2eeWorkerEngine {
         const inbound = InboundGroupSession.fromPickle(payload.pickle, EXPORT_PICKLE_KEY);
         if (inbound.sessionId() !== item.session_id) throw new Error('session id mismatch');
         const key = `${item.conversation_id}:${item.session_id}`;
-        const existing = await this.storage.get<E2eeInboundGroupSessionRecord>(
-          'inbound_group_sessions',
-          key,
-        );
-        if (existing) {
-          const local = InboundGroupSession.fromPickle(existing.pickle, this.pickleKey);
-          if (local.firstKnownIndex() <= inbound.firstKnownIndex()) {
-            result.kept++;
-            continue;
+        const pickleKey = this.pickleKey!;
+        const outcome = await this.withSessionLock(key, async () => {
+          const existing = await this.storage.get<E2eeInboundGroupSessionRecord>(
+            'inbound_group_sessions',
+            key,
+          );
+          if (existing) {
+            const local = InboundGroupSession.fromPickle(existing.pickle, pickleKey);
+            if (local.firstKnownIndex() <= inbound.firstKnownIndex()) {
+              return 'kept' as const;
+            }
           }
+          await this.storage.put('inbound_group_sessions', {
+            key,
+            conversation_id: item.conversation_id,
+            session_id: item.session_id,
+            sender_key: payload.sender_key,
+            pickle: inbound.pickle(pickleKey),
+            created_at: existing?.created_at ?? Date.now(),
+            ...(this.backupVersion !== null ? { backed_up_version: this.backupVersion } : {}),
+          } satisfies E2eeInboundGroupSessionRecord);
+          return 'imported' as const;
+        });
+        if (outcome === 'kept') {
+          result.kept++;
+          continue;
         }
-        await this.storage.put('inbound_group_sessions', {
-          key,
-          conversation_id: item.conversation_id,
-          session_id: item.session_id,
-          sender_key: payload.sender_key,
-          pickle: inbound.pickle(this.pickleKey),
-          created_at: existing?.created_at ?? Date.now(),
-          ...(this.backupVersion !== null ? { backed_up_version: this.backupVersion } : {}),
-        } satisfies E2eeInboundGroupSessionRecord);
         result.imported++;
       } catch {
         result.failed++;
