@@ -1,7 +1,7 @@
-/* global fetch, console, Buffer */
+/* global fetch, console, Buffer, process */
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { registerTestUser, TestDevice, checkRes, ensureWasm, resetRateLimits } from './chat.mjs';
+import { registerTestUser, TestDevice, checkRes, ensureWasm } from './chat.mjs';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 
