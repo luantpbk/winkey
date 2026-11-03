@@ -9,6 +9,7 @@ import { getThumbnailUrl } from '../../lib/constants';
 import { buildWatchUrl } from '../../lib/video/watch-url';
 import { useTranslations } from 'next-intl';
 import { Play, Loader2 } from 'lucide-react';
+import { Thumbnail } from '../media/thumbnail';
 
 interface HydratedEpisode {
   episode: SeriesEpisode;
@@ -182,7 +183,7 @@ export function WatchSeriesEpisodesList({
             >
               {/* Thumbnail 16:9 */}
               <div className="relative aspect-video w-[120px] shrink-0 rounded-lg overflow-hidden bg-zinc-800">
-                <img
+                <Thumbnail
                   src={thumbUrl}
                   alt={video.title}
                   loading="lazy"

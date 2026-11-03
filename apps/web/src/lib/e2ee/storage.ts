@@ -48,6 +48,8 @@ export interface E2eeInboundGroupSessionRecord {
   sender_key: string;
   pickle: string;
   created_at: number;
+  /** SOC-3b: the key-backup version this session was last uploaded to (absent: not backed up). */
+  backed_up_version?: number;
 }
 
 export interface E2eeDeviceTrustRecord {

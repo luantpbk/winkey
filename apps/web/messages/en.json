@@ -636,6 +636,7 @@
       "NEW_SUBSCRIBER": "{actor} subscribed to your channel",
       "FOLLOW_REQUEST": "{actor} requested to follow you",
       "FOLLOW_REQUEST_APPROVED": "{actor} approved your follow request",
+      "FRIEND_ACCEPTED": "{actor} accepted your friend request",
       "POST_COMMENT": "{actor} commented on your post",
       "POST_COMMENT_REPLY": "{actor} replied to your comment",
       "POST_MENTION": "{actor} mentioned you in a post",

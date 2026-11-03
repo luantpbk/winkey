@@ -22,6 +22,7 @@ import {
   Loader2,
   FolderHeart,
 } from 'lucide-react';
+import { Thumbnail } from '../media/thumbnail';
 
 function PlaylistCardSkeleton() {
   return (
@@ -301,7 +302,7 @@ export function LibraryView() {
                       )}
                     </div>
                     {coverUrl && (
-                      <img
+                      <Thumbnail
                         src={coverUrl}
                         alt={pl.title}
                         loading="lazy"

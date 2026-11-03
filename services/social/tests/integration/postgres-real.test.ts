@@ -85,6 +85,8 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
   let validateFollowRequestPage: any;
   let validateRelationship: any;
   let validateRelationPage: any;
+  let validateFriendPage: any;
+  let validateFriendRequestPage: any;
   let validatePost: any;
   let validatePostPage: any;
   let validateReactionState: any;
@@ -199,6 +201,12 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     )!;
     validateRelationPage = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/RelationPage',
+    )!;
+    validateFriendPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FriendPage',
+    )!;
+    validateFriendRequestPage = ajv.getSchema(
+      'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/FriendRequestPage',
     )!;
     validatePost = ajv.getSchema(
       'https://winkey.vn/contracts/openapi/social.v1.yaml#/components/schemas/Post',
@@ -4914,4 +4922,245 @@ describe('Real PostgreSQL 17 + NATS JetStream Integration Tests (Task C1)', () =
     });
     expect(reattachRes.statusCode).toBe(201);
   }, 180_000);
+
+  describe('SOC-6b friends (mutual follows) on real PostgreSQL 17', () => {
+    async function seedUsers(n: number, privateIdx: number[] = []) {
+      const ids = Array.from({ length: n }, () => uuidv7());
+      const tag = Date.now().toString(36);
+      for (const [i, id] of ids.entries()) {
+        await pool!.query(
+          `INSERT INTO auth.users (id, email, handle, display_name, status, is_private)
+           VALUES ($1, $2, $3, $4, 'ACTIVE', $5)`,
+          [
+            id,
+            `soc6b_${tag}_${i}@winkey.vn`,
+            `soc6b_${tag}_${i}`,
+            `Bạn ${i}`,
+            privateIdx.includes(i),
+          ],
+        );
+      }
+      return ids;
+    }
+    const as = (id: string) => ({ 'x-user-id': id });
+    const follow = async (who: string, whom: string) => {
+      const res = await app!.inject({
+        method: 'PUT',
+        url: `/v1/channels/${whom}/subscription`,
+        headers: as(who),
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    };
+    const unfollow = async (who: string, whom: string) => {
+      const res = await app!.inject({
+        method: 'DELETE',
+        url: `/v1/channels/${whom}/subscription`,
+        headers: as(who),
+      });
+      expect([200, 204]).toContain(res.statusCode);
+    };
+    const friends = async (who: string, query = '') => {
+      const res = await app!.inject({
+        method: 'GET',
+        url: `/v1/me/friends${query}`,
+        headers: as(who),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(validateFriendPage(body), JSON.stringify(validateFriendPage.errors)).toBe(true);
+      return body as {
+        items: { user: { id: string }; friends_since: string }[];
+        next_cursor: string | null;
+      };
+    };
+    const requests = async (who: string, query = '') => {
+      const res = await app!.inject({
+        method: 'GET',
+        url: `/v1/me/friend-requests${query}`,
+        headers: as(who),
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(
+        validateFriendRequestPage(body),
+        JSON.stringify(validateFriendRequestPage.errors),
+      ).toBe(true);
+      return body as {
+        items: { user: { id: string }; followed_at: string }[];
+        next_cursor: string | null;
+        pending_count: number;
+      };
+    };
+    const dismiss = (who: string, whom: string) =>
+      app!.inject({
+        method: 'POST',
+        url: `/v1/me/friend-requests/${whom}/dismiss`,
+        headers: as(who),
+      });
+    const friendAccepted = async (recipient: string) =>
+      (
+        await pool!.query(
+          "SELECT actor_id FROM social.notifications WHERE user_id = $1 AND kind = 'FRIEND_ACCEPTED'",
+          [recipient],
+        )
+      ).rows.map((r: { actor_id: string }) => r.actor_id);
+
+    it('requests → dismiss → follow back makes friends, with FRIEND_ACCEPTED once to who followed first', async () => {
+      if (!app || !pool) return;
+      const [me, b, c, d, stranger] = await seedUsers(5);
+
+      await follow(b!, me!);
+      await follow(c!, me!);
+      await follow(d!, me!);
+      let page = await requests(me!);
+      expect(page.items.map((i) => i.user.id)).toEqual([d, c, b]);
+      expect(page.pending_count).toBe(3);
+
+      // Pagination: newest follow first, every request exactly once, pending_count is the whole list.
+      const first = await requests(me!, '?limit=2');
+      expect(first.items.map((i) => i.user.id)).toEqual([d, c]);
+      expect(first.pending_count).toBe(3);
+      const second = await requests(
+        me!,
+        `?limit=2&cursor=${encodeURIComponent(first.next_cursor!)}`,
+      );
+      expect(second.items.map((i) => i.user.id)).toEqual([b]);
+      expect(second.next_cursor).toBeNull();
+
+      // Dismiss C: hidden from the list, C is not told and keeps following. Idempotent.
+      expect((await dismiss(me!, c!)).statusCode).toBe(204);
+      expect((await dismiss(me!, c!)).statusCode).toBe(204);
+      page = await requests(me!);
+      expect(page.items.map((i) => i.user.id)).toEqual([d, b]);
+      expect(page.pending_count).toBe(2);
+      const stillFollows = await pool.query(
+        'SELECT 1 FROM social.subscriptions WHERE subscriber_id = $1 AND channel_id = $2',
+        [c, me],
+      );
+      expect(stillFollows.rowCount).toBe(1);
+      expect(await friendAccepted(c!)).toEqual([]);
+
+      // Not a request (nobody follows), myself, or not a UUID → 404.
+      for (const whom of [stranger!, me!, 'not-a-uuid']) {
+        const res = await dismiss(me!, whom);
+        expect(res.statusCode).toBe(404);
+        expect(validateProblem(res.json())).toBe(true);
+      }
+
+      // Follow B back: friends both ways; B (who followed first) gets FRIEND_ACCEPTED from me.
+      await follow(me!, b!);
+      expect((await friends(me!)).items.map((i) => i.user.id)).toEqual([b]);
+      expect((await friends(b!)).items.map((i) => i.user.id)).toEqual([me]);
+      expect(await friendAccepted(b!)).toEqual([me]);
+      expect(await friendAccepted(me!)).toEqual([]);
+      expect((await requests(me!)).items.map((i) => i.user.id)).toEqual([d]);
+
+      // Following back a dismissed request clears the dismissal and makes a friend.
+      await follow(me!, c!);
+      const dismissals = await pool.query(
+        'SELECT 1 FROM social.friend_request_dismissals WHERE user_id = $1 AND follower_id = $2',
+        [me, c],
+      );
+      expect(dismissals.rowCount).toBe(0);
+      const list = await friends(me!);
+      expect(list.items.map((i) => i.user.id)).toEqual([c, b]);
+      // friends_since is the later of the two follows (my follow-back).
+      const since = await pool.query(
+        `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
+         FROM social.subscriptions WHERE subscriber_id = $1 AND channel_id = $2`,
+        [me, c],
+      );
+      expect(list.items[0]!.friends_since).toBe(since.rows[0].at);
+
+      // Unfriend and re-friend: still one FRIEND_ACCEPTED per pair.
+      await unfollow(me!, b!);
+      expect((await friends(me!)).items.map((i) => i.user.id)).toEqual([c]);
+      expect((await requests(me!)).items.map((i) => i.user.id)).toEqual([d, b]);
+      await follow(me!, b!);
+      expect(await friendAccepted(b!)).toEqual([me]);
+
+      // The notification list serves the new kind.
+      const notifs = await app.inject({ method: 'GET', url: '/v1/notifications', headers: as(b!) });
+      expect(notifs.statusCode).toBe(200);
+      expect(validateNotificationPage(notifs.json())).toBe(true);
+      expect(notifs.json().items.some((n: { kind: string }) => n.kind === 'FRIEND_ACCEPTED')).toBe(
+        true,
+      );
+    });
+
+    it('a block removes the pair from both lists and deletes dismissals both ways', async () => {
+      if (!app || !pool) return;
+      const [me, d] = await seedUsers(2);
+      await follow(d!, me!);
+      expect((await dismiss(me!, d!)).statusCode).toBe(204);
+      const block = await app.inject({
+        method: 'PUT',
+        url: `/v1/me/blocks/${me}`,
+        headers: as(d!),
+      });
+      expect(block.statusCode).toBe(204);
+      const left = await pool.query(
+        'SELECT 1 FROM social.friend_request_dismissals WHERE (user_id = $1 AND follower_id = $2) OR (user_id = $2 AND follower_id = $1)',
+        [me, d],
+      );
+      expect(left.rowCount).toBe(0);
+      expect((await requests(me!)).pending_count).toBe(0);
+      expect((await friends(me!)).items).toEqual([]);
+    });
+
+    it('a follow-request approval that makes a pair mutual creates only FOLLOW_REQUEST_APPROVED, and clears a dismissal', async () => {
+      if (!app || !pool) return;
+      const [me, priv] = await seedUsers(2, [1]);
+      await follow(priv!, me!); // priv follows me (I am public)
+      expect((await dismiss(me!, priv!)).statusCode).toBe(204);
+      const asked = await follow(me!, priv!); // priv is private: a follow request, not a follow
+      expect(asked).toMatchObject({ subscribed: false, requested: true });
+      const approve = await app.inject({
+        method: 'POST',
+        url: `/v1/me/follow-requests/${me}/decision`,
+        headers: as(priv!),
+        payload: { decision: 'APPROVE' },
+      });
+      expect(approve.statusCode).toBe(204);
+      expect((await friends(me!)).items.map((i) => i.user.id)).toEqual([priv]);
+      expect(await friendAccepted(me!)).toEqual([]);
+      expect(await friendAccepted(priv!)).toEqual([]);
+      const approved = await pool.query(
+        "SELECT 1 FROM social.notifications WHERE user_id = $1 AND kind = 'FOLLOW_REQUEST_APPROVED' AND actor_id = $2",
+        [me, priv],
+      );
+      expect(approved.rowCount).toBe(1);
+      const dismissals = await pool.query(
+        'SELECT 1 FROM social.friend_request_dismissals WHERE user_id = $1 AND follower_id = $2',
+        [me, priv],
+      );
+      expect(dismissals.rowCount).toBe(0);
+    });
+
+    it('answers 400 for a bad limit or cursor and 401 without a caller', async () => {
+      if (!app || !pool) return;
+      const [me] = await seedUsers(1);
+      for (const url of ['/v1/me/friends', '/v1/me/friend-requests']) {
+        for (const query of [
+          '?limit=0',
+          '?limit=101',
+          '?limit=x',
+          '?cursor=bad',
+          `?cursor=${'a'.repeat(513)}`,
+        ]) {
+          const res = await app.inject({ method: 'GET', url: url + query, headers: as(me!) });
+          expect(res.statusCode, url + query).toBe(400);
+          expect(validateProblem(res.json())).toBe(true);
+        }
+        const anon = await app.inject({ method: 'GET', url });
+        expect(anon.statusCode).toBe(401);
+      }
+      const anonDismiss = await app.inject({
+        method: 'POST',
+        url: `/v1/me/friend-requests/${me}/dismiss`,
+      });
+      expect(anonDismiss.statusCode).toBe(401);
+    });
+  });
 });

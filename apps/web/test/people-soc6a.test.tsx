@@ -135,7 +135,12 @@ describe('SOC-6a: UserPicker', () => {
 describe('SOC-6a: new chat dialog', () => {
   beforeEach(() => {
     searchGet.mockReset();
-    searchGet.mockResolvedValue(page([tuan, mai]));
+    // The dialog also loads friends as suggestions (SOC-6b); none here, so only search results show.
+    searchGet.mockImplementation(async (path: string) =>
+      path === '/v1/me/friends'
+        ? { data: { items: [], next_cursor: null }, response: new Response(null, { status: 200 }) }
+        : page([tuan, mai]),
+    );
     createConversation.mockReset();
   });
 

@@ -32,6 +32,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { AddMyVideosDialog } from '../../../../components/playlist/add-my-videos-dialog';
+import { Thumbnail } from '../../../../components/media/thumbnail';
 
 interface MergedItem {
   item: PlaylistItem;
@@ -427,7 +428,7 @@ export default function PlaylistPage() {
         <div className="sticky top-20 rounded-2xl bg-gradient-to-b from-zinc-800/80 to-zinc-900 border border-zinc-800 p-6 flex flex-col gap-5 shadow-2xl backdrop-blur-md">
           {/* Cover Image */}
           <div className="relative aspect-video w-full rounded-xl overflow-hidden shadow-lg bg-zinc-800">
-            <img src={coverUrl} alt={playlist.title} className="h-full w-full object-cover" />
+            <Thumbnail src={coverUrl} alt={playlist.title} className="h-full w-full object-cover" />
             <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
               {firstValidVideo && (
                 <Link
@@ -679,7 +680,7 @@ export default function PlaylistPage() {
                         href={buildWatchUrl(video.id, 'playlist')}
                         className="relative aspect-video w-32 sm:w-40 shrink-0 rounded-xl overflow-hidden bg-zinc-800"
                       >
-                        <img
+                        <Thumbnail
                           src={getThumbnailUrl(video.thumbnail_url)}
                           alt={video.title}
                           className="h-full w-full object-cover group-hover:scale-105 transition"

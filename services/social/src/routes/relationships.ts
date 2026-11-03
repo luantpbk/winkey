@@ -19,6 +19,7 @@ import { formatPublicProfile } from '../utils/profile.js';
 import { shouldSuppressNotification } from '../utils/blocks.js';
 import { v7 as uuidv7 } from 'uuid';
 import { notificationsCreatedCounter } from '../metrics.js';
+import { onNewFollow } from '../utils/friends.js';
 
 export interface RelationshipsRouteOptions {
   db: Kysely<Database>;
@@ -349,6 +350,10 @@ export const relationshipsRoute: FastifyPluginAsync<RelationshipsRouteOptions> =
               notificationsCreatedCounter.inc({ kind: 'FOLLOW_REQUEST_APPROVED' });
             }
           }
+
+          // SOC-6b: the requester now follows the caller, which clears a dismissal of the caller's request.
+          // An approval creates only FOLLOW_REQUEST_APPROVED, even when it makes the pair mutual (contract).
+          await onNewFollow(trx, requester_id, caller.userId, { notifyFriendAccepted: false });
         }
       }
     });
@@ -529,6 +534,17 @@ export const relationshipsRoute: FastifyPluginAsync<RelationshipsRouteOptions> =
           { producer: 'social-svc', version: 1 },
         );
       }
+
+      // SOC-6b: a block deletes friend-request dismissals both ways
+      await trx
+        .deleteFrom('social.friend_request_dismissals')
+        .where((eb) =>
+          eb.or([
+            eb.and([eb('user_id', '=', caller.userId), eb('follower_id', '=', user_id)]),
+            eb.and([eb('user_id', '=', user_id), eb('follower_id', '=', caller.userId)]),
+          ]),
+        )
+        .execute();
 
       // Delete follow requests both ways
       await trx

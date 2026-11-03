@@ -6,6 +6,7 @@ import { Link } from '../../../i18n/routing';
 import { Play, Eye } from 'lucide-react';
 import { formatCompactNumber, formatDuration } from '../../../lib/format';
 import { PostSocialVideoPlayer } from './post-social-player';
+import { Thumbnail } from '../../media/thumbnail';
 
 export interface PostVideoEmbedProps {
   video: HydratedPostVideo | null;
@@ -36,7 +37,7 @@ export function PostVideoEmbed({ video, videoId }: PostVideoEmbedProps) {
       >
         <div className="relative aspect-video w-full overflow-hidden bg-zinc-900">
           {video.thumbnail_url ? (
-            <img
+            <Thumbnail
               src={video.thumbnail_url}
               alt={video.title}
               loading="lazy"

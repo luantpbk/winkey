@@ -10,6 +10,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../lib/auth/auth-context';
 import { type WatchSurface, buildWatchUrl } from '../../lib/video/watch-url';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface VideoCardProps {
   video: VideoSummary | Video;
@@ -53,7 +54,7 @@ export function VideoCard({ video, rank, surface }: VideoCardProps) {
           href={watchHref}
           className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-red-600"
         >
-          <img
+          <Thumbnail
             src={thumbnailUrl}
             alt={video.title}
             className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"

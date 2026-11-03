@@ -636,6 +636,7 @@
       "NEW_SUBSCRIBER": "{actor} đã đăng ký kênh của bạn",
       "FOLLOW_REQUEST": "{actor} đã gửi yêu cầu theo dõi bạn",
       "FOLLOW_REQUEST_APPROVED": "{actor} đã chấp nhận yêu cầu theo dõi của bạn",
+      "FRIEND_ACCEPTED": "{actor} đã chấp nhận lời mời kết bạn của bạn",
       "POST_COMMENT": "{actor} đã bình luận về bài viết của bạn",
       "POST_COMMENT_REPLY": "{actor} đã trả lời bình luận của bạn",
       "POST_MENTION": "{actor} đã nhắc đến bạn trong một bài viết",

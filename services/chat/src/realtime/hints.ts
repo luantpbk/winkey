@@ -7,7 +7,9 @@ export type ChatHint =
   | { kind: 'MESSAGE'; conversation_id: string; seq: number }
   | { kind: 'TO_DEVICE' }
   | { kind: 'CONVERSATION'; conversation_id: string }
-  | { kind: 'DEVICES'; user_id: string };
+  | { kind: 'DEVICES'; user_id: string }
+  // B3 (chat.v1 1.3.0): an ACTIVE member's read marker moved forward, for "đã xem".
+  | { kind: 'READ'; conversation_id: string; user_id: string; seq: number };
 
 export class RealtimeHintDispatcher {
   constructor(

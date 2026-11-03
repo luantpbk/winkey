@@ -34,6 +34,7 @@ import {
 } from './session-indicator';
 import { resetCachedWatchLaterId } from '../playlist/playlist-utils';
 import { computePermissions, type UserPermissions, ANONYMOUS_PERMISSIONS } from './permissions';
+import { clearConversationPreviews } from '../chat/preview-cache';
 
 export interface MfaLoginParams {
   code?: string;
@@ -309,6 +310,8 @@ export function AuthProvider({
       setSessionProbed();
       setUser(null);
       resetCachedWatchLaterId();
+      // B3: decrypted chat previews live in memory per user; none survive a sign-out.
+      clearConversationPreviews();
     }
   }, []);
 
@@ -322,6 +325,7 @@ export function AuthProvider({
     setSessionProbed();
     setUser(null);
     resetCachedWatchLaterId();
+    clearConversationPreviews();
   }, []);
 
   const isCreator = !!user?.roles?.includes('creator');

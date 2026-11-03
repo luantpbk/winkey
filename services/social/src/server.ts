@@ -4,6 +4,7 @@ import { commentsRoute } from './routes/comments.js';
 import { likesRoute } from './routes/likes.js';
 import { subscriptionsRoute } from './routes/subscriptions.js';
 import { relationshipsRoute } from './routes/relationships.js';
+import { friendsRoute } from './routes/friends.js';
 import { reportsRoute } from './routes/reports.js';
 import { notificationsRoute } from './routes/notifications.js';
 import { playlistsRoute } from './routes/playlists.js';
@@ -115,6 +116,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(likesRoute, { db, env, rateLimiter });
   await app.register(subscriptionsRoute, { db, env, rateLimiter });
   await app.register(relationshipsRoute, { db, env, rateLimiter });
+  await app.register(friendsRoute, { db, env, rateLimiter });
   await app.register(reportsRoute, { db, env, rateLimiter });
   await app.register(notificationsRoute, { db, env });
   await app.register(playlistsRoute, { db, env, rateLimiter });

@@ -121,7 +121,40 @@ export type WorkerRpcRequest =
         claimedKeys: Record<string, ClaimedOtkRef>;
         event: unknown;
       };
-    };
+    }
+  // SOC-3b key backup: the passphrase and the backup key never leave the worker.
+  | { id: string; type: 'BACKUP_CREATE'; payload: { passphrase: string } }
+  | { id: string; type: 'BACKUP_UNLOCK'; payload: { authData: unknown; passphrase: string } }
+  | { id: string; type: 'BACKUP_ACTIVATE'; payload: { version: number } }
+  | { id: string; type: 'BACKUP_STATUS'; payload: Record<string, never> }
+  | { id: string; type: 'BACKUP_FORGET'; payload: Record<string, never> }
+  | { id: string; type: 'BACKUP_EXPORT_PENDING'; payload: { limit: number } }
+  | { id: string; type: 'BACKUP_MARK_UPLOADED'; payload: { keys: string[]; version: number } }
+  | { id: string; type: 'BACKUP_IMPORT'; payload: { sessions: BackupSessionItem[] } };
+
+/** One backed-up session as chat-svc stores it (`BackedUpSession`). */
+export interface BackupSessionItem {
+  conversation_id: string;
+  session_id: string;
+  first_message_index: number;
+  ciphertext: string;
+}
+
+export interface BackupStatus {
+  /** The backup key is unlocked on this device (wrapped by the non-extractable storage key). */
+  unlocked: boolean;
+  /** The backup version this device uploads to, once known. */
+  version: number | null;
+  /** Inbound sessions on this device, and how many are already in the backup version above. */
+  sessionCount: number;
+  backedUpCount: number;
+}
+
+export interface BackupImportResult {
+  imported: number;
+  kept: number;
+  failed: number;
+}
 
 export interface WorkerRpcResponse {
   id: string;

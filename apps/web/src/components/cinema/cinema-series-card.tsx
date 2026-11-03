@@ -10,6 +10,7 @@ import { addToWatchLater } from '../../lib/playlist/playlist-utils';
 import { useAuth } from '../../lib/auth/auth-context';
 import { useToast } from '../ui/toast';
 import { useTranslations } from 'next-intl';
+import { Thumbnail } from '../media/thumbnail';
 
 export interface CinemaSeriesCardProps {
   series: SeriesSummary;
@@ -129,7 +130,7 @@ export function CinemaSeriesCard({
           data-testid="cinema-series-card-link"
           className="block relative aspect-video w-full overflow-hidden rounded-[6px] bg-[#181822] focus:outline-none focus:ring-2 focus:ring-white text-left"
         >
-          <img
+          <Thumbnail
             src={thumbnailUrl}
             alt={series.title}
             loading="lazy"

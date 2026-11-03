@@ -517,4 +517,118 @@ describe('Real PostgreSQL 17 Integration Tests (SOC-3a Chat Service)', () => {
     expect(send2.statusCode).toBe(409);
     expect(send2.json().code).toBe('CLIENT_MSG_ID_CONFLICT');
   });
+
+  it('read receipts (B3): markRead announces READ to other ACTIVE members; REQUESTED markers stay private', async () => {
+    if (!app || !db) return;
+
+    // A second app whose hints go to a capturing fake NATS connection.
+    const published: { subject: string; payload: Record<string, unknown> }[] = [];
+    const fakeNc = {
+      isClosed: () => false,
+      publish: (subject: string, data: Uint8Array) =>
+        published.push({ subject, payload: JSON.parse(new TextDecoder().decode(data)) }),
+    } as unknown as import('nats').NatsConnection;
+    const appWithHints = await buildApp({ db, natsConnection: fakeNc });
+
+    try {
+      const a = uuidv7();
+      const b = uuidv7();
+      const c = uuidv7();
+      await seedUser(a, `rr_a_${a.slice(-6)}`, 'Người A');
+      await seedUser(b, `rr_b_${b.slice(-6)}`, 'Người B');
+      await seedUser(c, `rr_c_${c.slice(-6)}`, 'Người C');
+      // B follows A, so a DIRECT from A is ACTIVE for B; C does not, so it is a request for C.
+      await db
+        .insertInto('social.subscriptions')
+        .values({ subscriber_id: b, channel_id: a })
+        .onConflict((oc) => oc.columns(['subscriber_id', 'channel_id']).doNothing())
+        .execute();
+
+      const open = async (peer: string) => {
+        const res = await appWithHints.inject({
+          method: 'POST',
+          url: '/v1/chat/conversations',
+          headers: { 'x-user-id': a },
+          payload: { kind: 'DIRECT', user_ids: [peer] },
+        });
+        expect([200, 201]).toContain(res.statusCode);
+        return res.json().id as string;
+      };
+      const ab = await open(b);
+      const ac = await open(c);
+      for (const id of [ab, ac]) {
+        await db
+          .updateTable('chat.conversations')
+          .set({ last_seq: '5' })
+          .where('id', '=', id)
+          .execute();
+      }
+      const markRead = (who: string, conv: string, seq: number) =>
+        appWithHints.inject({
+          method: 'POST',
+          url: `/v1/chat/conversations/${conv}/read`,
+          headers: { 'x-user-id': who },
+          payload: { seq },
+        });
+
+      published.length = 0;
+      expect((await markRead(b, ab, 3)).statusCode).toBe(204);
+      const reads = published.filter((p) => p.payload.kind === 'READ');
+      expect(reads).toEqual([
+        {
+          subject: `rt.chat.user.${a}`,
+          payload: { kind: 'READ', conversation_id: ab, user_id: b, seq: 3 },
+        },
+      ]);
+
+      // Not forward: no hint. Past last_seq: clamped to 5.
+      published.length = 0;
+      expect((await markRead(b, ab, 2)).statusCode).toBe(204);
+      expect(published).toEqual([]);
+      expect((await markRead(b, ab, 99)).statusCode).toBe(204);
+      expect(published.map((p) => p.payload)).toEqual([
+        { kind: 'READ', conversation_id: ab, user_id: b, seq: 5 },
+      ]);
+
+      // Members carry last_read_seq for ACTIVE members, in the single conversation and in the list.
+      const one = await appWithHints.inject({
+        method: 'GET',
+        url: `/v1/chat/conversations/${ab}`,
+        headers: { 'x-user-id': a },
+      });
+      expect(one.statusCode).toBe(200);
+      const memberB = one.json().members.find((m: { user_id: string }) => m.user_id === b);
+      expect(memberB).toMatchObject({ state: 'ACTIVE', last_read_seq: 5 });
+      const list = await appWithHints.inject({
+        method: 'GET',
+        url: '/v1/chat/conversations?state=ACTIVE&limit=30',
+        headers: { 'x-user-id': a },
+      });
+      const listed = list.json().items.find((x: { id: string }) => x.id === ab);
+      expect(listed.members.find((m: { user_id: string }) => m.user_id === b).last_read_seq).toBe(
+        5,
+      );
+
+      // C has not accepted: the marker is saved, never announced, and shown as null to A.
+      published.length = 0;
+      expect((await markRead(c, ac, 4)).statusCode).toBe(204);
+      expect(published).toEqual([]);
+      const saved = await db
+        .selectFrom('chat.members')
+        .select('last_read_seq')
+        .where('conversation_id', '=', ac)
+        .where('user_id', '=', c)
+        .executeTakeFirstOrThrow();
+      expect(Number(saved.last_read_seq)).toBe(4);
+      const req = await appWithHints.inject({
+        method: 'GET',
+        url: `/v1/chat/conversations/${ac}`,
+        headers: { 'x-user-id': a },
+      });
+      const memberC = req.json().members.find((m: { user_id: string }) => m.user_id === c);
+      expect(memberC).toMatchObject({ state: 'REQUESTED', last_read_seq: null });
+    } finally {
+      await appWithHints.close();
+    }
+  });
 });

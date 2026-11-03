@@ -19,6 +19,7 @@ import { formatPublicProfile } from '../utils/profile.js';
 import { isBlockedEitherWay, shouldSuppressNotification } from '../utils/blocks.js';
 import { v7 as uuidv7 } from 'uuid';
 import { notificationsCreatedCounter } from '../metrics.js';
+import { onNewFollow } from '../utils/friends.js';
 
 export interface SubscriptionsRouteOptions {
   db: Kysely<Database>;
@@ -314,6 +315,9 @@ export const subscriptionsRoute: FastifyPluginAsync<SubscriptionsRouteOptions> =
               }
             }
           }
+
+          // SOC-6b: following back clears a dismissal; a pair that just became mutual is a friendship.
+          await onNewFollow(trx, caller.userId, channel_id, { notifyFriendAccepted: true });
         }
       });
 

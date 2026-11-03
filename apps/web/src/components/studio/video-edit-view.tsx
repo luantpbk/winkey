@@ -26,6 +26,7 @@ import {
   Clock,
   AlertCircle,
 } from 'lucide-react';
+import { Thumbnail } from '../media/thumbnail';
 
 export function VideoEditView() {
   const params = useParams();
@@ -655,7 +656,7 @@ export function VideoEditView() {
             {/* Thumbnail */}
             <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-zinc-900 border border-zinc-800">
               {video?.playback?.thumbnail_url ? (
-                <img
+                <Thumbnail
                   src={video.playback.thumbnail_url}
                   alt={video?.title || 'Thumbnail'}
                   data-testid="preview-thumbnail"
