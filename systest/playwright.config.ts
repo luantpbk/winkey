@@ -88,5 +88,12 @@ export default defineConfig({
       name: 'chatter',
       testMatch: /chatter\.spec\.ts/,
     },
+    {
+      name: 'friends',
+      testMatch: /friends\.spec\.ts/,
+      use: {
+        viewport: { width: 1440, height: 900 },
+      },
+    },
   ],
 });

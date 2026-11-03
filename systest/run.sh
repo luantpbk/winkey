@@ -81,7 +81,7 @@ fi
 
 # 2. Start infra and export Garage S3 keys
 echo "[systest] Ensuring infrastructure and S3 keys are ready..."
-docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit db-grants
+docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" -f "${SCRIPT_DIR}/compose.apps.yml" up -d garage-bootstrap postgres migrate valkey nats nats-bootstrap traefik whoami media-cache mailpit db-grants
 docker compose -f "${REPO_ROOT}/deploy/compose/dev.yml" wait garage-bootstrap db-grants >/dev/null 2>&1 || true
 
 # SOC-3a: Ensure chat_svc role and permissions exist in PostgreSQL
@@ -120,6 +120,39 @@ if [ -f "${GEN_ENV}" ]; then
   export S3_ACCESS_KEY="${S3_ACCESS_KEY:-${AWS_ACCESS_KEY_ID:-GK000000000000000000000000}}"
   export S3_SECRET_KEY="${S3_SECRET_KEY:-${AWS_SECRET_ACCESS_KEY:-0000000000000000000000000000000000000000000000000000000000000000}}"
 fi
+
+# SOC-3b: Ensure winkey-chat bucket exists in Garage with CORS
+echo "[systest] Ensuring winkey-chat bucket and CORS in Garage..."
+docker exec -i winkey-garage /garage -c /etc/garage.toml bucket create winkey-chat >/dev/null 2>&1 || true
+docker exec -i winkey-garage /garage -c /etc/garage.toml bucket allow --read --write --owner winkey-chat --key winkey-dev >/dev/null 2>&1 || true
+cat <<'EOFCORS' > /tmp/winkey-chat-cors.json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["http://localhost:3000"],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    },
+    {
+      "AllowedOrigins": ["http://127.0.0.1:8080"],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
+EOFCORS
+docker run --rm --network host \
+  --entrypoint "" \
+  -e AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY:-GK2f0407ff96785d83a168ff00}" \
+  -e AWS_SECRET_ACCESS_KEY="${S3_SECRET_KEY:-9c248db6a2ab92f61ad2d74fa63ca3f1ef7ebb362a5b564c8e125fd823c54078}" \
+  -e AWS_DEFAULT_REGION="garage" \
+  -v /tmp/winkey-chat-cors.json:/tmp/cors.json:ro \
+  compose-garage-bootstrap:latest \
+  aws --endpoint-url="http://127.0.0.1:3900" --region garage s3api put-bucket-cors --bucket winkey-chat --cors-configuration file:///tmp/cors.json >/dev/null 2>&1 || true
 
 # 3. Generate 10s 720p test clip if not present
 if [ ! -f "${CLIP_PATH}" ]; then
@@ -234,6 +267,26 @@ if [ "${SIM}" -eq 1 ]; then
     if [ "${PREFLIGHT_3900_OK}" -ne 1 ]; then
       echo "[systest] ERROR: Garage :3900 preflight failed. Expected exactly one header Access-Control-Allow-Origin: http://127.0.0.1:8080" >&2
       echo "${RESP_3900}" >&2
+      exit 1
+    fi
+
+    PREFLIGHT_CHAT_OK=0
+    for _ in $(seq 1 10); do
+      RESP_CHAT=$(curl -s -i -X OPTIONS "http://127.0.0.1:3900/winkey-chat/cors-preflight-check" \
+        -H "Origin: http://127.0.0.1:8080" \
+        -H "Access-Control-Request-Method: PUT" || true)
+      ORIGIN_CHAT_LINES=$(echo "${RESP_CHAT}" | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+      ORIGIN_CHAT_COUNT=$(echo "${ORIGIN_CHAT_LINES}" | grep -c . || true)
+      ORIGIN_CHAT_VAL=$(echo "${ORIGIN_CHAT_LINES}" | head -n 1 | sed -e 's/^[^:]*:[[:space:]]*//')
+      if [ "${ORIGIN_CHAT_COUNT}" -eq 1 ] && [ "${ORIGIN_CHAT_VAL}" = "http://127.0.0.1:8080" ]; then
+        PREFLIGHT_CHAT_OK=1
+        break
+      fi
+      sleep 1
+    done
+    if [ "${PREFLIGHT_CHAT_OK}" -ne 1 ]; then
+      echo "[systest] ERROR: Garage :3900 winkey-chat preflight failed." >&2
+      echo "${RESP_CHAT}" >&2
       exit 1
     fi
 

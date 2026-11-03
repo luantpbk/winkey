@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { Buffer } from 'node:buffer';
 import { runChatScenario } from './chat.mjs';
+import { runChatAttachmentsAndBackupScenario } from './chat-attachments.mjs';
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:8080';
 const REALTIME_URL = process.env.REALTIME_URL || 'http://127.0.0.1:8003';
@@ -809,11 +810,18 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
 
     await checkRes(resCase, 200, 'Resolve case');
 
-    // 7. Owner A gets 404 on comments of hidden video
-    const aCommHidden = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
-      headers: { Authorization: `Bearer ${creatorToken}` },
-    });
-    assert.equal(aCommHidden.status, 404, 'Owner should get 404 on comments of hidden video');
+    // 7. Owner A gets 404 on comments of hidden video (allow up to 10s for NATS event propagation)
+    let aCommHiddenStatus = 0;
+    const hideDeadline = Date.now() + 10000;
+    while (Date.now() < hideDeadline) {
+      const aCommHidden = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      aCommHiddenStatus = aCommHidden.status;
+      if (aCommHiddenStatus === 404) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    assert.equal(aCommHiddenStatus, 404, 'Owner should get 404 on comments of hidden video');
 
     // 8. Moderator M can still read hidden video (Gateway or Fallback to VIDEO_URL)
     let modVid = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}`, {
@@ -856,6 +864,21 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
     }
 
     await checkRes(restoreRes, 200, 'Restore video');
+
+    // Poll until video comments are accessible again (event propagation)
+    let restoredOk = false;
+    const restoreDeadline = Date.now() + 10000;
+    while (Date.now() < restoreDeadline) {
+      const aCommRestored = await fetch(`${GATEWAY_URL}/v1/videos/${uploadedVideoId}/comments`, {
+        headers: { Authorization: `Bearer ${creatorToken}` },
+      });
+      if (aCommRestored.status === 200) {
+        restoredOk = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    assert.ok(restoredOk, 'Video comments did not restore to 200 within 10s');
 
     recordResult('S8', 'moderation flow', 'PASSED', Date.now() - startTime);
   });
@@ -3393,6 +3416,19 @@ describe('Winkey System Integration Test Suite', { concurrency: 1 }, () => {
   it('S13-chat: E2EE chat API matrix (SOC-3a, ADR-049)', async () => {
     const res = await runChatScenario();
     recordResult('S13-chat', 'E2EE chat API matrix (SOC-3a, ADR-049)', 'PASSED', res.durationMs);
+  });
+
+  // ---------------------------------------------------------------------------
+  // S14-chat: E2EE Chat Attachments and Key Backup (SOC-3b, ADR-049)
+  // ---------------------------------------------------------------------------
+  it('S14-chat: E2EE chat attachments and key backup (SOC-3b, ADR-049)', async () => {
+    const res = await runChatAttachmentsAndBackupScenario();
+    recordResult(
+      'S14-chat',
+      'E2EE chat attachments and key backup (SOC-3b, ADR-049)',
+      'PASSED',
+      res.durationMs,
+    );
   });
 
   // ---------------------------------------------------------------------------

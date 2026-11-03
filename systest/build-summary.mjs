@@ -47,6 +47,8 @@ export function parsePlaywright(playwrightJson) {
       viewport: 'Desktop (1440x900)',
     },
     { id: 'social-user-mobile', persona: 'social-user (SOC-2a/2b)', viewport: 'Mobile (360px)' },
+    { id: 'chatter', persona: 'chatter (SOC-3a/3b)', viewport: 'Multi-device (Desktop + Mobile)' },
+    { id: 'friends', persona: 'friends (SOC-3b)', viewport: 'Desktop (1440x900)' },
   ];
 
   if (!playwrightJson) {
