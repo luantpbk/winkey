@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/routing';
 import { useAuth } from '../../lib/auth/auth-context';
 import { computePermissions } from '../../lib/auth';
-import { hasSessionIndicator } from '../../lib/auth/session-indicator';
+import { useSessionIndicator } from '../../lib/auth/use-session-indicator';
 import { useTheme } from '../theme-provider';
 import {
   Menu,
@@ -37,6 +37,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const hasSession = useSessionIndicator();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +53,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
       <div className="flex items-center gap-2 sm:gap-4">
         <button
           onClick={onToggleSidebar}
-          aria-label="Toggle navigation menu"
+          aria-label={t('toggleMenu')}
           data-testid="sidebar-toggle-btn"
           className="rounded-full min-w-11 min-h-11 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] hover:text-white dark:hover:bg-[#272727] hover:bg-gray-100 transition"
         >
@@ -82,7 +83,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
           </div>
           <button
             type="submit"
-            aria-label="Search"
+            aria-label={t('search')}
             data-testid="search-submit-btn"
             className="flex h-10 min-w-11 min-h-11 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-[#383838] dark:border-[#383838] border-gray-300 bg-[#222222] dark:bg-[#222222] bg-gray-200 px-6 text-gray-400 hover:bg-[#2c2c2c] dark:hover:bg-[#2c2c2c] hover:bg-gray-300 transition"
           >
@@ -113,7 +114,8 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
               <Link
                 href="/upload"
                 data-testid="topbar-upload-btn"
-                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
+                aria-label={t('upload')}
+                className="hidden sm:flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#272727] dark:bg-[#272727] bg-gray-100 px-3.5 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-[#383838] dark:hover:bg-[#383838] hover:bg-gray-200 transition"
               >
                 <VideoIcon className="h-4 w-4 text-red-500 shrink-0" />
                 <span className="hidden md:inline">{t('upload')}</span>
@@ -125,7 +127,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
               <Link
                 href="/studio"
                 data-testid="topbar-studio-btn"
-                className="rounded-full min-w-11 min-h-11 shrink-0 flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
+                className="rounded-full min-w-11 min-h-11 shrink-0 hidden sm:flex items-center justify-center p-2 text-gray-400 hover:bg-[#272727] dark:hover:bg-[#272727] hover:bg-gray-100 hover:text-white transition"
                 title={t('studio')}
               >
                 <LayoutDashboard className="h-5 w-5" />
@@ -144,6 +146,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 className="flex min-w-11 min-h-11 shrink-0 items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-600 rounded-full"
                 aria-label="User profile menu"
+                data-testid="user-menu"
               >
                 {user?.avatar_url ? (
                   <img
@@ -249,7 +252,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
               )}
             </div>
           </>
-        ) : isLoading && hasSessionIndicator() ? (
+        ) : isLoading && hasSession ? (
           <div className="flex items-center gap-2" aria-hidden="true">
             <div className="h-8 w-20 rounded-full bg-zinc-800 animate-pulse hidden md:block" />
             <div className="h-8 w-8 rounded-full bg-zinc-800 animate-pulse" />

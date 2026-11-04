@@ -13,6 +13,8 @@
     "register": "Register",
     "signOut": "Sign Out",
     "searchPlaceholder": "Search Winkey...",
+    "search": "Search",
+    "toggleMenu": "Toggle navigation menu",
     "lightMode": "Light Mode",
     "darkMode": "Dark Mode",
     "creatorRoleRequired": "Creator role required",

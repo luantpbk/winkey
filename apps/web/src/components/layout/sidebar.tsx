@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth/auth-context';
 import { computePermissions } from '../../lib/auth';
-import { hasSessionIndicator } from '../../lib/auth/session-indicator';
+import { useSessionIndicator } from '../../lib/auth/use-session-indicator';
 import { useFeedbackUrl } from '../../lib/feedback';
 import { getAllCategories } from '../../lib/seo/categories';
 
@@ -51,7 +51,8 @@ export function Sidebar({
   const pathname = usePathname();
   const { can: rawCan, user, isAuthenticated, isLoading } = useAuth();
   const can = rawCan ?? computePermissions(user, isAuthenticated);
-  const showMemberLinks = isAuthenticated || (isLoading && hasSessionIndicator());
+  const hasSession = useSessionIndicator();
+  const showMemberLinks = isAuthenticated || (isLoading && hasSession);
 
   const primaryItems = [
     { href: '/', label: t('home'), icon: Home },
