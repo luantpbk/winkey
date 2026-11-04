@@ -680,7 +680,10 @@ export function ConversationView({
       return (
         <div className="flex justify-center my-2">
           <span className="px-3 py-1 rounded-full bg-zinc-200/60 dark:bg-zinc-800/60 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium">
-            {systemMessageText(item.message.system)}
+            {systemMessageText(item.message.system, {
+              members: conversation.members,
+              currentUserId,
+            })}
           </span>
         </div>
       );
@@ -857,6 +860,7 @@ export function ConversationView({
             onClick={() => setGroupSettingsOpen(true)}
             className="p-2 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
             title="Cài đặt trò chuyện"
+            aria-label="Cài đặt trò chuyện"
           >
             <MoreVertical className="h-4 w-4" />
           </button>

@@ -48,8 +48,10 @@ const mockListConversations = vi.fn();
 const mockProcessToDeviceMessages = vi.fn();
 const mockGetDeviceId = vi.fn();
 const mockEnsureReady = vi.fn();
+const mockGetConversation = vi.fn();
 
 const mockChatService = {
+  getConversation: mockGetConversation,
   listConversations: mockListConversations,
   processToDeviceMessages: mockProcessToDeviceMessages,
   getDeviceId: mockGetDeviceId,
@@ -130,6 +132,7 @@ describe('Chat UI chat.hint realtime handlers (ADR-049 / SOC-3a)', () => {
     capturedOnEvent = null;
     capturedOnReconnect = null;
     lastConversationViewProps = null;
+    mockGetConversation.mockReset().mockResolvedValue(sampleConversation);
 
     mockIsAuthenticated = true;
     mockAuthLoading = false;
@@ -254,6 +257,59 @@ describe('Chat UI chat.hint realtime handlers (ADR-049 / SOC-3a)', () => {
       (m: any) => m.user_id === 'user-bob-002',
     );
     expect(bob.last_read_seq).toBe(9);
+  });
+
+  it('handles chat.hint CONVERSATION (B3): updates the open conversation from the server', async () => {
+    render(<ChatPage />);
+    fireEvent.click(await screen.findByTestId('select-conv-hint-test-1'));
+    await waitFor(() => expect(lastConversationViewProps).not.toBeNull());
+
+    const renamed = { ...sampleConversation, title: 'Tên mới' };
+    mockGetConversation.mockResolvedValueOnce(renamed);
+    mockListConversations.mockResolvedValue({ items: [renamed], next_cursor: null });
+    await act(async () => {
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: { kind: 'CONVERSATION', conversation_id: 'conv-hint-test-1' },
+      });
+    });
+    await waitFor(() => expect(lastConversationViewProps.conversation.title).toBe('Tên mới'));
+    expect(mockGetConversation).toHaveBeenCalledWith('conv-hint-test-1');
+  });
+
+  it('handles chat.hint CONVERSATION (B3): closes the conversation when I was removed from it', async () => {
+    render(<ChatPage />);
+    fireEvent.click(await screen.findByTestId('select-conv-hint-test-1'));
+    await screen.findByTestId('conversation-view');
+
+    mockGetConversation.mockResolvedValueOnce({ ...sampleConversation, my_state: 'LEFT' });
+    // The list answers after the removal too: a late answer that still has it must not reopen it.
+    let answerList!: (page: ConversationPage) => void;
+    mockListConversations.mockImplementation(() => new Promise((r) => (answerList = r)));
+    await act(async () => {
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: { kind: 'CONVERSATION', conversation_id: 'conv-hint-test-1' },
+      });
+    });
+    await waitFor(() => expect(screen.queryByTestId('conversation-view')).toBeNull());
+    expect(screen.getByRole('alert').textContent).toContain('không còn ở trong');
+    await act(async () => answerList(emptyPage));
+    expect(screen.queryByTestId('conversation-view')).toBeNull();
+  });
+
+  it('ignores chat.hint CONVERSATION for another conversation (B3)', async () => {
+    render(<ChatPage />);
+    fireEvent.click(await screen.findByTestId('select-conv-hint-test-1'));
+    await screen.findByTestId('conversation-view');
+    await act(async () => {
+      capturedOnEvent!({
+        event: 'chat.hint',
+        data: { kind: 'CONVERSATION', conversation_id: 'other' },
+      });
+    });
+    expect(mockGetConversation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('conversation-view')).toBeTruthy();
   });
 
   it('handles chat.hint CONVERSATION and DEVICES: refetches conversations and increments realtimeVersion', async () => {

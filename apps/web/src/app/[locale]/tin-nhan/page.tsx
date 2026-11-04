@@ -39,6 +39,8 @@ export default function ChatPage() {
   const [restoreOpen, setRestoreOpen] = useState(false);
 
   const chatService = getChatService();
+  const activeConversationId = useRef<string | null>(null);
+  activeConversationId.current = activeConversation?.id ?? null;
 
   // Redirect if unauthenticated
   useEffect(() => {
@@ -120,20 +122,18 @@ export default function ChatPage() {
       setRequestsCount(requestsPage.items.length);
       setConversations(activeTab === 'ACTIVE' ? activePage.items : requestsPage.items);
 
-      // If active conversation updated in list, update reference
-      if (activeConversation) {
-        const currentList = activeTab === 'ACTIVE' ? activePage.items : requestsPage.items;
-        const matched = currentList.find((c) => c.id === activeConversation.id);
-        if (matched) {
-          setActiveConversation(matched);
-        }
-      }
+      // If the open conversation is in the list, update it. Reads the current one, not this render's: an answer that
+      // arrives late must not reopen a conversation that was closed or replace one opened since.
+      const currentList = activeTab === 'ACTIVE' ? activePage.items : requestsPage.items;
+      setActiveConversation((current) =>
+        current ? (currentList.find((c) => c.id === current.id) ?? current) : current,
+      );
     } catch (err) {
       console.error('[ChatPage] Failed to fetch conversations:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, activeTab, activeConversation, chatService]);
+  }, [isAuthenticated, activeTab, chatService]);
 
   useEffect(() => {
     fetchConversationsList();
@@ -157,6 +157,24 @@ export default function ChatPage() {
           } else if (hint.kind === 'CONVERSATION' || hint.kind === 'DEVICES') {
             fetchConversationsList();
             setRealtimeVersion((v) => v + 1);
+            if (
+              hint.kind === 'CONVERSATION' &&
+              hint.conversation_id === activeConversationId.current
+            ) {
+              // The list holds one page, so ask for this one: name, members, roles, or that I was removed.
+              chatService
+                .getConversation(hint.conversation_id)
+                .then((conv) => {
+                  if (activeConversationId.current !== conv.id) return;
+                  if (conv.my_state === 'LEFT') {
+                    setActiveConversation(null);
+                    setDirectError('Bạn không còn ở trong cuộc trò chuyện này.');
+                  } else {
+                    setActiveConversation(conv);
+                  }
+                })
+                .catch(() => {});
+            }
           } else if (
             hint.kind === 'READ' &&
             typeof hint.conversation_id === 'string' &&

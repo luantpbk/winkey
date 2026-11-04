@@ -571,7 +571,7 @@ export class ChatService {
   }
 
   async leaveOrRemoveMember(conversationId: string, userId: string): Promise<void> {
-    const { error } = await api.chat.DELETE(
+    const { error, response } = await api.chat.DELETE(
       '/v1/chat/conversations/{conversation_id}/members/{user_id}',
       {
         params: {
@@ -584,17 +584,23 @@ export class ChatService {
     );
 
     if (error) {
+      if (response.status === 403) throw new Error('Bạn không có quyền xoá thành viên này.');
       throw new Error(error?.detail || 'Không thể rời nhóm hoặc xoá thành viên.');
     }
   }
 
   async updateGroupTitle(conversationId: string, title: string): Promise<Conversation> {
-    const { data, error } = await api.chat.PATCH('/v1/chat/conversations/{conversation_id}', {
-      params: { path: { conversation_id: conversationId } },
-      body: { title },
-    });
+    const { data, error, response } = await api.chat.PATCH(
+      '/v1/chat/conversations/{conversation_id}',
+      {
+        params: { path: { conversation_id: conversationId } },
+        body: { title },
+      },
+    );
 
     if (error || !data) {
+      if (response.status === 403)
+        throw new Error('Chỉ trưởng nhóm và quản trị viên mới đổi được tên.');
       throw new Error(error?.detail || 'Không thể cập nhật tên nhóm.');
     }
 
@@ -602,7 +608,7 @@ export class ChatService {
   }
 
   async addMembers(conversationId: string, userIds: string[]): Promise<Conversation> {
-    const { data, error } = await api.chat.POST(
+    const { data, error, response } = await api.chat.POST(
       '/v1/chat/conversations/{conversation_id}/members',
       {
         params: { path: { conversation_id: conversationId } },
@@ -611,7 +617,35 @@ export class ChatService {
     );
 
     if (error || !data) {
+      if (response.status === 409 && error?.code === 'TOO_MANY_MEMBERS') {
+        throw new Error('Nhóm đã đủ 50 thành viên.');
+      }
+      if (response.status === 403) {
+        throw new Error('Không thể thêm: bạn không có quyền, hoặc người này đã chặn tin nhắn.');
+      }
       throw new Error(error?.detail || 'Không thể thêm thành viên vào nhóm.');
+    }
+
+    return data;
+  }
+
+  /** `role`: the OWNER on another member of a group. `muted_until`: the caller on their own membership. */
+  async updateMember(
+    conversationId: string,
+    userId: string,
+    patch: { role?: 'ADMIN' | 'MEMBER'; muted_until?: string | null },
+  ): Promise<Conversation> {
+    const { data, error, response } = await api.chat.PATCH(
+      '/v1/chat/conversations/{conversation_id}/members/{user_id}',
+      {
+        params: { path: { conversation_id: conversationId, user_id: userId } },
+        body: patch,
+      },
+    );
+
+    if (error || !data) {
+      if (response.status === 403) throw new Error('Bạn không có quyền thực hiện thao tác này.');
+      throw new Error(error?.detail || 'Không thể cập nhật thành viên.');
     }
 
     return data;

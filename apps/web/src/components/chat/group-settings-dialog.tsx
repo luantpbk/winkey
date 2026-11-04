@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
   X,
   Users,
@@ -15,8 +15,13 @@ import {
   Check,
 } from 'lucide-react';
 import { getChatService } from '../../lib/e2ee/chat-service';
-import { api } from '../../lib/api-client';
 import type { Conversation } from '@winkey/api-client';
+import { Avatar, UserPicker, type PickedUser } from '../social/user-picker';
+import { loadFriendSuggestions } from '../../lib/social/friends';
+
+const MAX_MEMBERS = 50;
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface GroupSettingsDialogProps {
   isOpen: boolean;
@@ -26,6 +31,9 @@ interface GroupSettingsDialogProps {
   onUpdated: (conversation: Conversation) => void;
   onLeft: () => void;
 }
+
+const errorText = (err: unknown, fallback: string) =>
+  err instanceof Error && err.message ? err.message : fallback;
 
 export function GroupSettingsDialog({
   isOpen,
@@ -37,137 +45,170 @@ export function GroupSettingsDialog({
 }: GroupSettingsDialogProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(conversation.title || '');
-  const [newMemberIds, setNewMemberIds] = useState('');
+  const [newMembers, setNewMembers] = useState<PickedUser[]>([]);
+  const [friends, setFriends] = useState<PickedUser[]>([]);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const titleInputId = useId();
+
+  // Focus moves in when it opens and back to where it was when it closes.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    return () => previous?.focus?.();
+  }, [isOpen]);
+
+  // A button that just disappeared (rename saved, picker closed) would drop focus to the page, where Escape and Tab no
+  // longer reach the dialog.
+  useEffect(() => {
+    if (isOpen && document.activeElement === document.body) dialogRef.current?.focus();
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsEditingTitle(false);
+      setShowAddMembers(false);
+      setNewMembers([]);
+      setErrorMessage(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!showAddMembers) return;
+    let live = true;
+    void loadFriendSuggestions().then((list) => {
+      if (live) setFriends(list);
+    });
+    return () => {
+      live = false;
+    };
+  }, [showAddMembers]);
 
   if (!isOpen) return null;
 
   const chatService = getChatService();
+  const isGroup = conversation.kind === 'GROUP';
   const isOwner = conversation.my_role === 'OWNER';
   const isAdmin = conversation.my_role === 'ADMIN' || isOwner;
+  const memberCount = conversation.members.length;
+  const roomLeft = Math.max(0, MAX_MEMBERS - memberCount);
+  const nameOf = (member: Conversation['members'][number]) =>
+    member.user?.display_name || member.user?.handle || 'Người dùng Winkey';
 
-  const handleUpdateTitle = async () => {
+  const run = async (fallback: string, action: () => Promise<void>) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      await action();
+    } catch (err) {
+      setErrorMessage(errorText(err, fallback));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const items = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
+    if (!items?.length) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  const startEditTitle = () => {
+    setTitle(conversation.title || '');
+    setIsEditingTitle(true);
+  };
+
+  const handleUpdateTitle = (e?: React.FormEvent) => {
+    e?.preventDefault();
     const trimmed = title.trim();
     if (!trimmed) return;
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const updated = await chatService.updateGroupTitle(conversation.id, trimmed);
-      onUpdated(updated);
+    void run('Không thể cập nhật tên nhóm.', async () => {
+      onUpdated(await chatService.updateGroupTitle(conversation.id, trimmed));
       setIsEditingTitle(false);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Không thể cập nhật tên nhóm.');
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
-  const handleAddMembers = async () => {
-    const ids = newMemberIds
-      .split(/[\s,]+/)
-      .map((id) => id.trim())
-      .filter(Boolean);
-    if (ids.length === 0) return;
-
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const updated = await chatService.addMembers(conversation.id, ids);
-      onUpdated(updated);
-      setNewMemberIds('');
+  const handleAddMembers = () => {
+    if (newMembers.length === 0) return;
+    void run('Không thể thêm thành viên.', async () => {
+      onUpdated(
+        await chatService.addMembers(
+          conversation.id,
+          newMembers.map((u) => u.id),
+        ),
+      );
+      setNewMembers([]);
       setShowAddMembers(false);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Không thể thêm thành viên.');
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
-  const handleRemoveMember = async (userId: string, isSelf = false) => {
-    const confirmMsg = isSelf
+  const handleRemoveMember = (member: Conversation['members'][number]) => {
+    if (!window.confirm(`Xoá ${nameOf(member)} khỏi nhóm? Họ sẽ không đọc được tin nhắn mới.`)) {
+      return;
+    }
+    void run('Không thể xoá thành viên.', async () => {
+      await chatService.leaveOrRemoveMember(conversation.id, member.user_id);
+      onUpdated(await chatService.getConversation(conversation.id));
+    });
+  };
+
+  // The contract's successor when the OWNER leaves: the oldest ADMIN, else the oldest ACTIVE member.
+  const successor = () => {
+    const others = conversation.members.filter(
+      (m) => m.user_id !== currentUserId && m.state === 'ACTIVE',
+    );
+    return others.find((m) => m.role === 'ADMIN') ?? others[0] ?? null;
+  };
+
+  const handleLeave = () => {
+    let question = isGroup
       ? 'Bạn có chắc chắn muốn rời nhóm này?'
-      : 'Bạn có chắc chắn muốn xoá thành viên này khỏi nhóm?';
-    if (!window.confirm(confirmMsg)) return;
-
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      await chatService.leaveOrRemoveMember(conversation.id, userId);
-      if (isSelf) {
-        onLeft();
-        onClose();
-      } else {
-        const updated = await chatService.getConversation(conversation.id);
-        onUpdated(updated);
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Không thể thực hiện thao tác.');
-    } finally {
-      setIsLoading(false);
+      : 'Bạn có chắc chắn muốn rời cuộc trò chuyện này?';
+    if (isGroup && isOwner) {
+      const next = successor();
+      question = next
+        ? `Bạn là trưởng nhóm. Nếu rời nhóm, ${nameOf(next)} sẽ trở thành trưởng nhóm. Tiếp tục?`
+        : 'Bạn là thành viên cuối cùng. Rời nhóm thì nhóm sẽ không còn ai. Tiếp tục?';
     }
+    if (!window.confirm(question)) return;
+    void run('Không thể rời nhóm.', async () => {
+      await chatService.leaveOrRemoveMember(conversation.id, currentUserId);
+      onLeft();
+      onClose();
+    });
   };
 
-  const handleRoleChange = async (userId: string, newRole: 'ADMIN' | 'MEMBER') => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    try {
-      const { data, error } = await api.chat.PATCH(
-        '/v1/chat/conversations/{conversation_id}/members/{user_id}',
-        {
-          params: {
-            path: {
-              conversation_id: conversation.id,
-              user_id: userId,
-            },
-          },
-          body: { role: newRole },
-        },
-      );
-      if (error || !data) {
-        throw new Error(error?.detail || 'Không thể thay đổi vai trò.');
-      }
-      onUpdated(data);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Không thể thay đổi vai trò.');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleRoleChange = (userId: string, role: 'ADMIN' | 'MEMBER') => {
+    void run('Không thể thay đổi vai trò.', async () => {
+      onUpdated(await chatService.updateMember(conversation.id, userId, { role }));
+    });
   };
 
-  const handleToggleMute = async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    const isCurrentlyMuted =
+  const handleToggleMute = () => {
+    const muted =
       conversation.muted_until && new Date(conversation.muted_until).getTime() > Date.now();
-
-    try {
-      const nextMutedUntil = isCurrentlyMuted
-        ? null
-        : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      const { data, error } = await api.chat.PATCH(
-        '/v1/chat/conversations/{conversation_id}/members/{user_id}',
-        {
-          params: {
-            path: {
-              conversation_id: conversation.id,
-              user_id: currentUserId,
-            },
-          },
-          body: { muted_until: nextMutedUntil },
-        },
-      );
-      if (error || !data) {
-        throw new Error(error?.detail || 'Không thể cập nhật thông báo.');
-      }
-      onUpdated(data);
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Không thể cập nhật thông báo.');
-    } finally {
-      setIsLoading(false);
-    }
+    const muted_until = muted ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    void run('Không thể cập nhật thông báo.', async () => {
+      onUpdated(await chatService.updateMember(conversation.id, currentUserId, { muted_until }));
+    });
   };
 
   const isMuted =
@@ -175,21 +216,27 @@ export function GroupSettingsDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-[#181818] border border-zinc-200 dark:border-[#272727] p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-[#181818] border border-zinc-200 dark:border-[#272727] p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-[#242424]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-              <Users className="h-5 w-5" />
+              <Users className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-zinc-900 dark:text-white">
+              <h3 id={titleId} className="text-base font-semibold text-zinc-900 dark:text-white">
                 Cài đặt cuộc trò chuyện
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {conversation.kind === 'GROUP'
-                  ? `Nhóm • ${conversation.members.length} thành viên`
-                  : 'Trò chuyện trực tiếp'}
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                {isGroup ? `Nhóm • ${memberCount} thành viên` : 'Trò chuyện trực tiếp'}
               </p>
             </div>
           </div>
@@ -197,62 +244,76 @@ export function GroupSettingsDialog({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+            aria-label="Đóng"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         {errorMessage && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-500 leading-relaxed">
+          <div
+            role="alert"
+            className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-700 dark:text-red-400 leading-relaxed"
+          >
             {errorMessage}
           </div>
         )}
 
         {/* Group Title Section */}
-        {conversation.kind === 'GROUP' && (
+        {isGroup && (
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <label
+              htmlFor={titleInputId}
+              className="block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+            >
               Tên nhóm
             </label>
             {isEditingTitle ? (
-              <div className="flex items-center gap-2">
+              <form onSubmit={handleUpdateTitle} className="flex items-center gap-2">
                 <input
+                  id={titleInputId}
                   type="text"
+                  autoFocus
                   maxLength={80}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="flex-1 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-[#2c2c2c] bg-zinc-50 dark:bg-[#121212] text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-zinc-200 dark:border-[#2c2c2c] bg-zinc-50 dark:bg-[#121212] text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
                 <button
-                  type="button"
-                  onClick={handleUpdateTitle}
-                  disabled={isLoading}
-                  className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                  type="submit"
+                  disabled={isLoading || !title.trim()}
+                  aria-label="Lưu tên nhóm"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white transition-colors disabled:opacity-40"
                 >
-                  <Check className="h-4 w-4" />
+                  <Check className="h-4 w-4" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsEditingTitle(false)}
-                  className="p-2 rounded-xl bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-300 transition-colors"
+                  aria-label="Huỷ đổi tên"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 transition-colors"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
-              </div>
+              </form>
             ) : (
-              <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-[#272727]">
-                <span className="text-sm font-semibold text-zinc-900 dark:text-white">
+              <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-[#272727]">
+                <span
+                  id={titleInputId}
+                  className="min-w-0 break-words text-sm font-semibold text-zinc-900 dark:text-white"
+                >
                   {conversation.title || 'Nhóm không tên'}
                 </span>
                 {isAdmin && (
                   <button
                     type="button"
-                    onClick={() => setIsEditingTitle(true)}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors"
+                    onClick={startEditTitle}
+                    aria-label="Đổi tên nhóm"
                     title="Đổi tên nhóm"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 transition-colors"
                   >
-                    <Edit3 className="h-4 w-4" />
+                    <Edit3 className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -288,49 +349,60 @@ export function GroupSettingsDialog({
         </div>
 
         {/* Members List (for Groups) */}
-        {conversation.kind === 'GROUP' && (
+        {isGroup && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Thành viên ({conversation.members.length}/50)
+                Thành viên ({memberCount}/{MAX_MEMBERS})
               </span>
-              {isAdmin && !showAddMembers && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddMembers(true)}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-400 transition-colors"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  <span>Thêm thành viên</span>
-                </button>
-              )}
+              {isAdmin &&
+                !showAddMembers &&
+                (roomLeft > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddMembers(true)}
+                    className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-red-700 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Thêm thành viên</span>
+                  </button>
+                ) : (
+                  <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                    Nhóm đã đủ {MAX_MEMBERS} thành viên.
+                  </span>
+                ))}
             </div>
 
-            {/* Add member form */}
+            {/* Add members */}
             {showAddMembers && (
               <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#121212] border border-zinc-200 dark:border-[#272727] space-y-2">
-                <input
-                  type="text"
-                  placeholder="Nhập ID thành viên..."
-                  value={newMemberIds}
-                  onChange={(e) => setNewMemberIds(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-[#2c2c2c] bg-white dark:bg-[#181818] text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-red-500"
+                <UserPicker
+                  label={`Thêm tối đa ${roomLeft} người`}
+                  max={roomLeft}
+                  value={newMembers}
+                  onChange={setNewMembers}
+                  suggestions={friends}
+                  excludeIds={conversation.members.map((m) => m.user_id)}
+                  disabled={isLoading}
                 />
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowAddMembers(false)}
-                    className="px-2.5 py-1 text-xs text-zinc-500 hover:text-zinc-300"
+                    onClick={() => {
+                      setShowAddMembers(false);
+                      setNewMembers([]);
+                    }}
+                    className="min-h-11 px-3 text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
                   >
                     Huỷ
                   </button>
                   <button
                     type="button"
-                    disabled={isLoading}
+                    disabled={isLoading || newMembers.length === 0}
                     onClick={handleAddMembers}
-                    className="px-3 py-1 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                    className="min-h-11 px-3 text-xs font-semibold bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors disabled:opacity-40"
                   >
-                    Thêm
+                    Thêm vào nhóm
                   </button>
                 </div>
               </div>
@@ -339,67 +411,88 @@ export function GroupSettingsDialog({
             <div className="divide-y divide-zinc-100 dark:divide-[#222222] border border-zinc-200 dark:border-[#272727] rounded-xl overflow-hidden">
               {conversation.members.map((member) => {
                 const isSelf = member.user_id === currentUserId;
-                const canRemove = !isSelf && (isOwner || (isAdmin && member.role === 'MEMBER'));
+                const name = nameOf(member);
+                const canRemove =
+                  !isSelf && member.role !== 'OWNER'
+                    ? isOwner || (isAdmin && member.role === 'MEMBER')
+                    : false;
+                const canChangeRole = isOwner && !isSelf && member.role !== 'OWNER';
 
                 return (
                   <div
                     key={member.user_id}
-                    className="flex items-center justify-between p-3 bg-white dark:bg-[#181818]"
+                    className="flex flex-wrap items-center justify-between gap-2 p-3 bg-white dark:bg-[#181818]"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center font-bold text-xs text-zinc-700 dark:text-zinc-300 shrink-0">
-                        {member.user?.display_name?.slice(0, 1) || 'U'}
-                      </div>
+                      {member.user ? (
+                        <Avatar user={member.user} size={32} />
+                      ) : (
+                        <div className="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                      )}
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-semibold text-zinc-900 dark:text-white truncate">
-                            {member.user?.display_name || member.user_id.slice(0, 8)}
+                            {name}
                           </span>
-                          {isSelf && <span className="text-[10px] text-zinc-400">(Bạn)</span>}
+                          {isSelf && (
+                            <span className="text-[10px] text-zinc-600 dark:text-zinc-400">
+                              (Bạn)
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                        <div className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400">
                           {member.role === 'OWNER' ? (
-                            <span className="inline-flex items-center gap-0.5 text-amber-500 font-medium">
-                              <ShieldCheck className="h-3 w-3" /> Trưởng nhóm
+                            <span className="inline-flex items-center gap-0.5 text-amber-700 dark:text-amber-400 font-medium">
+                              <ShieldCheck className="h-3 w-3" aria-hidden="true" /> Trưởng nhóm
                             </span>
                           ) : member.role === 'ADMIN' ? (
-                            <span className="inline-flex items-center gap-0.5 text-blue-500 font-medium">
-                              <Shield className="h-3 w-3" /> Quản trị viên
+                            <span className="inline-flex items-center gap-0.5 text-blue-700 dark:text-blue-400 font-medium">
+                              <Shield className="h-3 w-3" aria-hidden="true" /> Quản trị viên
                             </span>
                           ) : (
                             <span>Thành viên</span>
                           )}
                           {member.state === 'REQUESTED' && (
-                            <span className="text-amber-500 font-medium">• Chờ duyệt</span>
+                            <span className="text-amber-700 dark:text-amber-400 font-medium">
+                              • Chờ duyệt
+                            </span>
                           )}
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
-                      {isOwner && !isSelf && (
+                      {canChangeRole && (
                         <button
                           type="button"
+                          disabled={isLoading}
                           onClick={() =>
                             handleRoleChange(
                               member.user_id,
                               member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN',
                             )
                           }
-                          className="px-2 py-1 text-[11px] rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                          aria-label={
+                            member.role === 'ADMIN'
+                              ? `Bỏ quyền quản trị của ${name}`
+                              : `Đặt ${name} làm quản trị viên`
+                          }
+                          className="min-h-11 px-2 text-[11px] font-medium rounded text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40"
                         >
-                          {member.role === 'ADMIN' ? 'Hạ quyền' : 'Thăng QTV'}
+                          {member.role === 'ADMIN' ? 'Bỏ quản trị' : 'Đặt quản trị'}
                         </button>
                       )}
 
                       {canRemove && (
                         <button
                           type="button"
-                          onClick={() => handleRemoveMember(member.user_id, false)}
-                          className="p-1 rounded text-red-500 hover:bg-red-500/10 transition-colors"
-                          title="Xoá khỏi nhóm"
+                          disabled={isLoading}
+                          onClick={() => handleRemoveMember(member)}
+                          aria-label={`Xoá ${name} khỏi nhóm`}
+                          title={`Xoá ${name} khỏi nhóm`}
+                          className="flex h-11 w-11 items-center justify-center rounded text-red-700 hover:bg-red-500/10 dark:text-red-400 transition-colors disabled:opacity-40"
                         >
-                          <UserX className="h-4 w-4" />
+                          <UserX className="h-4 w-4" aria-hidden="true" />
                         </button>
                       )}
                     </div>
@@ -415,11 +508,11 @@ export function GroupSettingsDialog({
           <button
             type="button"
             disabled={isLoading}
-            onClick={() => handleRemoveMember(currentUserId, true)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-500/20 text-xs font-semibold text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            onClick={handleLeave}
+            className="w-full flex items-center justify-center gap-2 min-h-11 rounded-xl border border-red-500/30 text-xs font-semibold text-red-700 hover:bg-red-500/10 dark:text-red-400 transition-colors disabled:opacity-50"
           >
-            <LogOut className="h-4 w-4" />
-            <span>{conversation.kind === 'GROUP' ? 'Rời khỏi nhóm' : 'Rời cuộc trò chuyện'}</span>
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            <span>{isGroup ? 'Rời khỏi nhóm' : 'Rời cuộc trò chuyện'}</span>
           </button>
         </div>
       </div>

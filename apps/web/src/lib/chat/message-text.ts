@@ -1,25 +1,38 @@
-import type { Message } from '@winkey/api-client';
+import type { Member, Message } from '@winkey/api-client';
 import type { DecryptedMessageItem } from '../e2ee/chat-service';
 import { describeCallEvent } from '../calls/events';
 
-/** The line shown for a SYSTEM message (group changes, request accepted, …). */
-export function systemMessageText(system: Message['system']): string {
-  const sys = system as { type?: string; title?: string } | null | undefined;
+/**
+ * The line shown for a SYSTEM message (group changes, request accepted, …). With `context` it names the member; a member
+ * who is no longer listed falls back to the general wording.
+ */
+export function systemMessageText(
+  system: Message['system'],
+  context?: { members: Pick<Member, 'user_id' | 'user'>[]; currentUserId: string },
+): string {
+  const sys = system as
+    { type?: string; title?: string; user_id?: string | null } | null | undefined;
+  const who = (() => {
+    if (!context || !sys?.user_id) return null;
+    if (sys.user_id === context.currentUserId) return 'Bạn';
+    const user = context.members.find((m) => m.user_id === sys.user_id)?.user;
+    return user?.display_name || user?.handle || null;
+  })();
   switch (sys?.type) {
     case 'conversation_created':
       return 'Đoạn chat đã được tạo';
     case 'member_added':
-      return 'Thành viên mới đã được thêm vào nhóm';
+      return who ? `${who} đã được thêm vào nhóm` : 'Thành viên mới đã được thêm vào nhóm';
     case 'member_left':
-      return 'Một thành viên đã rời khỏi nhóm';
+      return who ? `${who} đã rời khỏi nhóm` : 'Một thành viên đã rời khỏi nhóm';
     case 'member_removed':
-      return 'Một thành viên đã bị xoá khỏi nhóm';
+      return who ? `${who} đã bị xoá khỏi nhóm` : 'Một thành viên đã bị xoá khỏi nhóm';
     case 'request_accepted':
       return 'Lời mời nhắn tin đã được chấp nhận';
     case 'title_changed':
       return `Tên nhóm đã đổi thành "${sys.title ?? ''}"`;
     case 'owner_changed':
-      return 'Chủ sở hữu nhóm đã thay đổi';
+      return who ? `${who} là trưởng nhóm mới` : 'Chủ sở hữu nhóm đã thay đổi';
     default:
       return 'Thông báo hệ thống';
   }
