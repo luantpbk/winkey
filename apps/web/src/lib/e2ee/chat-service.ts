@@ -14,7 +14,7 @@ import { getE2eeClient } from './client';
 import type { Conversation, ConversationPage, Message, ToDeviceMessage } from '@winkey/api-client';
 import type { MemberDeviceRef, ClaimedOtkRef } from './protocol';
 import { getKeyBackupService } from './key-backup-service';
-import { parseChatEvent, serializeTextEvent, type AttachmentRef } from './events';
+import { parseChatEvent, serializeTextEvent, type AttachmentRef, type ReplyRef } from './events';
 import {
   isRoomEvent,
   parseCallEvent,
@@ -42,6 +42,8 @@ export interface DecryptedMessageItem {
   error?: string;
   /** SOC-3b: files carried by the encrypted event, validated (events.ts). Lives only on this device. */
   attachments?: AttachmentRef[];
+  /** B3: the quote carried by the encrypted event, validated (events.ts). Lives only on this device. */
+  replyTo?: ReplyRef;
 }
 
 export class ChatService {
@@ -309,6 +311,7 @@ export class ChatService {
       plaintext: event.body,
       status: 'DECRYPTED',
       ...(event.attachments ? { attachments: event.attachments } : {}),
+      ...(event.reply_to ? { replyTo: event.reply_to } : {}),
     };
   }
 
@@ -321,10 +324,12 @@ export class ChatService {
     text: string;
     clientMsgId?: string;
     attachments?: AttachmentRef[];
+    /** B3: the message this one replies to; goes only inside the encrypted event. */
+    replyTo?: ReplyRef;
     /** SOC-4a: send a call event (invite, answer, reject, hangup) instead of a text event. */
     callEvent?: CallRoomEvent;
   }): Promise<DecryptedMessageItem> {
-    const { conversation, text, attachments = [], callEvent } = params;
+    const { conversation, text, attachments = [], replyTo, callEvent } = params;
     const clientMsgId = params.clientMsgId || crypto.randomUUID();
 
     const senderDeviceId = this.deviceManager.getDeviceId();
@@ -420,7 +425,7 @@ export class ChatService {
     // 5. Encrypt message plaintext: JSON {"type":"text","body":"..."}
     const plaintextPayload = callEvent
       ? JSON.stringify(callEvent)
-      : serializeTextEvent(text, attachments);
+      : serializeTextEvent(text, attachments, replyTo);
 
     const encResult = await this.e2eeClient.encryptMessage(conversation.id, plaintextPayload);
 
@@ -465,6 +470,7 @@ export class ChatService {
       plaintext: text,
       status: 'DECRYPTED',
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(replyTo ? { replyTo } : {}),
     };
   }
 

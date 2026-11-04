@@ -482,6 +482,56 @@ describe('ChatService queryDevices parsing & E2EE messaging (ADR-049 / SOC-3a)',
       expect(res.status).toBe('DECRYPTED');
     });
 
+    it('puts reply_to only inside the encrypted event (B3), never in the request', async () => {
+      const replyTo = { seq: 7, sender_id: 'user-alice-1', preview: 'Bí mật trong câu trích' };
+      mockChatPost.mockImplementation(async (path: string) => {
+        if (path === '/v1/chat/devices/query') return { data: { users: [] } };
+        if (path === '/v1/chat/conversations/{conversation_id}/messages') {
+          return {
+            data: { id: 'm', seq: 8, created_at: '2026-11-04T00:00:00Z' },
+            response: { status: 201 },
+          };
+        }
+        return { data: {} };
+      });
+      mockPrepareOutboundMegolm.mockResolvedValue({ toDeviceMessages: [] });
+      mockEncryptMessage.mockResolvedValue({ megolmSessionId: 's', ciphertext: 'c' });
+
+      const sent = await service.sendMessage({
+        conversation: {
+          id: 'conv-reply',
+          my_state: 'ACTIVE',
+          members: [],
+        } as unknown as Conversation,
+        text: 'Trả lời nè',
+        replyTo,
+      });
+
+      const plaintext = JSON.parse(mockEncryptMessage.mock.calls[0]![1] as string);
+      expect(plaintext).toEqual({ type: 'text', body: 'Trả lời nè', reply_to: replyTo });
+      const everything = JSON.stringify(mockChatPost.mock.calls);
+      expect(everything).not.toContain('reply_to');
+      expect(everything).not.toContain('Bí mật trong câu trích');
+      expect(everything).not.toContain('Trả lời nè');
+      expect(sent.replyTo).toEqual(replyTo);
+    });
+
+    it('reads reply_to back when decrypting (B3)', async () => {
+      const replyTo = { seq: 7, sender_id: 'user-alice-1', preview: 'Câu gốc' };
+      mockDecryptGroupMessage.mockResolvedValue({
+        status: 'OK',
+        plaintext: JSON.stringify({ type: 'text', body: 'Đồng ý', reply_to: replyTo }),
+      });
+      const item = await service.decryptMessageItem('conv-reply', {
+        kind: 'ENCRYPTED',
+        ciphertext: 'c',
+        megolm_session_id: 's',
+        deleted: false,
+      } as unknown as Message);
+      expect(item.plaintext).toBe('Đồng ý');
+      expect(item.replyTo).toEqual(replyTo);
+    });
+
     it('throws error when device is not configured', async () => {
       mockGetDeviceId.mockReturnValueOnce(null);
 

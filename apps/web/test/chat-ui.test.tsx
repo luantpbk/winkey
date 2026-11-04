@@ -277,7 +277,8 @@ describe('Chat UI Components (ADR-049 / SOC-3a)', () => {
 
     await waitFor(() => {
       expect(mockFetchMessages).toHaveBeenCalledTimes(1);
-      expect(mockFetchMessages).toHaveBeenCalledWith(mockActiveConversation.id, { limit: 100 });
+      // B3: the newest page; older pages load when scrolling up
+      expect(mockFetchMessages).toHaveBeenCalledWith(mockActiveConversation.id, { limit: 50 });
     });
 
     // Rerender with unchanged realtimeVersion: should not trigger extra fetch
