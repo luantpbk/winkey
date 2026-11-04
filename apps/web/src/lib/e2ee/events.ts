@@ -6,6 +6,8 @@
  * SOC-3a: `{"type":"text","body":"…"}`.
  * SOC-3b: a text event may carry `attachments` (≤ 10). Each one holds what is needed to fetch and decrypt the file;
  * the file key never leaves the encrypted event.
+ * B3: a text event may carry `reply_to`, a quote of an earlier message. It lives only in the encrypted event: chat-svc
+ * never learns who replies to what. A malformed `reply_to` is dropped; the message itself is still shown.
  */
 
 export const ATTACHMENT_REF_VERSION = 1;
@@ -33,10 +35,20 @@ export interface AttachmentRef {
   thumb?: string;
 }
 
+/** What a reply points at. `preview` lets a device that has not loaded the original still show the quote. */
+export interface ReplyRef {
+  seq: number;
+  sender_id: string;
+  preview: string;
+}
+
+export const MAX_REPLY_PREVIEW = 200;
+
 export interface TextEvent {
   type: 'text';
   body: string;
   attachments?: AttachmentRef[];
+  reply_to?: ReplyRef;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -97,6 +109,17 @@ export function parseAttachmentRef(value: unknown): AttachmentRef | null {
   };
 }
 
+export function parseReplyRef(value: unknown): ReplyRef | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const r = value as Record<string, unknown>;
+  if (!isPositiveInt(r.seq, Number.MAX_SAFE_INTEGER)) return null;
+  if (typeof r.sender_id !== 'string' || r.sender_id.length === 0 || r.sender_id.length > 64) {
+    return null;
+  }
+  if (typeof r.preview !== 'string' || r.preview.length > MAX_REPLY_PREVIEW) return null;
+  return { seq: r.seq, sender_id: r.sender_id, preview: r.preview };
+}
+
 /** Parses a decrypted plaintext; null when it is not a well-formed event this client understands. */
 export function parseChatEvent(plaintext: string): TextEvent | null {
   let parsed: unknown;
@@ -108,16 +131,23 @@ export function parseChatEvent(plaintext: string): TextEvent | null {
   if (typeof parsed !== 'object' || parsed === null) return null;
   const e = parsed as Record<string, unknown>;
   if (e.type !== 'text' || typeof e.body !== 'string' || e.body.length > 4000) return null;
-  if (e.attachments === undefined) return { type: 'text', body: e.body };
+  const replyTo = e.reply_to === undefined ? null : parseReplyRef(e.reply_to);
+  const reply = replyTo ? { reply_to: replyTo } : {};
+  if (e.attachments === undefined) return { type: 'text', body: e.body, ...reply };
   if (!Array.isArray(e.attachments) || e.attachments.length > MAX_ATTACHMENTS_PER_MESSAGE)
     return null;
   const attachments = e.attachments.map(parseAttachmentRef);
   if (attachments.some((a) => a === null)) return null;
-  return { type: 'text', body: e.body, attachments: attachments as AttachmentRef[] };
+  return { type: 'text', body: e.body, attachments: attachments as AttachmentRef[], ...reply };
 }
 
-export function serializeTextEvent(body: string, attachments: AttachmentRef[] = []): string {
+export function serializeTextEvent(
+  body: string,
+  attachments: AttachmentRef[] = [],
+  replyTo?: ReplyRef,
+): string {
   const event: TextEvent = { type: 'text', body: body.slice(0, 4000) };
   if (attachments.length > 0) event.attachments = attachments;
+  if (replyTo) event.reply_to = replyTo;
   return JSON.stringify(event);
 }

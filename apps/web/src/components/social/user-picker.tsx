@@ -20,6 +20,8 @@ interface UserPickerProps {
   placeholder?: string;
   /** Shown before typing (and when nothing matches the query), e.g. friends first (SOC-6b). */
   suggestions?: PickedUser[];
+  /** Never offered, e.g. people already in the group. */
+  excludeIds?: string[];
   disabled?: boolean;
   /** Optional id for the input, so an outer label or error can point at it. */
   inputId?: string;
@@ -56,6 +58,7 @@ export function UserPicker({
   label,
   placeholder = 'Tìm theo tên hoặc @tên_người_dùng',
   suggestions = [],
+  excludeIds,
   disabled = false,
   inputId,
 }: UserPickerProps) {
@@ -74,7 +77,7 @@ export function UserPicker({
   const selectedIds = new Set(value.map((u) => u.id));
   const trimmed = query.trim().replace(/^@/, '').trim();
   const pool = trimmed ? results : suggestions;
-  const options = pool.filter((u) => !selectedIds.has(u.id));
+  const options = pool.filter((u) => !selectedIds.has(u.id) && !excludeIds?.includes(u.id));
   const full = value.length >= max;
 
   useEffect(() => {

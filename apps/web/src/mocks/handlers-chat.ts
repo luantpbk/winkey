@@ -607,18 +607,41 @@ export const chatHandlers = [
         { status: 404 },
       );
     }
-    const newMembers = (body.members || []).map((m: any) => ({
-      user_id: m.user_id,
-      role: m.role || 'MEMBER',
-      state: 'ACTIVE',
-      user: {
-        id: m.user_id,
-        handle: 'mock_user',
-        display_name: 'Thành viên mới',
-        avatar_url: null,
-      },
-    }));
+    const known = new Set(conv.members.map((m) => m.user_id));
+    const newMembers = ((body.user_ids || []) as string[])
+      .filter((id) => !known.has(id))
+      .map((id) => ({
+        user_id: id,
+        role: 'MEMBER' as const,
+        state: 'ACTIVE' as const,
+        last_read_seq: null,
+        user: Object.values(mockPublicProfiles).find((p) => p.id === id) ?? {
+          id,
+          handle: 'mock_handle',
+          display_name: 'Người dùng',
+          avatar_url: null,
+        },
+      }));
     conv.members.push(...newMembers);
+    return HttpResponse.json(conv);
+  }),
+
+  http.patch('*/v1/chat/conversations/:id/members/:user_id', async ({ params, request }) => {
+    const { id, user_id } = params as { id: string; user_id: string };
+    const body = (await request.json().catch(() => ({}))) as {
+      role?: 'ADMIN' | 'MEMBER';
+      muted_until?: string | null;
+    };
+    const conv = mockConversations.find((c) => c.id === id);
+    const member = conv?.members.find((m) => m.user_id === user_id);
+    if (!conv || !member) {
+      return HttpResponse.json(
+        { type: '/problems/not-found', title: 'Not found', status: 404 },
+        { status: 404 },
+      );
+    }
+    if (body.role) member.role = body.role;
+    if (body.muted_until !== undefined) conv.muted_until = body.muted_until;
     return HttpResponse.json(conv);
   }),
 

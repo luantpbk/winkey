@@ -14,7 +14,7 @@ import { getE2eeClient } from './client';
 import type { Conversation, ConversationPage, Message, ToDeviceMessage } from '@winkey/api-client';
 import type { MemberDeviceRef, ClaimedOtkRef } from './protocol';
 import { getKeyBackupService } from './key-backup-service';
-import { parseChatEvent, serializeTextEvent, type AttachmentRef } from './events';
+import { parseChatEvent, serializeTextEvent, type AttachmentRef, type ReplyRef } from './events';
 import {
   isRoomEvent,
   parseCallEvent,
@@ -42,6 +42,8 @@ export interface DecryptedMessageItem {
   error?: string;
   /** SOC-3b: files carried by the encrypted event, validated (events.ts). Lives only on this device. */
   attachments?: AttachmentRef[];
+  /** B3: the quote carried by the encrypted event, validated (events.ts). Lives only on this device. */
+  replyTo?: ReplyRef;
 }
 
 export class ChatService {
@@ -309,6 +311,7 @@ export class ChatService {
       plaintext: event.body,
       status: 'DECRYPTED',
       ...(event.attachments ? { attachments: event.attachments } : {}),
+      ...(event.reply_to ? { replyTo: event.reply_to } : {}),
     };
   }
 
@@ -321,10 +324,12 @@ export class ChatService {
     text: string;
     clientMsgId?: string;
     attachments?: AttachmentRef[];
+    /** B3: the message this one replies to; goes only inside the encrypted event. */
+    replyTo?: ReplyRef;
     /** SOC-4a: send a call event (invite, answer, reject, hangup) instead of a text event. */
     callEvent?: CallRoomEvent;
   }): Promise<DecryptedMessageItem> {
-    const { conversation, text, attachments = [], callEvent } = params;
+    const { conversation, text, attachments = [], replyTo, callEvent } = params;
     const clientMsgId = params.clientMsgId || crypto.randomUUID();
 
     const senderDeviceId = this.deviceManager.getDeviceId();
@@ -420,7 +425,7 @@ export class ChatService {
     // 5. Encrypt message plaintext: JSON {"type":"text","body":"..."}
     const plaintextPayload = callEvent
       ? JSON.stringify(callEvent)
-      : serializeTextEvent(text, attachments);
+      : serializeTextEvent(text, attachments, replyTo);
 
     const encResult = await this.e2eeClient.encryptMessage(conversation.id, plaintextPayload);
 
@@ -465,6 +470,7 @@ export class ChatService {
       plaintext: text,
       status: 'DECRYPTED',
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(replyTo ? { replyTo } : {}),
     };
   }
 
@@ -565,7 +571,7 @@ export class ChatService {
   }
 
   async leaveOrRemoveMember(conversationId: string, userId: string): Promise<void> {
-    const { error } = await api.chat.DELETE(
+    const { error, response } = await api.chat.DELETE(
       '/v1/chat/conversations/{conversation_id}/members/{user_id}',
       {
         params: {
@@ -578,17 +584,23 @@ export class ChatService {
     );
 
     if (error) {
+      if (response.status === 403) throw new Error('Bạn không có quyền xoá thành viên này.');
       throw new Error(error?.detail || 'Không thể rời nhóm hoặc xoá thành viên.');
     }
   }
 
   async updateGroupTitle(conversationId: string, title: string): Promise<Conversation> {
-    const { data, error } = await api.chat.PATCH('/v1/chat/conversations/{conversation_id}', {
-      params: { path: { conversation_id: conversationId } },
-      body: { title },
-    });
+    const { data, error, response } = await api.chat.PATCH(
+      '/v1/chat/conversations/{conversation_id}',
+      {
+        params: { path: { conversation_id: conversationId } },
+        body: { title },
+      },
+    );
 
     if (error || !data) {
+      if (response.status === 403)
+        throw new Error('Chỉ trưởng nhóm và quản trị viên mới đổi được tên.');
       throw new Error(error?.detail || 'Không thể cập nhật tên nhóm.');
     }
 
@@ -596,7 +608,7 @@ export class ChatService {
   }
 
   async addMembers(conversationId: string, userIds: string[]): Promise<Conversation> {
-    const { data, error } = await api.chat.POST(
+    const { data, error, response } = await api.chat.POST(
       '/v1/chat/conversations/{conversation_id}/members',
       {
         params: { path: { conversation_id: conversationId } },
@@ -605,7 +617,35 @@ export class ChatService {
     );
 
     if (error || !data) {
+      if (response.status === 409 && error?.code === 'TOO_MANY_MEMBERS') {
+        throw new Error('Nhóm đã đủ 50 thành viên.');
+      }
+      if (response.status === 403) {
+        throw new Error('Không thể thêm: bạn không có quyền, hoặc người này đã chặn tin nhắn.');
+      }
       throw new Error(error?.detail || 'Không thể thêm thành viên vào nhóm.');
+    }
+
+    return data;
+  }
+
+  /** `role`: the OWNER on another member of a group. `muted_until`: the caller on their own membership. */
+  async updateMember(
+    conversationId: string,
+    userId: string,
+    patch: { role?: 'ADMIN' | 'MEMBER'; muted_until?: string | null },
+  ): Promise<Conversation> {
+    const { data, error, response } = await api.chat.PATCH(
+      '/v1/chat/conversations/{conversation_id}/members/{user_id}',
+      {
+        params: { path: { conversation_id: conversationId, user_id: userId } },
+        body: patch,
+      },
+    );
+
+    if (error || !data) {
+      if (response.status === 403) throw new Error('Bạn không có quyền thực hiện thao tác này.');
+      throw new Error(error?.detail || 'Không thể cập nhật thành viên.');
     }
 
     return data;

@@ -13,6 +13,7 @@ import type { Conversation } from '@winkey/api-client';
 import { MessageSquare, History } from 'lucide-react';
 import { getKeyBackupService } from '../../../lib/e2ee/key-backup-service';
 import { BackupRestoreDialog } from '../../../components/chat/key-backup-dialogs';
+import { applyReadHint } from '../../../lib/chat/timeline';
 
 export default function ChatPage() {
   const router = useRouter();
@@ -38,6 +39,8 @@ export default function ChatPage() {
   const [restoreOpen, setRestoreOpen] = useState(false);
 
   const chatService = getChatService();
+  const activeConversationId = useRef<string | null>(null);
+  activeConversationId.current = activeConversation?.id ?? null;
 
   // Redirect if unauthenticated
   useEffect(() => {
@@ -119,20 +122,18 @@ export default function ChatPage() {
       setRequestsCount(requestsPage.items.length);
       setConversations(activeTab === 'ACTIVE' ? activePage.items : requestsPage.items);
 
-      // If active conversation updated in list, update reference
-      if (activeConversation) {
-        const currentList = activeTab === 'ACTIVE' ? activePage.items : requestsPage.items;
-        const matched = currentList.find((c) => c.id === activeConversation.id);
-        if (matched) {
-          setActiveConversation(matched);
-        }
-      }
+      // If the open conversation is in the list, update it. Reads the current one, not this render's: an answer that
+      // arrives late must not reopen a conversation that was closed or replace one opened since.
+      const currentList = activeTab === 'ACTIVE' ? activePage.items : requestsPage.items;
+      setActiveConversation((current) =>
+        current ? (currentList.find((c) => c.id === current.id) ?? current) : current,
+      );
     } catch (err) {
       console.error('[ChatPage] Failed to fetch conversations:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, activeTab, activeConversation, chatService]);
+  }, [isAuthenticated, activeTab, chatService]);
 
   useEffect(() => {
     fetchConversationsList();
@@ -156,6 +157,33 @@ export default function ChatPage() {
           } else if (hint.kind === 'CONVERSATION' || hint.kind === 'DEVICES') {
             fetchConversationsList();
             setRealtimeVersion((v) => v + 1);
+            if (
+              hint.kind === 'CONVERSATION' &&
+              hint.conversation_id === activeConversationId.current
+            ) {
+              // The list holds one page, so ask for this one: name, members, roles, or that I was removed.
+              chatService
+                .getConversation(hint.conversation_id)
+                .then((conv) => {
+                  if (activeConversationId.current !== conv.id) return;
+                  if (conv.my_state === 'LEFT') {
+                    setActiveConversation(null);
+                    setDirectError('Bạn không còn ở trong cuộc trò chuyện này.');
+                  } else {
+                    setActiveConversation(conv);
+                  }
+                })
+                .catch(() => {});
+            }
+          } else if (
+            hint.kind === 'READ' &&
+            typeof hint.conversation_id === 'string' &&
+            typeof hint.user_id === 'string' &&
+            typeof hint.seq === 'number'
+          ) {
+            // B3: "đã xem" moves live from the hint; nothing to refetch.
+            setActiveConversation((c) => (c ? applyReadHint(c, hint) : c));
+            setConversations((list) => list.map((c) => applyReadHint(c, hint)));
           }
         }
       },
@@ -179,7 +207,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] max-w-7xl mx-auto flex overflow-hidden border-x border-zinc-200 dark:border-[#222222] bg-white dark:bg-[#121212]">
+    <div className="h-[calc(100dvh-8rem-env(safe-area-inset-bottom,0px))] sm:h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] md:h-[calc(100dvh-6.5rem)] max-w-7xl mx-auto flex overflow-hidden border-x border-zinc-200 dark:border-[#222222] bg-white dark:bg-[#121212]">
       {restoreOffered && (
         <div
           role="region"
