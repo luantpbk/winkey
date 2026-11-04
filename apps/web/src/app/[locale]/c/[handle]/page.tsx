@@ -14,14 +14,12 @@ interface ChannelPageProps {
 
 async function getProfile(handle: string): Promise<any | null> {
   const baseUrl = process.env.API_INTERNAL_URL || 'http://localhost:8080';
+  // Not in the fetch cache: a profile edit must show at once, also in the title (#551). The page and its metadata
+  // share one request through React's fetch memoization.
   try {
-    const res = await fetch(`${baseUrl}/v1/auth/users/${handle}`, {
-      next: { revalidate: 60 },
-    });
+    const res = await fetch(`${baseUrl}/v1/auth/users/${handle}`, { cache: 'no-store' });
     if (res.ok) return await res.json();
-    const fallback = await fetch(`${baseUrl}/v1/users/${handle}`, {
-      next: { revalidate: 60 },
-    });
+    const fallback = await fetch(`${baseUrl}/v1/users/${handle}`, { cache: 'no-store' });
     if (!fallback.ok) return null;
     return await fallback.json();
   } catch {
