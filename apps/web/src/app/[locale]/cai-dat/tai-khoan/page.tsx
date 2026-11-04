@@ -23,7 +23,7 @@ export default function AccountSettingsPage() {
         sessionStorage.removeItem('wk_deleting');
         return;
       }
-      router.push('/login?return_to=/settings/account');
+      router.push('/login?return_to=/cai-dat/tai-khoan');
     }
   }, [isLoading, isAuthenticated, router]);
 

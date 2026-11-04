@@ -44,6 +44,13 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl, 308);
   }
 
+  // 5. Old settings URLs and the bare settings root -> 308 redirect to /cai-dat/tai-khoan (#554)
+  const settingsMatch = pathname.match(/^(\/(?:vi|en))?\/(?:settings(?:\/account)?|cai-dat)\/?$/);
+  if (settingsMatch) {
+    const target = `${settingsMatch[1] || ''}/cai-dat/tai-khoan${request.nextUrl.search}`;
+    return NextResponse.redirect(new URL(target, request.nextUrl.origin), 308);
+  }
+
   // API routes bypass intl middleware
   if (pathname.startsWith('/api/')) {
     return NextResponse.next();

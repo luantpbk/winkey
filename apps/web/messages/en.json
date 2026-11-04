@@ -531,6 +531,11 @@
     }
   },
   "settings": {
+    "tabs": {
+      "label": "Settings",
+      "account": "Account",
+      "security": "Security"
+    },
     "account": {
       "title": "Account Settings",
       "description": "Manage your profile details, password, and account security.",

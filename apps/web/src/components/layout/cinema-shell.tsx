@@ -262,7 +262,7 @@ export function CinemaShell({ children, feedbackUrl: propFeedbackUrl }: CinemaSh
                   </Link>
 
                   <Link
-                    href="/settings/account"
+                    href="/cai-dat/tai-khoan"
                     onClick={() => setShowUserMenu(false)}
                     className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[#F4F4F6] hover:bg-white/10 transition"
                   >

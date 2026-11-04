@@ -191,7 +191,7 @@ export function TopBar({ onToggleSidebar }: TopBarProps) {
                   </Link>
 
                   <Link
-                    href="/settings/account"
+                    href="/cai-dat/tai-khoan"
                     onClick={() => setShowUserMenu(false)}
                     className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-gray-700 dark:text-gray-300 hover:bg-[#2a2a2a] dark:hover:bg-[#2a2a2a] hover:bg-gray-100 transition"
                   >

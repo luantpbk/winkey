@@ -588,7 +588,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     page,
   }) => {
     // 1. Visit login with return_to parameter
-    await page.goto('/login?return_to=/settings/account');
+    await page.goto('/login?return_to=/cai-dat/tai-khoan');
     await page.waitForLoadState('domcontentloaded');
 
     // 2. Log in as creator
@@ -597,8 +597,8 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
     await loginForm.locator('input[type="password"]').fill('Password123!');
     await loginForm.locator('button[type="submit"]').click();
 
-    // Verify redirected back to /settings/account after login
-    await page.waitForURL(/\/settings\/account/);
+    // Verify redirected back to /cai-dat/tai-khoan after login
+    await page.waitForURL(/\/cai-dat\/tai-khoan/);
     await expect(page.locator('h1')).toBeVisible();
 
     // 3. Profile: update display name
@@ -798,7 +798,7 @@ test.describe('Winkey E2E User Flows & Visual Verification', () => {
       { path: '/upload', slug: 'upload' },
       { path: '/studio', slug: 'studio' },
       { path: '/admin', slug: 'admin' },
-      { path: '/settings/account', slug: 'account-settings' },
+      { path: '/cai-dat/tai-khoan', slug: 'account-settings' },
       { path: '/trending', slug: 'trending' },
       { path: '/feed/subscriptions', slug: 'subscriptions' },
     ];

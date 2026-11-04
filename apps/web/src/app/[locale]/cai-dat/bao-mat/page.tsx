@@ -5,8 +5,7 @@ import { useRouter } from '../../../../i18n/routing';
 import { useAuth } from '../../../../lib/auth/auth-context';
 import { api } from '../../../../lib/api-client';
 import type { SecuritySummary } from '@winkey/api-client';
-import { ShieldCheck, ArrowLeft } from 'lucide-react';
-import { Link } from '../../../../i18n/routing';
+import { ShieldCheck } from 'lucide-react';
 
 import { SecurityStatusCard } from '../../../../components/settings/security/security-status-card';
 import { TotpSection } from '../../../../components/settings/security/totp-section';
@@ -93,16 +92,6 @@ export default function SecuritySettingsPage() {
               mật.
             </p>
           </div>
-        </div>
-
-        <div>
-          <Link
-            href="/settings/account"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 hover:text-white transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Tài khoản & Hồ sơ</span>
-          </Link>
         </div>
       </div>
 
