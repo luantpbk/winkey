@@ -189,7 +189,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] max-w-7xl mx-auto flex overflow-hidden border-x border-zinc-200 dark:border-[#222222] bg-white dark:bg-[#121212]">
+    <div className="h-[calc(100dvh-8rem-env(safe-area-inset-bottom,0px))] sm:h-[calc(100dvh-8.5rem-env(safe-area-inset-bottom,0px))] md:h-[calc(100dvh-6.5rem)] max-w-7xl mx-auto flex overflow-hidden border-x border-zinc-200 dark:border-[#222222] bg-white dark:bg-[#121212]">
       {restoreOffered && (
         <div
           role="region"
