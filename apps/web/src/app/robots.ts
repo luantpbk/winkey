@@ -12,6 +12,7 @@ export default function robots(): MetadataRoute.Robots {
         '/thu-vien',
         '/lich-su',
         '/settings',
+        '/cai-dat',
         '/notifications',
         '/login',
         '/register',

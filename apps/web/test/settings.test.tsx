@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import AccountSettingsPage from '../src/app/[locale]/settings/account/page';
+import AccountSettingsPage from '../src/app/[locale]/cai-dat/tai-khoan/page';
 import { ProfileSettings } from '../src/components/settings/profile-settings';
 import { PasswordSettings } from '../src/components/settings/password-settings';
 import { DangerZone } from '../src/components/settings/danger-zone';
@@ -66,7 +66,7 @@ vi.mock('next-intl', () => ({
 const mockPush = vi.fn();
 vi.mock('../src/i18n/routing', () => ({
   useRouter: () => ({ push: mockPush }),
-  usePathname: () => '/settings/account',
+  usePathname: () => '/cai-dat/tai-khoan',
   Link: ({
     children,
     href,
@@ -143,13 +143,13 @@ describe('Task U5: Account Settings Page & Components', () => {
   });
 
   describe('Page Route Guard', () => {
-    it('redirects unauthenticated users to /login?return_to=/settings/account', () => {
+    it('redirects unauthenticated users to /login?return_to=/cai-dat/tai-khoan', () => {
       mockIsAuthenticated = false;
       mockUser = null;
 
       render(<AccountSettingsPage />);
 
-      expect(mockPush).toHaveBeenCalledWith('/login?return_to=/settings/account');
+      expect(mockPush).toHaveBeenCalledWith('/login?return_to=/cai-dat/tai-khoan');
     });
 
     it('renders spinner while auth is loading', () => {

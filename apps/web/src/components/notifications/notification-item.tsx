@@ -36,7 +36,7 @@ export function getNotificationUrl(notification: Notification): string {
     case 'NEW_SUBSCRIBER':
       return `/c/${notification.actor.handle}`;
     case 'FOLLOW_REQUEST':
-      return '/settings/account';
+      return '/cai-dat/tai-khoan';
     case 'FOLLOW_REQUEST_APPROVED':
     case 'FRIEND_ACCEPTED':
       return `/c/${notification.actor.handle}`;

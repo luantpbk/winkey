@@ -531,6 +531,11 @@
     }
   },
   "settings": {
+    "tabs": {
+      "label": "Cài đặt",
+      "account": "Tài khoản",
+      "security": "Bảo mật"
+    },
     "account": {
       "title": "Cài đặt tài khoản",
       "description": "Quản lý thông tin hồ sơ, mật khẩu và an toàn tài khoản của bạn.",

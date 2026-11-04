@@ -111,7 +111,7 @@ function VerifyEmailContent() {
               </Link>
               {user && (
                 <Link
-                  href="/settings/account"
+                  href="/cai-dat/tai-khoan"
                   className="flex-1 flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-[#383838] bg-gray-50 dark:bg-[#1e1e1e] font-semibold text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#282828] transition"
                 >
                   <Settings className="h-4 w-4" />
@@ -138,7 +138,7 @@ function VerifyEmailContent() {
                 <span>{t('submitLogin')}</span>
               </Link>
               <Link
-                href="/settings/account"
+                href="/cai-dat/tai-khoan"
                 className="flex-1 flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-[#383838] bg-gray-50 dark:bg-[#1e1e1e] font-semibold text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#282828] transition"
               >
                 <span>Cài đặt</span>
