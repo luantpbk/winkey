@@ -706,7 +706,14 @@ describe('N1-web: Notifications System', () => {
       expect(screen.getByText('Viet Coder published a new video')).toBeDefined();
 
       rerender(<NotificationItem notification={mockNotificationItems[3]} />);
-      expect(screen.getByText('Winkey Fan subscribed to your channel')).toBeDefined();
+      expect(screen.getByText('Winkey Fan started following you')).toBeDefined();
+    });
+
+    it('a follow says "đã theo dõi bạn", not the video-era wording (#552)', () => {
+      setTestLocale('vi');
+      renderWithClient(<NotificationItem notification={mockNotificationItems[3]} />);
+      expect(screen.getByText('Winkey Fan đã theo dõi bạn')).toBeDefined();
+      expect(screen.queryByText(/đăng ký kênh/)).toBeNull();
     });
 
     it('unread items are visually distinct not by color only (dot indicator + aria-label)', () => {
