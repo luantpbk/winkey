@@ -115,11 +115,6 @@ export default async function ChannelPage({ params }: ChannelPageProps) {
         }}
       />
       <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
-        {/* Banner */}
-        <div className="h-36 sm:h-52 w-full rounded-2xl overflow-hidden bg-gradient-to-r from-red-900 via-gray-900 to-black relative">
-          <div className="absolute inset-0 bg-black/20" />
-        </div>
-
         {/* Profile Header */}
         <ChannelClientHeader profile={profile} videoCount={channelVideos.length} />
 
