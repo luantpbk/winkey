@@ -21,6 +21,8 @@ import {
   Check,
   CheckCheck,
   Clock,
+  Reply,
+  Smile,
 } from 'lucide-react';
 import { useCalls } from '../calls/call-provider';
 import { CallManager } from '../../lib/calls/call-manager';
@@ -30,7 +32,8 @@ import { SafetyNumberDialog } from './safety-number-dialog';
 import { GroupSettingsDialog } from './group-settings-dialog';
 import type { Conversation } from '@winkey/api-client';
 import { AttachmentList } from './attachment-view';
-import type { AttachmentRef } from '../../lib/e2ee/events';
+import { EmojiPicker } from './emoji-picker';
+import type { AttachmentRef, ReplyRef } from '../../lib/e2ee/events';
 import { MAX_ATTACHMENTS_PER_MESSAGE } from '../../lib/e2ee/events';
 import {
   AttachmentError,
@@ -42,8 +45,10 @@ import { systemMessageText } from '../../lib/chat/message-text';
 import {
   buildTimeline,
   formatMessageTime,
+  makeReplyRef,
   mergeMessages,
   readReceipt,
+  resolveQuote,
   type OutgoingMessage,
 } from '../../lib/chat/timeline';
 
@@ -56,6 +61,9 @@ export const PAGE_SIZE = 50;
 const BOTTOM_SLACK_PX = 80;
 /** Scrolling this close to the top loads the previous page. */
 const TOP_LOAD_PX = 120;
+/** How far back "jump to the original" walks before giving up (pages of PAGE_SIZE). */
+const MAX_JUMP_PAGES = 10;
+const HIGHLIGHT_MS = 1600;
 
 function SenderAvatar({
   user,
@@ -113,6 +121,11 @@ export function ConversationView({
   const [atBottom, setAtBottom] = useState(true);
   const [unseenCount, setUnseenCount] = useState(0);
   const [inputText, setInputText] = useState('');
+  const [replyTo, setReplyTo] = useState<ReplyRef | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [highlightSeq, setHighlightSeq] = useState<number | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningBanner, _setWarningBanner] = useState<string | null>(null);
 
@@ -177,6 +190,8 @@ export function ConversationView({
     const gen = ++generation.current;
     setMessages([]);
     setOutgoing([]);
+    setReplyTo(null);
+    setEmojiOpen(false);
     setHasOlder(false);
     setUnseenCount(0);
     setIsLoadingMessages(true);
@@ -420,6 +435,7 @@ export function ConversationView({
           text: out.text,
           clientMsgId: out.clientMsgId,
           attachments: out.attachments,
+          ...(out.replyTo ? { replyTo: out.replyTo } : {}),
         });
         if (gen !== generation.current) return;
         scrollIntent.current = isNearBottom() ? { kind: 'bottom' } : null;
@@ -453,11 +469,123 @@ export function ConversationView({
       clientMsgId: crypto.randomUUID(),
       text: textToSend,
       attachments: readyAttachments,
+      ...(replyTo ? { replyTo } : {}),
       createdAt: new Date().toISOString(),
       state: 'sending',
     });
     setInputText('');
+    setReplyTo(null);
     setPending((prev) => prev.filter((p) => p.status === 'error'));
+  };
+
+  const startReply = (item: DecryptedMessageItem) => {
+    const ref = makeReplyRef(item);
+    if (!ref) return;
+    setReplyTo(ref);
+    inputRef.current?.focus();
+  };
+
+  // At the cursor; the caret ends up after the emoji and the box keeps the focus.
+  const insertEmoji = (char: string) => {
+    const box = inputRef.current;
+    const start = box?.selectionStart ?? inputText.length;
+    const end = box?.selectionEnd ?? inputText.length;
+    const next = inputText.slice(0, start) + char + inputText.slice(end);
+    setEmojiOpen(false);
+    if (next.length > 4000) {
+      box?.focus();
+      return;
+    }
+    setInputText(next);
+    requestAnimationFrame(() => {
+      box?.focus();
+      box?.setSelectionRange(start + char.length, start + char.length);
+    });
+    box?.focus();
+  };
+
+  // Scrolls to a quoted message, walking back through older pages if it is not loaded yet.
+  const jumpToMessage = async (seq: number) => {
+    const gen = generation.current;
+    let loaded = messagesRef.current;
+    let more = hasOlder;
+    for (let page = 0; page < MAX_JUMP_PAGES; page++) {
+      if (loaded.some((i) => i.message.seq === seq) || !more) break;
+      const first = loaded[0]?.message.seq;
+      if (!first) break;
+      try {
+        const res = await chatService.fetchMessages(conversationRef.current.id, {
+          before_seq: first,
+          limit: PAGE_SIZE,
+        });
+        if (gen !== generation.current) return;
+        loaded = mergeMessages(loaded, res.items);
+        more = res.has_more;
+      } catch (err) {
+        setErrorMessage(errorText(err, 'Không thể tải tin nhắn cũ hơn.'));
+        return;
+      }
+    }
+    if (!loaded.some((i) => i.message.seq === seq)) {
+      setErrorMessage('Không tìm thấy tin nhắn được trả lời.');
+      return;
+    }
+    if (loaded !== messagesRef.current) {
+      const el = scrollRef.current;
+      scrollIntent.current = el
+        ? { kind: 'keep', height: el.scrollHeight, top: el.scrollTop }
+        : null;
+      messagesRef.current = loaded;
+      setMessages(loaded);
+      setHasOlder(more);
+    }
+    setHighlightSeq(seq);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightSeq(null), HIGHLIGHT_MS);
+    pendingJump.current = seq;
+    scrollToPendingJump();
+  };
+
+  const pendingJump = useRef<number | null>(null);
+  const scrollToPendingJump = () => {
+    const seq = pendingJump.current;
+    if (seq === null) return;
+    const row = scrollRef.current?.querySelector<HTMLElement>(`[data-seq="${seq}"]`);
+    if (!row) return;
+    pendingJump.current = null;
+    row.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToPendingJump();
+  }, [messages]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    },
+    [],
+  );
+
+  const renderQuote = (reply: ReplyRef, isOwn: boolean) => {
+    const quote = resolveQuote(reply, messages, conversation.members);
+    return (
+      <button
+        type="button"
+        onClick={() => void jumpToMessage(reply.seq)}
+        aria-label={`Xem tin nhắn được trả lời của ${quote.name}`}
+        className={`mb-1.5 block w-full rounded-lg border-l-2 px-2 py-1 text-left text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
+          isOwn
+            ? 'border-white/80 bg-black/15 text-white focus-visible:ring-white'
+            : 'border-red-500 bg-zinc-100 text-zinc-700 focus-visible:ring-red-500 dark:bg-zinc-800 dark:text-zinc-300'
+        }`}
+      >
+        <span className="block font-semibold">{quote.name}</span>
+        <span className={`block truncate ${quote.state === 'deleted' ? 'italic' : ''}`}>
+          {quote.text}
+        </span>
+      </button>
+    );
   };
 
   const discardOutgoing = (localId: string) =>
@@ -583,6 +711,7 @@ export function ConversationView({
             : 'bg-white dark:bg-[#1e1e1e] text-zinc-900 dark:text-zinc-100 border border-zinc-200/60 dark:border-[#282828] rounded-bl-xs'
         }`}
       >
+        {item.replyTo && renderQuote(item.replyTo, isOwn)}
         {/* Text rendered strictly as text to prevent XSS */}
         {(item.status === 'UNSUPPORTED' || item.plaintext) && (
           <div className="whitespace-pre-wrap select-text">
@@ -598,11 +727,30 @@ export function ConversationView({
           }`}
         >
           <span>{timeStr}</span>
+          {item.status === 'DECRYPTED' && (
+            <button
+              type="button"
+              onClick={() => startReply(item)}
+              disabled={isRequested}
+              className={`opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity p-0.5 ${
+                isOwn ? 'hover:text-white' : 'hover:text-zinc-900 dark:hover:text-white'
+              }`}
+              title="Trả lời"
+              aria-label={`Trả lời tin nhắn của ${
+                isOwn
+                  ? 'bạn'
+                  : conversation.members.find((m) => m.user_id === item.message.sender_id)?.user
+                      ?.display_name || 'thành viên'
+              }`}
+            >
+              <Reply className="h-3 w-3" aria-hidden="true" />
+            </button>
+          )}
           {isOwn && (
             <button
               type="button"
               onClick={() => handleDeleteMessage(item.message.seq)}
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-0.5 hover:text-white"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity p-0.5 hover:text-white"
               title="Thu hồi tin nhắn"
               aria-label="Thu hồi tin nhắn"
             >
@@ -825,6 +973,7 @@ export function ConversationView({
                         out.state === 'failed' ? 'bg-red-700' : 'bg-red-600'
                       }`}
                     >
+                      {out.replyTo && renderQuote(out.replyTo, true)}
                       {out.text && <div className="whitespace-pre-wrap">{out.text}</div>}
                       {out.attachments.length > 0 && (
                         <div className="text-[11px] text-red-50">
@@ -882,7 +1031,11 @@ export function ConversationView({
               return (
                 <div
                   key={row.key}
-                  className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} group ${showSender ? 'pt-2' : ''}`}
+                  data-seq={item.message.seq}
+                  data-highlight={highlightSeq === item.message.seq ? 'true' : undefined}
+                  className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} group rounded-xl transition-colors ${showSender ? 'pt-2' : ''} ${
+                    highlightSeq === item.message.seq ? 'bg-amber-400/25' : ''
+                  }`}
                 >
                   {showSender && (
                     <span className="mb-0.5 ml-9 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
@@ -998,7 +1151,41 @@ export function ConversationView({
             ))}
           </ul>
         )}
-        <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+        {replyTo && (
+          <div
+            role="status"
+            aria-label="Đang trả lời"
+            className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-red-500 bg-zinc-100 px-2.5 py-1.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            <Reply className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">
+                Trả lời {resolveQuote(replyTo, messages, conversation.members).name}
+              </span>
+              <span className="block truncate">
+                {resolveQuote(replyTo, messages, conversation.members).text}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              aria-label="Huỷ trả lời"
+              className="shrink-0 rounded p-1 hover:bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:hover:bg-zinc-700"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        <form onSubmit={handleSendMessage} className="relative flex items-end gap-2">
+          {emojiOpen && (
+            <EmojiPicker
+              onPick={insertEmoji}
+              onClose={() => {
+                setEmojiOpen(false);
+                inputRef.current?.focus();
+              }}
+            />
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -1017,8 +1204,22 @@ export function ConversationView({
           >
             <Paperclip className="h-4 w-4" aria-hidden="true" />
           </button>
+          <button
+            type="button"
+            data-emoji-trigger
+            onClick={() => setEmojiOpen((open) => !open)}
+            disabled={isRequested}
+            aria-label="Chọn emoji"
+            aria-expanded={emojiOpen}
+            aria-haspopup="dialog"
+            title="Chọn emoji"
+            className="flex shrink-0 items-center justify-center rounded-xl p-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-white"
+          >
+            <Smile className="h-4 w-4" aria-hidden="true" />
+          </button>
           <div className="flex-1 relative">
             <textarea
+              ref={inputRef}
               rows={1}
               maxLength={4000}
               disabled={isRequested}
@@ -1030,6 +1231,11 @@ export function ConversationView({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => {
+                if (e.key === 'Escape' && replyTo) {
+                  e.preventDefault();
+                  setReplyTo(null);
+                  return;
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage();

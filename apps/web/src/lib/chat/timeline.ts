@@ -1,6 +1,7 @@
 import type { Conversation, Member } from '@winkey/api-client';
 import type { DecryptedMessageItem } from '../e2ee/chat-service';
-import type { AttachmentRef } from '../e2ee/events';
+import type { AttachmentRef, ReplyRef } from '../e2ee/events';
+import { previewOf } from './message-text';
 
 /**
  * B3 2/6 — the conversation view as a timeline: day separators, sender headers in groups, delivery states and
@@ -14,6 +15,7 @@ export interface OutgoingMessage {
   clientMsgId: string;
   text: string;
   attachments: AttachmentRef[];
+  replyTo?: ReplyRef;
   createdAt: string;
   state: 'sending' | 'failed';
   error?: string;
@@ -185,4 +187,44 @@ export function applyReadHint<C extends Pick<Conversation, 'id' | 'members'>>(
     return { ...m, last_read_seq: hint.seq };
   });
   return changed ? { ...conversation, members } : conversation;
+}
+
+/** The reference a reply carries, built on this device. Only a readable message can be replied to. */
+export function makeReplyRef(item: DecryptedMessageItem): ReplyRef | null {
+  if (item.status !== 'DECRYPTED' || !item.message.sender_id) return null;
+  return {
+    seq: item.message.seq,
+    sender_id: item.message.sender_id,
+    preview: previewOf(item).text,
+  };
+}
+
+export interface ResolvedQuote {
+  name: string;
+  text: string;
+  state: 'loaded' | 'deleted' | 'unloaded';
+}
+
+/**
+ * What a quote shows. The original on this device wins over the text in the event: the sender writes `preview`, so it
+ * could misquote someone, and a deleted message must not come back through a reply to it. Only when the original is
+ * not loaded does the quote fall back to `preview`.
+ */
+export function resolveQuote(
+  reply: ReplyRef,
+  items: DecryptedMessageItem[],
+  members: Pick<Member, 'user_id' | 'user'>[],
+): ResolvedQuote {
+  const original = items.find((i) => i.message.seq === reply.seq);
+  const senderId = original?.message.sender_id ?? reply.sender_id;
+  const user = members.find((m) => m.user_id === senderId)?.user;
+  const name = user?.display_name || user?.handle || 'Thành viên cũ';
+  if (!original) return { name, text: reply.preview, state: 'unloaded' };
+  if (original.status === 'DELETED') {
+    return { name, text: 'Tin nhắn đã bị thu hồi', state: 'deleted' };
+  }
+  if (original.status === 'DECRYPTED') {
+    return { name, text: previewOf(original).text, state: 'loaded' };
+  }
+  return { name, text: reply.preview, state: 'unloaded' };
 }
