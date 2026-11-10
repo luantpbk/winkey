@@ -9,6 +9,6 @@
     "test:stack": "playwright test --config=playwright.stack.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1"
+    "@playwright/test": "^1.65.0"
   }
 }
